@@ -1061,15 +1061,21 @@ class ReassignEvasionShapesTest(unittest.TestCase):
         src = _reassign_snippet("u.get_all = x", "import frappe.utils as u\n")
         self.assertEqual(["frappe.utils.get_all"], [t for _, t in tqe._reassign_targets(src)])
 
-    def test_control_an_alias_rebound_locally_is_not_frappe(self):
-        """`db = FakeConn(); db.get_value = ...` -- the name no longer means frappe.db."""
-        self._assert_clean(
-            "db = FakeConn()\n        db.get_value = 1", "from frappe import db\n")
-        src = ("from frappe import db\n"
-               "class TestThing:\n"
-               "    def test_it(self, db):\n"
-               "        db.get_value = 1\n")
-        self.assertEqual([], tqe._reassign_targets(src))
+    def test_an_alias_rebound_locally_is_still_flagged_by_design(self):
+        """Deliberate over-approximation: aliasing is file-wide. Exempting a name
+        rebound anywhere (`db = None`, a `db` argument) would let ONE such line opt
+        every real `db.get_value = ...` in the file out of the guard, so a fake
+        connection named like the alias costs a (justifiable) false positive instead."""
+        for body in ("db = FakeConn()\n        db.get_value = 1", "db.get_value = 1"):
+            src = _reassign_snippet(body, "from frappe import db\n")
+            self.assertIn("frappe.db.get_value", [t for _, t in tqe._reassign_targets(src)])
+        evaded = ("from frappe import db\n"
+                  "class TestThing:\n"
+                  "    def helper(self, db):\n"
+                  "        pass\n"
+                  "    def test_it(self):\n"
+                  "        db.get_value = 1\n")
+        self.assertIn("DATABASE MOCK", _kinds(evaded, "test_thing.py"))
 
     def test_control_a_tuple_of_plain_names_is_a_local_binding(self):
         self._assert_clean("get_all, sql = frappe.get_all, frappe.db.sql")
