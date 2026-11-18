@@ -14,7 +14,7 @@ MIDNIGHT_GRACE_SECONDS = 60
 
 def assert_written_today(case, value, msg=None):
     """Assert `value` (date, datetime or ISO string) is today's date, tolerating a midnight straddle."""
-case.assertIsNotNone(value, msg or "expected today's date, got None")
+    case.assertIsNotNone(value, msg or "expected today's date, got None")
     written = str(getdate(value))
     # One clock read: today and the near-midnight test both derive from it.
     now = now_datetime()
