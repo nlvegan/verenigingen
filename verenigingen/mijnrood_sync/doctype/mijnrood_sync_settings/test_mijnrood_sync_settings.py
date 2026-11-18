@@ -354,7 +354,9 @@ class TestStaleSettingsSaveKeepsPollState(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        self._saved = {f: self._raw(f) for f in self.FIELDS + ("poll_interval_minutes",)}
+        self._saved = {
+            f: self._raw(f) for f in self.FIELDS + ("poll_interval_minutes", "total_events_pending")
+        }
 
     def tearDown(self):
         for event in frappe.get_all("MijnRood Sync Event", filters={"sync_run_id": self.RUN_ID}):
@@ -421,3 +423,18 @@ class TestStaleSettingsSaveKeepsPollState(EnhancedTestCase):
         stale.poll_interval_minutes = int(original or 15) + 1
         stale.save()
         self.assertEqual(int(self._raw("poll_interval_minutes")), int(original or 15) + 1)
+
+    def test_stored_int_field_comes_back_as_an_int(self):
+        """tabSingles holds text: the re-read of an Int field must be coerced (cint)."""
+        stale = frappe.get_doc(self.DOCTYPE)
+        self._put("total_events_pending", "5")
+        stale.validate()
+        self.assertEqual(stale.total_events_pending, 5)
+
+    def test_field_with_no_stored_row_keeps_the_doc_value(self):
+        """A first programmatic write has no row yet; the re-read must not discard it."""
+        stale = frappe.get_doc(self.DOCTYPE)
+        self._put("last_sync_message", None)
+        stale.last_sync_message = "first write"
+        stale.validate()
+        self.assertEqual(stale.last_sync_message, "first write")

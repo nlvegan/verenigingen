@@ -96,7 +96,7 @@ class TestStaleSettingsSaveKeepsRunStatus2739(VereningingenTestCase):
 
     DOCTYPE = "Data Retention Settings"
 
-    def _raw(self, field):
+    def _raw_retention_single_2739(self, field):
         row = frappe.db.sql(
             "SELECT value FROM `tabSingles` WHERE doctype=%s AND field=%s", (self.DOCTYPE, field)
         )
@@ -115,6 +115,7 @@ class TestStaleSettingsSaveKeepsRunStatus2739(VereningingenTestCase):
         )
         frappe.clear_document_cache(self.DOCTYPE, self.DOCTYPE)
         stale = frappe.get_doc(self.DOCTYPE)  # the form open in a browser tab
+        self.expectErrorLog("Data retention run failed")  # the forced failure logs it on purpose
         self.assertEqual(stale.last_run_summary, "old")
         # boundary stub: the retention engine itself; the writer under test is the job's own
         with patch.object(DataRetentionPolicy, "apply_retention_policies", side_effect=RuntimeError("boom")):
@@ -124,22 +125,22 @@ class TestStaleSettingsSaveKeepsRunStatus2739(VereningingenTestCase):
 
     def test_stale_save_does_not_roll_back_the_run_summary(self):
         stale = self._run_the_job_after_loading_a_stale_doc()
-        written = self._raw("last_run_summary")
+        written = self._raw_retention_single_2739("last_run_summary")
         self.assertEqual(written, "ERROR: boom")
         stale.save()
-        self.assertEqual(self._raw("last_run_summary"), written)
+        self.assertEqual(self._raw_retention_single_2739("last_run_summary"), written)
 
     def test_stale_save_does_not_roll_back_last_run(self):
         stale = self._run_the_job_after_loading_a_stale_doc()
-        written = self._raw("last_run")
+        written = self._raw_retention_single_2739("last_run")
         self.assertNotIn("2020-01-01", str(written))
         stale.save()
-        self.assertEqual(self._raw("last_run"), written)
+        self.assertEqual(self._raw_retention_single_2739("last_run"), written)
 
     def test_control_a_stale_save_still_writes_what_staff_edit(self):
         """Control: only the job-owned fields are re-read; a staff edit still lands."""
         stale = self._run_the_job_after_loading_a_stale_doc()
         stale.dry_run_only = 0
         stale.save()
-        self.assertEqual(int(self._raw("dry_run_only")), 0)
-        self.assertEqual(self._raw("last_run_summary"), "ERROR: boom")
+        self.assertEqual(int(self._raw_retention_single_2739("dry_run_only")), 0)
+        self.assertEqual(self._raw_retention_single_2739("last_run_summary"), "ERROR: boom")

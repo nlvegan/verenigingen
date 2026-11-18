@@ -11,17 +11,21 @@ Single's ``validate`` re-reads the stored values, so only the fields staff edit 
 WRITER_SAVE_FLAG = "writer_owned_fields_save"
 
 
-def keep_stored_single_fields(doc, fields):
-    """Overwrite ``fields`` on a Single's in-memory ``doc`` with the stored values."""
+def keep_stored_single_fields(doc, fields, coerce=None):
+    """Overwrite ``fields`` on a Single's in-memory ``doc`` with the stored values.
+
+    ``coerce`` maps a field to a callable applied to the stored string (``tabSingles`` holds
+    text, so an Int field such as a counter needs ``cint``). A field with no stored row keeps
+    the doc's own value: a first programmatic write has no row yet and must not be discarded.
+    """
     import frappe
 
     if doc.flags.get(WRITER_SAVE_FLAG):
         return
+    coerce = coerce or {}
     rows = frappe.db.sql(
         "SELECT field, value FROM `tabSingles` WHERE doctype = %s AND field IN %s",
         (doc.doctype, tuple(fields)),
     )
-    stored = dict(rows)
-    for field in fields:
-        # A field with no stored row is None, as a fresh Single reads it.
-        doc.set(field, stored.get(field))
+    for field, value in rows:
+        doc.set(field, coerce[field](value) if field in coerce else value)
