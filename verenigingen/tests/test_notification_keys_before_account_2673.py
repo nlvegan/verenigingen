@@ -15,6 +15,14 @@ Account disabled: ``test_mail_body_escaping_2307`` with the two calls swapped we
 This is a static check of the order, per test method (its ``setUp`` calls, then its own). A later
 ``ensure_outgoing_email_account`` after an earlier one is a no-op (the account exists), so only the
 FIRST ensure call matters.
+
+Coverage limits. The scan does NOT follow: helper methods called from a test body; ``setUpClass``;
+a second base class, or a base class defined in another file; aliased imports; or private ensure
+helpers outside ``ENSURE`` (``_ensure_outgoing_account``, ``_own_default_outgoing_account``; a file
+that uses only those is also skipped by the source prefilter). The review of #2673 found no live
+instance of any of these today; the files it checked that use such helpers are
+``tests/payment/test_payment_reminder_outcomes.py`` and
+``tests/payment/test_shipped_template_context_2018_2020.py``.
 """
 
 import ast
