@@ -310,15 +310,16 @@ class TestDashboardsOnRealSchedules(EnhancedTestCase):
             self.assertEqual(dates[0], getdate(shown.next_invoice_date))
             self.assertEqual({(b - a).days for a, b in zip(dates, dates[1:])}, {step}, frequency)
 
-    def test_portal_upcoming_dates_custom_interval_and_last_invoice_cap(self):
+    def test_portal_upcoming_dates_custom_interval_ignores_last_invoice_date(self):
         from verenigingen.templates.pages import payment_dashboard
 
         self._make("Custom", 9, number=2, unit="Weeks")
         shown = payment_dashboard.get_current_dues_schedule(self.member.name)
         dates = payment_dashboard.get_upcoming_dates(shown)
         self.assertEqual({(b - a).days for a, b in zip(dates, dates[1:])}, {14})
-        shown["last_invoice_date"] = add_days(getdate(shown.next_invoice_date), 15)
-        self.assertEqual(len(payment_dashboard.get_upcoming_dates(shown)), 2)  # day 0 and day 14
+        # #2613: last_invoice_date is the previous invoice and never caps the list
+        shown["last_invoice_date"] = add_days(getdate(shown.next_invoice_date), -14)
+        self.assertEqual(payment_dashboard.get_upcoming_dates(shown), dates)
 
     def test_portal_upcoming_dates_empty_for_custom_without_interval(self):
         from verenigingen.templates.pages import payment_dashboard

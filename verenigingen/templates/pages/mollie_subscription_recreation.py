@@ -700,7 +700,7 @@ def export_subscriptions_from_customers(customer_ids_csv: str) -> Dict:
         failed_customers = []
 
         for idx, row in enumerate(rows):
-            customer_id = row.get("customer_id", "").strip()
+            customer_id = (row.get("customer_id") or "").strip()
             if not customer_id:
                 continue
 

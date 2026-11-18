@@ -848,8 +848,8 @@ class BulkInvoiceGenerationService(StatefulService):
             # immediately; now that the manager correctly leaves the transaction
             # alone, committing once at the END of this loop would accumulate an
             # X-lock on every member in the batch and hold them all for the whole
-            # run -- while _get_invoice_with_retry sleeps up to 6s per
-            # not-yet-visible invoice inside that window. A concurrent writer to
+            # run. (_get_invoice_with_retry no longer sleeps: a not-yet-visible
+            # invoice enqueues a retry job.) A concurrent writer to
             # one of those members would wait and then take a 1205, which does NOT
             # roll back and leaves the victim running against a broken transaction.
             #
