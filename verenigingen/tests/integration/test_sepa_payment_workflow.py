@@ -21,7 +21,6 @@ from datetime import datetime, timedelta
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 import unittest
-from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 @unittest.skip(
@@ -103,7 +102,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
         # Verify activation
         sepa_mandate.reload()
         self.assertEqual(sepa_mandate.status, "Active")
-        assert_written_today(self, sepa_mandate.activation_date)
+        self.assertEqual(sepa_mandate.activation_date, today())
         
         sepa_member.reload()
         self.assertEqual(sepa_member.current_sepa_mandate, sepa_mandate.name)
