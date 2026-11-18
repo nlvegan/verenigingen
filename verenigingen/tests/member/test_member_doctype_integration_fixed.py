@@ -32,6 +32,7 @@ from frappe.utils import today, add_days, getdate
 from unittest.mock import patch
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestMemberDoctypeIntegrationFixed(EnhancedTestCase):
@@ -489,7 +490,7 @@ class TestMemberBusinessRulesIntegration(EnhancedTestCase):
             member.save()
             
             member.reload()
-            self.assertEqual(member.member_since, today())
+            assert_written_today(self, member.member_since)
     
     def tearDown(self):
         """Clean up test data"""

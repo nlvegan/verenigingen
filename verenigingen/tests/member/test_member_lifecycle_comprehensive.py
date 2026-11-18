@@ -11,6 +11,7 @@ Focus on complete member journey from application to termination
 import frappe
 from frappe.utils import today, add_days, add_months, flt
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestMemberLifecycleComprehensive(VereningingenTestCase):
@@ -123,7 +124,7 @@ class TestMemberLifecycleComprehensive(VereningingenTestCase):
         
         member.reload()
         self.assertEqual(member.status, "Quit")
-        self.assertEqual(member.termination_date, today())
+        assert_written_today(self, member.termination_date)
         self.assertIsNotNone(member.termination_reason)
 
         # Verify all records still exist and are properly linked
@@ -149,7 +150,7 @@ class TestMemberLifecycleComprehensive(VereningingenTestCase):
 
         member.reload()
         self.assertEqual(member.status, "Suspended")
-        self.assertEqual(member.suspension_date, today())
+        assert_written_today(self, member.suspension_date)
 
         # Test reactivation
         member.status = "Active"
@@ -158,7 +159,7 @@ class TestMemberLifecycleComprehensive(VereningingenTestCase):
 
         member.reload()
         self.assertEqual(member.status, "Active")
-        self.assertEqual(member.reactivation_date, today())
+        assert_written_today(self, member.reactivation_date)
 
         # Test termination
         member.status = "Quit"

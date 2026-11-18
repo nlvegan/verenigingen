@@ -38,6 +38,7 @@ from verenigingen.tests.support.termination_request import execute_real_terminat
 from verenigingen.tests.utils.application_door_fixture import ApplicationDoorMixin
 from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 SUBMISSION = "Membership Application Submission"
 EMISSION = (
@@ -1695,7 +1696,7 @@ class TestApplicationChanges(ApprovalCase):
         stamped = frappe.db.get_value("Member", member, ["fee_override_by", "fee_override_date", "application_custom_fee"], as_dict=True)
         self.assertEqual(stamped.application_custom_fee, 12.5, "control: the fee was applied")
         self.assertEqual(stamped.fee_override_by, self.admin_user.email)
-        self.assertEqual(str(stamped.fee_override_date), today())
+        assert_written_today(self, stamped.fee_override_date)
 
     def test_preview_of_a_malformed_fee_writes_no_error_log(self):
         from verenigingen.services.member.approval.application_helpers import _apply_custom_contribution_fee

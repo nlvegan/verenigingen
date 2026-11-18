@@ -256,13 +256,25 @@ class TestNextRunCalculation(EnhancedTestCase):
         self.manager = AutomatedCampaignManager()
 
     def test_monthly_runs_on_the_first_of_next_month_at_0900(self):
-        next_run = self.manager._calculate_next_run({"frequency": "monthly"})
+        # One clock read, handed to production: two independent reads straddling
+        # midnight of the 1st land a whole month apart (#697).
+        now = now_datetime()
+        with patch("verenigingen.email.automated_campaigns.now_datetime", return_value=now):
+            next_run = self.manager._calculate_next_run({"frequency": "monthly"})
 
-        expected = add_months(now_datetime().replace(day=1, hour=9, minute=0, second=0, microsecond=0), 1)
+        expected = add_months(now.replace(day=1, hour=9, minute=0, second=0, microsecond=0), 1)
         self.assertEqual(next_run, expected)
         self.assertEqual(next_run.day, 1)
         self.assertEqual(next_run.hour, 9)
-        self.assertGreater(next_run, now_datetime())
+        self.assertGreater(next_run, now)
+
+    def test_monthly_next_run_is_the_first_of_the_following_month_across_a_year_end(self):
+        """Pinned at the boundary the clock race used to straddle (#697)."""
+        last_second = datetime(2026, 12, 31, 23, 59, 59)
+        with patch("verenigingen.email.automated_campaigns.now_datetime", return_value=last_second):
+            next_run = self.manager._calculate_next_run({"frequency": "monthly"})
+
+        self.assertEqual(next_run, datetime(2027, 1, 1, 9, 0, 0))
 
     def test_quarterly_runs_on_the_first_day_of_the_next_quarter(self):
         next_run = self.manager._calculate_next_run({"frequency": "quarterly"})
@@ -317,13 +329,15 @@ class TestCampaignContentGeneration(EnhancedTestCase):
         With no content configured, every editorial slot must come back EMPTY so
         the newsletter shows nothing rather than something untrue.
         """
-        content = self.manager._generate_monthly_newsletter_content({"chapter": "Some Chapter"}, {})
+        now = now_datetime()
+        with patch("verenigingen.email.automated_campaigns.now_datetime", return_value=now):
+            content = self.manager._generate_monthly_newsletter_content({"chapter": "Some Chapter"}, {})
 
         self.assertEqual(content["highlights"], "")
         self.assertEqual(content["upcoming_events"], "")
         self.assertEqual(content["volunteer_spotlight"], "")
         self.assertEqual(content["chapter_name"], "Some Chapter")
-        self.assertEqual(content["month_year"], now_datetime().strftime("%B %Y"))
+        self.assertEqual(content["month_year"], now.strftime("%B %Y"))
 
     def test_monthly_newsletter_content_passes_configured_values_through(self):
         config = {
