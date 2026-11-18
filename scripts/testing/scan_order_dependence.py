@@ -351,13 +351,20 @@ class Visitor(ast.NodeVisitor):
         return False
 
 
+class UnscannableFile(Exception):
+    """A file the scanner could not read or parse (#944)."""
+
+
 def scan_file(path, root):
     rel = os.path.relpath(path, root)
     try:
-        src = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
         tree = ast.parse(src, filename=path)
-    except (OSError, SyntaxError):
-        return []
+    except (OSError, SyntaxError, UnicodeDecodeError) as exc:
+        # #944: this used to `return []`, so a file the scanner never examined counted
+        # as clean for the gate. Raise so the caller can fail the run.
+        raise UnscannableFile(f"{rel}: {type(exc).__name__}: {exc}") from exc
     v = Visitor(rel, src.splitlines())
     v.visit(tree)
     return v.findings
@@ -400,19 +407,38 @@ def discover_findings(root):
     names one, so support it directly instead of mis-answering it.
     """
     if os.path.isfile(root):
-        return list(scan_file(root, os.path.dirname(root) or "."))
+        try:
+            return list(scan_file(root, os.path.dirname(root) or "."))
+        except UnscannableFile as exc:
+            sys.exit(f"ORDER-DEPENDENCE SCAN FAILED, unscannable file: {exc}")
     if not os.path.isdir(root):
         sys.exit(
             f"{root}: no such file or directory -- this scanner walks a directory "
             "or scans a single file, and cannot report findings for neither."
         )
     findings = []
-    for dirpath, dirs, files in os.walk(root):
+    unscannable = []
+
+    def _walk_failed(err):
+        # #944: os.walk() skips an unreadable directory silently by default.
+        unscannable.append(f"{err.filename}: {type(err).__name__}: {err.strerror}")
+
+    for dirpath, dirs, files in os.walk(root, onerror=_walk_failed):
         if "__pycache__" in dirs:
             dirs.remove("__pycache__")
         for fn in files:
             if _is_scannable(dirpath, root, fn):
-                findings.extend(scan_file(os.path.join(dirpath, fn), root))
+                try:
+                    findings.extend(scan_file(os.path.join(dirpath, fn), root))
+                except UnscannableFile as exc:
+                    unscannable.append(str(exc))
+    if unscannable:
+        # Fail closed, naming every file: an unexamined file is not a clean one.
+        sys.exit(
+            "ORDER-DEPENDENCE SCAN FAILED: the scanner could not examine "
+            f"{len(unscannable)} path(s), so its count would understate the tree "
+            "(#944):\n  " + "\n  ".join(sorted(unscannable))
+        )
     return findings
 
 

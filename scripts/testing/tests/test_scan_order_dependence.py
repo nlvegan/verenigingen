@@ -136,6 +136,53 @@ class FilePathScanTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class UnscannableFileFailsLoudlyTest(unittest.TestCase):
+    """#944: scan_file() used to swallow (OSError, SyntaxError) and return [], so a test
+    file the scanner could not read counted as clean. The scan must fail instead."""
+
+    BAD = "import frappe\n\n\ndef test_a(:\n    frappe.db.commit()\n"
+
+    def _scan_cli(self, root):
+        return subprocess.run([sys.executable, SCANNER, root], capture_output=True, text=True)
+
+    def test_syntax_error_file_fails_the_scan_and_names_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "test_broken.py"), "w") as fh:
+                fh.write(self.BAD)
+            res = self._scan_cli(tmp)
+            self.assertNotEqual(res.returncode, 0, res.stdout + res.stderr)
+            self.assertIn("test_broken.py", res.stdout + res.stderr)
+
+    def test_one_unparseable_file_fails_even_beside_a_clean_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "test_ok.py"), "w") as fh:
+                fh.write("def test_a():\n    pass\n")
+            with open(os.path.join(tmp, "test_broken.py"), "w") as fh:
+                fh.write(self.BAD)
+            self.assertNotEqual(self._scan_cli(tmp).returncode, 0)
+
+    def test_valid_tree_still_exits_zero(self):
+        # Control: the failure above is about the broken file, not any scan.
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "test_ok.py"), "w") as fh:
+                fh.write("def test_a():\n    pass\n")
+            self.assertEqual(self._scan_cli(tmp).returncode, 0)
+
+    def test_unreadable_subdirectory_fails_the_scan(self):
+        if os.geteuid() == 0:
+            self.skipTest("root ignores chmod 000")
+        with tempfile.TemporaryDirectory() as tmp:
+            sub = os.path.join(tmp, "locked")
+            os.mkdir(sub)
+            with open(os.path.join(sub, "test_x.py"), "w") as fh:
+                fh.write("import frappe\n\n\ndef test_a():\n    frappe.db.commit()\n")
+            os.chmod(sub, 0)
+            try:
+                self.assertNotEqual(self._scan_cli(tmp).returncode, 0)
+            finally:
+                os.chmod(sub, 0o700)
+
+
 class CommitExemptionVisibilityTest(unittest.TestCase):
     """#825: a rename into a _create_*/_cleanup_*/tearDown-prefixed function used to
     erase a COMMIT finding with no trace anywhere. It must now surface as the
