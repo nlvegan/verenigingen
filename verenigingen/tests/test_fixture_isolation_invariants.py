@@ -740,13 +740,12 @@ class TestLedgerBearingCancelThenDeleteIsPurged(VereningingenTestCase):
       which walks `REPO_ROOT` precisely because #406's sites were split across
       both. That is a real gap here too: the same review that asked for this
       invariant found one live offender under `scripts/` --
-      `scripts/debug/remove_period_closing_vouchers.py:25` -- filed as #1413,
-      deliberately NOT fixed in this same change. `scripts/` holds live-data
-      maintenance tools, not test fixtures; adding a GL/Payment Ledger Entry
-      purge there changes what the tool does to REAL ledgers, which is a
-      product decision this test-isolation invariant is not the place to make
-      unreviewed. Widening this scan to `scripts/` is future work gated on
-      that decision, not a checkbox to tick here.
+      `scripts/debug/remove_period_closing_vouchers.py:25` -- filed as #1413 and
+      since fixed by dropping the force delete (the script now only cancels;
+      no purge of REAL ledgers was added). That one file is scanned by
+      `test_the_period_closing_voucher_script_does_not_force_delete_a_cancelled_voucher`.
+      The rest of `scripts/` is still unscanned: `scripts/cleanup/delete_cancelled_invoices.py`
+      force-deletes cancelled Sales Invoices with no purge.
     """
 
     #: Per-process cache: `get_controller` does its own site-scoped cache, but
@@ -1039,9 +1038,9 @@ class TestLedgerBearingCancelThenDeleteIsPurged(VereningingenTestCase):
             node = parents.get(node)
         return node
 
-    def _offenders(self):
+    def _offenders(self, sources=None):
         offenders = {}
-        for path, source in self._iter_candidate_sources():
+        for path, source in sources if sources is not None else self._iter_candidate_sources():
             rel = _rel(path)
             try:
                 tree = ast.parse(source)
@@ -1078,6 +1077,25 @@ class TestLedgerBearingCancelThenDeleteIsPurged(VereningingenTestCase):
             "GL Entry/Payment Ledger Entry purge (#1343/#1387):\n  "
             + "\n  ".join(line for lines in unexpected.values() for line in lines),
         )
+
+    def test_the_period_closing_voucher_script_does_not_force_delete_a_cancelled_voucher(self):
+        """#1413: `scripts/debug/remove_period_closing_vouchers.py` is outside APP_ROOT, so
+        the scan above never reached it. Decision: the script cancels (cancel posts its
+        own reversing ledger rows and keeps the voucher as audit trail) and never
+        force-deletes, so it needs no purge. Scan that one file with the same detector.
+        The control: the detector must still see the shape in a copy that has it.
+        """
+        path = os.path.join(REPO_ROOT, "scripts", "debug", "remove_period_closing_vouchers.py")
+        with open(path, encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertEqual({}, self._offenders([(path, source)]))
+
+        regressed = source.replace(
+            "voucher.cancel()",
+            'voucher.cancel()\n                    frappe.delete_doc("Period Closing Voucher", voucher_name, force=True)',
+        )
+        self.assertNotEqual(source, regressed)
+        self.assertEqual(1, len(self._offenders([(path, regressed)])), "control: the shape must still be detected")
 
     def test_the_baseline_does_not_grow(self):
         """The baseline is a temporary exemption, not a place to bury a new one.
