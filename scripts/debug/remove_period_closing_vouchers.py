@@ -72,7 +72,7 @@ if __name__ == "__main__":
     
     if result.get('vouchers'):
         for voucher in result['vouchers']:
-            print(f"  - {voucher['name']} ({voucher['posting_date']}) - Status: {voucher['docstatus']}")
+            print(f"  - {voucher['name']} ({voucher['period_start_date']}) - Status: {voucher['docstatus']}")
     
     if result.get('total_vouchers', 0) > 0:
         print("\nRemoving period closing vouchers...")

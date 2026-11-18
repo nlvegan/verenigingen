@@ -1089,6 +1089,7 @@ class TestLedgerBearingCancelThenDeleteIsPurged(VereningingenTestCase):
         with open(path, encoding="utf-8") as handle:
             source = handle.read()
         self.assertEqual({}, self._offenders([(path, source)]))
+        self.assertEqual([], self._script_delete_calls(source), "the script has no reason to delete anything")
 
         regressed = source.replace(
             "voucher.cancel()",
@@ -1096,6 +1097,25 @@ class TestLedgerBearingCancelThenDeleteIsPurged(VereningingenTestCase):
         )
         self.assertNotEqual(source, regressed)
         self.assertEqual(1, len(self._offenders([(path, regressed)])), "control: the shape must still be detected")
+        for mutant in (
+            'frappe.delete_doc("Period Closing Voucher", voucher_name)',
+            "voucher.delete()",
+            'frappe.db.delete("Period Closing Voucher", {"name": voucher_name})',
+            'frappe.delete_doc("Period Closing Voucher", voucher_name, force=1)',
+        ):
+            bad = source.replace("voucher.cancel()", "voucher.cancel()\n                    " + mutant)
+            self.assertNotEqual(source, bad)
+            self.assertEqual(1, len(self._script_delete_calls(bad)), mutant)
+
+    @staticmethod
+    def _script_delete_calls(source):
+        """Names of every `delete_doc(...)`, `.delete(...)` or `frappe.db.delete(...)` call."""
+        found = []
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr in ("delete_doc", "delete"):
+                    found.append(node.func.attr)
+        return found
 
     def test_the_baseline_does_not_grow(self):
         """The baseline is a temporary exemption, not a place to bury a new one.
