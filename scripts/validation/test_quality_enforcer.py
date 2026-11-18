@@ -398,7 +398,8 @@ def _frappe_root_aliases(tree) -> Dict[str, str]:
 
     `frappe` itself always; `import frappe as f` -> f; `from frappe import db as
     fdb` -> fdb is `frappe.db` (#1576). Mirrors `_patch_alias_names`. Scope-blind
-    on purpose: an alias bound anywhere in the file counts everywhere.
+    on purpose: an alias bound anywhere in the file counts everywhere, unless the
+    name is also rebound locally (see below).
     """
     roots = {"frappe": "frappe"}
     for node in ast.walk(tree):
@@ -412,6 +413,17 @@ def _frappe_root_aliases(tree) -> Dict[str, str]:
                 for a in node.names:
                     if a.name != "*":
                         roots[a.asname or a.name] = f"{node.module}.{a.name}"
+    # A name also rebound locally (`db = FakeConn()`, or a function argument) is
+    # not reliably the frappe object, so it is not an alias: `db.get_value = x`
+    # on a fake connection must not read as frappe.db.get_value. Still file-wide
+    # (not scope-aware): any rebinding anywhere drops the alias everywhere.
+    rebound = {
+        n.id for n in ast.walk(tree)
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)
+    } | {n.arg for n in ast.walk(tree) if isinstance(n, ast.arg)}
+    for name in rebound:
+        if name != "frappe":
+            roots.pop(name, None)
     return roots
 
 

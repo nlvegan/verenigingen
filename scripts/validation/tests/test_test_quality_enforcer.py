@@ -1046,6 +1046,31 @@ class ReassignEvasionShapesTest(unittest.TestCase):
         self._assert_clean("self.a, local.get_all = 1, 2")
         self._assert_clean("frappe.flags.a, frappe.local.b = 1, 2", resolves_nothing=False)
 
+    def test_control_a_receiver_merely_named_setattr_is_not_monkeypatch(self):
+        self._assert_clean('foo.setattr(frappe, "get_all", x)')
+
+    def test_control_a_relative_import_is_not_the_frappe_module(self):
+        self._assert_clean("db.get_value = 1", "from .frappe import db\n")
+
+    def test_control_a_lookalike_package_name_is_not_frappe(self):
+        self._assert_clean("fdb.get_value = 1", "from frappe_x import db as fdb\n")
+        self._assert_clean("fx.get_all = 1", "import frappe_x as fx\n")
+        self._assert_clean("fx.get_all = 1", "import frappe_x.sub as fx\n")
+
+    def test_an_aliased_submodule_import_resolves_to_that_submodule(self):
+        src = _reassign_snippet("u.get_all = x", "import frappe.utils as u\n")
+        self.assertEqual(["frappe.utils.get_all"], [t for _, t in tqe._reassign_targets(src)])
+
+    def test_control_an_alias_rebound_locally_is_not_frappe(self):
+        """`db = FakeConn(); db.get_value = ...` -- the name no longer means frappe.db."""
+        self._assert_clean(
+            "db = FakeConn()\n        db.get_value = 1", "from frappe import db\n")
+        src = ("from frappe import db\n"
+               "class TestThing:\n"
+               "    def test_it(self, db):\n"
+               "        db.get_value = 1\n")
+        self.assertEqual([], tqe._reassign_targets(src))
+
     def test_control_a_tuple_of_plain_names_is_a_local_binding(self):
         self._assert_clean("get_all, sql = frappe.get_all, frappe.db.sql")
 
