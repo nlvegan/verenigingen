@@ -324,19 +324,28 @@ class TestMandateEndpointsOverRealRequest(_Base):
     """A real WSGI request (subprocess: frappe.app.application destroys
     frappe.local per request, which would tear down this test's own)."""
 
-    def test_unknown_matches_forbidden_over_wsgi(self):
-        from frappe.utils import get_bench_path
+    def _create_committed_login(self, user):
+        """Set a password for `user` and COMMIT everything this test has built.
+
+        Load-bearing: the subprocess has its own DB connection and must see the
+        User, Member and mandate rows. The committed rows are not left behind: the
+        User, Member and mandate are tracked/captured, so EnhancedTestCase's
+        teardown drains delete them (verified against test_site_4 after a run).
+        """
         from frappe.utils.password import update_password
 
+        password = f"Probe-{frappe.generate_hash()[:12]}!"
+        update_password(user, password)
+        frappe.db.commit()
+        return password
+
+    def test_unknown_matches_forbidden_over_wsgi(self):
+        from frappe.utils import get_bench_path
         attacker, _member = self._board_member_linked_user("IngWsgiAttacker")
         victim = self.create_test_member(first_name="IngWsgiVictim")
         victim_mandate = self._make_mandate_for(victim.name)
 
-        password = f"Probe-{frappe.generate_hash()[:12]}!"
-        update_password(attacker, password)
-        # Load-bearing: the subprocess has its own DB connection and must see
-        # the User, Member and mandate rows created above.
-        frappe.db.commit()
+        password = self._create_committed_login(attacker)
 
         site = frappe.local.site
         script = textwrap.dedent(
