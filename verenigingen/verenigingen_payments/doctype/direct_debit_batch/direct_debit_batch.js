@@ -525,6 +525,20 @@ function load_unpaid_invoices(frm) {
 				method: 'verenigingen.verenigingen_payments.api.sepa_batch_ui.load_unpaid_invoices',
 				args: values,
 				callback(r) {
+					// A failed OperationResult unwraps to null, exactly like an empty
+					// result, so check for failure first: reporting it as "no invoices
+					// found" hid the real reason from the operator (#1220).
+					if (verenigingen.utils.isFailureResult(r.message)) {
+						frappe.msgprint({
+							title: __('Could not load unpaid invoices'),
+							indicator: 'red',
+							message: frappe.utils.escape_html(
+								verenigingen.utils.getErrorMessage(r.message, __('Could not load unpaid invoices'))
+							)
+						});
+						return;
+					}
+
 					// Unwrap OperationResult format
 					const data = unwrapOperationResult(r.message);
 					if (data && data.length > 0) {
