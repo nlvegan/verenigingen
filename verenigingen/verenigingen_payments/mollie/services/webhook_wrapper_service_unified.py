@@ -57,6 +57,17 @@ def is_permanent_subscription_refusal(reason: Optional[str]) -> bool:
     return reason in subscription_activation_reasons.PERMANENT_SUBSCRIPTION_ACTIVATION_REASONS
 
 
+def _respond_service_unavailable() -> None:
+    """Answer 503 with a real ``Retry-After`` HTTP header (#2487).
+
+    ``frappe.local.response[...]`` keys are serialised into the JSON body, never headers;
+    only ``frappe.local.response_headers`` reaches the wire. Whether Mollie honours the
+    header is not established; the 503 itself is what makes it retry.
+    """
+    frappe.local.response.http_status_code = 503
+    frappe.local.response_headers.set("Retry-After", "60")
+
+
 def _reversal_history_row(
     doctype: str, name: str, amount: float, payment_date, reversal_id: str, reversal_type: str = "refund"
 ) -> dict:
@@ -647,8 +658,7 @@ class UnifiedWebhookWrapperService:
                 record_operation_performance("unified_webhook_processing", duration, False)
 
                 # Set HTTP 503 status for service unavailability
-                frappe.local.response.http_status_code = 503
-                frappe.local.response["Retry-After"] = "60"  # Mollie should retry after 60 seconds
+                _respond_service_unavailable()
 
                 response = {
                     "status": "service_unavailable",
@@ -760,8 +770,7 @@ class UnifiedWebhookWrapperService:
         if state.refund_check_failed or state.chargeback_check_failed:
             # Same designed degradation as STEP 1: say so and let Mollie retry. The
             # forward booking is idempotent, so the retry costs nothing.
-            frappe.local.response.http_status_code = 503
-            frappe.local.response["Retry-After"] = "60"
+            _respond_service_unavailable()
             return {
                 "status": "service_unavailable",
                 "message": "Mollie API unavailable - cannot verify refund/chargeback state",
