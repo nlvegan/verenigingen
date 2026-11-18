@@ -8,15 +8,8 @@ _CLOCK = "verenigingen.tests.utils.clock_race"
 
 
 class TestAssertWrittenToday(TestCase):
-    def _at(self, moment):
-        return (
-            patch(f"{_CLOCK}.now_datetime", return_value=moment),
-            patch(f"{_CLOCK}.today", return_value=str(moment.date())),
-        )
-
     def _run(self, moment, value):
-        a, b = self._at(moment)
-        with a, b:
+        with patch(f"{_CLOCK}.now_datetime", return_value=moment):
             assert_written_today(self, value)
 
     def test_same_day_passes_for_string_and_date_types(self):
@@ -37,5 +30,8 @@ class TestAssertWrittenToday(TestCase):
             self._run(datetime(2026, 3, 1, 0, 0, 5), "2026-02-20")
 
     def test_none_fails(self):
-        with self.assertRaises(AssertionError):
-            self._run(datetime(2026, 3, 10, 12, 0, 0), None)
+        # Unpatched on purpose: getdate(None) is the real today, so only the
+        # explicit None guard can make this fail.
+        with self.assertRaises(AssertionError) as ctx:
+            assert_written_today(self, None)
+        self.assertIn("got None", str(ctx.exception))

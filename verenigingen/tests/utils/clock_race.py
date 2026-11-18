@@ -7,17 +7,19 @@ fails although nothing is wrong. The helper accepts exactly that one case:
 yesterday, and only while the site clock is still within a minute of midnight.
 """
 
-from frappe.utils import add_days, getdate, now_datetime, today
+from frappe.utils import add_days, getdate, now_datetime
 
 MIDNIGHT_GRACE_SECONDS = 60
 
 
 def assert_written_today(case, value, msg=None):
     """Assert `value` (date, datetime or ISO string) is today's date, tolerating a midnight straddle."""
-    case.assertIsNotNone(value, msg or "expected today's date, got None")
+case.assertIsNotNone(value, msg or "expected today's date, got None")
     written = str(getdate(value))
+    # One clock read: today and the near-midnight test both derive from it.
     now = now_datetime()
+    today_str = str(now.date())
     seconds_since_midnight = now.hour * 3600 + now.minute * 60 + now.second
-    if seconds_since_midnight < MIDNIGHT_GRACE_SECONDS and written == str(getdate(add_days(today(), -1))):
+    if seconds_since_midnight < MIDNIGHT_GRACE_SECONDS and written == str(getdate(add_days(today_str, -1))):
         return
-    case.assertEqual(written, today(), msg)
+    case.assertEqual(written, today_str, msg)
