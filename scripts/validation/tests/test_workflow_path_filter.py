@@ -972,6 +972,34 @@ class TestSysPathHackScopeSplitAndDeadBranches(TestSysPathHackAndImportlibDetect
                 "        import totally_nonexistent_validator\n"
             )
 
+    def test_every_resolving_import_after_one_hack_is_found_not_just_the_first(self):
+        (self.root / "scripts" / "validation" / "second_validator.py").write_text("VALUE = 2\n")
+        found = self._scan(
+            self._HACK
+            + self._INSERT
+            + "import widget_validator\n"
+            "import second_validator\n"
+        )
+        self.assertEqual(
+            found,
+            {"scripts.validation.widget_validator", "scripts.validation.second_validator"},
+        )
+
+    def test_control_setupclass_hack_does_not_borrow_another_classes_import(self):
+        """Bridging is per class: class V's resolving import must not satisfy
+        class U's hack (a whole-file bridge would mask the broken U)."""
+        with self.assertRaises(AssertionError):
+            self._scan(
+                self._HACK
+                + "class U:\n"
+                "    @classmethod\n"
+                "    def setUpClass(cls):\n"
+                f"        {self._INSERT}"
+                "class V:\n"
+                "    def test_x(self):\n"
+                "        import widget_validator\n"
+            )
+
     def test_control_plain_function_hack_does_not_borrow_an_unrelated_function_import(self):
         """A hack inside a free function has no bridge: another function's
         resolving import must not satisfy it (over-bridging would hide a
