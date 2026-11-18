@@ -697,7 +697,7 @@ function handle_start_migration(frm) {
 
 function test_api_connection() {
 	frappe.call({
-		method: 'verenigingen.api.test_eboekhouden_connection.test_eboekhouden_connection',
+		method: 'verenigingen.e_boekhouden.utils.eboekhouden_api.test_api_connection',
 		callback(r) {
 			if (r.message && r.message.success) {
 				frappe.msgprint({
@@ -711,92 +711,6 @@ function test_api_connection() {
 					message: r.message ? r.message.error : 'Unknown error',
 					indicator: 'red'
 				});
-			}
-		}
-	});
-}
-
-function show_migration_statistics() {
-	frappe.call({
-		method: 'verenigingen.api.eboekhouden_migration_redesign.get_migration_statistics',
-		callback(r) {
-			if (r.message) {
-				const stats = r.message;
-				let html = '<div style="max-height: 500px; overflow-y: auto;">';
-
-				// Migration history
-				if (stats.migrations && stats.migrations.length > 0) {
-					html += '<h5>Migration History</h5>';
-					html += '<table class="table table-bordered table-sm">';
-					html +=
-						'<thead><tr><th>Status</th><th>Count</th><th>Records Imported</th><th>Failed</th></tr></thead>';
-					html += '<tbody>';
-
-					stats.migrations.forEach((m) => {
-						const statusClass =
-							m.migration_status === 'Completed'
-								? 'text-success'
-								: m.migration_status === 'Failed'
-									? 'text-danger'
-									: '';
-						html += `<tr>
-							<td class="${statusClass}">${m.migration_status}</td>
-							<td>${m.count}</td>
-							<td>${m.total_records || 0}</td>
-							<td>${m.total_failed || 0}</td>
-						</tr>`;
-					});
-
-					html += '</tbody></table>';
-				}
-
-				// Duplicate check
-				if (stats.duplicate_mutations && stats.duplicate_mutations.length > 0) {
-					html += '<div class="alert alert-warning">';
-					html += `<strong>Note:</strong> Found ${stats.duplicate_mutations.length} transactions that have been imported multiple times. `;
-					html += "This is normal if you've run multiple migrations.";
-					html += '</div>';
-				}
-
-				// Account statistics
-				if (stats.accounts) {
-					html += '<h5>Imported Accounts</h5>';
-					html += `<p>Total accounts with E-Boekhouden numbers: <strong>${stats.accounts.total}</strong></p>`;
-
-					if (stats.accounts.by_type && stats.accounts.by_type.length > 0) {
-						html += '<table class="table table-bordered table-sm">';
-						html += '<thead><tr><th>Account Type</th><th>Count</th></tr></thead>';
-						html += '<tbody>';
-
-						stats.accounts.by_type.forEach((t) => {
-							html += `<tr>
-								<td>${t.account_type || '<em>Not Set</em>'}</td>
-								<td>${t.count}</td>
-							</tr>`;
-						});
-
-						html += '</tbody></table>';
-					}
-				}
-
-				html += '</div>';
-
-				const dialog = new frappe.ui.Dialog({
-					title: 'Migration Statistics',
-					fields: [
-						{
-							fieldtype: 'HTML',
-							options: html
-						}
-					],
-					size: 'large',
-					primary_action_label: 'Close',
-					primary_action() {
-						dialog.hide();
-					}
-				});
-
-				dialog.show();
 			}
 		}
 	});
@@ -2023,7 +1937,7 @@ function add_tools_dropdown(frm) {
 		__('Debug Connection'),
 		() => {
 			frappe.call({
-				method: 'verenigingen.api.test_eboekhouden_connection.test_eboekhouden_connection',
+				method: 'verenigingen.e_boekhouden.utils.eboekhouden_api.test_api_connection',
 				freeze: true,
 				freeze_message: __('Testing connection...'),
 				callback(r) {
@@ -2038,7 +1952,9 @@ function add_tools_dropdown(frm) {
 					} else {
 						frappe.msgprint({
 							title: __('Connection Test Failed'),
-							message: __(`Failed to connect: ${r.message ? r.message.message : 'Unknown error'}`),
+							message: __(
+								`Failed to connect: ${r.message ? r.message.error || r.message.message : 'Unknown error'}`
+							),
 							indicator: 'red'
 						});
 					}
@@ -2076,104 +1992,6 @@ function add_tools_dropdown(frm) {
 					}
 				}
 			});
-		},
-		__('Tools')
-	);
-
-	// Add REST API migration button
-	frm.add_custom_button(
-		__('Fetch ALL Mutations (REST API)'),
-		() => {
-			frappe.confirm(
-				__(
-					'This will fetch ALL historical mutations using the REST API by iterating through mutation IDs. This may take several minutes. Continue?'
-				),
-				() => {
-					// Show a dialog with options
-					const d = new frappe.ui.Dialog({
-						title: 'REST API Full Migration',
-						fields: [
-							{
-								label: 'Start ID',
-								fieldname: 'start_id',
-								fieldtype: 'Int',
-								default: 17,
-								description: 'Lowest mutation ID (default: 17)'
-							},
-							{
-								label: 'End ID',
-								fieldname: 'end_id',
-								fieldtype: 'Int',
-								default: 7500,
-								description: 'Highest mutation ID (estimated: 7420)'
-							},
-							{
-								label: 'Test Mode',
-								fieldname: 'test_mode',
-								fieldtype: 'Check',
-								default: 1,
-								description: 'If checked, only fetch first 100 mutations for testing'
-							}
-						],
-						primary_action_label: 'Start Migration',
-						primary_action(values) {
-							d.hide();
-
-							const start_id = values.start_id;
-							const end_id = values.test_mode
-								? Math.min(values.start_id + 100, values.end_id)
-								: values.end_id;
-
-							frappe.call({
-								method: 'verenigingen.utils.test_rest_migration.test_rest_mutation_fetch',
-								args: {
-									start_id,
-									end_id
-								},
-								freeze: true,
-								freeze_message: __('Fetching mutations from REST API...'),
-								callback(r) {
-									if (r.message && !r.message.error) {
-										let msg = '<b>REST API Migration Results:</b><br><br>';
-										msg += `Total Checked: ${r.message.summary.total_checked}<br>`;
-										msg += `Found: ${r.message.summary.total_found}<br>`;
-										msg += `Not Found: ${r.message.summary.total_not_found}<br>`;
-										msg += `Errors: ${r.message.summary.total_errors}<br><br>`;
-
-										msg += '<b>Type Distribution:</b><br>';
-										for (const [type, count] of Object.entries(
-											r.message.summary.type_distribution
-										)) {
-											msg += `${type}: ${count}<br>`;
-										}
-
-										if (r.message.sample_mutations && r.message.sample_mutations.length > 0) {
-											msg += '<br><b>Sample Mutations:</b><br>';
-											r.message.sample_mutations.forEach((m) => {
-												msg += `ID ${m.id}: ${m.date} - ${m.description}<br>`;
-											});
-										}
-
-										frappe.msgprint({
-											title: __('REST API Fetch Complete'),
-											message: msg,
-											indicator: 'green',
-											wide: true
-										});
-									} else {
-										frappe.msgprint({
-											title: __('REST API Fetch Failed'),
-											message: r.message ? r.message.error : 'Unknown error',
-											indicator: 'red'
-										});
-									}
-								}
-							});
-						}
-					});
-					d.show();
-				}
-			);
 		},
 		__('Tools')
 	);

@@ -60,8 +60,11 @@ are a separate guard's territory (#430, same defect class in the server-rendered
 side): keep the two disjoint rather than merging them, so neither PR's baseline
 fights the other's.
 
-KNOWN GAP: doctype- and page-level JS (`verenigingen/verenigingen/doctype/*/*.js`,
-`*/page/*/*.js`) is covered by NEITHER guard, and is the more dangerous half --
+#812: `verenigingen/e_boekhouden` (doctype JS, 4 dead calls in
+`e_boekhouden_migration.js`, fixed) is now in SCAN_ROOTS.
+
+KNOWN GAP: the remaining doctype- and page-level JS (`verenigingen/verenigingen/doctype/*/*.js`,
+`*/page/*/*.js`, other app packages) is covered by NEITHER guard, and is the more dangerous half --
 it is Desk-loaded on every form view, not conditionally reachable like a
 standalone page. A manual pass while building this script found 4 more dead
 targets there (`e_boekhouden_migration.js`). Left out of SCAN_ROOTS deliberately:
@@ -112,7 +115,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCAN_ROOTS = ("verenigingen/public/js",)
+SCAN_ROOTS = ("verenigingen/public/js", "verenigingen/e_boekhouden")
 DEFAULT_BASELINE = Path(__file__).with_name("public_js_endpoint_baseline.txt")
 
 # `method: 'verenigingen.foo.bar'` / `method: "verenigingen.foo.bar"`
