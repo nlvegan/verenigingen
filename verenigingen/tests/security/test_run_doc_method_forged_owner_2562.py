@@ -20,6 +20,7 @@ layer (``frappe.has_permission`` on a forged doc), not through a method that ran
 compared over WSGI.
 """
 
+import contextlib
 import json
 import os
 import subprocess
@@ -27,7 +28,10 @@ import sys
 
 import frappe
 from frappe.utils import get_bench_path
+from werkzeug.test import EnvironBuilder
+from werkzeug.wrappers import Request
 
+from verenigingen.permissions import _is_run_doc_method_dispatch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 _PROBE = r"""
@@ -121,6 +125,19 @@ print("RESULT"+json.dumps(out,indent=1))
 
 
 class TestRunDocMethodForgedOwner2562(EnhancedTestCase):
+    @staticmethod
+    @contextlib.contextmanager
+    def _dispatching_run_doc_method(cmd="run_doc_method"):
+        previous = frappe.form_dict.get("cmd")
+        frappe.form_dict["cmd"] = cmd
+        try:
+            yield
+        finally:
+            if previous is None:
+                frappe.form_dict.pop("cmd", None)
+            else:
+                frappe.form_dict["cmd"] = previous
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -209,12 +226,48 @@ class TestRunDocMethodForgedOwner2562(EnhancedTestCase):
         new.owner = user
         self.assertTrue(frappe.has_permission("Contribution Amendment Request", "create", doc=new, user=user))
 
-    def test_an_unsaved_doc_owned_by_the_caller_is_refused_for_read(self):
-        """Pins the deliberate change: an unsaved doc claiming the caller as owner is False for any
-        ptype but `create` (it was True, which is the forged-owner hole). Mutant: with the guard's
-        `return` forced True this assertion reddens."""
+    def test_an_unsaved_doc_owned_by_the_caller_is_refused_for_read_inside_run_doc_method(self):
+        """Pins the deliberate change: inside a run_doc_method dispatch an unsaved doc claiming the
+        caller as owner is False for any ptype but `create` (it was True, which is the forged-owner
+        hole). Mutant: with the guard's `return` forced True this assertion reddens."""
         email = f"unsaved-{frappe.generate_hash()[:8]}@test.invalid"
         user = self.create_test_user(email, roles=["Verenigingen Volunteer"]).name
         new = frappe.new_doc("Donation Campaign")
         new.owner = user
-        self.assertFalse(frappe.has_permission("Donation Campaign", "read", doc=new, user=user))
+        with self._dispatching_run_doc_method():
+            self.assertFalse(frappe.has_permission("Donation Campaign", "read", doc=new, user=user))
+
+    def test_the_run_doc_method_context_is_recognised_on_every_route(self):
+        """Control for the context gate: v1 short and dotted cmd, and the v2 path, all count; an
+        ordinary form_dict does not. A gate that never fires would leave the hole open."""
+        for cmd in ("run_doc_method", "frappe.handler.run_doc_method"):
+            with self.subTest(cmd=cmd), self._dispatching_run_doc_method(cmd):
+                self.assertTrue(_is_run_doc_method_dispatch())
+        with self._dispatching_run_doc_method("frappe.client.get"):
+            self.assertFalse(_is_run_doc_method_dispatch())
+        previous = getattr(frappe.local, "request", None)
+        setattr(frappe.local, "request", Request(EnvironBuilder(path="/api/v2/method/run_doc_method").get_environ()))
+        try:
+            self.assertTrue(_is_run_doc_method_dispatch())
+        finally:
+            setattr(frappe.local, "request", previous)
+
+    def test_attaching_a_file_to_a_not_yet_saved_member_is_allowed_for_staff(self):
+        """Real flow (not a shortcut): the desk uploads to a Member form that is not saved yet; Frappe's
+        File.validate runs `new_doc("Member").check_permission("write")` as the session user. The
+        unsaved doc is owned by that user, which the guard once refused (the PR's merge-queue red in
+        test_application_record_approval)."""
+        email = f"attach-{frappe.generate_hash()[:8]}@test.invalid"
+        user = self.create_test_user(email, roles=["Verenigingen Administrator"]).name
+        previous = frappe.session.user
+        frappe.set_user(user)
+        try:
+            file = frappe.get_doc(
+                {"doctype": "File", "file_name": f"{frappe.generate_hash(length=6)}.txt", "content": "x",
+                 "is_private": 1, "attached_to_doctype": "Member",
+                 "attached_to_name": f"new-member-{frappe.generate_hash(length=6)}"}
+            ).insert()
+        finally:
+            frappe.set_user(previous)
+        self.track_doc("File", file.name)
+        self.assertTrue(frappe.db.exists("File", file.name))

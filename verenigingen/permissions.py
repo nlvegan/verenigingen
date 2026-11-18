@@ -908,6 +908,17 @@ has_sepa_mandate_permission, get_sepa_mandate_permission_query = _make_member_li
 has_membership_permission = _make_member_linked_permission("Membership", include_pending=True)[0]
 
 
+def _is_run_doc_method_dispatch():
+    """True while the request being served is ``run_doc_method`` (v1 ``cmd``, short or dotted, or the v2 path).
+
+    Those are the only routes that build a document from the CLIENT's dict and permission-check it.
+    Elsewhere an unsaved document owned by the caller is server-made (``frappe.new_doc``, e.g. the
+    check File.validate runs for an attachment on a form that is not saved yet), so it is legitimate."""
+    cmd = frappe.form_dict.get("cmd") or ""
+    path = getattr(getattr(frappe.local, "request", None), "path", None) or ""
+    return cmd.rsplit(".", 1)[-1] == "run_doc_method" or path.rstrip("/").endswith("/run_doc_method")
+
+
 def has_unforged_owner(doc, user=None, ptype=None):
     """has_permission hook: refuse a document whose ``owner`` was posted by the client (#2562).
 
@@ -919,9 +930,13 @@ def has_unforged_owner(doc, user=None, ptype=None):
     would tell the caller which ids exist). Only the owner claim is examined, and only when it names
     the caller, so staff and the real owner pay one lookup and are otherwise untouched.
 
-    Deliberate behaviour change: an UNSAVED document owned by the caller now returns False for every
-    ptype except ``create`` (it was True), because "unsaved" is exactly what a forged posted dict looks
-    like. Returning True from a has_permission hook never grants access; it only falls through to
+    Deliberate behaviour change: inside a ``run_doc_method`` request an UNSAVED document owned by the
+    caller now returns False for every ptype except ``create`` (it was True), because "unsaved" is
+    exactly what a forged posted dict looks like. Outside that dispatch the guard stands down for a
+    NAMELESS document only (a named one is always compared with its stored row): a server-built
+    ``new_doc`` is also unsaved and owned by the caller (a File attached to a Member form that is not
+    saved yet checks write on one), and nothing there carries a client-posted owner. Returning True
+    from a has_permission hook never grants access; it only falls through to
     Frappe's own check. That is why the non-``get`` input path (a bare name) may return True: a name
     carries no posted owner, so there is nothing to refuse and Frappe's DocPerm/if_owner check decides.
     """
@@ -933,6 +948,8 @@ def has_unforged_owner(doc, user=None, ptype=None):
     # the owner itself). `__islocal` and `name` are NOT trusted: the client's posted dict controls both.
     if claimed != user.lower() or ptype == "create":
         return True
+    if not doc.get("name") and not _is_run_doc_method_dispatch():
+        return True  # server-built unsaved doc (frappe.new_doc); no client posted this owner
     stored = frappe.db.get_value(doc.get("doctype"), doc.get("name"), "owner") if doc.get("name") else None
     return (stored or "").lower() == claimed
 
