@@ -69,12 +69,14 @@ class SEPAInputValidator:
 
         A browser form POST delivers every value as a string, so an `isinstance(limit, int)`
         check refused every value the Load Unpaid Invoices dialog sends (#2843). Digit strings
-        are accepted; anything else ("abc", "1.5", "", a bool, a float) is refused rather than
+        are accepted: an optional sign, 1 to 20 digits (so "0000100" is 100) and surrounding spaces or
+        tabs ("+5", " 7 "). The digit run is bounded so a huge string is refused with the range
+        message, not a ValueError from `int()`. Anything else ("abc", "1.5", "", a bool, a float) is refused rather than
         coerced (`cint("abc")` would be 0). `None` means "no limit" and is returned as is.
         """
         if limit is None:
             return None
-        if isinstance(limit, str) and re.fullmatch(r"\s*[+-]?[0-9]+\s*", limit):
+        if isinstance(limit, str) and re.fullmatch(r"[ \t]*[+-]?[0-9]{1,20}[ \t]*", limit):
             limit = int(limit)
         if isinstance(limit, bool) or not isinstance(limit, int) or not 0 < limit <= MAX_BATCH_SIZE:
             raise SEPAError(_("Invalid limit. Must be between 1 and {0}").format(MAX_BATCH_SIZE))

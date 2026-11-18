@@ -164,7 +164,7 @@ class TestLoadUnpaidInvoicesLimitOverWsgi(EnhancedTestCase):
 
 class TestParseBatchLimit(EnhancedTestCase):
     def test_digit_strings_and_ints_become_ints(self):
-        for raw, expected in (("100", 100), (" 7 ", 7), ("+5", 5), (100, 100), ("10000", 10000), (1, 1)):
+        for raw, expected in (("100", 100), (" 7 ", 7), ("\t7 ", 7), ("+5", 5), ("0000100", 100), (100, 100), ("10000", 10000), (1, 1)):
             with self.subTest(raw=raw):
                 value = SEPAInputValidator.parse_batch_limit(raw)
                 self.assertEqual(value, expected)
@@ -174,7 +174,7 @@ class TestParseBatchLimit(EnhancedTestCase):
         self.assertIsNone(SEPAInputValidator.parse_batch_limit(None))
 
     def test_out_of_range_and_non_numeric_values_are_refused(self):
-        for raw in ("0", 0, "-1", -1, "10001", 10001, "abc", "1.5", "", " ", "1e3", 1.5, 100.0, True, False, [], "١٢"):
+        for raw in ("0", 0, "-1", -1, "10001", 10001, "abc", "1.5", "", " ", "1e3", 1.5, 100.0, True, False, [], "١٢", "9" * 5000, "\xa05", "1\n"):
             with self.subTest(raw=raw):
                 with self.assertRaises(SEPAError) as ctx:
                     SEPAInputValidator.parse_batch_limit(raw)
