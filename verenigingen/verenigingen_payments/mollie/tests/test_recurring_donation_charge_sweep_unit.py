@@ -80,8 +80,11 @@ class _FakeMollieClient:
     def __init__(self, subscriptions=None):
         self._subscriptions = subscriptions or {}
 
-    def get_subscription(self, customer_id, subscription_id):
-        return _FakeSubscription(self._subscriptions.get(subscription_id, []))
+    def list_subscription_payments(self, customer_id, subscription_id, limit=None):
+        return _FakeSubscription(self._subscriptions.get(subscription_id, [])).payments.list(limit=limit)
+
+    def get_next_payments_page(self, page):
+        return page.get_next()
 
 
 class _SweepTestBase(EnhancedTestCase):
@@ -174,11 +177,11 @@ class TestActiveSubscriptionSelection(_SweepTestBase):
 
         seen_subscription_ids = []
 
-        def _get_subscription(customer_id, subscription_id):
+        def _list_payments(customer_id, subscription_id, limit=None):
             seen_subscription_ids.append(subscription_id)
-            return _FakeSubscription([])
+            return _FakeSubscription([]).payments.list(limit=limit)
 
-        client = SimpleNamespace(get_subscription=_get_subscription)
+        client = SimpleNamespace(list_subscription_payments=_list_payments)
         with patch(f"{_MODULE}.MollieClient", return_value=client):
             sweep_recurring_donation_charges()
 
@@ -191,7 +194,7 @@ class TestActiveSubscriptionSelection(_SweepTestBase):
         def _boom(*a, **k):
             raise AssertionError("should not be called for a One-time donation")
 
-        client = SimpleNamespace(get_subscription=_boom)
+        client = SimpleNamespace(list_subscription_payments=_boom)
         with patch(f"{_MODULE}.MollieClient", return_value=client):
             summary = sweep_recurring_donation_charges()
 
@@ -305,12 +308,12 @@ class TestSweepOnePayment(_SweepTestBase):
 
         good_client = _FakeMollieClient(subscriptions={f"sub_{tag}": [_payment(f"tr_second_{tag}")]})
 
-        def _get_subscription(customer_id, subscription_id):
+        def _list_payments(customer_id, subscription_id, limit=None):
             if subscription_id == f"sub_broken_{tag2}":
                 raise RuntimeError("Mollie unreachable")
-            return good_client.get_subscription(customer_id, subscription_id)
+            return good_client.list_subscription_payments(customer_id, subscription_id, limit=limit)
 
-        combined_client = SimpleNamespace(get_subscription=_get_subscription)
+        combined_client = SimpleNamespace(list_subscription_payments=_list_payments)
         with patch(f"{_MODULE}.MollieClient", return_value=combined_client), patch(
             f"{_MODULE}.DonationProcessor"
         ) as mocked_processor:
@@ -390,6 +393,163 @@ class TestPagination(_SweepTestBase):
             summary["charges_booked"] + summary["charges_already_booked"] + summary["charges_not_paid"]
         )
         self.assertEqual(total_seen, sweep_module._MAX_PAGES_PER_SUBSCRIPTION)
+
+
+class _SdkPage(_FakePage):
+    """A `_FakePage` whose get_next() counts the HTTP request it stands for."""
+
+    def __init__(self, sdk, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._sdk = sdk
+
+    def get_next(self):
+        self._sdk.calls["get_next"] += 1
+        self._sdk.fail_if_scripted("get_next")
+        nxt, *rest = self._remaining_pages
+        return _SdkPage(self._sdk, nxt, rest)
+
+
+class _FakeSdk:
+    """The Mollie SDK HTTP boundary: customers.get -> subscriptions.get -> payments.list.
+
+    Each of those is one HTTP request. `failures` maps a request name to a
+    list of exceptions raised on its first calls, one per call, then it
+    succeeds: a 429 that clears after a backoff, or one that never does.
+    """
+
+    def __init__(self, pages_by_subscription, failures=None):
+        self._pages = pages_by_subscription
+        self._failures = {k: list(v) for k, v in (failures or {}).items()}
+        self.calls = {"customers.get": 0, "subscriptions.get": 0, "payments.list": 0, "get_next": 0}
+        self.customers = SimpleNamespace(get=self._customers_get)
+
+    def fail_if_scripted(self, name):
+        queue = self._failures.get(name)
+        if queue:
+            raise queue.pop(0)
+
+    def _customers_get(self, customer_id):
+        self.calls["customers.get"] += 1
+        self.fail_if_scripted("customers.get")
+        return SimpleNamespace(subscriptions=SimpleNamespace(get=self._subscriptions_get))
+
+    def _subscriptions_get(self, subscription_id):
+        self.calls["subscriptions.get"] += 1
+        self.fail_if_scripted("subscriptions.get")
+
+        def _list(limit=None):
+            self.calls["payments.list"] += 1
+            self.fail_if_scripted("payments.list")
+            first, *rest = self._pages.get(subscription_id, [[]])
+            return _SdkPage(self, first, rest)
+
+        return SimpleNamespace(payments=SimpleNamespace(list=_list))
+
+
+def _too_many_requests():
+    from mollie.api.error import RequestError
+
+    return RequestError("429 Too Many Requests")
+
+
+class TestSweepRetriesMollieReads(_SweepTestBase):
+    """#929: the sweep's reads go through MollieClient's retry; only the SDK is stubbed.
+
+    The real MollieClient is used. MollieClient's circuit breaker is a no-op
+    (core/resilience/__init__.py: removed on purpose), so there is no breaker
+    to trip: what throttles the sweep is the retry's backoff, which these
+    tests observe through the (stubbed) sleep.
+    """
+
+    def _run_sweep_over_sdk(self, sdk):
+        from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
+
+        self.expectErrorLog("Mollie Client")
+        self.expectErrorLog("Recurring Donation Charge Sweep")
+        with patch.object(MollieClient, "_get_api_key", return_value="test_dummy"), patch.object(
+            MollieClient, "_get_mollie_client", return_value=sdk
+        ), patch(
+            "verenigingen.verenigingen_payments.core.resilience.retry_policy.time.sleep"
+        ) as sleep, patch(
+            f"{_MODULE}._active_donation_subscriptions", return_value=self.origins
+        ), patch(
+            f"{_MODULE}.resolve_journal_entry_by_reference", return_value=None
+        ), patch(
+            f"{_MODULE}.DonationProcessor"
+        ) as mocked_processor:
+            mocked_processor.return_value.process_donation_payment.return_value = {"status": "success"}
+            summary = sweep_recurring_donation_charges()
+        self.sleep = sleep
+        return summary
+
+    def _origins(self, *tags):
+        return [
+            SimpleNamespace(
+                name=f"DON-{tag}", mollie_subscription_id=f"sub_{tag}", mollie_customer_id=f"cst_{tag}"
+            )
+            for tag in tags
+        ]
+
+    def test_a_429_on_each_request_is_retried_then_succeeds(self):
+        tag = frappe.generate_hash(length=8)
+        self.origins = self._origins(tag)
+        # A 429 on the first request of the page read, another on its last
+        # request (which restarts the whole chain), and one on the next-page
+        # request: each must be retried, and the run must still book both.
+        sdk = _FakeSdk(
+            {f"sub_{tag}": [[_payment(f"tr_a_{tag}")], [_payment(f"tr_b_{tag}")]]},
+            failures={
+                "customers.get": [_too_many_requests()],
+                "payments.list": [_too_many_requests()],
+                "get_next": [_too_many_requests()],
+            },
+        )
+        summary = self._run_sweep_over_sdk(sdk)
+
+        self.assertEqual(summary["errors"], [])
+        self.assertEqual(summary["charges_booked"], 2)
+        # Attempt 1 dies at customers.get; attempt 2 dies at payments.list;
+        # attempt 3 succeeds. The next-page request fails once, then succeeds.
+        self.assertEqual(
+            sdk.calls, {"customers.get": 3, "subscriptions.get": 2, "payments.list": 2, "get_next": 2}
+        )
+        self.assertEqual(self.sleep.call_count, 3)
+
+    def test_a_persistent_429_exhausts_the_retry_policy_and_the_sweep_moves_on(self):
+        tag, tag2 = frappe.generate_hash(length=8), frappe.generate_hash(length=8)
+        self.origins = self._origins(tag, tag2)
+        # Every customers.get fails for the first subscription: 3 attempts
+        # (the policy's max_attempts) and no more, then the sweep records ONE
+        # error for it and still sweeps the second subscription.
+        sdk = _FakeSdk(
+            {f"sub_{tag2}": [[_payment(f"tr_ok_{tag2}")]]},
+            failures={"customers.get": [_too_many_requests() for _ in range(3)]},
+        )
+        client_rows_before = frappe.db.count("Error Log", {"method": "Mollie Client"})
+        summary = self._run_sweep_over_sdk(sdk)
+
+        # One Error Log row for the failed subscription, not one per attempt.
+        self.assertEqual(frappe.db.count("Error Log", {"method": "Mollie Client"}) - client_rows_before, 1)
+        self.assertEqual(len(summary["errors"]), 1)
+        self.assertEqual(summary["errors"][0]["subscription_id"], f"sub_{tag}")
+        self.assertIn("429", summary["errors"][0]["error"])
+        self.assertEqual(summary["charges_booked"], 1)
+        self.assertEqual(sdk.calls["customers.get"], 3 + 1)
+        # Backoff between the attempts: the sweep is throttled, not a tight loop.
+        self.assertEqual(self.sleep.call_count, 2)
+
+    def test_a_healthy_run_makes_exactly_one_request_per_step_and_never_sleeps(self):
+        tag = frappe.generate_hash(length=8)
+        self.origins = self._origins(tag)
+        sdk = _FakeSdk({f"sub_{tag}": [[_payment(f"tr_a_{tag}")], [_payment(f"tr_b_{tag}")]]})
+        summary = self._run_sweep_over_sdk(sdk)
+
+        self.assertEqual(summary["errors"], [])
+        self.assertEqual(summary["charges_booked"], 2)
+        self.assertEqual(
+            sdk.calls, {"customers.get": 1, "subscriptions.get": 1, "payments.list": 1, "get_next": 1}
+        )
+        self.sleep.assert_not_called()
 
 
 class TestResolveJournalEntryByReference(_SweepTestBase):

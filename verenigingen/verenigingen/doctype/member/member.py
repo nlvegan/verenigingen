@@ -738,7 +738,7 @@ class Member(
         return result.get("duration_years", 0)
 
     @frappe.whitelist()
-    @standard_api(operation_type=OperationType.ADMIN)
+    @critical_api(operation_type=OperationType.ADMIN)
     def force_update_membership_duration(self):
         """Force update membership duration - delegates to MemberDurationService."""
         from verenigingen.services.member.utils.member_duration_service import (
@@ -779,7 +779,7 @@ class Member(
         return get_member_item_service().get_or_create_membership_item(self)
 
     @frappe.whitelist()
-    @standard_api(operation_type=OperationType.ADMIN)
+    @critical_api(operation_type=OperationType.ADMIN)
     def force_update_chapter_display(self):
         """Force update chapter display - delegates to MemberChapterDisplayService."""
         from verenigingen.services.member.display.member_chapter_display_service import (

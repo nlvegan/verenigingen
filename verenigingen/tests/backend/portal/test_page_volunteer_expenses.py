@@ -146,6 +146,96 @@ class TestVolunteerExpensesPage(EnhancedTestCase):
             result = expenses.get_organization_options("Galaxy")
         self.assertEqual(result, [])
 
+    # ---- get_organization_options: ownership (#2769) -------------------
+
+    def _dispatch_org_options_as(self, user, organization_type, **extra):
+        """Drive the endpoint through the real handler dispatch.
+
+        Returns (result, message_log_delta, error_log_delta). Real dispatch,
+        not a direct call, so whitelisting and unknown-kwarg handling apply.
+        """
+        import frappe.handler
+
+        with self.as_user(user):
+            frappe.local.message_log = []
+            errors_before = frappe.db.count("Error Log")
+            frappe.local.form_dict = frappe._dict(
+                cmd="verenigingen.templates.pages.volunteer.expenses.get_organization_options",
+                organization_type=organization_type,
+                **extra,
+            )
+            frappe.local.request = frappe._dict(method="POST", headers={}, remote_addr="127.0.0.1")
+            try:
+                result = frappe.handler.execute_cmd(frappe.local.form_dict.cmd)
+            finally:
+                frappe.local.request = None
+            log = list(frappe.local.message_log)
+            errors = frappe.db.count("Error Log") - errors_before
+        return result, log, errors
+
+    def _make_other_volunteer_with_org_rows(self):
+        """A second volunteer with its OWN chapter and team (the victim)."""
+        email = f"exp-victim-{frappe.generate_hash()[:8]}@test.invalid"
+        member = self._make_member_with_user(email)
+        volunteer = self.create_test_volunteer(member=member.name, volunteer_name="Victim Volunteer")
+        chapter = self.create_test_chapter(chapter_name=f"Victim Chapter {frappe.generate_hash()[:6]}")
+        chapter.append(
+            "members",
+            {"member": member.name, "enabled": 1, "status": "Active", "chapter_join_date": today()},
+        )
+        chapter.save()
+        team = self.create_test_team(team_name=f"Victim Team {frappe.generate_hash()[:6]}")
+        team.append(
+            "team_members",
+            {
+                "volunteer": volunteer.name,
+                "volunteer_name": volunteer.volunteer_name,
+                "team_role": "Team Member",
+                "role_type": "Team Member",
+                "from_date": today(),
+                "is_active": 1,
+                "status": "Active",
+            },
+        )
+        team.save()
+        return volunteer, chapter, team
+
+    def test_org_options_ignores_caller_supplied_volunteer_name(self):
+        """Another volunteer's name must not widen or redirect the lookup:
+        the caller always gets THEIR OWN chapters and teams."""
+        victim, victim_chapter, victim_team = self._make_other_volunteer_with_org_rows()
+        for kind, own, theirs in (
+            ("Chapter", self.chapter.name, victim_chapter.name),
+            ("Team", self.team.name, victim_team.name),
+        ):
+            result, _log, _err = self._dispatch_org_options_as(
+                self.user_email, kind, volunteer_name=victim.name
+            )
+            values = [opt["value"] for opt in result]
+            self.assertNotIn(theirs, values, f"{kind}: victim's row leaked")
+            self.assertIn(own, values, f"{kind}: caller's own row missing")
+
+    def test_org_options_forbidden_and_unknown_volunteer_refuse_identically(self):
+        """Existence oracle: a real other volunteer and a nonexistent one must be
+        indistinguishable on every channel (result, message_log, Error Log rows,
+        query count) from simply omitting the parameter."""
+        victim, _vc, _vt = self._make_other_volunteer_with_org_rows()
+        observed = {}
+        # Warm per-process caches so the first measured call is not penalised.
+        self._dispatch_org_options_as(self.user_email, "Chapter")
+        for label, extra in (
+            ("forbidden", {"volunteer_name": victim.name}),
+            ("unknown", {"volunteer_name": "NO-SUCH-VOLUNTEER-2769"}),
+            ("omitted", {}),
+        ):
+            frappe.db.sql("select 1")  # warm
+            queries_before = frappe.db.sql("show session status like 'Questions'")[0][1]
+            result, log, errors = self._dispatch_org_options_as(self.user_email, "Chapter", **extra)
+            queries = int(frappe.db.sql("show session status like 'Questions'")[0][1]) - int(queries_before)
+            observed[label] = (result, log, errors, queries)
+        self.assertEqual(observed["forbidden"], observed["unknown"])
+        self.assertEqual(observed["forbidden"], observed["omitted"])
+
     # ---- get_volunteer_expense_context ---------------------------------
 
     def test_volunteer_expense_context_guest(self):

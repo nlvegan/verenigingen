@@ -635,7 +635,7 @@
                                 {% endif %}
                                 {% if active_dues_schedule %}
                                 <p class="text-sm text-gray-600 mt-3">
-                                    {% set frequency_map = {"Monthly": "month", "Quarterly": "quarter", "Yearly": "year", "Weekly": "week"} %}
+                                    {% set frequency_map = {"Daily": _("day"), "Weekly": _("week"), "Monthly": _("month"), "Quarterly": _("quarter"), "Semi-Annual": _("half year"), "Annual": _("year")} %}
                                     {% set frequency = frequency_map.get(active_dues_schedule.billing_frequency, active_dues_schedule.billing_frequency|lower) %}
                                     {{ _("Current rate") }}: <strong>{{ frappe.format_value(active_dues_schedule.amount, {"fieldtype": "Currency"})|e }}</strong> {{ _("per") }} {{ frequency|e }}
                                     <a href="/membership_adjustment" class="text-primary-600 hover:text-primary-700 font-medium ml-1">{{ _("Adjust") }}</a>

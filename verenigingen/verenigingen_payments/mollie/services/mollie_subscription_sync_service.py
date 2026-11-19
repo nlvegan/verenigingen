@@ -664,7 +664,12 @@ class MollieSubscriptionSyncService:
         }
 
     def _get_membership_dues_schedule(self, member_id: str):
-        """Get the member's active dues schedule (a ScheduleInfo, or None).
+        """Get the member's own dues schedule, Active or else Paused (a ScheduleInfo, or None).
+
+        A Paused schedule is still the member's: the in-place type-change path leaves it
+        Paused, and its frequency and rate are what the amendment values must follow.
+        Falling back to the Type template or "1 month" for a Paused member was #2507.
+        This lookup only reads; it does not decide what a Paused member's Mollie state is.
 
         Delegates to DuesScheduleRepository, which is the canonical implementation
         of this query. This method used to filter on docstatus=1; Membership Dues
@@ -686,7 +691,9 @@ class MollieSubscriptionSyncService:
         fail closed (amount 0, which Mollie rejects; and a failed verification that
         escalates to an admin).
         """
-        return DuesScheduleRepository().get_active_schedule(member_id)
+        repo = DuesScheduleRepository()
+        # Active first: if a member somehow holds both, the billing one wins.
+        return repo.get_active_schedule(member_id) or repo.get_active_or_paused_schedule(member_id)
 
     def _get_webhook_url(self) -> str:
         """Canonical subscription webhook URL (Mollie Settings owns it)."""

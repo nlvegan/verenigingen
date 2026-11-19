@@ -10,7 +10,7 @@ import sys
 import frappe
 from frappe.utils import now
 
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
@@ -248,7 +248,7 @@ def clear_customer_link_on_donor_delete(doc, method=None):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.ADMIN)
+@critical_api(operation_type=OperationType.ADMIN)
 def bulk_sync_donors_to_customers(filters: dict | None = None):
     """
     Bulk synchronization of donors to customers

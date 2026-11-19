@@ -1141,13 +1141,20 @@ class BoardManager(BaseManager):
 
             # Not a member yet, add them
             member_doc = frappe.get_doc("Member", member_id)
+            # Derive `enabled`/`status` from the member's CURRENT status, exactly as
+            # MemberManager.add_member's new-row branch does (#1559): hardcoding
+            # enabled=1/'Active' showed a Suspended/Quit/Deceased member as a live,
+            # enabled chapter member (and mailed them a welcome).
+            from .member_manager import MemberManager
+
+            chapter_enabled, chapter_status = MemberManager._derive_membership_status(member_doc, True)
             new_member = self.chapter_doc.append(
                 "members",
                 {
                     "member": member_id,
                     "chapter_join_date": today(),
-                    "enabled": 1,
-                    "status": "Active",  # Set required status field
+                    "enabled": chapter_enabled,
+                    "status": chapter_status,
                 },
             )
 
