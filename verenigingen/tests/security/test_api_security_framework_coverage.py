@@ -623,3 +623,81 @@ class TestWhitelistAdapterCoverage(VereningingenTestCase):
         methods = frappe.allowed_http_methods_for_whitelisted_func.get(wrapper)
         self.addCleanup(lambda: frappe.allowed_http_methods_for_whitelisted_func.pop(wrapper, None))
         self.assertEqual(methods, ["GET", "POST"])
+
+    # --- #1602: registry-membership branches of is_inner_whitelisted() -------
+    # The two tests above only drive the `__func_is_whitelisted__` attribute
+    # branch. These register through the REAL frappe.whitelist() (which adds the
+    # function to frappe.whitelisted and sets NO marker attribute), so the
+    # `func in frappe.whitelisted` and `func.__wrapped__ in frappe.whitelisted`
+    # branches are the only thing that can answer True.
+
+    def _register_with_real_whitelist(self, func):
+        registered = frappe.whitelist()(func)
+        self.addCleanup(frappe.whitelisted.discard, registered)
+        self.addCleanup(frappe.allowed_http_methods_for_whitelisted_func.pop, registered, None)
+        # Guard the premise: no attribute marker, so only the registry can say yes.
+        self.assertFalse(getattr(registered, "__func_is_whitelisted__", False))
+        self.assertIn(registered, frappe.whitelisted)
+        return registered
+
+    def test_is_inner_whitelisted_via_registry_membership(self):
+        def registry_only_func():
+            pass
+
+        registered = self._register_with_real_whitelist(registry_only_func)
+        self.assertTrue(self.adapter.is_inner_whitelisted(registered))
+
+    def test_is_inner_whitelisted_refuses_unregistered_function(self):
+        # Control: same shape, never registered, no marker.
+        def plain_func():
+            pass
+
+        self.assertNotIn(plain_func, frappe.whitelisted)
+        self.assertFalse(self.adapter.is_inner_whitelisted(plain_func))
+
+    def test_is_inner_whitelisted_via_wrapped_registry_membership(self):
+        def registry_only_func():
+            pass
+
+        registered = self._register_with_real_whitelist(registry_only_func)
+
+        def outer():
+            pass
+
+        outer.__wrapped__ = registered
+        self.assertNotIn(outer, frappe.whitelisted)
+        self.assertTrue(self.adapter.is_inner_whitelisted(outer))
+
+    def test_is_inner_whitelisted_refuses_wrapper_of_unregistered_function(self):
+        def inner_plain():
+            pass
+
+        def outer():
+            pass
+
+        outer.__wrapped__ = inner_plain
+        self.assertFalse(self.adapter.is_inner_whitelisted(outer))
+
+    def test_register_wrapper_in_whitelist_adds_wrapper_for_registry_only_func(self):
+        def registry_only_func():
+            pass
+
+        registered = self._register_with_real_whitelist(registry_only_func)
+
+        def wrapper():
+            pass
+
+        self.addCleanup(frappe.whitelisted.discard, wrapper)
+        self.adapter.register_wrapper_in_whitelist(wrapper, registered)
+        self.assertIn(wrapper, frappe.whitelisted)
+
+    def test_register_wrapper_in_whitelist_refuses_unregistered_func(self):
+        def plain_func():
+            pass
+
+        def wrapper():
+            pass
+
+        self.addCleanup(frappe.whitelisted.discard, wrapper)
+        self.adapter.register_wrapper_in_whitelist(wrapper, plain_func)
+        self.assertNotIn(wrapper, frappe.whitelisted)
