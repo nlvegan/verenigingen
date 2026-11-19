@@ -632,7 +632,6 @@ _validate_role_assignment_inputs::3  # clone family, 1 near-identical pair(s)
 _validate_table_name::2
 _validate_type::2
 _validate_unique_roles::2
-_validate_volunteer_created::2  # clone family, 1 near-identical pair(s)
 _validator::5  # clone family, 1 near-identical pair(s)
 _verify::2
 _volunteer::2
