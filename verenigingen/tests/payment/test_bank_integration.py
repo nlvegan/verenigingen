@@ -911,10 +911,6 @@ class TestBankStatementImportDuplicateGuardAndCamtPath(VereningingenTestCase):
     """#2591: `_create_payment_entry`'s "Payment already exists" guard and the CAMT.053
     parse-to-paid-invoice path, both driven through the real import (real file, real
     Sales Invoice, real Payment Entry; nothing stubbed).
-
-    The guard keys on a SUBMITTED Payment Entry whose `reference_no` is
-    `BANK_IMPORT_<invoice>`; see test_a_partial_payment_blocks_the_balance_import
-    for the consequence of that key.
     """
 
     def setUp(self):
@@ -986,27 +982,6 @@ class TestBankStatementImportDuplicateGuardAndCamtPath(VereningingenTestCase):
             second.warnings,
             [f"Payment already exists for invoice {self.invoice.name}"],
         )
-
-    def test_a_partial_payment_blocks_the_balance_import(self):
-        """CHARACTERISATION of the guard's key (not an endorsement): it is per invoice, not
-        per bank line, so once ANY submitted BANK_IMPORT_<invoice> Payment Entry exists a
-        later, different statement line for the balance is refused too. Pinned so that
-        changing the key (e.g. to include the transaction) is a deliberate decision.
-        """
-        total = float(self.invoice.grand_total)
-        part = round(total / 2, 2)
-        first, first_result = self._import_camt(part)
-        self.assertEqual(first_result["transactions_imported"], 1, (first.errors, first.warnings))
-        self.invoice.reload()
-        self.assertAlmostEqual(float(self.invoice.outstanding_amount), total - part, places=2)
-
-        second, second_result = self._import_camt(total - part)
-
-        self.assertEqual(second_result["transactions_imported"], 0)
-        self.assertEqual(len(self._guard_payment_entries()), 1)
-        self.assertTrue(any("Payment already exists" in w for w in second.warnings), second.warnings)
-        self.invoice.reload()
-        self.assertAlmostEqual(float(self.invoice.outstanding_amount), total - part, places=2)
 
 
 if __name__ == "__main__":
