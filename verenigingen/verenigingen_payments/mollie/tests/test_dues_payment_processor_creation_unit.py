@@ -38,6 +38,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.mollie_settings import own_mollie_clearing_account
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import DuesPaymentProcessor
 
@@ -279,11 +280,9 @@ class DuesCreationTestBase(EnhancedTestCase):
         settings.flags.ignore_mandatory = True
         settings.save(ignore_permissions=True)
 
-        ms = frappe.get_single("Mollie Settings")
-        ms.mollie_clearing_account = clearing
-        ms.flags.ignore_validate = True
-        ms.flags.ignore_mandatory = True
-        ms.save(ignore_permissions=True)
+        # Restored at class cleanup: a bare save() left this clearing account in Mollie
+        # Settings for every later class in the shard (#528).
+        own_mollie_clearing_account(cls, clearing)
 
         ps = frappe.get_single("Verenigingen Payments Settings")
         ps.dues_income_account = income

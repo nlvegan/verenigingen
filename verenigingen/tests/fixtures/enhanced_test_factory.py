@@ -2426,6 +2426,17 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # #1758: CI's site config provides an outgoing mail account; local sites may not.
         ensure_outgoing_mail_account(cls)
 
+        # #528: give every class the SAME baseline and take it away again afterwards.
+        # own_settings_company pins the harness company (and its income account) now and
+        # restores what was there in addClassCleanup, so (a) a company a class chooses in
+        # its own setUpClass is recognisable as "differs from this baseline" however the
+        # site's ambient value looks, and (b) a class that chooses one and never restores
+        # it cannot leak it into the next class's baseline (which made a later class
+        # choosing the SAME company look ambient and get reverted).
+        from verenigingen.tests.support.verenigingen_settings import own_settings_company
+
+        cls._settings_company_at_class_start = own_settings_company(cls)
+
     def setUp(self):
         super().setUp()
 
@@ -2556,6 +2567,14 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # surfaced as `Could not find Territory: Netherlands` in whichever test built
         # a Customer first (#291).
         self.factory = EnhancedTestDataFactory(seed=12345, use_faker=True)
+
+        # #528: decide BEFORE the master-data steps below, one of which (tests/setup
+        # self-heal of a stale company) also writes this Single and would otherwise
+        # look like the class's own choice.
+        # Decided ONCE per class: what setUpClass wrote cannot change between methods, but
+        # the self-heal above can leave a real company behind that would then look chosen.
+        if "_settings_company_kept_for_class" not in vars(type(self)):
+            type(self)._settings_company_kept_for_class = self._settings_company_chosen_by_class()
 
         # Ensure required system settings and master data exist
         self._ensure_production_ready_setup()
@@ -5974,6 +5993,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 ),
             }
 
+        # #528: a company the class itself chose in setUpClass wins over the default, with
+        # its income account and cost center, so the pair stays coherent.
+        test_company = getattr(self, "_settings_company_kept_for_class", None) or test_company
+
         # Get or create income account for test company
         income_account = self._get_or_create_income_account(test_company)
 
@@ -6016,6 +6039,26 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             )
 
         frappe.db.commit()
+
+    def _settings_company_chosen_by_class(self):
+        """The Settings company this class deliberately set in setUpClass, else None.
+
+        "Deliberately" = an existing Company that differs from the baseline setUpClass
+        pinned (`_settings_company_at_class_start`, see there). A company that does not
+        exist keeps getting the harness default; so does a mid-test change, which
+        tearDown's restore puts back to the value the class left. A class that wrote it
+        uncommitted loses it to the first tearDown rollback, as before.
+        """
+        current = frappe.db.get_value("Verenigingen Settings", None, "company")
+        pinned = getattr(type(self), "_settings_company_at_class_start", None)
+        # No pinned baseline (own_settings_company found no harness company): nothing to
+        # compare with, and "differs from nothing" would make every real ambient company
+        # look chosen by the class.
+        if not pinned:
+            return None
+        if current and current != pinned and frappe.db.exists("Company", current):
+            return current
+        return None
 
     def _restore_verenigingen_settings(self):
         """
