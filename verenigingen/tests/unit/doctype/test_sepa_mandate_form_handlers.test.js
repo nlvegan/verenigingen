@@ -193,12 +193,15 @@ describe('SEPA Mandate form handlers (#2824)', () => {
 
 		// The controller runs in a vm sandbox holding the REAL setTimeout (captured at
 		// load), so jest fake timers cannot drive it; wait out the 500ms instead.
-		const afterTimeout = () => new Promise((resolve) => setTimeout(resolve, 650));
+		const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+		const afterTimeout = () => wait(650);
 
 		it('Cancelled without a cancelled_date stamps today and scrolls to the reason after 500ms', async () => {
 			frm.doc.status = 'Cancelled';
 			handlers.status(frm);
 			expect(frm.doc.cancelled_date).toBe(global.frappe.datetime.get_today());
+			expect(frm.scroll_to_field).not.toHaveBeenCalled();
+			await wait(250); // still inside the 500ms delay: a shortened delay fires by now
 			expect(frm.scroll_to_field).not.toHaveBeenCalled();
 			await afterTimeout();
 			expect(frm.scroll_to_field).toHaveBeenCalledWith('cancellation_reason');
@@ -258,6 +261,11 @@ describe('SEPA Mandate form handlers (#2824)', () => {
 	describe('status <-> is_active ping-pong converges', () => {
 		// Frappe fires a field's handler only when its value actually changes;
 		// model that so the two handlers can feed each other.
+		// Fidelity: real Frappe writes the value synchronously but queues the trigger via
+		// frappe.run_serially (frappe/public/js/frappe/model/model.js:553-569); it fires
+		// only when doc[key] !== value, which this matches. This model runs handlers
+		// depth-first instead of queued, so it checks convergence for these six start
+		// states only, not every interleaving.
 		function wireCascadingForm(doc) {
 			const form = createMockForm({ doc: { doctype: 'SEPA Mandate', docstatus: 0, ...doc } });
 			form.scroll_to_field = jest.fn();
