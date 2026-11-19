@@ -123,11 +123,15 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
             return False
 
     def test_teardown_does_not_delete_foreign_test_bank_transactions(self):
-        """#1159: this class's tearDown must not delete a Bank Transaction it did not create.
+        """#1159 tripwire: this class must not re-add a site-wide delete as a tearDown override.
 
         The old tearDown deleted EVERY Bank Transaction whose description matched
-        %TEST% site-wide. The harness tearDown is stubbed here because it ends in a
-        rollback that would hide the row; only the class-owned tearDown logic runs.
+        %TEST% site-wide. This is NOT a behaviour test of the drain: it would not
+        catch the same delete added via addCleanup, tearDownClass or setUp. The
+        no-leak claim rests on the module-level row-count delta (see the PR body),
+        not on this test. The harness tearDown is stubbed because it ends in a
+        rollback that would hide the uncommitted foreign row; only the class-owned
+        tearDown logic runs.
         """
         from unittest import mock
 
@@ -194,7 +198,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         self.assertEqual(bank_transaction.get("custom_mollie_payment_id"), "tr_TEST_ideal_001")
         self.assertEqual(bank_transaction.get("custom_mollie_method"), "ideal")
         self.assertEqual(bank_transaction.get("custom_mollie_status"), "paid")
-        
     
     def test_bank_transfer_consumer_data_extraction(self):
         """Test extraction of consumer data from bank transfer payments"""
@@ -226,7 +229,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         self.assertEqual(bank_transaction.bank_party_name, "Maria de Jong-van Aalst")
         self.assertEqual(bank_transaction.bank_party_iban, "NL20INGB0001234567")
         self.assertEqual(bank_transaction.bank_party_account_number, "NL20INGB0001234567")
-        
     
     def test_direct_debit_consumer_data_extraction(self):
         """Test extraction of consumer data from direct debit payments"""
@@ -256,7 +258,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         self.assertEqual(bank_transaction.bank_party_name, "Pieter van den Heuvel")
         self.assertEqual(bank_transaction.bank_party_iban, "NL44RABO0123456789")
         self.assertEqual(bank_transaction.bank_party_account_number, "NL44RABO0123456789")
-        
     
     def test_consumer_data_extraction_edge_cases(self):
         """Test consumer data extraction with edge cases (missing fields, special chars, etc.)"""
@@ -316,7 +317,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                 self.assertIsNotNone(bank_transaction)
                 # Should still create transaction even with missing consumer data
                 self.assertEqual(bank_transaction.get("custom_mollie_payment_id"), payment["id"])
-                
     
     # ============================================================================
     # 2. IBAN Validation Testing
@@ -546,7 +546,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                     )
                     self.assertEqual(matched_member, dutch_member.name, 
                                    f"Should match member with exact tussenvoegsel format: {name_variation}")
-        
     
     def test_member_matching_priority_iban_over_name(self):
         """Test that IBAN matching takes priority over name matching"""
@@ -634,7 +633,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         self.assertEqual(bank_transaction.reference_number, "tr_TEST_field_mapping")
         # NOTE: the importer does not set Bank Transaction.transaction_type
         # (it is left blank), so that assertion was removed.
-
     
     def test_party_assignment_for_matched_member(self):
         """Test party_type and party assignment when member is matched"""
@@ -664,7 +662,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         # Validate party assignment
         self.assertEqual(bank_transaction.party_type, "Member")
         self.assertEqual(bank_transaction.party, test_member.name)
-        
     
     def test_bank_party_fields_population(self):
         """Test population of bank_party_name, bank_party_iban, bank_party_account_number fields"""
@@ -735,7 +732,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                 self.assertEqual(bank_transaction.bank_party_name, case["expected_name"])
                 self.assertEqual(bank_transaction.bank_party_iban, case["expected_iban"])
                 self.assertEqual(bank_transaction.bank_party_account_number, case["expected_account"])
-                
     
     def test_custom_mollie_fields_population(self):
         """Test population of custom Mollie fields for audit trail"""
@@ -769,7 +765,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                 actual_value = getattr(bank_transaction, field_name)
                 self.assertEqual(actual_value, expected_value, 
                                f"Custom field {field_name} should be {expected_value}")
-        
     
     # ============================================================================
     # 5. Security & Data Quality Testing
@@ -956,7 +951,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         # Quality assertions
         self.assertEqual(len(created_transactions), batch_size, 
                         "All transactions should be created successfully")
-        
     
     def test_member_matching_performance(self):
         """Test performance of member matching with various scenarios"""
@@ -1085,7 +1079,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
             if payment["method"] in ["ideal", "directdebit"]:
                 self.assertEqual(bank_transaction.bank_party_iban, 
                                payment["details"].get("consumerAccount") or payment["details"].get("bankAccount"))
-            
         
         # Integration assertions
         self.assertEqual(len(created_transactions), len(realistic_payments), 
@@ -1139,7 +1132,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         # Verify the SEPA mandate is accessible and active
         sepa_doc = frappe.get_doc("SEPA Mandate", test_sepa.name)
         self.assertEqual(sepa_doc.status, "Active")
-        
     
     # ============================================================================
     # Helper Methods
