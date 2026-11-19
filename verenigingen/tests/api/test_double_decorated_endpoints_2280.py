@@ -9,7 +9,7 @@ as a real user, with the in_test bypass of the rate limiter lifted, and reads th
 counters back: an endpoint must tick exactly its own bucket, whatever decorated code it reaches.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import frappe
 
@@ -135,6 +135,9 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
 
         _, error, _ = self._dispatch_2280(cmd, treasurer, "GET")  # POST-only, as on develop
         self.assertIsInstance(error, frappe.PermissionError)
+        # the declaration says so too (it used to advertise GET and POST)
+        endpoint = frappe.get_attr(cmd)
+        self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[endpoint], ["POST"])
 
     def test_get_workflow_status_ticks_one_bucket_and_reports_the_real_status(self):
         """get_workflow_status ran two decorated endpoints; when the first was refused it silently
@@ -336,3 +339,106 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
         self.assertIn("permission", result["error"]["message"])
         self.assertFalse(frappe.db.exists("SEPA Payment Retry", {"invoice": invoice.name}))
         self.assertTicksOnly(cmd, buckets)
+
+    # ------------------------------------------------------------------ #
+    # F2 (#352 N1 class): a failure the caller absorbed was audited only by the nested endpoint
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _audit_rows_2280():
+        """Counter of 'function:level:event_type' over the API Audit Log (the real rows)."""
+        import json
+        from collections import Counter
+
+        rows = frappe.get_all("API Audit Log", fields=["event_type", "details"], limit_page_length=0)
+        out = Counter()
+        for r in rows:
+            d = json.loads(r.details or "{}")
+            out[f"{d.get('function')}:{d.get('security_level')}:{r.event_type}"] += 1
+        return out
+
+    def _new_audit_rows_2280(self, before):
+        return dict(self._audit_rows_2280() - before)
+
+    def test_a_refused_dashboard_approval_is_audited_as_failed(self):
+        """quick_approve_application swallows the failure (handle_api_error), so its own row says ok;
+        before #2280 the nested approve_application audited the refusal as api_call_failed."""
+        cmd = "verenigingen.api.chapter_dashboard_api.quick_approve_application"
+        before = self._audit_rows_2280()
+        result, error, _ = self._dispatch_2280(
+            cmd, "Administrator", "POST", application_name="NOSUCH-APPLICATION-2280"
+        )
+        self.assertIsNone(error)
+        self.assertFalse(result["success"], result)  # control: the approval really was refused
+        self.assertEqual(
+            self._new_audit_rows_2280(before).get("quick_approve_application:high:api_call_failed"), 1
+        )
+
+    def test_a_failed_manual_retry_is_audited_as_failed(self):
+        """retry_failed_payment returns the failure, so its own row says ok; the nested critical
+        schedule_retry used to audit the raise as api_call_failed."""
+        member = self.create_test_member(first_name="Retry", last_name="Fails", status="Active")
+        invoice = self.create_test_sales_invoice(member=member.name)
+        cmd = PAY + "retry_failed_payment"
+        before = self._audit_rows_2280()
+        # Mock justified: fault injection at the manager's DB step; the endpoint's own path is real
+        with patch(
+            "verenigingen.verenigingen_payments.utils.payment_retry.PaymentRetryManager."
+            "get_or_create_retry_record",
+            side_effect=RuntimeError("retry store down"),
+        ):
+            result, error, _ = self._dispatch_2280(cmd, "Administrator", "POST", invoice_id=invoice.name)
+        self.assertIsNone(error)
+        self.assertFalse(result["success"], result)
+        self.assertEqual(self._new_audit_rows_2280(before).get("retry_failed_payment:critical:api_call_failed"), 1)
+
+    def test_a_failed_cutoff_calculation_in_check_member_dues_status_is_audited_as_failed(self):
+        """The endpoint reports the failure in its OperationResult; the nested CRITICAL cutoff endpoint
+        used to audit the raise."""
+        cmd = DUES + "check_member_dues_status"
+        treasurer = self._user_with_profile_2280("Verenigingen Treasurer")
+        before = self._audit_rows_2280()
+        # Mock justified: fault injection at the service the cutoff comes from
+        with patch(
+            "verenigingen.services.billing.bulk_invoice_generation_service."
+            "BulkInvoiceGenerationService.calculate_cutoff_date",
+            side_effect=RuntimeError("settings unreadable"),
+        ):
+            result, error, _ = self._dispatch_2280(cmd, treasurer, "POST")
+        self.assertIsNone(error)
+        self.assertFalse(result["success"], result)
+        self.assertEqual(
+            self._new_audit_rows_2280(before).get("check_member_dues_status:critical:api_call_failed"), 1
+        )
+
+    def test_a_failed_diagnosis_in_fix_stuck_schedule_is_audited_once_as_failed(self):
+        """fix_stuck_schedule re-raises, so its own decorator audits the failure: exactly one
+        api_call_failed row under its name, and the call still raises."""
+        member = self.create_test_member(first_name="Diag", last_name="Fails", status="Active")
+        membership = frappe.new_doc("Membership")
+        membership.member = member.name
+        membership.membership_type = self.create_test_membership_type().name
+        membership.start_date = frappe.utils.today()
+        membership.status = "Active"
+        membership.save()
+        membership.submit()
+        self.track_doc("Membership", membership.name)
+        schedule_name = frappe.db.get_value(
+            "Membership Dues Schedule", {"member": member.name, "is_template": 0, "status": "Active"}, "name"
+        )
+        self.assertTrue(schedule_name)
+        cmd = "verenigingen.api.fix_stuck_dues_schedule.fix_stuck_schedule"
+        real_get_doc = frappe.get_doc
+
+        def member_lookup_fails(doctype, *a, **kw):
+            if doctype == "Member":
+                raise RuntimeError("member store down")
+            return real_get_doc(doctype, *a, **kw)
+
+        before = self._audit_rows_2280()
+        # Mock justified: fault injection for the Member read inside the diagnosis
+        with patch("frappe.get_doc", side_effect=member_lookup_fails):
+            _, error, _ = self._dispatch_2280(cmd, "Administrator", "POST", schedule_name=schedule_name)
+        self.assertIsInstance(error, RuntimeError)
+        failed = {k: v for k, v in self._new_audit_rows_2280(before).items() if "api_call_failed" in k}
+        self.assertEqual(sum(failed.values()), 1, failed)
+        self.assertIn("fix_stuck_schedule:high:api_call_failed", failed)

@@ -20,6 +20,8 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.security.audit_emitter import get_audit_emitter
+from verenigingen.utils.security.types import SecurityLevel
 from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
 
 
@@ -680,7 +682,22 @@ def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
         from verenigingen.utils.payment_retry import PaymentRetryManager
 
         retry_manager = PaymentRetryManager()
-        result = retry_manager._schedule_retry(invoice_id, "MANUAL", "Manual retry requested by member")
+        try:
+            result = retry_manager._schedule_retry(invoice_id, "MANUAL", "Manual retry requested by member")
+        except Exception as e:
+            # The handler below returns the failure, so critical_api would audit this call as a
+            # success. Before #2280 the nested critical schedule_retry audited the raise as
+            # api_call_failed (the #352 N1 class); record it here through the decorators' emitter.
+            get_audit_emitter().log_api_call(
+                func=retry_failed_payment,
+                security_level=SecurityLevel.CRITICAL,
+                success=False,
+                error=str(e),
+                user=frappe.session.user,
+                args_count=0,
+                kwargs_keys=["invoice_id"],
+            )
+            raise
 
         if result["scheduled"]:
             data = {"next_retry": result["next_retry"]}

@@ -19,6 +19,8 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
+from verenigingen.utils.security.audit_emitter import get_audit_emitter
+from verenigingen.utils.security.types import SecurityLevel
 from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
 
 
@@ -26,7 +28,7 @@ from verenigingen.verenigingen_payments.utils.mandate_candidates import unambigu
 # id and full name. It used to be declared MEDIUM but called the CRITICAL, POST-only
 # calculate_cutoff_date_for_period, so CRITICAL + POST was its effective access (the only callers,
 # dues-invoice-manager.html and the debugger page, POST). The declaration now says so.
-@frappe.whitelist(allow_guest=False, methods=["GET", "POST"])
+@frappe.whitelist(allow_guest=False, methods=["POST"])
 @critical_api(operation_type=OperationType.FINANCIAL)
 def check_member_dues_status(
     period_start: str = None, period_end: str = None
@@ -61,7 +63,22 @@ def _member_dues_status(period_start: str = None, period_end: str = None) -> Ope
         # The service, not the @critical_api calculate_cutoff_date_for_period endpoint that
         # delegates to it: that one demands CRITICAL access and POST, which this MEDIUM
         # endpoint does not (#2280).
-        cutoff_date = get_bulk_invoice_generation_service().calculate_cutoff_date()
+        try:
+            cutoff_date = get_bulk_invoice_generation_service().calculate_cutoff_date()
+        except Exception as e:
+            # The handler below reports the failure in the result, so critical_api would audit the
+            # call as a success. Before #2280 the nested CRITICAL cutoff endpoint audited the raise
+            # as api_call_failed (the #352 N1 class); record it here through the decorators' emitter.
+            get_audit_emitter().log_api_call(
+                func=check_member_dues_status,
+                security_level=SecurityLevel.CRITICAL,
+                success=False,
+                error=str(e),
+                user=frappe.session.user,
+                args_count=0,
+                kwargs_keys=["period_start", "period_end"],
+            )
+            raise
 
         # Use unified eligibility logic
         eligibility_result = get_eligible_schedules_for_period(

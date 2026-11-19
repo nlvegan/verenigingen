@@ -379,6 +379,7 @@ function checkMemberStatus() {
 
     frappe.call({
         method: 'verenigingen.api.dues_invoice_workflow.check_member_dues_status',
+        type: 'POST',
         args: {
             period_start: workflowConfig.period_start,
             period_end: workflowConfig.period_end
@@ -537,8 +538,11 @@ function checkMemberStatus() {
         },
         error: function(r) {
             hideSpinner('status-spinner');
-            let errorMsg = 'Failed to check member status.';
-            if (r.message) {
+            let errorMsg = __('Failed to check member status.');
+            if (r && r.status === 403) {
+                // The status check is a treasurer-level (CRITICAL, POST-only) action: a refusal is a 403 (#2280)
+                errorMsg = __('You do not have permission to check member status. This requires treasurer-level access.');
+            } else if (r && r.message) {
                 errorMsg = r.message.error || r.message.message || r.message || errorMsg;
             }
             showResults('Error', errorMsg, 'error');
