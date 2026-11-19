@@ -14,7 +14,6 @@ This test suite covers:
 
 import unittest
 import frappe
-from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen import auth_hooks
 
