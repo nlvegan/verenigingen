@@ -595,7 +595,7 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
                 # #2798: the bank settled this row; record it like Mark as Processed does,
                 # inside the same transaction as the Payment Entry (a rollback undoes both).
                 batch_processing_service.record_collected_by_bank_reconciliation(
-                    sepa_batch, item.name, result["payment_entry"]
+                    frappe.get_doc("Direct Debit Batch Invoice", item.name), result["payment_entry"]
                 )
 
             except ConcurrentOperationError as e:

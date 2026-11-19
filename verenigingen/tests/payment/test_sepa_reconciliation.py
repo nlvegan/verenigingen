@@ -809,6 +809,106 @@ class TestReconciledBatchThenMarkProcessed2798(ReconBase):
         self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Processed")
         self.assertEqual(self._pe_counts(items), [1] * len(items))
 
+    def _usage_row(self, item):
+        """A Pending SEPA Mandate Usage row for the item's invoice, via the real helper."""
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            create_mandate_usage_record,
+        )
+
+        invoice = item["invoice"]
+        create_mandate_usage_record(
+            item["mandate"].name, "Sales Invoice", invoice.name, invoice.grand_total, "FRST"
+        )
+        return frappe.db.get_value("SEPA Mandate Usage", {"reference_name": invoice.name}, "name")
+
+    def test_a_row_already_failed_keeps_its_status_code_message_and_mandate_usage(self):
+        """Ruling on #2798: a returned (Failed, AC04) row must not become Successful/PDNG.
+
+        Probe shortcut: the Failed/AC04 state is written with the same three fields
+        `SEPABatchProcessor.process_return_file` sets (status, result_code, result_message),
+        not by running a return file through it. Whether reconcile books a Payment Entry for
+        that row is pre-existing and out of scope, so it is not asserted."""
+        items, batch, bt = self._reconciled_batch()
+        failed_row, ok_row = batch.invoices[0], batch.invoices[1]
+        message = "Closed Account Number (return file)"
+        for field, value in (("status", "Failed"), ("result_code", "AC04"), ("result_message", message)):
+            failed_row.db_set(field, value, update_modified=False)
+        usage = self._usage_row(items[0])
+        self.assertEqual(frappe.db.get_value("SEPA Mandate Usage", usage, "status"), "Pending")
+
+        result = recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(result["type"], "full_reconciliation", msg=result)
+        state = frappe.db.get_value(
+            "Direct Debit Batch Invoice", failed_row.name, ["status", "result_code", "result_message"],
+            as_dict=True,
+        )
+        self.assertEqual((state.status, state.result_code, state.result_message), ("Failed", "AC04", message))
+        self.assertEqual(frappe.db.get_value("SEPA Mandate Usage", usage, "status"), "Pending")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch Invoice", ok_row.name, "status"), "Successful")
+        self.assertEqual(
+            frappe.db.get_value("Direct Debit Batch", batch.name, "status"),
+            "Partially Processed",
+            "one Failed row means the batch is not Processed",
+        )
+
+    def test_refresh_writes_partially_processed_or_failed_from_the_rows(self):
+        """The not-all-Successful branches of refresh_batch_status_from_rows."""
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        items, batch, _ = self._reconciled_batch()
+        first = batch.invoices[0]
+
+        batch_processing_service.refresh_batch_status_from_rows(batch)
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Failed")
+
+        first.db_set("status", "Successful", update_modified=False)
+        batch.db_set("status", "Submitted", update_modified=False)
+        batch_processing_service.refresh_batch_status_from_rows(batch)
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Partially Processed")
+
+    def test_a_batch_in_another_status_keeps_it_through_reconciliation(self):
+        """Ruling on #2798: only Submitted/Processed are refreshed. Rolled Back must stay."""
+        items, batch, bt = self._reconciled_batch()
+        frappe.db.set_value("Direct Debit Batch", batch.name, "status", "Rolled Back", update_modified=False)
+        batch.reload()
+
+        result = recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(result["type"], "full_reconciliation", msg=result)
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Rolled Back")
+
+    def test_a_failure_on_the_second_row_rolls_back_the_first_rows_recording(self):
+        """Atomicity: row 1's Successful status and mandate-usage write sit in the same
+        transaction as its Payment Entry, so a row-2 failure undoes them. The rollback is
+        real, to a savepoint (a full rollback would also drop this test's own fixtures)."""
+        self.expectErrorLog("SEPA Batch Reconciliation")
+        items, batch, bt = self._reconciled_batch()
+        usage = self._usage_row(items[0])
+        first_row, second_row = batch.invoices[0], batch.invoices[1]
+        real_create, real_rollback = recon._create_payment_entry_atomic, frappe.db.rollback
+        calls = []
+
+        def _fail_second(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 2:
+                raise ValueError("second row fails")
+            return real_create(*args, **kwargs)
+
+        frappe.db.savepoint("recon2798")
+        # Mock justified: fault injection on the second row; the first row runs the real code
+        with patch.object(recon, "_create_payment_entry_atomic", side_effect=_fail_second):
+            with patch.object(frappe.db, "rollback", lambda *a, **k: real_rollback(save_point="recon2798")):
+                result = recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(result["type"], "atomic_failure", msg=result)
+        self.assertEqual(len(calls), 2, "row 1 must have been recorded before row 2 failed")
+        for row in (first_row, second_row):
+            self.assertEqual(frappe.db.get_value("Direct Debit Batch Invoice", row.name, "status"), "Pending")
+        self.assertEqual(frappe.db.get_value("SEPA Mandate Usage", usage, "status"), "Pending")
+
     def test_control_a_refused_reconciliation_leaves_rows_pending_and_batch_status(self):
         items, batch, bt = self._reconciled_batch()
         status_before = frappe.db.get_value("Direct Debit Batch", batch.name, "status")

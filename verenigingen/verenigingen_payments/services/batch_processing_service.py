@@ -120,24 +120,35 @@ class BatchProcessingService:
 
         return success_count
 
-    def record_collected_by_bank_reconciliation(
-        self, batch_doc, row_name: str, payment_entry_name: str
-    ) -> None:
+    def record_collected_by_bank_reconciliation(self, row, payment_entry_name: str) -> None:
         """Record that bank reconciliation booked this row's Payment Entry (#2798).
 
         Same writes as the success branch of mark_batch_invoices_as_paid, so a later
         "Mark as Processed" skips the row (#2573) instead of re-booking an invoice that is
         already paid and flipping row and batch to Failed. db_set only, no commit: the
         caller's transaction owns atomicity with the Payment Entry.
+
+        A row already Failed (e.g. a bank return code such as AC04) keeps its status, result
+        code and message and its mandate usage stays as it was: reconciliation must not turn
+        a returned collection into a collected one (maintainer ruling on #2798). The persisted
+        status is read, not the in-memory one, which may predate the row's last write.
         """
-        row = next(r for r in batch_doc.invoices if r.name == row_name)
+        if frappe.db.get_value("Direct Debit Batch Invoice", row.name, "status") == "Failed":
+            return
         self._set_invoice_status_after_submit(
             row, "Successful", "PDNG", f"Payment entry {payment_entry_name} created"
         )
         self._mark_mandate_usage_collected(row.invoice)
 
     def refresh_batch_status_from_rows(self, batch_doc) -> None:
-        """Recompute the batch status from its rows' persisted state (#2798)."""
+        """Recompute the batch status from its rows' persisted state (#2798).
+
+        Only a Submitted or Processed batch is refreshed: any other status (Rolled Back,
+        Partially Failed, ...) records a decision this recompute must not overwrite.
+        """
+        persisted = frappe.db.get_value("Direct Debit Batch", batch_doc.name, "status")
+        if persisted not in ("Submitted", "Processed"):
+            return
         collected = frappe.db.count(
             "Direct Debit Batch Invoice", {"parent": batch_doc.name, "status": "Successful"}
         )
