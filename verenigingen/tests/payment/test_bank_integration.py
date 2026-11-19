@@ -956,13 +956,22 @@ class TestBankApiTransportFailures(VereningingenTestCase):
 
     def _fetch_with_transport(self, **requests_get_kwargs):
         settings = frappe._dict(api_endpoint="https://bank.invalid", account_id="ACC1", access_token="")
+        real_exists = frappe.db.exists
+
+        def exists_only_for_settings_doctype(*args, **kwargs):
+            if args[:2] == ("DocType", "Bank Integration Settings"):
+                return True
+            return real_exists(*args, **kwargs)
+
         with (
-            # Mock justified: stands in for the Bank Integration Settings row that test sites lack (#2881); the DocType never installs
-            patch("frappe.db.exists", return_value=True),
-            patch("frappe.get_single", return_value=settings),  # Mock justified: same missing settings row
+            # Scoped to that one doctype check; every other exists() call reaches the real database.
+            # Mock justified: call-through spy that fakes only the Bank Integration Settings DocType check (#2881, the DocType never installs)
+            patch("frappe.db.exists", side_effect=exists_only_for_settings_doctype),
+            patch("frappe.get_single", return_value=settings) as fake_single,  # Mock justified: same missing settings row
             patch("requests.get", **requests_get_kwargs) as fake_get,  # Mock justified: External Service
         ):
             result = BankAPIClient().fetch_statements("2025-03-15")
+        fake_single.assert_called_once_with("Bank Integration Settings")
         return result, fake_get
 
     def test_a_request_timeout_is_reported_as_a_timeout(self):
