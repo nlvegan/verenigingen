@@ -29,7 +29,6 @@ scripts/migration/migrate_amendment_data.py::update_member_links::1
 scripts/migration/migrate_to_native_expense_system.py::migrate_to_native_expense_system::1
 scripts/migration/migration_commands.py::migrate_data::1
 scripts/migration/remove_custom_amount_fields.py::update_membership_python_file::1
-scripts/monitoring/context_switching_performance_monitor.py::setup_monitoring_integration::1
 scripts/monitoring/zabbix_integration.py::get_dues_schedule_metrics::3
 scripts/n_plus_one_scanner.py::N1CodebaseScanner._scan_file::1
 scripts/performance/phase2_2_validation.py::run_phase22_validation::1
