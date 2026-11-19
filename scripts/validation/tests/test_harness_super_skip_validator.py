@@ -323,6 +323,44 @@ class MixinAheadOfHarnessBaseTest(unittest.TestCase):
         }
         self.assertEqual([("_Mixin", "setUp")], sorted((v.class_name, v.method) for v in _scan(files)))
 
+    def test_mixin_calling_a_harness_class_that_is_not_its_ancestor_is_flagged(self):
+        """Explicit call to a harness-rooted Z that is not a base of the using class does not count."""
+        files = {
+            "verenigingen/harness.py": _HARNESS_SRC,
+            "verenigingen/tests/test_m.py": (
+                "class _Z(VereningingenTestCase):\n    pass\n"
+                "class _Mixin:\n    def setUp(self):\n        _Z.setUp(self)\n"
+                "class TestM(_Mixin, VereningingenTestCase):\n    pass\n"
+            ),
+        }
+        self.assertEqual([("_Mixin", "setUp")], sorted((v.class_name, v.method) for v in _scan(files)))
+
+    def test_mixin_between_two_harness_bases_is_flagged(self):
+        """'Ahead of a harness base' means ahead of the LAST one, not the first."""
+        files = {
+            "verenigingen/harness.py": _HARNESS_SRC,
+            "verenigingen/tests/test_m.py": (
+                "class _A(VereningingenTestCase):\n    pass\n"
+                "class _B(VereningingenTestCase):\n    pass\n"
+                "class _Mixin:\n" + self._SKIP
+                + "class TestM(_A, _Mixin, _B):\n    pass\n"
+            ),
+        }
+        self.assertEqual([("_Mixin", "setUp")], sorted((v.class_name, v.method) for v in _scan(files)))
+
+    def test_harness_rooted_skipping_mixin_is_reported_once_by_the_main_rule(self):
+        files = {
+            "verenigingen/harness.py": _HARNESS_SRC,
+            "verenigingen/tests/test_m.py": (
+                "class _Mix(VereningingenTestCase):\n" + self._SKIP
+                + "class _Other(VereningingenTestCase):\n    pass\n"
+                "class TestM(_Mix, _Other):\n    pass\n"
+            ),
+        }
+        found = _scan(files)
+        self.assertEqual([("_Mix", "setUp")], [(v.class_name, v.method) for v in found])
+        self.assertEqual("", found[0].ahead_of, "main rule, not the ordering rule, must report it")
+
     def test_mixin_used_by_two_classes_is_reported_once(self):
         files = {
             "verenigingen/harness.py": _HARNESS_SRC,

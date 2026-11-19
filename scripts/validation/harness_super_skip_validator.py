@@ -42,7 +42,14 @@ so that shape is out of scope. Limits, deliberately not a static MRO resolver:
 only the DIRECT bases of the using class are ordered, and only the mixin's own
 body is inspected (a mixin that inherits a skipping method from another mixin is
 not seen); resolution is by class name, so a mixin whose name is shadowed by a
-same-named class elsewhere is judged by whichever was scanned last. It does not evaluate what the override
+same-named class elsewhere is judged by whichever was scanned last. Further limits,
+all unexploited today: only module-level classes are registered (a class nested in
+another class or a function is invisible), and ``async def`` lifecycle methods are
+not recognised (only ``def`` is read). The explicit-base-call rule accepts any
+harness-rooted ANCESTOR, not the next class in the MRO, so a harness-rooted mixin
+ahead of a harness base that calls a non-adjacent harness ancestor
+(``Mix(VTC)`` calling ``VereningingenTestCase.setUp(self)``, used as
+``T(Mix, Other)`` with ``Other(VTC)``) bypasses ``Other.setUp`` unseen. It does not evaluate what the override
 does with the isolation it skips, or whether the omission is currently
 harmless -- only whether the contract is honoured. It also does not flag a
 class that never overrides the method at all (normal MRO dispatch already
@@ -307,13 +314,16 @@ def _mixin_ordering_violations(registry: dict) -> list:
         harness_positions = [i for i, b in enumerate(user_info.bases) if _is_harness_base(b, registry)]
         if not harness_positions:
             continue
+        user_ancestors = _ancestors(user, registry)
         for mixin in user_info.bases[: max(harness_positions)]:
             if mixin not in registry or _is_harness_base(mixin, registry):
                 continue  # unscanned base, or a harness class the main rule already checks
             info = registry[mixin]
             for method, has_super in info.methods.items():
+                # Like the main rule, the callee must be an ancestor of the using class.
                 calls_harness = any(
-                    _is_harness_base(c, registry) for c in info.explicit_calls.get(method, set())
+                    _is_harness_base(c, registry)
+                    for c in info.explicit_calls.get(method, set()) & user_ancestors
                 )
                 if has_super or calls_harness:
                     continue
