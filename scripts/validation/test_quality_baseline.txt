@@ -61,12 +61,6 @@ verenigingen/tests/backend/validation/test_field_sync_service_unit.py::TestPerfo
 verenigingen/tests/backend/validation/test_field_sync_service_unit.py::TestSyncFlagsAndLoopPrevention.test_sync_flag_prevents_recursive_sync::PERMISSION BYPASS::1
 verenigingen/tests/backend/workflows/test_chapter_membership_workflow.py::TestChapterMembershipWorkflow.test_chapter_members_report_hides_pending_from_regular_users::PERMISSION BYPASS::1
 verenigingen/tests/backend/workflows/test_chapter_membership_workflow.py::TestChapterMembershipWorkflow.test_chapter_members_report_shows_pending_to_admins::PERMISSION BYPASS::1
-verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_1_become_volunteer::PERMISSION BYPASS::1
-verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_2_complete_profile::PERMISSION BYPASS::1
-verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_4_submit_expenses::PERMISSION BYPASS::1
-verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_6_track_hours::PERMISSION BYPASS::1
-verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_7_generate_reports::PERMISSION BYPASS::1
-verenigingen/tests/backend/workflows/test_volunteer_journey.py::TestVolunteerJourney._stage_8_deactivate_volunteer::PERMISSION BYPASS::2
 verenigingen/tests/chapter/test_chapter_board_document.py::TestChapterBoardDocument.test_document_retrieval_by_type::PERMISSION BYPASS::1
 verenigingen/tests/chapter/test_chapter_board_document.py::TestChapterBoardDocument.test_upload_date_auto_populated::PERMISSION BYPASS::1
 verenigingen/tests/chapter/test_chapter_board_document.py::TestChapterBoardDocument.test_uploaded_by_auto_populated::PERMISSION BYPASS::1

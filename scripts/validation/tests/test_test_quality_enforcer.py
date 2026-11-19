@@ -732,8 +732,10 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # own_notification_keys. Baseline shrink committed with the code.
         # 213 -> 211 findings, 194 -> 192 keys (#2284): TestSecureDocumentOperationAuthorization's
         # two BUSINESS LOGIC MOCK findings went with its rewrite onto real users and roles.
-        self.assertEqual(211, len(self.findings), "finding count moved")
-        self.assertEqual(192, len(tqe.counts_of(self.findings)), "key count moved")
+        # 211 -> 204 findings, 192 -> 186 keys (#2787): deleting the dead test_volunteer_journey.py
+        # removed its 6 PERMISSION BYPASS keys (7 findings). Baseline shrink committed with the code.
+        self.assertEqual(204, len(self.findings), "finding count moved")
+        self.assertEqual(186, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them
