@@ -223,6 +223,27 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
         self.assertEqual((stored.enabled, stored.status), (1, "Active"))
         self.assertEqual(result, chapter_name)
 
+    def test_primary_chapter_orders_by_join_date_not_insertion_1161(self):
+        """The NEWER chapter_join_date wins even when its row was created FIRST.
+
+        The older row is saved last, so an unordered query (or ASC) returns the older chapter."""
+        member = self.create_test_member(
+            first_name="Test",
+            last_name=f"Order {self.test_id}",
+            email=f"order{self.test_id.lower()}@example.com",
+        )
+        newer_chapter = self.create_chapter()
+        older_chapter = self.create_chapter()
+        for chapter, join_date in ((newer_chapter, "2024-01-01"), (older_chapter, "2020-01-01")):
+            chapter.reload()
+            chapter.append(
+                "members",
+                {"member": member.name, "enabled": 1, "status": "Active", "chapter_join_date": join_date},
+            )
+            chapter.save()
+
+        self.assertEqual(get_member_primary_chapter(member.name), newer_chapter.name)
+
     def test_get_member_primary_chapter_with_multiple_chapters(self):
         """Test get_member_primary_chapter returns most recent chapter"""
         print("\n🧪 Testing get_member_primary_chapter with multiple chapters...")
