@@ -793,6 +793,40 @@ class TestAdapterNeverGuessesASequenceType(FrappeTestCase):
         self.assertEqual(self._s2839_seqtps(self._s2839_generate(batch)), ["FRST"])
         self.assertEqual(self.adapter._validation_summary.skipped_transactions, 1)
 
+    def test_refusal_alerts_staff_and_writes_an_error_log_row(self):
+        """The refusal must be visible: one alert for the batch and one Error Log row per refused row."""
+        title = "SEPA XML Adapter - Transaction Build Error"
+        logs_before = frappe.db.count("Error Log", {"method": title})
+        batch = self._s2839_batch(["FRST", ""])
+        with patch.object(self.adapter, "_send_validation_alert") as alert:
+            self._s2839_generate(batch)
+        alert.assert_called_once()
+        self.assertEqual(alert.call_args.args[0], "BATCH-S2839")
+        self.assertEqual(alert.call_args.args[1].skipped_invoice_details[0]["invoice"], "INV-S2839-1")
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), logs_before + 1)
+
+    def test_refusal_message_is_plain_text_and_not_logged_to_the_message_log(self):
+        batch = self._s2839_batch(["FRST", ""])
+        before = len(frappe.local.message_log)
+        self._s2839_generate(batch)
+        self.assertEqual(len(frappe.local.message_log), before, "a refused row must not add a message")
+        reason = self.adapter._validation_summary.skipped_invoice_details[0]["reason"]
+        self.assertNotIn("<", reason)
+        self.assertTrue(reason.startswith("Invoice INV-S2839-1"), reason)
+
+    def test_a_refused_row_without_a_sign_date_does_not_trip_strict_mode(self):
+        """The row is refused before its mandate date is looked up, so it adds nothing to the
+        missing-sign-date count that aborts the whole file under strict mode."""
+        original = frappe.db.get_single_value("Verenigingen Settings", "sepa_strict_mandate_validation")
+        frappe.db.set_single_value("Verenigingen Settings", "sepa_strict_mandate_validation", 1)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "sepa_strict_mandate_validation", original or 0
+        )
+        batch = self._s2839_batch(["FRST", ""])
+        batch.invoices[1].mandate_sign_date = None
+        self.assertEqual(self._s2839_seqtps(self._s2839_generate(batch)), ["FRST"])
+        self.assertEqual(self.adapter._validation_summary.missing_mandate_dates, 0)
+
     def test_a_batch_of_only_undeterminable_rows_produces_no_file(self):
         batch = self._s2839_batch(["", "INVALID"])
         with self.assertRaises(frappe.ValidationError):

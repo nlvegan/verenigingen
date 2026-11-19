@@ -20,10 +20,16 @@ from typing import Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, getdate, now_datetime
+from frappe.model.document import Document
+from frappe.utils import flt, get_datetime, getdate, now_datetime
 
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
-from verenigingen.verenigingen_payments.utils.sepa_constants import MAX_PAYMENT_INFO_ID_LENGTH
+from verenigingen.verenigingen_payments.utils.sepa_constants import (
+    MAX_PAYMENT_INFO_ID_LENGTH,
+    ROW_NOT_IN_FILE_CODE,
+    row_left_out_of_file,
+)
+from verenigingen.verenigingen_payments.utils.sepa_utilities import BatchLoggingUtilities
 from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
     EnhancedSEPAXMLGenerator,
     SEPACreditor,
@@ -434,6 +440,7 @@ class SEPAXMLAdapter:
                 transaction = self._build_transaction(invoice_item)
                 if transaction:
                     transactions.append(transaction)
+                    self._release_row_left_out_earlier(invoice_item)
             except Exception as e:
                 error_msg = str(e)
                 frappe.log_error(
@@ -448,14 +455,88 @@ class SEPAXMLAdapter:
                     self._validation_summary.add_skipped(
                         invoice_item.invoice, error_msg[:100]  # Truncate long error messages
                     )
+                self._record_row_left_out(invoice_item, error_msg)
 
+        self._sync_batch_totals_to_file(batch_doc)
+        self._log_left_out_rows(batch_doc)
         return transactions
+
+    def _set_row_state(self, invoice_item, status: str, result_code, result_message) -> None:
+        """Write a batch row's status fields. The batch is submitted and these child fields are not
+        allow_on_submit, so persist with set_value (no save, no commit), like
+        batch_processing_service._set_invoice_status_after_submit. A row that is not persisted
+        (an unsaved document or a test double) only gets the in-memory update."""
+        values = {"status": status, "result_code": result_code, "result_message": result_message}
+        for fieldname, value in values.items():
+            setattr(invoice_item, fieldname, value)
+        if (
+            isinstance(invoice_item, Document)
+            and isinstance(invoice_item.name, str)
+            and frappe.db.exists(invoice_item.doctype, invoice_item.name)
+        ):
+            frappe.db.set_value(invoice_item.doctype, invoice_item.name, values, update_modified=False)
+
+    def _record_row_left_out(self, invoice_item, reason: str) -> None:
+        """Mark a row the file does not contain (#2839), so mark-as-paid never books it and
+        its invoice can be collected again. Staff see the reason on the row."""
+        if invoice_item.status in ("Successful", "Processed"):
+            return  # already collected; regenerating a file must not un-collect it
+        self._set_row_state(invoice_item, "Failed", ROW_NOT_IN_FILE_CODE, f"Not in the SEPA file: {reason}")
+
+    def _release_row_left_out_earlier(self, invoice_item) -> None:
+        """A regeneration that now includes a row an earlier one left out makes it Pending again."""
+        if row_left_out_of_file(invoice_item.status, invoice_item.result_code):
+            self._set_row_state(invoice_item, "Pending", None, None)
+
+    def _log_left_out_rows(self, batch_doc) -> None:
+        """Say on the batch which invoices the file leaves out (batch_log is not allow_on_submit)."""
+        skipped = self._validation_summary.skipped_invoice_details if self._validation_summary else []
+        if not skipped or not isinstance(batch_doc, Document):
+            return
+        names = ", ".join(d["invoice"] for d in skipped)
+        BatchLoggingUtilities.add_to_document_batch_log(
+            batch_doc, f"{len(skipped)} invoice(s) left out of the SEPA file: {names}"
+        )
+        if isinstance(batch_doc.name, str) and frappe.db.exists(batch_doc.doctype, batch_doc.name):
+            frappe.db.set_value(
+                batch_doc.doctype, batch_doc.name, "batch_log", batch_doc.batch_log, update_modified=False
+            )
+
+    def _sync_batch_totals_to_file(self, batch_doc) -> None:
+        """Keep entry_count/total_amount equal to what the file contains.
+
+        The bank credits the file's control sum, and reconciliation compares a deposit to
+        batch.total_amount, so a total that still counted a left-out row would never match.
+        The left-out row stays visible on the batch as Failed, with its reason.
+        """
+        if not isinstance(batch_doc, Document):
+            return
+        rows = [r for r in batch_doc.invoices if not row_left_out_of_file(r.status, r.result_code)]
+        entry_count = len(rows)
+        total_amount = sum(flt(r.amount) for r in rows)
+        if batch_doc.entry_count == entry_count and flt(batch_doc.total_amount) == flt(total_amount):
+            return
+        batch_doc.entry_count = entry_count
+        batch_doc.total_amount = total_amount
+        if isinstance(batch_doc.name, str) and frappe.db.exists(batch_doc.doctype, batch_doc.name):
+            frappe.db.set_value(
+                batch_doc.doctype,
+                batch_doc.name,
+                {"entry_count": entry_count, "total_amount": total_amount},
+                update_modified=False,
+            )
 
     def _build_transaction(
         self,
         invoice_item,
     ) -> Optional[SEPATransaction]:
         """Build a single SEPATransaction from an invoice item."""
+        # Refuse an undeterminable SeqTp first (#2839), so a row that is left out never
+        # counts toward the strict-mode missing-mandate-date abort below. A blank/unknown
+        # value raises and the per-invoice handler records the row as skipped (like an
+        # invalid IBAN), so the rest of the batch still ships.
+        sequence_type = self._get_sequence_type(invoice_item.sequence_type, invoice_item.invoice)
+
         # Get mandate sign date with fallback lookup
         mandate_sign_date, used_fallback = self._get_mandate_sign_date(invoice_item)
 
@@ -465,11 +546,6 @@ class SEPAXMLAdapter:
             self._validation_summary.add_missing_mandate_date(
                 invoice_item.invoice or "UNKNOWN", invoice_item.mandate_reference or "UNKNOWN"
             )
-
-        # The row's own SeqTp, or a refusal (#2839). A blank/unknown value raises
-        # here and is recorded as a skipped transaction by the per-invoice handler
-        # (like an invalid IBAN), so the rest of the batch still ships.
-        sequence_type = self._get_sequence_type(invoice_item.sequence_type, invoice_item.invoice)
 
         # Validate the debtor IBAN up front. An invalid IBAN raises here and is caught
         # by the per-invoice handler in _build_transactions_from_batch, which records it
@@ -669,9 +745,11 @@ class SEPAXMLAdapter:
             "FNAL": SEPASequenceType.FNAL,
         }
         if type_str not in type_map:
-            frappe.throw(
-                _("Invoice {0}: sequence type {1} is blank or unknown; refusing to guess FRST/RCUR.").format(
-                    invoice or "UNKNOWN", frappe.bold(type_str or _("(blank)"))
+            # A plain raise, not frappe.throw: no message_log entry per refused row and no HTML
+            # in str(e), which reaches the skip reason and the staff alert mail.
+            raise frappe.ValidationError(
+                _("Invoice {0}, sequence type {1}: blank or unknown, refusing to guess FRST/RCUR").format(
+                    invoice or "UNKNOWN", type_str or _("(blank)")
                 )
             )
         return type_map[type_str]
