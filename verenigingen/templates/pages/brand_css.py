@@ -41,7 +41,7 @@ def get_context(context):
 @frappe.whitelist(allow_guest=True)
 @public_api
 def serve_brand_css():
-    """Serve brand CSS with proper MIME type"""
+    """Return brand CSS as the message of the JSON envelope, with no-cache headers on the wire"""
     try:
         # Read from the static CSS file
         css_path = get_brand_css_file_path()
