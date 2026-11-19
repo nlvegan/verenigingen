@@ -65,6 +65,10 @@ jobs:
         # test_workflow_ci_syntax_gates (#2399) runs flake8 against a scratch tree; without it
         # that test skips
         pip install flake8
+        # test_workflow_path_filter's YAML cross-check (#1585) compares the stdlib scanner
+        # against yaml.safe_load. It skipped here for as long as PyYAML was absent, and
+        # now FAILS under CI=true if PyYAML goes missing. The scanner itself stays stdlib-only.
+        pip install PyYAML==6.0.3
 
     # #2190: no `|| echo`. continue-on-error keeps this job green (the other validators here
     # are advisory too) but, unlike the `|| echo`, leaves the step's `outcome` real, so the
