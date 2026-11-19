@@ -84,7 +84,8 @@ class TestProcessBatchReturnsOnSubmittedBatch1235(EnhancedTestCase):
 
     def test_a_return_persists_the_failed_row_and_the_batch_state_on_a_really_submitted_batch(self):
         batch = self._really_submitted_batch(invoice_count=2)
-        returned, untouched = batch.invoices[0], batch.invoices[1]
+        # the SECOND row is the returned one, so a pick-first lookup fails this test
+        untouched, returned = batch.invoices[0], batch.invoices[1]
         path = self._return_file([returned.invoice], accepted_invoices=[untouched.invoice])
         untouched_before = self._row_state(untouched)
 

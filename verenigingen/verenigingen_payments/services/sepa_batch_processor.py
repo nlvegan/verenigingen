@@ -667,7 +667,10 @@ class SEPABatchProcessor:
             if failed_count > 0:
                 batch.status = "Partially Failed"
                 batch.add_to_batch_log(f"Processed {failed_count} returned payments")
-                # status and batch_log are not allow_on_submit either (#1230, #1235).
+                # batch_log is not allow_on_submit (status is), so both are persisted with
+                # db_set rather than batch.save() (#1230, #1235). A Draft batch therefore no
+                # longer re-runs validate() (the totals recalculation) here, intentionally:
+                # a return file only applies to a collected, i.e. submitted, batch.
                 batch.db_set("status", batch.status, update_modified=False)
                 batch.db_set("batch_log", batch.batch_log, update_modified=False)
 
