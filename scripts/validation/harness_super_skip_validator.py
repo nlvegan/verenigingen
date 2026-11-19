@@ -21,7 +21,10 @@ A class transitively rooted at ``VereningingenTestCase`` or ``EnhancedTestCase``
 a bare ``FrappeTestCase``/``unittest.TestCase`` subclass defines no such
 contract, so skipping ``super()`` there is a no-op, not a defect) that DEFINES
 one of the four lifecycle methods in its own body with NO ``super().<name>(...)``
-call anywhere in that method's AST. It does not evaluate what the override
+call anywhere in that method's AST. An explicit base call
+``Base.<same name>(self, ...)`` also honours the contract, provided ``Base`` is
+an ancestor of the class by the name resolution below (#1348); a call to an
+unrelated class, or to a different lifecycle method, does not. It does not evaluate what the override
 does with the isolation it skips, or whether the omission is currently
 harmless -- only whether the contract is honoured. It also does not flag a
 class that never overrides the method at all (normal MRO dispatch already
@@ -76,6 +79,8 @@ class ClassInfo:
     bases: list = field(default_factory=list)
     # method name -> True if a super().<name>(...) call exists in its body
     methods: dict = field(default_factory=dict)
+    # method name -> names of classes it calls explicitly as ``Name.<method>(self, ...)``
+    explicit_calls: dict = field(default_factory=dict)
     file: Path = None
     lineno: int = 0
 
@@ -126,6 +131,34 @@ class _SuperCallFinder(NodeVisitor):
         self.generic_visit(node)
 
 
+def _is_classmethod(func_node) -> bool:
+    return any(isinstance(d, Name) and d.id == "classmethod" for d in func_node.decorator_list)
+
+
+def _explicit_base_calls(func_node) -> set:
+    """Names ``X`` in ``X.<same method name>(self, ...)`` calls (#1348).
+
+    An instance method must pass its own first parameter; a classmethod is
+    called as ``X.setUpClass()`` (binding X), so no argument is required.
+    Whether X is really a base of the class is decided by the caller.
+    """
+    args = func_node.args.args
+    first = args[0].arg if args else None
+    names = set()
+    for node in walk(func_node):
+        if not (isinstance(node, Call) and isinstance(node.func, Attribute)):
+            continue
+        if node.func.attr != func_node.name:
+            continue
+        owner = _base_name(node.func.value)
+        if not owner:
+            continue
+        passes_self = bool(node.args) and isinstance(node.args[0], Name) and node.args[0].id == first
+        if passes_self or _is_classmethod(func_node):
+            names.add(owner)
+    return names
+
+
 def _method_calls_super(func_node) -> bool:
     finder = _SuperCallFinder(func_node.name)
     finder.visit(func_node)
@@ -157,11 +190,17 @@ def _visit_top_level_classes(node, path, root, registry):
         return
     bases = [b for b in (_base_name(n) for n in node.bases) if b]
     methods = {}
+    explicit_calls = {}
     for item in node.body:
         if isinstance(item, FunctionDef) and item.name in LIFECYCLE_METHODS:
             methods[item.name] = _method_calls_super(item)
+            explicit_calls[item.name] = _explicit_base_calls(item)
     registry[node.name] = ClassInfo(
-        bases=bases, methods=methods, file=path.relative_to(root), lineno=node.lineno
+        bases=bases,
+        methods=methods,
+        explicit_calls=explicit_calls,
+        file=path.relative_to(root),
+        lineno=node.lineno,
     )
 
 
@@ -174,6 +213,20 @@ def _is_harness_rooted(name: str, registry: dict, _seen=None) -> bool:
         return False
     _seen.add(name)
     return any(_is_harness_rooted(base, registry, _seen) for base in registry[name].bases)
+
+
+def _ancestors(name: str, registry: dict) -> set:
+    """Every base name reachable from ``name`` (names outside the registry included)."""
+    seen = set()
+    stack = list(registry[name].bases) if name in registry else []
+    while stack:
+        base = stack.pop()
+        if base in seen:
+            continue
+        seen.add(base)
+        if base in registry:
+            stack.extend(registry[base].bases)
+    return seen
 
 
 @dataclass
@@ -195,8 +248,10 @@ def find_violations(root: Path = SCAN_ROOT) -> list:
             continue  # the roots themselves correctly call super() up to FrappeTestCase
         if not _is_harness_rooted(name, registry):
             continue
+        ancestors = _ancestors(name, registry)
         for method, has_super in info.methods.items():
-            if not has_super:
+            calls_base = bool(info.explicit_calls.get(method, set()) & ancestors)
+            if not has_super and not calls_base:
                 violations.append(
                     Violation(
                         file=str(info.file),
