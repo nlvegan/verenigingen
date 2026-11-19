@@ -2082,5 +2082,33 @@ class TestNonResumableErrorsEscapeThePublicEntryPoints681(ReconBase):
                     inspect.unwrap(setup.test_sepa_workflow_step_by_step)()
 
 
+class TestSepaIntegrationSetupReferencesOnlyRealModules2641(unittest.TestCase):
+    """#2641: complete_sepa_integration_setup used to import two modules that do not exist
+    (verenigingen.setup.sepa_custom_fields, verenigingen.api.sepa_test_data), so two of its
+    four steps always reported an ImportError string while the call still said success."""
+
+    def test_no_setup_step_reports_a_missing_module(self):
+        import importlib.util
+        import inspect
+        from pathlib import Path
+
+        path = Path(recon.__file__).parents[3] / "scripts" / "api_maintenance" / "sepa_integration_setup.py"
+        spec = importlib.util.spec_from_file_location("_2641_sepa_integration_setup", path)
+        setup = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(setup)
+
+        # Unwrapped: the security decorators are not what is under test.
+        result = inspect.unwrap(setup.complete_sepa_integration_setup)()
+
+        self.assertTrue(result["success"], result)
+        missing = [line for line in result["setup_results"] if "No module named" in line]
+        self.assertEqual(missing, [], "a setup step still imports a module that does not exist")
+        # Control: the two steps that remain really ran (they report on real API calls).
+        self.assertTrue(
+            any("reconciliation API" in line or "SEPA API test" in line for line in result["setup_results"]),
+            result["setup_results"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
