@@ -647,10 +647,17 @@ class SEPABatchProcessor:
                 # Find the invoice in the batch
                 invoice_item = self.find_invoice_in_batch(batch, return_item)
                 if invoice_item:
-                    # Update invoice status
-                    invoice_item.status = "Failed"
-                    invoice_item.result_code = return_item.get("reason_code")
-                    invoice_item.result_message = return_item.get("reason_description")
+                    # A return file only exists for a collected, i.e. SUBMITTED, batch,
+                    # and these child fields are not allow_on_submit: persist them
+                    # directly, a batch.save() below would raise UpdateAfterSubmitError (#1235).
+                    invoice_item.db_set(
+                        {
+                            "status": "Failed",
+                            "result_code": return_item.get("reason_code"),
+                            "result_message": return_item.get("reason_description"),
+                        },
+                        update_modified=False,
+                    )
 
                     # Handle the failed payment
                     self.handle_failed_payment(invoice_item, return_item)
@@ -660,8 +667,10 @@ class SEPABatchProcessor:
             if failed_count > 0:
                 batch.status = "Partially Failed"
                 batch.add_to_batch_log(f"Processed {failed_count} returned payments")
+                # status and batch_log are not allow_on_submit either (#1230, #1235).
+                batch.db_set("status", batch.status, update_modified=False)
+                batch.db_set("batch_log", batch.batch_log, update_modified=False)
 
-            batch.save()
             return failed_count
 
         except Exception:
