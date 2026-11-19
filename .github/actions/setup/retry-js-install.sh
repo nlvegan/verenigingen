@@ -4,7 +4,7 @@
 #   ci_retry_js_install <label> <command> [args...]
 #
 # Runs the command (a shell function in the caller is fine). A failure whose output shows a
-# NETWORK/registry problem (npm E404 on a tarball that just got published, ECONNRESET, ETIMEDOUT,
+# NETWORK/registry problem (a 404 on a package TARBALL (`.../-/x.tgz`), which is a just-published version not yet propagated, ECONNRESET, ETIMEDOUT,
 # EAI_AGAIN, 5xx, yarn's "trouble with your network connection") is retried with backoff; if it
 # is still failing after the last attempt, an ::error:: names it an infrastructure failure, using
 # the standard wording that automerge_supervise.sh / classify_queue_drop.sh match.
@@ -13,7 +13,7 @@
 #
 # Env: CI_JS_INSTALL_ATTEMPTS (default 4), CI_JS_INSTALL_BACKOFF seconds, doubled per retry (default 15).
 
-_CI_JS_TRANSIENT='npm error code (E404|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|ESOCKETTIMEDOUT|EPIPE)|npm error network|npm ERR! (code (E404|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND)|network)|trouble with your network connection|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|(Unexpected|Bad) (HTTP )?(response|status)[^0-9]*5[0-9][0-9]|50[0234] (Bad Gateway|Service Unavailable|Gateway Time-out)'
+_CI_JS_TRANSIENT='npm error code (ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|ESOCKETTIMEDOUT|EPIPE)|npm error network|npm ERR! (code (ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND)|network)|trouble with your network connection|404 Not Found - GET [^ ]*/-/[^ ]*\.tgz|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|(Unexpected|Bad) (HTTP )?(response|status)[^0-9]*5[0-9][0-9]|50[0234] (Bad Gateway|Service Unavailable|Gateway Time-out)'
 
 ci_retry_js_install() {
   local label="$1"; shift
@@ -31,7 +31,7 @@ ci_retry_js_install() {
       return "$rc"
     fi
     if [ "$n" -ge "$attempts" ]; then
-      echo "::error::JS dependency install for ${label} failed after ${attempts} attempts with a registry/network error. This is an infrastructure failure, not a code failure - no test has run at this point. Re-run the job. (If the error above is an E404 for a version that does not exist, it is a real pin problem instead.)"
+      echo "::error::JS dependency install for ${label} failed after ${attempts} attempts with a registry/network error. This is an infrastructure failure, not a code failure - no test has run at this point. Re-run the job. (A 404 on a package name, or a version that does not exist (ETARGET), is a real pin problem instead and is not retried.)"
       rm -f "$log"
       return "$rc"
     fi
