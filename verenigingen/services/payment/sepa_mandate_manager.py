@@ -52,6 +52,7 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
+from verenigingen.utils.transaction_errors import DATABASE_ERROR, NON_RESUMABLE_DB_ERRORS
 
 if TYPE_CHECKING:
     # Quoted in annotations only; imported at call time to avoid a module-load cycle.
@@ -95,7 +96,6 @@ class SEPAMandateManager(StatelessService):
     # Configuration constants
     MAX_MANDATES_PER_MEMBER_PER_DAY = 999  # Maximum sequence number
     MANDATE_SEQUENCE_DIGITS = 3  # Zero-padding for sequence (supports 001-999)
-    MANDATE_REFERENCE_RETRIES = 5  # Max retries for deadlock handling
 
     def __init__(self):
         """Initialize the SEPA Mandate Manager"""
@@ -424,7 +424,8 @@ class SEPAMandateManager(StatelessService):
             Generated mandate reference string
 
         Raises:
-            frappe.ValidationError: If unable to generate unique reference after retries
+            frappe.ValidationError: If the reference cannot be generated
+            frappe.QueryDeadlockError / frappe.QueryTimeoutError: propagated, never retried in place
 
         Examples:
             >>> manager = SEPAMandateManager()
@@ -460,76 +461,62 @@ class SEPAMandateManager(StatelessService):
         date_str = now.strftime("%Y%m%d")
         base_pattern = f"M-{member_id_safe}-{date_str}"
 
-        # Atomic sequence allocation with deadlock retry
-        for retry in range(self.MANDATE_REFERENCE_RETRIES):
-            try:
-                # Use FOR UPDATE to lock rows and prevent concurrent reads
-                # This prevents race conditions where two threads get the same sequence
-                result = frappe.db.sql(
-                    """
-                    SELECT mandate_id
-                    FROM `tabSEPA Mandate`
-                    WHERE mandate_id LIKE %s
-                    ORDER BY mandate_id DESC
-                    LIMIT 1
-                    FOR UPDATE
-                    """,
-                    (f"{base_pattern}-%",),
-                    as_dict=1,
+        # Atomic sequence allocation. No in-place deadlock retry: see the NON_RESUMABLE_DB_ERRORS clause.
+        try:
+            # Use FOR UPDATE to lock rows and prevent concurrent reads
+            # This prevents race conditions where two threads get the same sequence
+            result = frappe.db.sql(
+                """
+                SELECT mandate_id
+                FROM `tabSEPA Mandate`
+                WHERE mandate_id LIKE %s
+                ORDER BY mandate_id DESC
+                LIMIT 1
+                FOR UPDATE
+                """,
+                (f"{base_pattern}-%",),
+                as_dict=1,
+            )
+
+            # Calculate next sequence number
+            if result and result[0].mandate_id:
+                try:
+                    last_seq = int(result[0].mandate_id.split("-")[-1])
+                    sequence = last_seq + 1
+                except (ValueError, IndexError):
+                    # Malformed mandate_id, start from 1
+                    sequence = 1
+            else:
+                # No existing mandates for this member today
+                sequence = 1
+
+            # Check sequence limit
+            if sequence > self.MAX_MANDATES_PER_MEMBER_PER_DAY:
+                raise frappe.ValidationError(
+                    _(
+                        "Maximum mandate limit ({0}) exceeded for member {1} on {2}. "
+                        "Please contact support."
+                    ).format(self.MAX_MANDATES_PER_MEMBER_PER_DAY, member_id, date_str)
                 )
 
-                # Calculate next sequence number
-                if result and result[0].mandate_id:
-                    try:
-                        last_seq = int(result[0].mandate_id.split("-")[-1])
-                        sequence = last_seq + 1
-                    except (ValueError, IndexError):
-                        # Malformed mandate_id, start from 1
-                        sequence = 1
-                else:
-                    # No existing mandates for this member today
-                    sequence = 1
+            # Format with zero-padding
+            sequence_str = str(sequence).zfill(self.MANDATE_SEQUENCE_DIGITS)
+            return f"M-{member_id}-{date_str}-{sequence_str}"
 
-                # Check sequence limit
-                if sequence > self.MAX_MANDATES_PER_MEMBER_PER_DAY:
-                    raise frappe.ValidationError(
-                        _(
-                            "Maximum mandate limit ({0}) exceeded for member {1} on {2}. "
-                            "Please contact support."
-                        ).format(self.MAX_MANDATES_PER_MEMBER_PER_DAY, member_id, date_str)
-                    )
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolls the WHOLE transaction back (savepoints included) and 1205 leaves a
+            # half-applied unit of work, so neither may be retried in place: a second lookup
+            # would run on a fresh transaction and the caller would carry on without the writes
+            # it made earlier in the request. Let it reach the transaction owner as itself (#2711).
+            raise
 
-                # Format with zero-padding
-                sequence_str = str(sequence).zfill(self.MANDATE_SEQUENCE_DIGITS)
-                return f"M-{member_id}-{date_str}-{sequence_str}"
+        except DATABASE_ERROR as e:
+            self.logger.error(f"Database error generating mandate reference: {e}")
+            raise frappe.ValidationError(_("Unable to generate mandate reference. Please try again."))
 
-            except frappe.InternalError as e:
-                # Database deadlock - retry with exponential backoff
-                if "Deadlock" in str(e) and retry < self.MANDATE_REFERENCE_RETRIES - 1:
-                    import time
-
-                    wait_time = 0.1 * (2**retry)  # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s
-                    self.logger.warning(
-                        f"Deadlock generating mandate reference (attempt {retry + 1}/{self.MANDATE_REFERENCE_RETRIES}), "
-                        f"retrying in {wait_time:.1f}s"
-                    )
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    # Not a deadlock or max retries exceeded
-                    self.logger.error(f"Database error generating mandate reference: {e}")
-                    raise frappe.ValidationError(_("Unable to generate mandate reference. Please try again."))
-
-            except Exception as e:
-                self.logger.error(f"Unexpected error generating mandate reference: {e}")
-                raise frappe.ValidationError(_("Unable to generate mandate reference: {0}").format(str(e)))
-
-        # Should never reach here, but just in case
-        raise frappe.ValidationError(
-            _("Unable to generate unique mandate reference after {0} attempts").format(
-                self.MANDATE_REFERENCE_RETRIES
-            )
-        )
+        except Exception as e:
+            self.logger.error(f"Unexpected error generating mandate reference: {e}")
+            raise frappe.ValidationError(_("Unable to generate mandate reference: {0}").format(str(e)))
 
     # ========== Mandate Creation Methods ==========
 
