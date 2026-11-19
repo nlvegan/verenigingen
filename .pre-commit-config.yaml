@@ -115,6 +115,8 @@ repos:
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/|archived_.*|archived_unused/|archived_deleted/)'
 
+      # #2323: ratcheted against scripts/validation/field_reference_baseline.txt; fails only on a
+      # finding that is not baselined (regenerate with --update-baseline when one is fixed).
       - id: enhanced-field-validator
         name: Context-aware field reference validator
         entry: python scripts/validation/enhanced_field_reference_validator.py
