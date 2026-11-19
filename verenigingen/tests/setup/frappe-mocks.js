@@ -546,6 +546,12 @@ function setupTestMocks() {
 			}
 			return defaultMsg || 'Unknown error';
 		}),
+		getSuccessMessage: jest.fn((message, defaultMsg) => {
+			if (message && typeof message === 'object' && message.meta && typeof message.meta === 'object') {
+				return message.meta.message || defaultMsg;
+			}
+			return defaultMsg;
+		}),
 		isFailureResult: jest.fn((message) => {
 			return message && typeof message === 'object' && 'success' in message && !message.success;
 		})
@@ -555,6 +561,7 @@ function setupTestMocks() {
 	global.escapeHtml = global.verenigingen.utils.escapeHtml;
 	global.unwrapOperationResult = global.verenigingen.utils.unwrapOperationResult;
 	global.getErrorMessage = global.verenigingen.utils.getErrorMessage;
+	global.getSuccessMessage = global.verenigingen.utils.getSuccessMessage;
 	global.isFailureResult = global.verenigingen.utils.isFailureResult;
 	global.isOperationResultFailed = global.verenigingen.utils.isFailureResult;
 
