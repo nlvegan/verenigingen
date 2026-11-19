@@ -98,3 +98,16 @@ def chapters_last(doc_infos) -> list:
     return [d for d in doc_infos if d["doctype"] != "Chapter"] + [
         d for d in doc_infos if d["doctype"] == "Chapter"
     ]
+
+
+def delete_chapter_member_row(row_name: str) -> None:
+    """Remove one Chapter Member row without running its ``on_trash`` (#2745).
+
+    ``on_trash`` mails the member a farewell and the board a notice, resolving the default
+    company on the way. Teardown removing a row is not a member leaving, and a company that is
+    broken at that moment (``test_approval_without_invoice`` restores it in an ``addCleanup``,
+    after the drain) made the delete raise and leak the row. The row used to go silently with
+    its Chapter's forced delete; the Chapter is now refused while its Member exists, so the
+    drain reaches the row first.
+    """
+    frappe.db.delete("Chapter Member", {"name": row_name})

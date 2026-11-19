@@ -10,6 +10,8 @@ symptoms of this framework gap; see
 docs/plans/2026-05-24-test-framework-tracked-doc-drain-design.md.
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -899,6 +901,31 @@ class TestDrainRemovesAChapterThatIsStillReferenced2745(EnhancedTestCase):
         self.assertIn(("Member", member_name), [tuple(k) for k in self._captured_inserts], "precondition")
 
         self._drain2745_run_both_drains()
+
+        self.assertEqual(self.leaked_records, [])
+        self.assertFalse(frappe.db.exists("Chapter", chapter_name))
+        self.assertFalse(frappe.db.exists("Member", member_name))
+
+    def test_an_enrolment_row_is_removed_without_running_its_farewell_mail_hook(self):
+        """A Chapter delete is refused while its Member exists (#2745), so the Chapter Member row
+        is no longer swept away silently WITH its Chapter: the drain reaches the row first. Deleted
+        through delete_doc it runs on_trash, a farewell mail that resolves the default company, and
+        a company that is broken at teardown (test_approval_without_invoice restores it only in an
+        addCleanup, after the drain) leaked the row. Removing a row in teardown is not a member leaving.
+
+        Stand-in, stated: on_trash raises as the broken company made it raise, rather than breaking
+        the site-wide company setting, which would need a commit to survive the drain's rollback.
+        """
+        from verenigingen.verenigingen.doctype.chapter_member.chapter_member import ChapterMember
+
+        chapter_name, member_name = self._create_drain2745_member_enrolled_in_a_later_chapter()
+        self.assertTrue(
+            frappe.db.exists("Chapter Member", {"parent": chapter_name, "member": member_name}),
+            "precondition: the enrolment row exists",
+        )
+
+        with patch.object(ChapterMember, "on_trash", side_effect=frappe.ValidationError("farewell mail")):
+            self._drain2745_run_both_drains()
 
         self.assertEqual(self.leaked_records, [])
         self.assertFalse(frappe.db.exists("Chapter", chapter_name))

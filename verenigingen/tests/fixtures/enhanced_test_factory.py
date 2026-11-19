@@ -198,6 +198,7 @@ from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.company_orphans import purge_company_orphans
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 from verenigingen.tests.utils.force_delete import (
+    delete_chapter_member_row,
     delete_role_and_grants,
     release_single_links_to_chapter,
     vacate_board_seats_of_chapters,
@@ -2322,6 +2323,9 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             if doctype == "Role":
                 # #1856: a bare delete strands `Has Role` rows on surviving users.
                 delete_role_and_grants(name)
+            elif doctype == "Chapter Member":
+                # #2745: a teardown removal, not a member leaving; skip its mailing on_trash.
+                delete_chapter_member_row(name)
             else:
                 if doctype == "Chapter":
                     release_single_links_to_chapter(name)
