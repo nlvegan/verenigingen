@@ -719,8 +719,13 @@ class TestYamlImportGuard(unittest.TestCase):
         raise ImportError(name)
 
     def test_missing_yaml_fails_under_ci(self):
-        with self.assertRaises(self.failureException) as ctx:
-            _import_yaml_or_fail_in_ci(self, ci="true", importer=self._no_yaml)
+        # A SkipTest here must be a RED, not a skip: SkipTest is not a failureException,
+        # so without this wrapper a guard that skips under CI would skip THIS test too.
+        try:
+            with self.assertRaises(self.failureException) as ctx:
+                _import_yaml_or_fail_in_ci(self, ci="true", importer=self._no_yaml)
+        except unittest.SkipTest:
+            self.fail("guard skipped instead of failing under CI")
         self.assertIn("#1585", str(ctx.exception))
 
     def test_missing_yaml_skips_outside_ci(self):
