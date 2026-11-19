@@ -507,7 +507,9 @@ class SEPAMandateManager(StatelessService):
             # 1213 rolls the WHOLE transaction back (savepoints included) and 1205 leaves a
             # half-applied unit of work, so neither may be retried in place: a second lookup
             # would run on a fresh transaction and the caller would carry on without the writes
-            # it made earlier in the request. Let it reach the transaction owner as itself (#2711).
+            # it made earlier in the request. This function re-raises it as itself; whether it then reaches
+            # the transaction owner depends on the caller (create_mandate's own `except Exception`
+            # still turns it into a failure result, see #2869).
             raise
 
         except DATABASE_ERROR as e:
