@@ -33,6 +33,7 @@ PRODUCT BUGS exposed (xfailed / documented below and in the orchestrator report)
 
 import json
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import frappe
@@ -2085,6 +2086,67 @@ class TestNonResumableErrorsEscapeThePublicEntryPoints681(ReconBase):
                     # the decorators are not what is under test.
                     inspect.unwrap(setup.test_sepa_workflow_step_by_step)()
 
+
+class TestSepaIntegrationSetupReferencesOnlyRealModules2641(unittest.TestCase):
+    """#2641: complete_sepa_integration_setup used to import two modules that do not exist
+    (verenigingen.setup.sepa_custom_fields, verenigingen.api.sepa_test_data), so two of its
+    four steps always reported an ImportError string while the call still said success."""
+
+    SETUP_FILE = Path(recon.__file__).parents[3] / "scripts" / "api_maintenance" / "sepa_integration_setup.py"
+
+    def test_every_verenigingen_import_in_the_file_resolves_to_a_real_module(self):
+        """Static, so it also catches a swallowed ImportError (a handler that turns the failure
+        into `pass` leaves the runtime test below green)."""
+        import ast
+
+        root = self.SETUP_FILE.parents[2]
+        tree = ast.parse(self.SETUP_FILE.read_text())
+        modules = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules += [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                modules.append(node.module)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "import_module"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                modules.append(node.args[0].value)
+        ours = [m for m in modules if m == "verenigingen" or m.startswith("verenigingen.")]
+        self.assertTrue(ours, "control: the scan found no verenigingen import at all")
+
+        def resolves(dotted):
+            base = root.joinpath(*dotted.split("."))
+            return base.with_suffix(".py").is_file() or (base / "__init__.py").is_file()
+
+        self.assertEqual([m for m in ours if not resolves(m)], [])
+
+    def test_no_setup_step_reports_a_failure(self):
+        import importlib.util
+        import inspect
+
+        spec = importlib.util.spec_from_file_location("_2641_sepa_integration_setup", self.SETUP_FILE)
+        setup = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(setup)
+
+        previous_user = frappe.session.user
+        frappe.set_user("Administrator")
+        self.addCleanup(frappe.set_user, previous_user)
+
+        # Unwrapped: the security decorators are not what is under test.
+        result = inspect.unwrap(setup.complete_sepa_integration_setup)()
+
+        self.assertTrue(result["success"], result)
+        lines = result["setup_results"]
+        self.assertIn("SEPA reconciliation API functions working", lines)
+        self.assertTrue(
+            any(line.startswith("Transaction identification working") for line in lines), lines
+        )
+        self.assertEqual([line for line in lines if "error" in line.lower()], [])
 
 if __name__ == "__main__":
     unittest.main()
