@@ -41,6 +41,12 @@ class TestExchangeRateSeed2766(EnhancedTestCase):
             ):
                 frappe.delete_doc("Currency Exchange", name, force=True, ignore_permissions=True)
 
+    def _seed_from_scratch(self):
+        """Drop whatever the site already holds (before_tests commits the seed, so the
+        rows usually pre-exist), then build them with the helper under test."""
+        self._delete_seeded_rows()
+        factory.ensure_test_exchange_rates()
+
     def _set_allow_stale(self, value):
         original = frappe.db.get_single_value("Accounts Settings", "allow_stale")
         frappe.db.set_single_value("Accounts Settings", "allow_stale", value)
@@ -51,6 +57,7 @@ class TestExchangeRateSeed2766(EnhancedTestCase):
 
     def test_every_seeded_pair_resolves_without_a_live_fetch(self):
         today = getdate()
+        self._seed_from_scratch()
         with _live_fetch_refused():
             for from_currency, to_currency in PAIRS:
                 for args in (None, "for_buying", "for_selling"):
@@ -61,6 +68,7 @@ class TestExchangeRateSeed2766(EnhancedTestCase):
     def test_with_stale_rates_disallowed_the_dated_row_still_hits(self):
         """allow_stale off: only a row inside `stale_days` of the posting date counts."""
         self._set_allow_stale(0)
+        self._seed_from_scratch()
         with _live_fetch_refused():
             for from_currency, to_currency in PAIRS:
                 self.assertGreater(get_exchange_rate(from_currency, to_currency, getdate()), 0)

@@ -374,6 +374,8 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
 
         # #2766: the stored exchange rates every test relies on, built in the factory
         # module. Losing them to the drain puts the live-fetch refusal back.
+        from verenigingen.tests.fixtures import enhanced_test_factory as factory_module
+
         self.assertTrue(
             hasattr(factory_module.ensure_test_exchange_rates, "__wrapped__"),
             "ensure_test_exchange_rates creates shared master data and must be @shared_fixture",
