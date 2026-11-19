@@ -176,10 +176,7 @@ def before_tests():
 
     # #2766: committed exchange rates for every module, including those whose test
     # case has no harness setUp (plain FrappeTestCase / unittest). Idempotent.
-    from verenigingen.tests.fixtures.enhanced_test_factory import ensure_test_exchange_rates
-
-    ensure_test_exchange_rates()
-    frappe.db.commit()
+    _create_test_exchange_rates()
 
     # Seed the Mode of Payment records the app and many tests depend on
     # (Bank Transfer, SEPA Direct Debit, Mollie, Manual, Cash). The same helper
@@ -280,6 +277,18 @@ def seed_for_standalone_module_runs():
     finally:
         toggle_test_mode(was_in_test)
         frappe.flags.mute_emails = was_muted
+
+
+def _create_test_exchange_rates():
+    """Seed stored Currency Exchange rows and COMMIT them (#2766).
+
+    Committed so the class-level rollback of a plain FrappeTestCase module cannot
+    take them away. A `_create_*` builder, like the other seed helpers here.
+    """
+    from verenigingen.tests.fixtures.enhanced_test_factory import ensure_test_exchange_rates
+
+    ensure_test_exchange_rates()
+    frappe.db.commit()
 
 
 def find_stale_single_links():
