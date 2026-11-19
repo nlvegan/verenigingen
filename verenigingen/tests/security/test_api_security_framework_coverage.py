@@ -635,6 +635,10 @@ class TestWhitelistAdapterCoverage(VereningingenTestCase):
         registered = frappe.whitelist()(func)
         self.addCleanup(frappe.whitelisted.discard, registered)
         self.addCleanup(frappe.allowed_http_methods_for_whitelisted_func.pop, registered, None)
+        # frappe.whitelist(allow_guest=True) would also populate these; discard so a
+        # future guest/xss variant of this helper cannot leak into the registry.
+        self.addCleanup(frappe.guest_methods.discard, registered)
+        self.addCleanup(frappe.xss_safe_methods.discard, registered)
         # Guard the premise: no attribute marker, so only the registry can say yes.
         self.assertFalse(getattr(registered, "__func_is_whitelisted__", False))
         self.assertIn(registered, frappe.whitelisted)
