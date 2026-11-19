@@ -109,3 +109,26 @@ class TestApprovalInvoiceChapterAttribution(ApprovalCase):
         self.assertEqual(
             frappe.db.get_value("Sales Invoice", retry["invoice"], "custom_member_chapter"), self.chapter.name
         )
+
+    def test_the_applied_chapter_row_is_already_active_when_the_core_runs(self):
+        """Pins the ORDER the maintainer ruled (#2916): activate first. The attribution outcome alone is also
+        met by the ruled-out fix (widening get_member_primary_chapter to count Pending rows), so the row's
+        state at the core's entry is what tells the two apart."""
+        from verenigingen.services.member.approval.membership_creation_service import MembershipCreationService
+
+        seen = []
+        real = MembershipCreationService.create_membership_on_approval
+
+        def wrapper(service, member_doc, *args, **kwargs):
+            seen.append(self._row_status(member_doc.name))
+            return real(service, member_doc, *args, **kwargs)
+
+        name = self._stage_and_confirm()
+        # Mock justified: pass-through spy on the core's entry; the real function still runs.
+        with patch.object(
+            MembershipCreationService, "create_membership_on_approval", autospec=True, side_effect=wrapper
+        ):
+            result = self._approve_as(name, create_invoice=True)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(seen, ["Active"], "the Pending row is Active before the first invoice is created")

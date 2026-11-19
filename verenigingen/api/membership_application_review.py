@@ -132,9 +132,9 @@ def _activate_pending_chapter_memberships(member, applied_chapter):
 
     Note on Chapter Member SQL: it is a child table on Chapter, so the chapter name lives in ``parent``.
 
-    Errors are logged but do not fail the approval - the membership and
-    invoice have already been created at the call site, and a follow-up
-    chapter manual activation is recoverable.
+    Errors are logged but do not fail the approval. This step runs BEFORE the membership and the first
+    invoice are created (#2916), so a swallowed failure here leaves that invoice without a chapter; a
+    follow-up manual activation is recoverable but does not back-fill the invoice.
     """
     activated = []
     if not applied_chapter:
@@ -216,7 +216,7 @@ def assign_member_to_chapter(member, chapter, notify=None):
 
         # already_exists is the ordinary case of approving with the applicant's own chapter or a chapter
         # holding the member's Pending row (add_member leaves that row; _activate_pending_chapter_memberships
-        # flips the applied and the reviewer's chapter afterwards), so only other outcomes are failures. The
+        # flips the applied and the reviewer's chapter before the core), so only other outcomes are failures. The
         # approval still proceeds, so they must reach the Error Log: frappe.logger() writes
         # nowhere anyone reads (#1797).
         if not result.get("success") and result.get("action") != "already_exists":
@@ -706,7 +706,7 @@ def _approve_membership_application_locked(
     # Assign the reviewer's chapter only now that the Member is saved as Active (#1797).
     # add_member derives a NEW row's enabled/status from the Member's current status; run
     # before the flip, it read 'Pending' and wrote the row enabled=0/Inactive, which the
-    # activation step below (it only flips 'Pending' rows) never repaired.
+    # activation step (it only flips 'Pending' rows) never repaired.
     assign_member_to_chapter(member, chapter)
     _tell_boards_of_activated_joins(member, activated_chapters)
     if chapter:
