@@ -523,6 +523,66 @@ class TestBankAPIClient(VereningingenTestCase):
         self.assertIn("503", result["error"])
         self.assertIn("maintenance", result["error"])
 
+    # ------------------------------------------------------------------
+    # fetch_statements transport-failure branches (#2591). Driven through the real
+    # method with `requests.get` replaced at the IO boundary. The Bank Integration
+    # Settings DocType is not installed on any site (its module "Verenigingen Utils"
+    # is not in modules.txt), so the test installs a minimal real Single of the same
+    # name (custom=1, no table) and removes it afterwards.
+    # ------------------------------------------------------------------
+    def _configure_bank_settings(self):
+        if frappe.db.exists("DocType", "Bank Integration Settings"):
+            self.skipTest("Bank Integration Settings is installed here; its real settings are not touched")
+        doctype = frappe.get_doc(
+            {
+                "doctype": "DocType",
+                "name": "Bank Integration Settings",
+                "module": "Verenigingen",
+                "custom": 1,
+                "issingle": 1,
+                "fields": [
+                    {"fieldname": "api_endpoint", "fieldtype": "Data", "label": "API Endpoint"},
+                    {"fieldname": "account_id", "fieldtype": "Data", "label": "Account ID"},
+                ],
+                "permissions": [{"role": "System Manager", "read": 1}],
+            }
+        ).insert()
+        self.addCleanup(frappe.delete_doc, "DocType", doctype.name, force=True)
+        frappe.db.set_single_value("Bank Integration Settings", "api_endpoint", "https://bank.invalid/psd2")
+        frappe.db.set_single_value("Bank Integration Settings", "account_id", "ACC1")
+
+    def _fetch_with_transport(self, **requests_get_kwargs):
+        from unittest.mock import patch
+
+        self._configure_bank_settings()
+        # Mock justified: External Service - the bank's HTTP API, not business logic
+        with patch("requests.get", **requests_get_kwargs) as fake_get:
+            result = self.client.fetch_statements("2025-03-15")
+        return result, fake_get
+
+    def test_a_request_timeout_is_reported_as_a_timeout(self):
+        import requests
+
+        result, fake_get = self._fetch_with_transport(side_effect=requests.exceptions.Timeout())
+        self.assertEqual(fake_get.call_count, 1, "premise: the request was attempted")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "Bank API request timeout - please try again later")
+
+    def test_a_connection_error_is_reported_as_a_connection_error(self):
+        import requests
+
+        result, fake_get = self._fetch_with_transport(side_effect=requests.exceptions.ConnectionError())
+        self.assertEqual(fake_get.call_count, 1, "premise: the request was attempted")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "Cannot connect to bank API - please check network connection")
+
+    def test_the_timeout_and_connection_messages_are_distinct(self):
+        """Control: a generic failure takes the catch-all branch, not either handler."""
+        self.expectErrorLog("Bank API integration error: boom")
+        result, _ = self._fetch_with_transport(side_effect=ValueError("boom"))
+        self.assertFalse(result["success"])
+        self.assertTrue(result["error"].startswith("Unexpected error"), result)
+
 
 class TestInvoiceReferenceMatching(VereningingenTestCase):
     """R3: shared SINV-/ACC-SINV-/INV- reference matching is consolidated in
@@ -845,6 +905,108 @@ class TestMT940ImportOnlyPaysSubmittedInvoices(VereningingenTestCase):
         self.assertEqual(
             resolve_invoice_from_reference(f"PAYMENT {submitted.name} THANKS"), submitted.name
         )
+
+
+class TestBankStatementImportDuplicateGuardAndCamtPath(VereningingenTestCase):
+    """#2591: `_create_payment_entry`'s "Payment already exists" guard and the CAMT.053
+    parse-to-paid-invoice path, both driven through the real import (real file, real
+    Sales Invoice, real Payment Entry; nothing stubbed).
+
+    The guard keys on a SUBMITTED Payment Entry whose `reference_no` is
+    `BANK_IMPORT_<invoice>`; see test_a_partial_payment_blocks_the_balance_import
+    for the consequence of that key.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.company, _income = self._owned_company_and_income_account()
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = f"Dup Guard Debtor {frappe.generate_hash(length=6)}"
+        customer.customer_type = "Individual"
+        customer.save()
+        self.track_doc("Customer", customer.name)
+        self.customer = customer.name
+        self.invoice = self.create_test_sales_invoice(customer=self.customer, company=self.company)
+        self.invoice.submit()
+        self.invoice.reload()
+        self.assertEqual(self.invoice.docstatus, 1, "premise: a submitted invoice")
+
+    def _statement(self, amount):
+        """A CAMT.053 file whose one credit names the invoice in EndToEndId."""
+        entry = (
+            f'<Ntry><Amt Ccy="EUR">{amount:.2f}</Amt><CdtDbtInd>CRDT</CdtDbtInd>'
+            "<BookgDt><Dt>2026-11-12</Dt></BookgDt><NtryDtls><TxDtls>"
+            f"<Refs><EndToEndId>{self.invoice.name}</EndToEndId></Refs>"
+            "<RltdPties><Dbtr><Nm>Nobody In Particular</Nm></Dbtr></RltdPties>"
+            "<RmtInf><Ustrd>Dues</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>"
+        )
+        handle = tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False, encoding="utf-8")
+        handle.write(_camt053(entry))
+        handle.close()
+        self.addCleanup(os.unlink, handle.name)
+        return handle.name
+
+    def _import_camt(self, amount):
+        importer = BankStatementImporter()
+        result = importer._import_camt053(open(self._statement(amount), encoding="utf-8").read())
+        return importer, result
+
+    def _guard_payment_entries(self):
+        names = frappe.get_all(
+            "Payment Entry",
+            filters={"reference_no": f"BANK_IMPORT_{self.invoice.name}", "docstatus": 1},
+            pluck="name",
+        )
+        for name in names:
+            self.track_doc("Payment Entry", name)
+        return names
+
+    def test_a_camt_credit_naming_a_submitted_invoice_pays_it(self):
+        """The full CAMT.053 path: parse -> resolve -> Payment Entry -> invoice paid."""
+        total = float(self.invoice.grand_total)
+        importer, result = self._import_camt(total)
+        self.assertEqual(result["transactions_imported"], 1, (importer.errors, importer.warnings))
+        self.assertEqual(len(self._guard_payment_entries()), 1)
+        self.invoice.reload()
+        self.assertEqual(float(self.invoice.outstanding_amount), 0.0)
+        self.assertEqual(self.invoice.status, "Paid")
+
+    def test_importing_the_same_statement_twice_books_one_payment(self):
+        total = float(self.invoice.grand_total)
+        first, first_result = self._import_camt(total)
+        self.assertEqual(first_result["transactions_imported"], 1, (first.errors, first.warnings))
+        self.assertEqual(len(self._guard_payment_entries()), 1, "premise: the first import paid")
+
+        second, second_result = self._import_camt(total)
+
+        self.assertEqual(second_result["transactions_imported"], 0)
+        self.assertEqual(len(self._guard_payment_entries()), 1, "the second import booked a duplicate")
+        self.assertEqual(second.errors, [], "the refusal must come from the guard, not from a failure")
+        self.assertEqual(
+            second.warnings,
+            [f"Payment already exists for invoice {self.invoice.name}"],
+        )
+
+    def test_a_partial_payment_blocks_the_balance_import(self):
+        """CHARACTERISATION of the guard's key (not an endorsement): it is per invoice, not
+        per bank line, so once ANY submitted BANK_IMPORT_<invoice> Payment Entry exists a
+        later, different statement line for the balance is refused too. Pinned so that
+        changing the key (e.g. to include the transaction) is a deliberate decision.
+        """
+        total = float(self.invoice.grand_total)
+        part = round(total / 2, 2)
+        first, first_result = self._import_camt(part)
+        self.assertEqual(first_result["transactions_imported"], 1, (first.errors, first.warnings))
+        self.invoice.reload()
+        self.assertAlmostEqual(float(self.invoice.outstanding_amount), total - part, places=2)
+
+        second, second_result = self._import_camt(total - part)
+
+        self.assertEqual(second_result["transactions_imported"], 0)
+        self.assertEqual(len(self._guard_payment_entries()), 1)
+        self.assertTrue(any("Payment already exists" in w for w in second.warnings), second.warnings)
+        self.invoice.reload()
+        self.assertAlmostEqual(float(self.invoice.outstanding_amount), total - part, places=2)
 
 
 if __name__ == "__main__":
