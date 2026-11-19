@@ -1212,9 +1212,6 @@ def setup_workspace():
     # Clean up workspace first
     cleanup_workspace_links()
 
-    # Then add new links
-    update_workspace_links()
-
     # Ensure module onboarding is linked
     install_and_link_onboarding()
 
@@ -1291,117 +1288,6 @@ def cleanup_workspace_links():
 
     except Exception as e:
         print(f"   ⚠️ Workspace cleanup failed: {str(e)}")
-        raise
-
-
-def update_workspace_links():
-    """Add new links to workspace"""
-    try:
-        if not frappe.db.exists("Workspace", "Verenigingen"):
-            print("   ℹ️  Verenigingen workspace doesn't exist - skipping link updates")
-            return
-
-        workspace = frappe.get_doc("Workspace", "Verenigingen")
-
-        # Links to add (only if doctype exists)
-        potential_links = [
-            # Termination & Appeals Section
-            {
-                "hidden": 0,
-                "is_query_report": 0,
-                "label": "Termination & Appeals",
-                "link_count": 2,
-                "link_type": "DocType",
-                "onboard": 0,
-                "type": "Card Break",
-            },
-            {
-                "dependencies": "",
-                "hidden": 0,
-                "is_query_report": 0,
-                "label": "Membership Termination Request",
-                "link_count": 0,
-                "link_to": "Membership Termination Request",
-                "link_type": "DocType",
-                "onboard": 0,
-                "type": "Link",
-            },
-            {
-                "dependencies": "",
-                "hidden": 0,
-                "is_query_report": 0,
-                "label": "SEPA Mandate",
-                "link_count": 0,
-                "link_to": "SEPA Mandate",
-                "link_type": "DocType",
-                "onboard": 0,
-                "type": "Link",
-            },
-            {
-                "dependencies": "",
-                "hidden": 0,
-                "is_query_report": 0,
-                "label": "Direct Debit Batch",
-                "link_count": 0,
-                "link_to": "Direct Debit Batch",
-                "link_type": "DocType",
-                "onboard": 0,
-                "type": "Link",
-            },
-        ]
-
-        # Only add links for existing doctypes
-        links_added = 0
-        for link in potential_links:
-            link_to = link.get("link_to")
-            if not link_to or frappe.db.exists("DocType", link_to) or link.get("type") == "Card Break":
-                # Check if link already exists
-                exists = False
-                for existing_link in workspace.links:
-                    if existing_link.get("label") == link.get("label"):
-                        exists = True
-                        break
-
-                if not exists:
-                    workspace.append("links", link)
-                    links_added += 1
-                    print(f"   ✓ Added link: {link.get('label')}")
-
-        # Add new shortcuts (only for existing doctypes)
-        potential_shortcuts = [
-            {
-                "color": "Red",
-                "label": "Termination Requests",
-                "link_to": "Membership Termination Request",
-                "type": "DocType",
-            },
-            {"color": "Blue", "label": "SEPA Mandates", "link_to": "SEPA Mandate", "type": "DocType"},
-        ]
-
-        shortcuts_added = 0
-        for shortcut in potential_shortcuts:
-            link_to = shortcut.get("link_to")
-            if frappe.db.exists("DocType", link_to):
-                # Check if shortcut already exists
-                exists = False
-                for existing_shortcut in workspace.shortcuts:
-                    if existing_shortcut.get("label") == shortcut.get("label"):
-                        exists = True
-                        break
-
-                if not exists:
-                    workspace.append("shortcuts", shortcut)
-                    shortcuts_added += 1
-                    print(f"   ✓ Added shortcut: {shortcut.get('label')}")
-
-        if links_added > 0 or shortcuts_added > 0:
-            workspace.save(ignore_permissions=True)
-            print(f"   ✅ Added {links_added} links and {shortcuts_added} shortcuts")
-        else:
-            print("   ✓ No new links or shortcuts needed")
-
-    except Exception as e:
-        print(f"   ⚠️ Workspace update failed: {str(e)}")
         raise
 
 
