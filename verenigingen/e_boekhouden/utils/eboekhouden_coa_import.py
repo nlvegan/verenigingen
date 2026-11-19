@@ -803,12 +803,9 @@ def create_missing_bank_accounts(company=None):
                     account=account_doc, bank_name=bank_name, bank_info=bank_info, company=company
                 )
 
-                if bank_account:
-                    created_accounts.append(
-                        {"account": account_name, "bank_account": bank_account, "bank_name": bank_name}
-                    )
-                else:
-                    errors.append(f"Failed to create Bank Account for {account_name}")
+                created_accounts.append(
+                    {"account": account_name, "bank_account": bank_account, "bank_name": bank_name}
+                )
 
             except Exception as e:
                 error_msg = f"Error creating Bank Account for {missing_account['account']}: {str(e)}"

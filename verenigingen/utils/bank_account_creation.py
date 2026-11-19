@@ -68,7 +68,7 @@ def create_bank_account(
 ) -> str:
     """Create a Bank Account on ``gl_account``. Raises on failure.
 
-    ``currency`` must equal the GL Account's ``account_currency``: a mismatch would make
+    ``currency`` must equal the GL Account's ``account_currency`` (when it has one): a mismatch would make
     ERPNext refuse every Bank Transaction later, so it is refused here with both values.
     """
     gl_currency = frappe.db.get_value("Account", gl_account, "account_currency")
@@ -76,7 +76,7 @@ def create_bank_account(
         raise BankAccountCreationError(
             f"GL Account {gl_account} not found", {"gl_account": gl_account, "iban": iban}
         )
-    if gl_currency != currency:
+    if gl_currency and gl_currency != currency:  # a legacy GL row with no currency is not compared
         raise BankAccountCreationError(
             f"GL Account {gl_account} is in {gl_currency}, not {currency}; a Bank Account "
             f"takes the currency of its GL Account",

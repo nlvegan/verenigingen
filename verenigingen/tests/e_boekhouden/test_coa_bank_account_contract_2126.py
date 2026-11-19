@@ -20,8 +20,13 @@ import random
 import frappe
 
 from verenigingen.e_boekhouden.services.account_migration_service import AccountMigrationService
-from verenigingen.e_boekhouden.utils.eboekhouden_coa_import import create_missing_bank_accounts
+from verenigingen.e_boekhouden.utils.eboekhouden_coa_import import (
+    create_bank_accounts_for_existing_coa,
+    create_bank_accounts_from_coa,
+    create_missing_bank_accounts,
+)
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.singleton_backup import singleton_backup
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoIntegrationError
 from verenigingen.verenigingen_payments.ponto.utils.bank_account_creator import (
@@ -86,6 +91,48 @@ class TestCoaCallerContracts2126(_CoaBankBase):
         self.assertTrue(any(bad.name in error for error in result["errors"]), result["errors"])
         self.assertTrue(frappe.db.exists("Bank Account", {"account": good.name}))
         self.assertFalse(frappe.db.exists("Bank Account", {"account": bad.name}))
+
+
+    def _assert_loop_continues_past_a_failing_account(self, run, reason_reported=False):
+        """``run`` returns the caller's result dict. One failing and one good account: the
+        call still succeeds, the good one is created and counted, the failing one is not.
+        With ``reason_reported`` the failing one must also be named in ``errors`` (new in
+        #2126: develop returned None silently, so its ``errors`` stayed empty)."""
+        self.expectErrorLog("Bank")
+        good, _ = self._gl_account("Algemeen")
+        bad, _ = self._gl_account(LONG_DESCRIPTION)
+        before = frappe.db.count("Bank Account", {"company": self.company})
+
+        result = run()
+
+        self.assertTrue(result["success"], result)
+        self.assertTrue(frappe.db.exists("Bank Account", {"account": good.name}))
+        self.assertFalse(frappe.db.exists("Bank Account", {"account": bad.name}))
+        self.assertEqual(result["created"], frappe.db.count("Bank Account", {"company": self.company}) - before)
+        self.assertEqual([e for e in result["errors"] if good.name in e], [])
+        if reason_reported:
+            self.assertEqual(len([e for e in result["errors"] if bad.name in e]), 1, result["errors"])
+
+    def test_create_bank_accounts_from_coa_continues_past_a_failure(self):
+        self._assert_loop_continues_past_a_failing_account(
+            lambda: create_bank_accounts_from_coa(frappe._dict(company=self.company))
+        )
+
+    def test_create_bank_accounts_for_existing_coa_continues_past_a_failure(self):
+        with singleton_backup("E-Boekhouden Settings"):
+            frappe.db.set_single_value("E-Boekhouden Settings", "default_company", self.company)
+            self._assert_loop_continues_past_a_failing_account(create_bank_accounts_for_existing_coa)
+
+    def test_the_loop_callers_name_a_failing_account_in_errors(self):
+        """New in #2126: the creator raises, so the per-account handler records the reason."""
+        self._assert_loop_continues_past_a_failing_account(
+            lambda: create_bank_accounts_from_coa(frappe._dict(company=self.company)), reason_reported=True
+        )
+        with singleton_backup("E-Boekhouden Settings"):
+            frappe.db.set_single_value("E-Boekhouden Settings", "default_company", self.company)
+            self._assert_loop_continues_past_a_failing_account(
+                create_bank_accounts_for_existing_coa, reason_reported=True
+            )
 
 
 class TestPontoCreatorContract2126(_CoaBankBase):
@@ -154,3 +201,19 @@ class TestSharedCreatorNewBehaviour2126(_CoaBankBase):
         mine = [error for error in result["errors"] if bad.name in error]
         self.assertEqual(len(mine), 1, result["errors"])
         self.assertIn("Data too long", mine[0])
+
+    def test_a_gl_account_with_no_currency_is_not_compared(self):
+        """Develop accepted a GL account whose account_currency is blank (a legacy row);
+        only a recorded, different currency is refused. db.set_value stands in for such a
+        legacy row: ERPNext fills the field on every save, so no flow writes it blank."""
+        from verenigingen.utils.bank_account_creation import create_bank_account, ensure_bank_record
+
+        bank = ensure_bank_record("Triodos Bank")
+        gl, _ = self._gl_account("Legacy")
+        frappe.db.set_value("Account", gl.name, "account_currency", "")
+        created = create_bank_account(
+            gl_account=gl.name, bank=bank,
+            account_name=f"Blank 2126 {frappe.generate_hash(length=6)}",
+            company=self.company, currency="EUR",
+        )
+        self.assertEqual(frappe.db.get_value("Bank Account", created, "account"), gl.name)
