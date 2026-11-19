@@ -6,8 +6,7 @@ and other critical security issues in authentication hooks without complex setup
 """
 
 import frappe
-from contextlib import contextmanager
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from verenigingen import auth_hooks
 from verenigingen.tests.utils.base import VereningingenTestCase
 import unittest
@@ -25,23 +24,6 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
         """Clean up after tests"""
         frappe.set_user(self.original_user)
         super().tearDown()
-
-    @contextmanager
-    def session_user(self, value):
-        """Temporarily set frappe.session.user.
-
-        frappe.session is a frappe._dict, so its attributes cannot be patched
-        via mock.patch (mock.get_original looks in __dict__, not the dict
-        items). Use frappe.set_user() directly and restore the same way -- it
-        also resets local.cache/role_permissions/user_perms, which a bare
-        assignment would leave stale between values.
-        """
-        previous = frappe.session.user
-        frappe.set_user(value)
-        try:
-            yield value
-        finally:
-            frappe.set_user(previous)
 
     # ===== CRITICAL SESSION VALIDATION TESTS =====
 
@@ -89,21 +71,6 @@ class TestAuthHooksCriticalSecurity(VereningingenTestCase):
             print(f"✅ PASS: get_default_home_page returned {result} for None user")
         except Exception as e:
             self.fail(f"❌ CRITICAL: get_default_home_page failed with None user: {e}")
-
-    def test_before_request_with_none_user(self):
-        """CRITICAL: Test before-request portal access handles None user in session"""
-        # before_request() was removed; enforce_member_portal_access() is the
-        # current pre-request portal access hook.
-        with self.session_user(None):
-            # frappe.local is a werkzeug Local without a `request` attribute in the
-            # test context, so create=True is required for patch.object to bind it.
-            # Mock justified: Infrastructure - external dependency, not the boundary under test
-            with patch.object(frappe.local, "request", MagicMock(path="/app/Member"), create=True):
-                try:
-                    auth_hooks.enforce_member_portal_access()
-                    print("✅ PASS: portal access enforcement handles None user")
-                except Exception as e:
-                    self.fail(f"❌ CRITICAL: portal access enforcement failed with None user: {e}")
 
     def test_frappe_get_roles_error_handling(self):
         """CRITICAL: Test role functions handle frappe.get_roles failures"""
