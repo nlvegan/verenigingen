@@ -699,6 +699,61 @@ class ScanRootFlagTest(unittest.TestCase):
             self.assertEqual(0, rc)
 
 
+    def _printed_remediation(self, argv, baseline_name):
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as d:
+            root = self._tree(d)
+            baseline = root / baseline_name
+            dhv.write_baseline(baseline, {}, {})
+            old_repo_root = dhv.REPO_ROOT
+            dhv.REPO_ROOT = root
+            buf = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(buf):
+                    rc = self._run_main(argv + ["--baseline", str(baseline)])
+            finally:
+                dhv.REPO_ROOT = old_repo_root
+        return rc, buf.getvalue()
+
+    def test_growth_remediation_names_the_scripts_root_and_baseline(self):
+        """#1429 review: the hard-coded remediation regenerated the WRONG
+        (verenigingen) baseline for the scripts population."""
+        rc, out = self._printed_remediation(["--root", "scripts"], "scripts_baseline.txt")
+        self.assertEqual(1, rc)
+        cmd = [ln.strip() for ln in out.splitlines() if "--update-baseline" in ln]
+        self.assertTrue(cmd, out)
+        for line in cmd:
+            self.assertIn("--root scripts", line)
+            self.assertIn("scripts_baseline.txt", line)
+
+    def test_growth_remediation_for_the_default_population_is_unchanged(self):
+        """Control: the default population still prints the bare command."""
+        with tempfile.TemporaryDirectory() as d:
+            root = self._tree(d)
+            (root / "verenigingen" / "c.py").write_text(f"def _dflt_clone():\n{self._BODY}\n")
+            (root / "verenigingen" / "d.py").write_text(f"def _dflt_clone():\n{self._BODY}\n")
+            baseline = root / "b.txt"
+            dhv.write_baseline(baseline, {}, {})
+            old_repo_root = dhv.REPO_ROOT
+            dhv.REPO_ROOT = root
+            import contextlib
+            import io
+
+            buf = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(buf):
+                    rc = self._run_main(["--baseline", str(dhv.DEFAULT_BASELINE)])
+            finally:
+                dhv.REPO_ROOT = old_repo_root
+        self.assertEqual(1, rc)
+        self.assertIn(
+            "    python scripts/validation/duplicate_helper_validator.py --update-baseline\n",
+            buf.getvalue() + "\n",
+        )
+
+
 class KnownGapTest(unittest.TestCase):
     """A gap #769 documents rather than fixes.
 

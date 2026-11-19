@@ -9,6 +9,8 @@ for it too. The verenigingen-root steps are the control: they must still be ther
 import unittest
 from pathlib import Path
 
+import yaml
+
 try:
     from test_workflow_field_validator_exit_code import steps_running
 except ImportError:  # dotted-module run
@@ -51,6 +53,19 @@ class ScriptsDuplicateHelperRatchetIsWiredTests(unittest.TestCase):
     def test_a_step_fails_when_scripts_clone_family_copies_grow(self):
         blocks = [b for b in self._steps(_BASELINE) if "exit 1" in b and "clone-family" in b]
         self.assertEqual(len(blocks), 1, blocks)
+
+    def test_the_scripts_sync_gate_passes_fail_on_shrink(self):
+        """Parse the step: without $FAIL_ON_SHRINK the push-side shrink gate is
+        silently off, and a whole-file substring would still find it elsewhere."""
+        steps = yaml.safe_load(self.text)["jobs"][_JOB]["steps"]
+        sync = [
+            st
+            for st in steps
+            if "baseline_shrink_gate.py" in st.get("run", "") and "--root scripts" in st.get("run", "")
+        ]
+        self.assertEqual(len(sync), 1, sync)
+        self.assertIn("$FAIL_ON_SHRINK", sync[0]["run"])
+        self.assertIn("--fail-on-shrink", sync[0]["env"]["FAIL_ON_SHRINK"])
 
 
 if __name__ == "__main__":
