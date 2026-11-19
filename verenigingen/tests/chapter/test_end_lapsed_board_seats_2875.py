@@ -312,7 +312,6 @@ class TestEndLapsedBoardSeats2875(VereningingenTestCase):
 
     def test_an_orphan_lapsed_seat_reaches_the_alert(self):
         """Parent Chapter gone (#2745 leaves rows behind): reported under its own reason, not ended."""
-        self.expectErrorLog("Board seat expiry failed")
         staff = self._staff_2875()
         chapter = self._chapter_2875("orphan")
         person = self._person_2875("Orphan")
@@ -328,4 +327,48 @@ class TestEndLapsedBoardSeats2875(VereningingenTestCase):
         alerts = self._alerts_2875(staff, chapter.name)
         self.assertEqual(len(alerts), 1)
         self.assertIn("parent chapter missing", alerts[0].email_content)
+        # The `exists` check is what keeps an orphan out of the Error Log: without it the job logs a
+        # DoesNotExistError row every day for a chapter nobody can fix by saving it.
+        self.assertEqual(
+            [e.method for e in self._expiry_errors_2875() if chapter.name in (e.method + e.error)],
+            [],
+            "an orphan must be alerted, not logged once a day",
+        )
         self.assertEqual(self._state_2875(row).is_active, 1, "no new ending path for orphans")
+
+    def test_alert_side_trouble_never_undoes_the_ended_seats(self):
+        """A cache that raises while the alert is being released must not escape the job: the
+        scheduler would roll back every chapter this run ended."""
+        self.expectErrorLog("Board seat expiry")
+        bad_chapter, good_chapter = self._chapter_2875("alertbad"), self._chapter_2875("alertgood")
+        bad_row = self._lapse_seat_2875(bad_chapter, self._person_2875("AlertBad"))
+        good_row = self._lapse_seat_2875(good_chapter, self._person_2875("AlertGood"))
+        self._break_chapter_2875(bad_chapter)
+
+        def boom(*args, **kwargs):
+            raise ConnectionError("simulated: redis went away")
+
+        with (
+            mock.patch("verenigingen.services.chapter.board_seat_expiry_service._was_delivered", lambda r: False),
+            mock.patch.object(frappe.cache, "delete", boom),
+        ):
+            ended, failed = end_lapsed_board_seats()
+
+        self.assertEqual(ended, 1)
+        self.assertEqual([c for c, _r, _w in failed], [bad_chapter.name])
+        self.assertEqual(self._state_2875(good_row).is_active, 0, "the alert failure undid a good chapter")
+        self.assertEqual(self._state_2875(bad_row).is_active, 1)
+
+    def test_a_claim_that_cannot_be_logged_still_fails_open(self):
+        from verenigingen.services.chapter import board_seat_expiry_service as svc
+
+        def boom(*args, **kwargs):
+            raise ConnectionError("simulated: redis went away")
+
+        with (
+            mock.patch.object(frappe.cache, "set", boom),
+            mock.patch.object(frappe, "log_error", boom),
+        ):
+            key = svc._claim(("Some Chapter", ["row"], "reason"))
+
+        self.assertTrue(key, "an unreachable cache must fail open, not raise")

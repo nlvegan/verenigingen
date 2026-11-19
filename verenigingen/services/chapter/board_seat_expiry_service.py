@@ -67,7 +67,14 @@ def end_lapsed_board_seats() -> tuple:
         ended += count
         if reason:
             failed.append((chapter_name, row_names, reason))
-    _alert_staff(failed)
+    try:
+        _alert_staff(failed)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception:
+        # Alert trouble must never undo the work: an exception here reaches the scheduler, which
+        # rolls back every chapter this run ended.
+        frappe.log_error(title="Board seat expiry alert failed", message=frappe.get_traceback())
     return ended, failed
 
 
@@ -142,7 +149,10 @@ def _claim(item):
     try:
         return key if frappe.cache.set(key, "1", ex=REALERT_SECONDS, nx=True) else None
     except Exception:
-        frappe.log_error(title="Board seat expiry alert not deduplicated", message=frappe.get_traceback())
+        try:
+            frappe.log_error(title="Board seat expiry alert not deduplicated", message=frappe.get_traceback())
+        except Exception:
+            pass  # the cache is down and so, it seems, is logging: still fail open
         return key  # fail open: a repeat alert beats a missed one
 
 
