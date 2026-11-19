@@ -552,5 +552,4 @@ REUSE verenigingen_payments/ing_checkout/tests/test_transaction.py::2  # order-d
 REUSE verenigingen_payments/mollie/tests/fixtures/payment_entry_fixtures.py::1  # order-dependence
 REUSE verenigingen_payments/mollie/tests/mollie_integration_check.py::1  # order-dependence
 REUSE verenigingen_payments/mollie/tests/test_donation_lookup_integration.py::1  # order-dependence
-REUSE verenigingen_payments/mollie/tests/test_payment_webhook_sweep.py::1  # order-dependence
 REUSE verenigingen_payments/mollie/tests/test_webhook_integration_comprehensive.py::1  # order-dependence

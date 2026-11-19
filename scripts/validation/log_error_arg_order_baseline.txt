@@ -581,7 +581,6 @@ verenigingen/verenigingen_payments/hooks/payment_hook.py::PaymentHook.initiate_p
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_notify_member_of_payment_failure::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_validate_payment_amount::5
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::create_payment_entry_for_donation::1
-verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::process_failed_payment::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::process_successful_member_payment::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::update_donation_payment_history::1
 verenigingen/verenigingen_payments/mollie/api/sync.py::_handle_subscription_status_change::1

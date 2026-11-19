@@ -124,7 +124,6 @@ _create_member_with_volunteer::2  # clone family, 1 near-identical pair(s)
 _create_membership_invoice::2
 _create_mock_gateway::2  # clone family, 1 near-identical pair(s)
 _create_mock_mandate::2
-_create_mock_payment_data::2  # clone family, 1 near-identical pair(s)
 _create_mock_settings::2
 _create_own_address::2  # clone family, 1 near-identical pair(s)
 _create_party::2

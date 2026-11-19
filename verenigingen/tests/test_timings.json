@@ -1250,7 +1250,6 @@
  "verenigingen.verenigingen_payments.mollie.tests.test_mollie_subscription_recreation_unit": 20,
  "verenigingen.verenigingen_payments.mollie.tests.test_mollie_sync_unit": 8,
  "verenigingen.verenigingen_payments.mollie.tests.test_order_payment_processor_integration": 8,
- "verenigingen.verenigingen_payments.mollie.tests.test_payment_context_resolver": 9,
  "verenigingen.verenigingen_payments.mollie.tests.test_payment_entry_factory": 14,
  "verenigingen.verenigingen_payments.mollie.tests.test_payment_entry_factory_db": 10,
  "verenigingen.verenigingen_payments.mollie.tests.test_payment_processors": 10,
