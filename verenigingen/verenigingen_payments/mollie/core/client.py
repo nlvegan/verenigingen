@@ -274,6 +274,7 @@ class MollieClient:
         try:
             return self._read_subscription_payments(customer_id, subscription_id, limit)
         except Exception as e:
+            reraise_if_job_timeout(e)  # #2777: never turn an RQ job timeout into a MolliePaymentError
             error_msg = (
                 f"Failed to list payments of subscription {subscription_id} for customer {customer_id}: {e}"
             )
@@ -296,6 +297,7 @@ class MollieClient:
         try:
             return self._read_next_payments_page(page)
         except Exception as e:
+            reraise_if_job_timeout(e)  # #2777: never turn an RQ job timeout into a MolliePaymentError
             error_msg = f"Failed to fetch the next page of Mollie payments: {e}"
             frappe.log_error(title="Mollie Client", message=error_msg)
             raise MolliePaymentError(error_msg, original_error=e)
