@@ -105,3 +105,42 @@ class TestApprovalInvoiceCostCenter2944(ApprovalCase):
         self.assertTrue(retry["invoice"], retry)
         items = frappe.get_doc("Sales Invoice", retry["invoice"]).items
         self.assertEqual([i.cost_center for i in items], [chapter_cc])
+
+    def _assert_resolver_equals_the_dues_generators_lookup(self, member_name, company):
+        from verenigingen.services.billing.invoice_generator import (
+            InvoiceGenerator,
+            resolve_member_cost_center,
+        )
+
+        schedule = frappe.get_doc(
+            "Membership Dues Schedule",
+            frappe.db.get_value("Membership Dues Schedule", {"member": member_name, "status": "Active"}, "name"),
+        )
+        member = frappe.get_doc("Member", member_name)
+        resolved = resolve_member_cost_center(company, member)
+        self.assertTrue(resolved, "premise: some cost center resolves")
+        self.assertEqual(resolved, InvoiceGenerator(schedule)._get_cost_center(company, member))
+        return resolved
+
+    def test_the_resolver_equals_the_dues_generators_lookup_in_every_fallback_state(self):
+        """Pins equivalence of the lookup itself. The invoice-level control cannot: with the chapter cost center
+        cleared, ERPNext fills the company default into the item anyway, so a chapter-only lookup passes it.
+        Probe shortcuts: direct `db.set_value` clears Chapter.cost_center and nulls Company.cost_center."""
+        company = frappe.db.get_single_value("Verenigingen Settings", "company")
+        member, _invoice = self._approve_and_load()
+        chapter_cc = frappe.db.get_value("Chapter", self.chapter.name, "cost_center")
+        self.assertEqual(self._assert_resolver_equals_the_dues_generators_lookup(member, company), chapter_cc)
+
+        frappe.db.set_value("Chapter", self.chapter.name, "cost_center", None)
+        company_default = frappe.db.get_value("Company", company, "cost_center")
+        self.assertTrue(company_default, "premise: the company has a default cost center to fall back to")
+        self.assertEqual(
+            self._assert_resolver_equals_the_dues_generators_lookup(member, company), company_default
+        )
+
+        frappe.db.set_value("Company", company, "cost_center", None)
+        self.addCleanup(frappe.db.set_value, "Company", company, "cost_center", company_default)
+        abbr = frappe.db.get_value("Company", company, "abbr")
+        fallback = self._assert_resolver_equals_the_dues_generators_lookup(member, company)
+        self.assertEqual(frappe.db.get_value("Cost Center", fallback, "company"), company)
+        self.assertIn(fallback, (f"Main - {abbr}", frappe.db.get_value("Cost Center", {"company": company, "cost_center_name": "Main"}, "name")))
