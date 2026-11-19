@@ -869,6 +869,23 @@ class TestReconciledBatchThenMarkProcessed2798(ReconBase):
         batch_processing_service.refresh_batch_status_from_rows(batch)
         self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Partially Processed")
 
+    def test_the_partial_outcome_is_a_status_the_batch_doctype_declares_1237(self):
+        """#1237: a Select value outside the doctype's options is accepted by db_set but
+        rejected by the next save(). The options are read from the meta, not hardcoded."""
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        items, batch, _ = self._reconciled_batch()
+        batch.invoices[0].db_set("status", "Successful", update_modified=False)
+
+        batch_processing_service.refresh_batch_status_from_rows(batch)
+
+        declared = (frappe.get_meta("Direct Debit Batch").get_field("status").options or "").split("\n")
+        written = frappe.db.get_value("Direct Debit Batch", batch.name, "status")
+        self.assertIn(written, declared)
+        self.assertNotEqual(written, "Processed", "one of two rows collected is not a full success")
+
     def test_a_batch_in_another_status_keeps_it_through_reconciliation(self):
         """Ruling on #2798: only Submitted/Processed are refreshed. Rolled Back must stay."""
         items, batch, bt = self._reconciled_batch()
