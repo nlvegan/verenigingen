@@ -15,7 +15,6 @@ Run:
 """
 
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.utils import flt, today
@@ -23,8 +22,8 @@ from frappe.utils import flt, today
 from verenigingen.tests.payment.test_bank_transaction_reconciliation import BTRBase
 from verenigingen.tests.support import forward_refusal as refusal
 from verenigingen.verenigingen_payments.services.payment import payment_entry_service
-from verenigingen.verenigingen_payments.utils import bank_transaction_reconciliation as btr
 from verenigingen.verenigingen_payments.utils import bank_transaction_status
+from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 
 
 class _CancelledMolliePaymentFixture2470(BTRBase):
@@ -32,8 +31,10 @@ class _CancelledMolliePaymentFixture2470(BTRBase):
         super().setUp()
         self.payment_id = f"tr_2470_{frappe.generate_hash(length=8)}"
 
-    def _book_forward_entry_and_staff_cancel(self):
-        """A real Receive entry under the payment id for one member's invoice, then cancelled."""
+    def _book_forward_entry_and_staff_cancel(self, reference=None):
+        """A real Receive entry under the reference (default: the payment id) for one member's
+        invoice, then cancelled."""
+        reference = reference or self.payment_id
         first = self._make_member_with_invoice(first_name="Fwd2470", grand_total=40.0)
 
         def book():
@@ -41,22 +42,29 @@ class _CancelledMolliePaymentFixture2470(BTRBase):
                 invoice_name=first["invoice"].name,
                 amount=Decimal("40.00"),
                 posting_date=today(),
-                reference_no=self.payment_id,
+                reference_no=reference,
                 reference_date=today(),
                 mode_of_payment="Mollie",
                 payment_type="Receive",
             )
 
-        return refusal.book_then_staff_cancel(self, self.payment_id, book)
+        return refusal.book_then_staff_cancel(self, reference, book)
 
-    def _pool_candidate(self, grand_total=40.0, description_invoice=True):
+    def _pool_candidate(self, grand_total=40.0, reference=None, system_issued=True):
         """Another member's unpaid invoice, and a DRAFT Bank Transaction (pool row) whose
-        reference is the Mollie payment id and whose description names that invoice."""
+        description names that invoice. By default it is what the Mollie creator writes: reference
+        = the payment id, system-issued flag set. Probe shortcut: built by hand with the flag the
+        real creator sets (the real flow submits its row, which takes it out of the pool)."""
         it = self._make_member_with_invoice(first_name="Pool2470", grand_total=grand_total)
-        description = f"INVOICE {it['invoice'].name}" if description_invoice else "no reference"
         bt = self._make_bank_transaction(
-            deposit=grand_total, description=description, reference_number=self.payment_id
+            deposit=grand_total,
+            description=f"INVOICE {it['invoice'].name}",
+            reference_number=reference or self.payment_id,
         )
+        if system_issued:
+            frappe.db.set_value("Bank Transaction", bt.name, SYSTEM_ISSUED_FIELDNAME, 1, update_modified=False)
+            bt.reload()
+        self.assertEqual(bool(bt.get(SYSTEM_ISSUED_FIELDNAME)), system_issued)
         return it, bt
 
     def _entries_for(self, invoice_name):
@@ -153,49 +161,32 @@ class TestPoolRefusesStaffCancelledMolliePayment(_CancelledMolliePaymentFixture2
         it, bt = self._pool_candidate()
         self.expectErrorLog("Payment Entry Validation", "Reconciliation")
 
-        self.mgr.match_transaction(self._txn_dict(bt))
+        self.assertTrue(self.mgr.match_transaction(self._txn_dict(bt)), "a booked payment was refused")
 
+        self.assertEqual(len(self._entries_for(it["invoice"].name)), 1)
         refusal.assert_no_refusal(self, self.payment_id)
 
+    def _assert_reference_still_reconciles(self, reference, system_issued):
+        self._book_forward_entry_and_staff_cancel(reference)
+        it, bt = self._pool_candidate(reference=reference, system_issued=system_issued)
 
-class TestSettlementRefusesStaffCancelledMolliePayment(_CancelledMolliePaymentFixture2470):
-    """The settlement path books ``reference_no = <payment id>`` per payment of a settlement."""
+        self.assertTrue(self.mgr.match_transaction(self._txn_dict(bt)))
 
-    def _settle(self, invoice_name, amount):
-        client = MagicMock()
-        client.get_payments_for_settlement.return_value = [
-            {
-                "id": self.payment_id,
-                "metadata": {"invoice_id": invoice_name},
-                "amount": {"value": f"{flt(amount):.2f}"},
-            }
-        ]
-        bt = self._make_bank_transaction(deposit=amount, description="Mollie settlement", date=today())
-        with patch.object(btr, "SettlementsClient", return_value=client):
-            return self.mgr.process_mollie_settlement(
-                frappe.get_doc("Bank Transaction", bt.name),
-                "stl_2470",
-                {"id": "stl_2470", "amount": {"value": f"{flt(amount):.2f}"}},
-            )
+        self.assertEqual(len(self._entries_for(it["invoice"].name)), 1)
+        refusal.assert_no_refusal(self, reference)
 
-    def test_a_settlement_does_not_book_a_payment_whose_entry_staff_cancelled(self):
-        cancelled = self._book_forward_entry_and_staff_cancel()
-        it = self._make_member_with_invoice(first_name="Stl2470", grand_total=40.0)
+    def test_a_bank_supplied_reference_beside_a_cancelled_entry_still_reconciles(self):
+        """MT940 NONREF-style references repeat across unrelated payments (reviewer probe of
+        bbe6c0bae: BT2 refused with a 'Mollie payment' alert). Written by an importer, so no
+        system-issued flag."""
+        self._assert_reference_still_reconciles(f"MT940-NONREF-{frappe.generate_hash(length=8)}", False)
 
-        result = self._settle(it["invoice"].name, 40.0)
+    def test_a_system_issued_non_mollie_reference_beside_a_cancelled_entry_still_reconciles(self):
+        """The flag is also set for settlement ids and e-Boekhouden ids, which are not forward
+        payments: the Mollie id shape is the second half of the gate."""
+        self._assert_reference_still_reconciles(f"EB-{frappe.generate_hash(length=8)}", True)
 
-        self.assertEqual(self._entries_for(it["invoice"].name), [], "the settlement booked the payment")
-        self.assertEqual([d["status"] for d in result["details"]], ["refused_staff_cancelled"])
-        refusal.assert_not_rebooked(self, self.payment_id, cancelled)
-        refusal.assert_refused_once(self, self.payment_id, "40.00")
-
-    def test_control_a_settlement_still_attempts_a_payment_never_booked(self):
-        """Whether the booking then succeeds depends on the site's Mollie/GL currency set-up (it
-        fails on a site whose company is INR), so the control asserts only what this fix owns:
-        a never-booked payment is not refused and raises no alert."""
-        it = self._make_member_with_invoice(first_name="StlCtl2470", grand_total=40.0)
-
-        result = self._settle(it["invoice"].name, 40.0)
-
-        self.assertNotIn("refused_staff_cancelled", [d["status"] for d in result["details"]])
-        refusal.assert_no_refusal(self, self.payment_id)
+    def test_a_mollie_shaped_reference_the_writer_did_not_flag_still_reconciles(self):
+        """The writer, not the prefix, says who issued a reference (#1349): a payer can type
+        `tr_...` into an end-to-end reference."""
+        self._assert_reference_still_reconciles(f"tr_2470_typed_{frappe.generate_hash(length=8)}", False)

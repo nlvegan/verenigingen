@@ -20,12 +20,13 @@ from verenigingen.utils.transaction_errors import (
 )
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
-from verenigingen.verenigingen_payments.utils import bank_transaction_status
+from verenigingen.verenigingen_payments.utils import bank_transaction_reference_key, bank_transaction_status
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
 )
 from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    is_mollie_style_reference,
     refuse_staff_cancelled_forward_payment,
 )
 from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
@@ -1019,6 +1020,21 @@ class PaymentReconciliationManager:
             frappe.log_error(f"Database error getting unpaid invoices: {str(e)}")
             return []
 
+    @staticmethod
+    def _is_mollie_payment_line(bank_trans):
+        """True only for a row whose WRITER says its reference is a Mollie payment id.
+
+        The refusal helper keys on reference_no alone. A bank-supplied reference (MT940
+        NONREF, a payer's end-to-end reference) can repeat across unrelated payments, and a
+        cancelled Payment Entry under one must not block the next. Both conditions: the
+        writer's system-issued flag (#1349: a prefix alone is a guess about who wrote the
+        string) AND the Mollie id shape the idempotency key uses, since the flag is also set
+        for settlement ids and e-Boekhouden `EB-` references, which are not forward payments.
+        """
+        return bool(
+            bank_trans.get(bank_transaction_reference_key.SYSTEM_ISSUED_FIELDNAME)
+        ) and is_mollie_style_reference(bank_trans.reference_number)
+
     def create_reconciliation(self, transaction, match):
         """Create reconciliation entry for matched transaction"""
 
@@ -1032,14 +1048,17 @@ class PaymentReconciliationManager:
 
             bank_trans = frappe.get_doc("Bank Transaction", transaction["name"])
 
-            # The Payment Entry written below carries reference_no = the Bank Transaction's
-            # reference, which for a Mollie row is the payment id. Staff cancelled that
-            # payment's entry: refuse like the Mollie writers do (#2470, ruling of #2406). The
-            # line stays in the pool; the helper alerts staff once per payment.
-            if match["type"] in ("batch", "invoice") and refuse_staff_cancelled_forward_payment(
-                bank_trans.reference_number, bank_trans.deposit, "the bank transaction reconciliation pool"
-            ):
-                return False
+            # The Payment Entry written for an invoice match carries reference_no = the Bank
+            # Transaction's reference, which for a Mollie row is the payment id. Staff cancelled
+            # that payment's entry: refuse like the Mollie writers do (#2470, ruling of #2406).
+            # The line stays in the pool; the helper alerts staff once per payment.
+            if match["type"] == "invoice" and self._is_mollie_payment_line(bank_trans):
+                if refuse_staff_cancelled_forward_payment(
+                    bank_trans.reference_number,
+                    bank_trans.deposit,
+                    "the bank transaction reconciliation pool",
+                ):
+                    return False
 
             if match["type"] == "batch":
                 # A batch match's `reference` is a Direct Debit Batch name, NOT a
@@ -1898,23 +1917,6 @@ class PaymentReconciliationManager:
                             "mollie_payment_id": mollie_payment_id,
                             "status": "duplicate",
                             "note": "Payment already processed",
-                        }
-                    )
-                    continue
-
-                # Staff cancelled this payment's entry: do not book it again (#2470, ruling of
-                # #2406). Left unaccounted like invoice_not_submitted, so the settlement stays
-                # retryable and the fee entry waits for staff.
-                if refuse_staff_cancelled_forward_payment(
-                    mollie_payment_id,
-                    payment.get("amount", {}).get("value"),
-                    "the Mollie settlement reconciliation",
-                ):
-                    processed_payments.append(
-                        {
-                            "mollie_payment_id": mollie_payment_id,
-                            "status": "refused_staff_cancelled",
-                            "note": "Payment Entry was cancelled by staff; not booked again",
                         }
                     )
                     continue
