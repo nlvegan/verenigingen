@@ -13,7 +13,7 @@ been queried.
 """
 
 import frappe
-from frappe.utils import today
+from frappe.utils import add_to_date, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -94,10 +94,67 @@ class TestLinkValidationRetryScope1844(EnhancedTestCase):
     def test_tolerated_dead_chapter_row_is_kept_for_a_dutch_user(self):
         """Frappe translates the message ("Kon Rij #90: Hoofdstuk: X niet vinden"), so a text match on
         'Chapter:' / 'Could not find Row' refused the in-scope case for every Dutch-language user."""
+        self.assertNotEqual(
+            frappe.get_attr("frappe.translate.get_all_translations")("nl").get("Could not find {0}"),
+            "Could not find {0}",
+            "the nl translation must exist or this test is vacuous",
+        )
         row_name, ghost = self._dead_chapter_row()
         result = self._update(lang="nl")
         self.assertTrue(result.success, result.errors)
         self.assertEqual(frappe.db.get_value("Chapter Membership History", row_name, "chapter_name"), ghost)
+
+    def _dynamic_link_row_without_doctype(self):
+        """The tolerated 'Reference DocType must be set first' shape (reference_name, no doctype)."""
+        row = frappe.get_doc(
+            {
+                "doctype": "Member Payment History",
+                "parent": self.member.name,
+                "parenttype": "Member",
+                "parentfield": "payment_history",
+                "idx": 98,
+                "reference_name": f"GHOST-REF-{frappe.generate_hash(length=6)}",
+            }
+        )
+        row.db_insert()
+        self.addCleanup(frappe.db.delete, "Member Payment History", {"name": row.name})
+        return row.name
+
+    def test_dynamic_link_row_without_doctype_is_still_tolerated(self):
+        """CONTROL: the second tolerated shape keeps working (also in Dutch)."""
+        for lang in (None, "nl"):
+            row_name = self._dynamic_link_row_without_doctype()
+            result = self._update(lang=lang)
+            self.assertTrue(result.success, (lang, result.errors))
+            self.assertTrue(frappe.db.get_value("Member Payment History", row_name, "reference_name"))
+
+    def test_timestamp_conflict_is_not_retried_over_a_tolerated_dynamic_link_row(self):
+        """The retry resets doc.modified to the DB value, so retrying a TimestampMismatchError (raised
+        BEFORE link validation) would be a lost update. Only a link error may be retried."""
+        self._dynamic_link_row_without_doctype()
+        member = frappe.get_doc("Member", self.member.name)
+        frappe.db.set_value("Member", self.member.name, "modified", add_to_date(member.modified, seconds=5))
+        previous_user = frappe.session.user
+        frappe.set_user(self.admin)
+        self.expectErrorLog()
+        try:
+            result = secure_document_operation(
+                operation="update_child_table",
+                doc=member,
+                justification="1844 timestamp probe",
+                required_permissions=["Member:write"],
+                bypass_validations=["link_validation"],
+            )
+        finally:
+            frappe.set_user(previous_user)
+        self.assertFalse(result.success, "a stale save was retried and overwrote a newer one")
+        self.assertIn("modified", "; ".join(result.errors).lower())
+
+    def test_no_dead_link_found_refuses_the_retry(self):
+        """Fails closed: a link-validation error with nothing dead in the snapshot is not retried."""
+        from verenigingen.utils.secure_operations import _link_error_is_within_bypass_scope
+
+        self.assertFalse(_link_error_is_within_bypass_scope(frappe.LinkValidationError("x"), []))
 
     def test_dead_own_link_alone_is_refused(self):
         """CONTROL: the parent's own dead Link is outside the scope (green on develop too)."""

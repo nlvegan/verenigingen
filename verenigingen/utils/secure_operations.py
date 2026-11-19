@@ -494,7 +494,11 @@ def _link_error_is_within_bypass_scope(error, snapshot: list) -> bool:
     tolerated, refused = _classify_dead_links(snapshot)
     if refused or not tolerated:
         return False
-    return isinstance(error, frappe.LinkValidationError) or any(
+    # EXACT types: Frappe raises TimestampMismatchError / DocumentLockedError (ValidationError
+    # subclasses) BEFORE it validates links, and retrying those would overwrite a newer save.
+    if type(error) is frappe.LinkValidationError:
+        return True
+    return type(error) is frappe.ValidationError and any(
         row.meta.get_field(fieldname).fieldtype == "Dynamic Link" for row, fieldname in tolerated
     )
 
