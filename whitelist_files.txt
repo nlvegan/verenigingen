@@ -30,7 +30,6 @@
 ./scripts/eboekhouden/simple_stock_test.py
 ./scripts/error_handling_analyzer.py
 ./scripts/maintenance/rename_roles_with_prefix.py
-./scripts/member_performance_analyzer.py
 ./scripts/membership_dues_poc.py
 ./scripts/migration/fix_membership_types_billing.py
 ./scripts/migration/fix_team_assignment_history.py

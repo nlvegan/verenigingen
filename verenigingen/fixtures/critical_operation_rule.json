@@ -9593,22 +9593,6 @@
  },
  {
   "doctype": "Critical Operation Rule",
-  "name": "analyze_member_performance",
-  "operation_name": "analyze_member_performance",
-  "operation_type": "reporting",
-  "description": "Execute analyze member performance operation for membership performance analysis",
-  "enabled": 1,
-  "security_level": "medium",
-  "business_context": "Member analytics for performance measurement and evaluation",
-  "required_roles": "System Manager\nVerenigingen Staff",
-  "rate_limit_calls": 60,
-  "rate_limit_period_seconds": 3600,
-  "rate_limit_scope": "per_user",
-  "audit_level": "standard",
-  "alert_on_execution": 0
- },
- {
-  "doctype": "Critical Operation Rule",
   "name": "test_dues_system_poc",
   "operation_name": "test_dues_system_poc",
   "operation_type": "financial",
