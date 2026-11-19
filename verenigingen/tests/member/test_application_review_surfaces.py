@@ -269,6 +269,57 @@ class TestQuickApproveApplication(ApprovalCase):
             "Active",
         )
 
+    def test_quick_approve_ticks_one_rate_limit_bucket_not_two_2280(self):
+        """#2280: the dashboard button called the decorated approve_application, so one approval ticked
+        its own bucket AND approve_application's (and wrote two audit rows). Real dispatch as the board
+        member, limiter live; the live redis counters of the whole site are read back."""
+        import redis
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        name = self._stage_and_confirm()
+        cache = redis.from_url(frappe.conf.redis_cache)
+        pattern = f"cor_rate_limit:{frappe.local.site}:*"
+        for key in cache.keys(pattern):
+            cache.delete(key)
+        saved = (frappe.flags.in_test, getattr(frappe.local, "request", None), frappe.local.form_dict)
+        self._teardown_rate_limit_mocking()  # drops the harness's validate_rate_limits stub (idempotent)
+        # Mock justified: Infrastructure - the limiter skips itself under in_test and needs a request
+        frappe.flags.in_test = False
+        frappe.local.request = SimpleNamespace(
+            method="POST",
+            environ={"REMOTE_ADDR": "203.0.113.9"},
+            headers={},
+            host="localhost",
+            scheme="http",
+            host_url="http://localhost/",
+            url="http://localhost/",
+            path="/",
+        )
+        try:
+            with self.as_user(self.board.user):
+                frappe.local.form_dict = frappe._dict(application_name=name)
+                # Mock justified: External Service - SMTP delivery, not business logic
+                with patch("frappe.sendmail"):
+                    result = frappe.handler.execute_cmd(
+                        "verenigingen.api.chapter_dashboard_api.quick_approve_application"
+                    )
+            operations = sorted(k.decode().split(":")[3] for k in cache.keys(pattern))
+        finally:
+            frappe.flags.in_test, frappe.local.request, frappe.local.form_dict = saved  # Mock justified
+            for key in cache.keys(pattern):
+                cache.delete(key)
+
+        self.assertTrue(result["success"], result)
+        # Not "only this bucket": the approval core itself reaches other decorated code outside api/
+        # (get_current_membership_fee; the services/ half of the #352 class, tracked separately).
+        self.assertIn("verenigingen.api.chapter_dashboard_api.quick_approve_application", operations)
+        self.assertNotIn(
+            "verenigingen.api.membership_application_review.approve_application",
+            operations,
+            "the dashboard approval ticked approve_application's own bucket as well",
+        )
+
     def _probe(self, name):
         """(refusal payload minus per-call ids, new message_log entries, Error Log delta) for a board caller."""
         errors = frappe.db.count("Error Log")
