@@ -1565,21 +1565,6 @@
     "only_for": null,
     "report_ref_doctype": null,
     "type": "Link"
-   },
-   {
-    "dependencies": null,
-    "description": null,
-    "hidden": 0,
-    "icon": null,
-    "is_query_report": 0,
-    "label": "Termination & Appeals",
-    "link_count": 2,
-    "link_to": null,
-    "link_type": "DocType",
-    "onboard": 0,
-    "only_for": null,
-    "report_ref_doctype": null,
-    "type": "Card Break"
    }
   ],
   "modified": "2025-11-13 22:46:28.488461",
@@ -1593,20 +1578,7 @@
   "restrict_to_domain": null,
   "roles": [],
   "sequence_id": 1.0,
-  "shortcuts": [
-   {
-    "color": "Red",
-    "label": "Termination Requests",
-    "link_to": "Membership Termination Request",
-    "type": "DocType"
-   },
-   {
-    "color": "Blue",
-    "label": "SEPA Mandates",
-    "link_to": "SEPA Mandate",
-    "type": "DocType"
-   }
-  ],
+  "shortcuts": [],
   "title": "Verenigingen",
   "type": "Workspace"
  },
