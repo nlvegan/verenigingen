@@ -237,3 +237,72 @@ class TestDuesScheduleManagerCoverage(EnhancedTestCase):
             f"query count grew with invoices: 1 invoice={one_invoice_queries}, "
             f"3 invoices={three_invoice_queries}",
         )
+
+    def test_payment_history_cancelled_and_shared_payment_entries_match_full_documents(self):
+        """#1166 review: one invoice with two Payment Entries (one cancelled -- the history
+        shows cancelled PEs with their status) and one PE paying two invoices. The exact
+        `payments` lists and their order must equal what the full documents say, which
+        pins "no docstatus filter on Payment Entry" and "references keep their order"."""
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        member, membership, _schedule = self._member_with_membership()
+        invoice_a, pe_cancelled = self._paid_invoice_for_1166(member, 2, 70.0)
+        invoice_b = self.create_test_sales_invoice(
+            member.customer, grand_total=60.0, posting_date=frappe.utils.add_days(today(), 1)
+        )
+        invoice_c = self.create_test_sales_invoice(
+            member.customer, grand_total=50.0, posting_date=frappe.utils.add_days(today(), 0)
+        )
+        # invoice_a gets a second, live PE after the first is cancelled (Payment Entry
+        # cancel reopens the outstanding, so a new PE can be raised).
+        pe_cancelled.reload()
+        pe_cancelled.cancel()
+        pe_second = self._pay_invoice(frappe.get_doc("Sales Invoice", invoice_a.name))
+        # One PE paying invoice_b AND invoice_c.
+        pe_shared = get_payment_entry("Sales Invoice", invoice_b.name)
+        pe_shared.reference_no = f"REF-{frappe.generate_hash(length=6)}"
+        pe_shared.reference_date = today()
+        pe_shared.append(
+            "references",
+            {
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice_c.name,
+                "total_amount": 50.0,
+                "outstanding_amount": 50.0,
+                "allocated_amount": 50.0,
+            },
+        )
+        pe_shared.paid_amount = 110.0
+        pe_shared.received_amount = 110.0
+        pe_shared.insert()
+        pe_shared.submit()
+
+        history = {h["invoice"]: h["payments"] for h in get_membership_payment_history(membership)}
+
+        def summary(name):
+            doc = frappe.get_doc("Payment Entry", name)
+            return {
+                "payment_entry": doc.name,
+                "amount": doc.paid_amount,
+                "date": doc.posting_date,
+                "mode": doc.mode_of_payment,
+                "status": doc.status,
+            }
+
+        # Control: the cancelled PE really is cancelled and really is listed.
+        self.assertEqual(summary(pe_cancelled.name)["status"], "Cancelled")
+        got_a = history[invoice_a.name]
+        self.assertEqual(
+            sorted(p["payment_entry"] for p in got_a), sorted([pe_cancelled.name, pe_second.name])
+        )
+        # Order: exactly what the per-invoice reference query returns (default get_all order).
+        ref_order = [
+            r.parent
+            for r in frappe.get_all(
+                "Payment Entry Reference", filters={"reference_name": invoice_a.name}, fields=["parent"]
+            )
+        ]
+        self.assertEqual([p["payment_entry"] for p in got_a], ref_order)
+        self.assertEqual(got_a, [summary(n) for n in ref_order])
+        self.assertEqual(history[invoice_b.name], [summary(pe_shared.name)])
+        self.assertEqual(history[invoice_c.name], [summary(pe_shared.name)])
