@@ -25,7 +25,6 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     create_error_response,
     format_mollie_amount,
     format_mollie_amount_string,
-    get_member_by_customer_id,
     get_member_by_subscription_id,
     get_members_by_customer,
     is_valid_mollie_interval,

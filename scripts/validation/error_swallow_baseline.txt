@@ -377,7 +377,6 @@ verenigingen/verenigingen_payments/doctype/sepa_audit_log/sepa_audit_log.py::SEP
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_create_customer_for_donor::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_get_subscription_failure_count::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::create_payment_entry_for_donation::1
-verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::find_member_for_payment::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::update_donation_payment_history::1
 verenigingen/verenigingen_payments/mollie/services/complete_payment_service.py::CompletePaymentService._find_usable_directdebit_mandate::1
 verenigingen/verenigingen_payments/mollie/services/complete_payment_service.py::CompletePaymentService._get_active_subscription::1
@@ -386,7 +385,6 @@ verenigingen/verenigingen_payments/mollie/services/dues_payment_processor.py::Du
 verenigingen/verenigingen_payments/mollie/services/dues_payment_processor.py::DuesPaymentProcessor._reconcile_bank_transaction_with_payment_entry::1
 verenigingen/verenigingen_payments/mollie/services/handlers/refund_handler.py::RefundHandler._fetch_refunds::1
 verenigingen/verenigingen_payments/mollie/services/order_payment_processor.py::OrderPaymentProcessor.create_bank_transaction::1
-verenigingen/verenigingen_payments/mollie/services/payment_context_resolver.py::PaymentContextResolver.resolve_context::1
 verenigingen/verenigingen_payments/mollie/services/payment_processors.py::DonationPaymentProcessor._create_bank_transaction_for_donation::1
 verenigingen/verenigingen_payments/mollie/services/shared/payment_entry_factory.py::PaymentEntryFactory._create_customer_for_donor::1
 verenigingen/verenigingen_payments/mollie/services/shared/payment_entry_factory.py::PaymentEntryFactory._create_customer_for_member::1
