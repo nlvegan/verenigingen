@@ -87,12 +87,14 @@ scheduler_events = {
         "verenigingen.utils.bulk_queue_config.monitor_bulk_queue_health",
         # Address optimization
         "verenigingen.tasks.address_optimization.update_all_member_address_fingerprints",
-        # Board seats past their to_date (#2875): nothing else ever sets is_active=0 on them
-        "verenigingen.services.chapter.board_seat_expiry_service.end_lapsed_board_seats",
     ],
     # Long-queue daily: one sync per enabled member-user (#1676).
     "daily_long": [
         "verenigingen.services.member.account.user_role_profile_calculator.nightly_role_profile_sync",
+        # Board seats past their to_date (#2875): nothing else ever sets is_active=0 on them. Long
+        # queue: the first run clears the whole backlog through full Chapter saves, and a timeout
+        # would roll all of them back every day.
+        "verenigingen.services.chapter.board_seat_expiry_service.end_lapsed_board_seats",
     ],
     # =========================================================================
     # HOURLY TASKS

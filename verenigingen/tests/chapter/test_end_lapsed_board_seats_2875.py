@@ -121,9 +121,10 @@ class TestEndLapsedBoardSeats2875(VereningingenTestCase):
         self.assertIn(BOARD_ROLE, self._roles_2875(person.user), "fixture: the board role is still granted")
         self.assertIn(PROFILE_BOARD_MEMBER, get_user_role_profiles(person.user), "fixture: profile granted")
 
-        ended = end_lapsed_board_seats()
+        ended, failed = end_lapsed_board_seats()
 
         self.assertGreaterEqual(ended, 1)
+        self.assertEqual(failed, [])
         after = self._state_2875(row)
         self.assertEqual(after.is_active, 0)
         self.assertEqual(str(after.to_date), str(state.to_date), "the seat keeps its own end date")
@@ -160,11 +161,11 @@ class TestEndLapsedBoardSeats2875(VereningingenTestCase):
         chapter = self._chapter_2875("i")
         person = self._person_2875("Twice")
         row = self._lapse_seat_2875(chapter, person)
-        self.assertGreaterEqual(end_lapsed_board_seats(), 1)
+        self.assertGreaterEqual(end_lapsed_board_seats()[0], 1)
         modified = frappe.db.get_value("Chapter Board Member", row, "modified")
         notes = frappe.db.get_value("Chapter Board Member", row, "notes")
 
-        self.assertEqual(end_lapsed_board_seats(), 0)
+        self.assertEqual(end_lapsed_board_seats(), (0, []))
 
         self.assertEqual(frappe.db.get_value("Chapter Board Member", row, "modified"), modified)
         self.assertEqual(frappe.db.get_value("Chapter Board Member", row, "notes"), notes)
@@ -202,6 +203,7 @@ class TestEndLapsedBoardSeats2875(VereningingenTestCase):
     def test_a_failing_chapter_save_leaves_none_of_its_rows_half_ended(self):
         """Savepoint: a save that dies AFTER writing the rows must not leave them written."""
         self.expectErrorLog("Board seat expiry failed")
+        staff = self._staff_2875()
         chapter = self._chapter_2875("sp")
         person = self._person_2875("Half")
         row = self._lapse_seat_2875(chapter, person)
@@ -212,15 +214,118 @@ class TestEndLapsedBoardSeats2875(VereningingenTestCase):
             frappe.throw("simulated: on_update failed after the rows were written")
 
         with mock.patch.object(Chapter, "on_update", on_update_boom):
-            end_lapsed_board_seats()
+            ended, failed = end_lapsed_board_seats()
 
         self.assertEqual(self._state_2875(row).is_active, 1, "the failed save left the seat half-ended")
+        self.assertEqual(ended, 0)
+        self.assertEqual([(c, r) for c, r, _why in failed], [(chapter.name, [row])])
+        logged = [e for e in self._expiry_errors_2875() if chapter.name in e.method]
+        self.assertEqual(len(logged), 1, "exactly one Error Log row for the failing chapter")
+        self.assertEqual(len(self._alerts_2875(staff, chapter.name)), 1, "staff are told")
 
-    def test_the_job_is_registered_as_a_daily_scheduler_event(self):
+    def test_the_job_is_registered_on_the_long_daily_queue(self):
+        """daily_long, not daily: the first run clears a whole backlog through full Chapter saves."""
         from verenigingen.hooks.scheduler import scheduler_events
 
-        self.assertIn(
-            "verenigingen.services.chapter.board_seat_expiry_service.end_lapsed_board_seats",
-            scheduler_events["daily"],
+        path = "verenigingen.services.chapter.board_seat_expiry_service.end_lapsed_board_seats"
+        self.assertIn(path, scheduler_events["daily_long"])
+        self.assertNotIn(path, scheduler_events["daily"])
+        self.assertTrue(frappe.get_attr(path))
+
+    def test_every_lapsed_seat_of_one_chapter_is_ended(self):
+        """Two lapsed seats in ONE chapter: a pick-first loop (break after the first row) ends one."""
+        chapter = self._chapter_2875("two")
+        first, second = self._person_2875("First"), self._person_2875("Second")
+        rows = [self._lapse_seat_2875(chapter, p) for p in (first, second)]
+        self.assertEqual([self._state_2875(r).is_active for r in rows], [1, 1], "fixture")
+
+        ended, failed = end_lapsed_board_seats()
+
+        self.assertEqual((ended, failed), (2, []))
+        self.assertEqual([self._state_2875(r).is_active for r in rows], [0, 0])
+        for person in (first, second):
+            self.assertNotIn(BOARD_ROLE, self._roles_2875(person.user))
+
+    # ------------------------------------------------------------------ the staff alert (F1, F5)
+
+    def _expiry_errors_2875(self):
+        return frappe.get_all(
+            "Error Log",
+            filters={"method": ["like", "%Board seat expiry failed%"]},
+            fields=["method", "error"],
+            order_by="creation desc",
         )
-        self.assertTrue(frappe.get_attr(scheduler_events["daily"][-1]))
+
+    def _staff_2875(self):
+        """A recipient of the registered key (the admin pair), so the alert can be delivered."""
+        from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
+
+        ensure_notification_registry_rows()
+        user = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": f"expiry.alert.{frappe.generate_hash(length=8).lower()}@example.org",
+                "first_name": "Expiry",
+                "send_welcome_email": 0,
+                "enabled": 1,
+                "roles": [{"role": "Verenigingen Administrator"}],
+            }
+        ).insert()
+        self.track_doc("User", user.name)
+        return user.name
+
+    def _alerts_2875(self, staff, chapter_name):
+        return [
+            log
+            for log in frappe.get_all(
+                "Notification Log",
+                {"for_user": staff, "subject": ["like", "Board seats past their end date%"]},
+                ["name", "email_content"],
+            )
+            if chapter_name in (log.email_content or "")
+        ]
+
+    def _break_chapter_2875(self, chapter):
+        """Probe shortcut: point the chapter at a Role Profile that no longer exists (an admin deleting
+        one), so Chapter.validate refuses every save. Stands in for the real deletion."""
+        frappe.db.set_value("Chapter", chapter.name, "default_board_role_profile", "No Such Profile 2875")
+
+    def test_a_chapter_that_cannot_be_saved_alerts_staff_once(self):
+        self.expectErrorLog("Board seat expiry failed")
+        staff = self._staff_2875()
+        chapter = self._chapter_2875("stuck")
+        person = self._person_2875("Stuck")
+        row = self._lapse_seat_2875(chapter, person)
+        self._break_chapter_2875(chapter)
+
+        ended, failed = end_lapsed_board_seats()
+
+        self.assertEqual(self._state_2875(row).is_active, 1, "fixture: the seat could not be ended")
+        self.assertEqual((ended, [(c, r) for c, r, _w in failed]), (0, [(chapter.name, [row])]))
+        alerts = self._alerts_2875(staff, chapter.name)
+        self.assertEqual(len(alerts), 1, "staff must be told")
+        self.assertIn(row, alerts[0].email_content, "the alert names the seat row")
+        self.assertIn("No Such Profile 2875", alerts[0].email_content, "the alert names the reason")
+
+        end_lapsed_board_seats()
+        self.assertEqual(len(self._alerts_2875(staff, chapter.name)), 1, "the same chapter alerts once")
+
+    def test_an_orphan_lapsed_seat_reaches_the_alert(self):
+        """Parent Chapter gone (#2745 leaves rows behind): reported under its own reason, not ended."""
+        self.expectErrorLog("Board seat expiry failed")
+        staff = self._staff_2875()
+        chapter = self._chapter_2875("orphan")
+        person = self._person_2875("Orphan")
+        row = self._lapse_seat_2875(chapter, person)
+        # Probe shortcut: the Chapter row is deleted under the seat, as #2745's delete leaves it.
+        frappe.db.delete("Chapter", {"name": chapter.name})
+        self.assertTrue(frappe.db.exists("Chapter Board Member", row), "fixture: the orphan row is there")
+
+        ended, failed = end_lapsed_board_seats()
+
+        self.assertEqual(ended, 0)
+        self.assertIn((chapter.name, [row], "parent chapter missing"), failed)
+        alerts = self._alerts_2875(staff, chapter.name)
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("parent chapter missing", alerts[0].email_content)
+        self.assertEqual(self._state_2875(row).is_active, 1, "no new ending path for orphans")
