@@ -47,6 +47,7 @@ from verenigingen.tests.support.invoice_payments import receive_against_invoice
 from verenigingen.tests.support.non_resumable_errors import deadlock as _deadlock
 from verenigingen.tests.support.non_resumable_errors import lock_wait_timeout as _timeout
 from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
+from verenigingen.utils.select_options import get_select_options
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.api import sepa_reconciliation as recon
 
@@ -824,10 +825,13 @@ class TestReconciledBatchThenMarkProcessed2798(ReconBase):
     def test_a_row_already_failed_keeps_its_status_code_message_and_mandate_usage(self):
         """Ruling on #2798: a returned (Failed, AC04) row must not become Successful/PDNG.
 
-        Probe shortcut: the Failed/AC04 state is written with the same three fields
-        `SEPABatchProcessor.process_return_file` sets (status, result_code, result_message),
-        not by running a return file through it. Whether reconcile books a Payment Entry for
-        that row is pre-existing and out of scope, so it is not asserted."""
+        Probe shortcut: the Failed/AC04 state is hand-set (status, result_code, result_message,
+        the three fields `SEPABatchProcessor.process_batch_returns` writes) because the real
+        return writer cannot persist on a Submitted batch (#1235). Whether reconcile books a
+        Payment Entry for that row is pre-existing and out of scope, so it is not asserted.
+        The batch-level status is NOT asserted here: a Submitted batch holding a Failed row is
+        a synthetic state no real writer produces; the refresh is covered by
+        test_refresh_writes_partially_processed_or_failed_from_the_rows."""
         items, batch, bt = self._reconciled_batch()
         failed_row, ok_row = batch.invoices[0], batch.invoices[1]
         message = "Closed Account Number (return file)"
@@ -846,11 +850,6 @@ class TestReconciledBatchThenMarkProcessed2798(ReconBase):
         self.assertEqual((state.status, state.result_code, state.result_message), ("Failed", "AC04", message))
         self.assertEqual(frappe.db.get_value("SEPA Mandate Usage", usage, "status"), "Pending")
         self.assertEqual(frappe.db.get_value("Direct Debit Batch Invoice", ok_row.name, "status"), "Successful")
-        self.assertEqual(
-            frappe.db.get_value("Direct Debit Batch", batch.name, "status"),
-            "Partially Processed",
-            "one Failed row means the batch is not Processed",
-        )
 
     def test_refresh_writes_partially_processed_or_failed_from_the_rows(self):
         """The not-all-Successful branches of refresh_batch_status_from_rows."""
@@ -887,15 +886,47 @@ class TestReconciledBatchThenMarkProcessed2798(ReconBase):
         self.assertNotEqual(written, "Processed", "one of two rows collected is not a full success")
 
     def test_a_batch_in_another_status_keeps_it_through_reconciliation(self):
-        """Ruling on #2798: only Submitted/Processed are refreshed. Rolled Back must stay."""
-        items, batch, bt = self._reconciled_batch()
-        frappe.db.set_value("Direct Debit Batch", batch.name, "status", "Rolled Back", update_modified=False)
-        batch.reload()
+        """Ruling on #2798: only Submitted/Processed are refreshed. Every other status records
+        a decision the recompute must not overwrite. The set is read from the doctype meta
+        (all options minus the two refreshable ones), so a new option is covered."""
+        refreshable = {"Submitted", "Processed"}
+        options = get_select_options("Direct Debit Batch", "status")
+        frozen = [o for o in options if o not in refreshable]
+        self.assertGreaterEqual(len(frozen), 8, msg=options)
+        for status in frozen:
+            with self.subTest(status=status):
+                items, batch, bt = self._reconciled_batch()
+                frappe.db.set_value("Direct Debit Batch", batch.name, "status", status, update_modified=False)
+                batch.reload()
 
-        result = recon.reconcile_full_sepa_batch(bt, batch)
+                result = recon.reconcile_full_sepa_batch(bt, batch)
 
-        self.assertEqual(result["type"], "full_reconciliation", msg=result)
-        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Rolled Back")
+                self.assertEqual(result["type"], "full_reconciliation", msg=result)
+                self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), status)
+
+    def test_a_failed_row_is_read_from_the_database_not_from_a_stale_row_object(self):
+        """record_collected_by_bank_reconciliation reads the PERSISTED row status: a row
+        object loaded while Pending, whose row was Failed in the database since, must keep
+        Failed. The stale object is built first, then the row is written (db_set on a fresh
+        document; the stale one keeps in-memory Pending)."""
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        items, batch, _ = self._reconciled_batch(count=1)
+        stale_row = frappe.get_doc("Direct Debit Batch Invoice", batch.invoices[0].name)
+        self.assertEqual(stale_row.status, "Pending", "fixture: the in-memory row is Pending")
+        frappe.get_doc("Direct Debit Batch Invoice", stale_row.name).db_set(
+            {"status": "Failed", "result_code": "AC04"}, update_modified=False
+        )
+        self.assertEqual(stale_row.status, "Pending", "fixture: the object stays stale")
+
+        batch_processing_service.record_collected_by_bank_reconciliation(stale_row, "ACC-PAY-FAKE")
+
+        state = frappe.db.get_value(
+            "Direct Debit Batch Invoice", stale_row.name, ["status", "result_code"], as_dict=True
+        )
+        self.assertEqual((state.status, state.result_code), ("Failed", "AC04"))
 
     def test_a_failure_on_the_second_row_rolls_back_the_first_rows_recording(self):
         """Atomicity: row 1's Successful status and mandate-usage write sit in the same
