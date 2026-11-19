@@ -46,7 +46,7 @@ def _donation_transactions():
     Fails closed: if the permission check itself errors, the group is withheld."""
     try:
         can_read_donations = frappe.has_permission("Donation", "read")
-    except Exception:  # swallow-ok: caller-checks (fail closed: [] withholds the group; logged below)
+    except Exception:  # swallow-ok: best-effort (fail closed: [] withholds the group; logged below)
         frappe.log_error(
             title="SEPA Mandate dashboard: Donation permission check failed",
             message=frappe.get_traceback(),
