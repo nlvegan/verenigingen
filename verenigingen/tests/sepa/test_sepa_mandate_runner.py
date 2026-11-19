@@ -647,6 +647,13 @@ class SEPAComprehensiveFactoryIBANTests(unittest.TestCase):
         self.assertIsNotNone(SEPAMandateTestDataFactory.get_bic_for_iban(iban))
         self.assertIsNotNone(SEPAMandateTestDataFactory.get_bank_name_for_iban(iban))
 
+    def test_unknown_bank_code_falls_back_to_abna_with_a_resolvable_bic(self):
+        # KNAB is a bank generate_test_iban accepts but DUTCH_BANK_BICS does not know:
+        # without the fallback the IBAN would carry KNAB and get_bic_for_iban would be None.
+        iban = self._draw_after_global_reseed(bank_code="KNAB")
+        self.assertEqual(iban[4:8], "ABNA")
+        self.assertEqual(SEPAMandateTestDataFactory.get_bic_for_iban(iban), "ABNANL2A")
+
     def test_non_dutch_country_still_returns_a_pool_iban(self):
         # No generator exists for DE/FR, so they keep the fixed pool (control for the NL branch).
         iban = SEPAMandateTestDataFactory.get_valid_test_iban(country="DE")
