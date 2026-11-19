@@ -274,7 +274,7 @@ def run_auto_creation_manually():
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def auto_create_missing_dues_schedules(preview_mode=False, send_emails=True):
+def auto_create_missing_dues_schedules(preview_mode: bool = False, send_emails: bool = True):
     """Web interface version that matches the expected signature"""
     return auto_create_missing_dues_schedules_enhanced(preview_mode=preview_mode, send_emails=send_emails)
 

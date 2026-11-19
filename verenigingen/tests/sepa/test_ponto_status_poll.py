@@ -1146,6 +1146,7 @@ class TestPollOnReallySubmittedAndCancelledRows(_PontoUsers, _PollBase):
                 writes.append((doctype, args, kwargs))
                 return real(doctype, name, *args, **kwargs)
 
+            # Mock justified: call-through spy: records each set_value call, then runs the real one
             with patch.object(frappe.db, "set_value", side_effect=spy):
                 self._cancel(doc)
             status_writes = [w for w in writes if w[0] == doc.doctype and "Cancelled" in w[1]]

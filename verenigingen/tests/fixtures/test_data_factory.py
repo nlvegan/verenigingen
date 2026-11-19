@@ -105,8 +105,18 @@ class CoreTestDataFactory:
         self._test_membership_types = None
         self._test_region = None
 
-    def cleanup(self):
-        """Clean up all created test data in reverse dependency order"""
+    def cleanup(self, commit=False):
+        """Clean up all created test data in reverse dependency order
+
+        `commit=False` by default: the deletes live in the caller's test transaction, so
+        a LATER `frappe.db.rollback()` puts back any tracked row that was committed
+        before the delete (#842, same mechanism as #489). `commit=True` makes the
+        deletes durable. Opt-in, not the default, because a mid-test caller would
+        otherwise commit every other pending row (the #330 failure mode). A caller
+        passing it MUST do so AFTER `super().tearDown()` has run: the commit is
+        connection-wide, and before the base teardown's rollback it would also make
+        every other uncommitted row permanent (measured under #489).
+        """
         print(f"🧹 Cleaning up {len(self.created_records)} test records...")
 
         # Clean up in reverse order to respect dependencies
@@ -119,6 +129,14 @@ class CoreTestDataFactory:
                 print(f"⚠️  Failed to delete {record['doctype']} {record['name']}: {e}")
 
         self.created_records = []
+
+        if commit:
+            self._cleanup_commit_core_factory_deletes()
+
+    @staticmethod
+    def _cleanup_commit_core_factory_deletes():
+        """Commit the deletes `cleanup(commit=True)` just made (#842)."""
+        frappe.db.commit()
 
     def track_doc(self, doctype: str, name: str):
         """Track a created record for cleanup"""

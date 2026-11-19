@@ -204,6 +204,7 @@ class TestMemberUtils(EnhancedTestCase):
         """
         outage = frappe.db.OperationalError("simulated database outage")
 
+        # Mock justified: fault injection: a simulated DB outage must propagate, not read as 'not a member'
         with patch.object(frappe.db, "get_value", side_effect=outage):
             with self.assertRaises(frappe.db.OperationalError):
                 get_member_name_for_user("test.member@verenigingen.test")
@@ -223,6 +224,7 @@ class TestMemberUtils(EnhancedTestCase):
         """
         outage = frappe.db.OperationalError("simulated database outage")
 
+        # Mock justified: fault injection: a simulated DB outage must propagate, not read as 'no volunteer'
         with patch.object(frappe.db, "get_value", side_effect=outage):
             with self.assertRaises(frappe.db.OperationalError):
                 get_volunteer_for_member("Assoc-Member-does-not-matter")

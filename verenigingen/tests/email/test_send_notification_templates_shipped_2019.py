@@ -110,6 +110,12 @@ class TestSuspendedAndQuitAreMailedThroughAShippedTemplate(EnhancedTestCase):
             self.assertFalse((result.data or {}).get("skipped"), result.data)
 
 
+STATUS_MAIL_JOB_2019 = (
+    "verenigingen.services.member.lifecycle.member_status_notification_service."
+    "send_status_change_notification_job"
+)
+
+
 class TestStatusChangeMailsExactlyOnce(VereningingenTestCase):
     """Real Member saves to Suspended and Quit, with production's flags and the after-commit
     subscriber jobs run by hand: exactly one mail per transition, built from the shipped template.
@@ -141,11 +147,16 @@ class TestStatusChangeMailsExactlyOnce(VereningingenTestCase):
         super().tearDown()
 
     def _transition(self, new_status):
-        """Real save; returns (sendmail kwargs per mail, subscriber jobs that ran)."""
+        """Real save; returns (sendmail kwargs per mail, jobs that ran).
+
+        The status mail is an after-commit job since #2735 (``STATUS_MAIL_JOB_2019``), so it is
+        captured and run by hand like the subscriber jobs: CI has no RQ workers.
+        """
         jobs, real_enqueue = [], frappe.enqueue
 
         def recording_enqueue(*args, **kwargs):
-            if str(kwargs.get("method", "")).startswith("verenigingen.events.subscribers."):
+            method = str(kwargs.get("method", ""))
+            if method.startswith("verenigingen.events.subscribers.") or method == STATUS_MAIL_JOB_2019:
                 jobs.append(kwargs)
 
         frappe.enqueue = recording_enqueue  # the worker boundary: jobs are run by hand below
@@ -156,7 +167,7 @@ class TestStatusChangeMailsExactlyOnce(VereningingenTestCase):
                 member = frappe.get_doc("Member", self.member.name)
                 member.status = new_status
                 member.save()
-                keys = ("event_name", "event_data", "is_bulk_import")
+                keys = ("event_name", "event_data", "is_bulk_import", "member_name", "old_status", "new_status")
                 for job in jobs:
                     frappe.call(job["method"], **{k: v for k, v in job.items() if k in keys})
         finally:
@@ -166,6 +177,8 @@ class TestStatusChangeMailsExactlyOnce(VereningingenTestCase):
     def _assert_one_lifecycle_mail(self, new_status, subject):
         mails, jobs = self._transition(new_status)
         self.assertTrue(jobs, "control: the save queued the subscriber jobs")
+        status_jobs = [j for j in jobs if j["method"] == STATUS_MAIL_JOB_2019]
+        self.assertEqual(len(status_jobs), 1, "control: the save queued ONE after-commit status mail job")
         self.assertEqual(len(mails), 1, [m.get("subject") for m in mails])
         self.assertEqual(mails[0].get("subject"), subject)
         self.assertIn("Current Status", str(mails[0].get("message")), "rendered member_lifecycle_notification")
