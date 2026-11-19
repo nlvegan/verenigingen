@@ -102,16 +102,17 @@ class TestWwwTemplateEscaping1897(IntegrationTestCase):
             "website_url": "https://example.org",
             "renewal_link": "https://example.org/r",
         }
-        cases = {
-            "sepa_mandate_created": ("member_name", "bank_name", "company_name"),
-            "sepa_mandate_cancelled": ("member_name", "cancellation_reason", "company_name"),
-            "sepa_mandate_expiring": ("member_name", "company_name"),
-        }
-        for template, fields in cases.items():
-            for field in fields:
+        # Every context key, not a hand-picked subset: a bare output on any of them must fail.
+        for template in ("sepa_mandate_created", "sepa_mandate_cancelled", "sepa_mandate_expiring"):
+            printed = 0
+            for field in base:
                 with self.subTest(template=template, field=field):
                     html = render_www_template(f"{PAYMENTS}/emails/{template}.html", {**base, field: RAW})
-                    self.assert_escaped_once(html, f"{template}.{field}")
+                    self.assertNotIn("<i>x</i>", html, f"{template}.{field}: raw markup reached the page")
+                    self.assertNotIn("&amp;lt;", html, f"{template}.{field}: escaped twice")
+                    printed += ESCAPED in html
+            # control: the loop must reach real outputs, or it proves nothing
+            self.assertGreaterEqual(printed, 6, f"{template}: too few context keys are printed")
 
     def test_word_lid_form_escapes_door_name_and_default_plan(self):
         for field, context in (
@@ -156,6 +157,12 @@ class TestWwwTemplateEscaping1897(IntegrationTestCase):
             },
             block="content",
         )
-        self.assertNotIn(f"acknowledgeAlert('{hostile}')", html)
-        self.assertNotIn(f"resolveAlert('{hostile}')", html)
+        # |e would turn ' into &#39;, which the browser decodes again inside an on* attribute, so the
+        # absence of the raw string proves nothing: no handler may carry a quoted argument at all.
+        self.assertNotRegex(html, r"""onclick="[^"]*\(['"]""")
+        self.assertEqual(html.count("data-alert="), 2)
+        handlers = [h for h in re.findall(r'onclick="([^"]*)"', html) if "Alert(" in h]
+        self.assertEqual(
+            sorted(handlers), ["acknowledgeAlert(this.dataset.alert)", "resolveAlert(this.dataset.alert)"]
+        )
         self.assertIn('data-alert="x&#39;);alert(1);(&#39;"', html)

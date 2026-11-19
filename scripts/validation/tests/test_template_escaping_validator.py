@@ -134,13 +134,10 @@ class TestScope(unittest.TestCase):
         ):
             with self.subTest(rel=rel):
                 self.assertEqual(v.check_file(v.REPO_ROOT / rel), [])
-        # control: a bare output in a www path is a finding, not skipped as out of scope
-        probe = v.REPO_ROOT / "verenigingen/www/zz_escaping_probe_1897.html"
-        try:
-            probe.write_text("<p>{{ member_name }}</p>", encoding="utf-8")
-            self.assertEqual([t for _r, _l, t in v.check_file(probe)], ["member_name"])
-        finally:
-            probe.unlink()
+        # control: a bare output under www/ is a finding (in memory: nothing is written to the tree)
+        rel = "verenigingen/www/x.html"
+        self.assertTrue(rel.startswith(tuple(root + "/" for root in v.TEMPLATE_ROOTS)))
+        self.assertEqual(found("<p>{{ member_name }}</p>", rel), ["member_name"])
 
     def test_word_lid_sanitised_html_is_allowlisted_only_there(self):
         rel = "verenigingen/www/word-lid.html"
