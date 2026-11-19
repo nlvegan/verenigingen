@@ -63,7 +63,8 @@ _WEBHOOK_RETRY_WINDOW = timedelta(hours=27)
 def sweep_recurring_donation_charges() -> Dict[str, Any]:
     """Scheduled entry point (see hooks/scheduler.py, "daily").
 
-    Never raises: a subscription whose payments cannot be listed, or a charge
+    Never raises, except an RQ job timeout, which it re-raises so the job stops:
+    a subscription whose payments cannot be listed, or a charge
     that fails to book, is recorded in the summary and swept past, so one bad
     row cannot stop every other subscription from being checked.
     """
