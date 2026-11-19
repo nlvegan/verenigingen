@@ -84,37 +84,58 @@ def get_membership_payment_history(membership_doc):
         order_by="posting_date desc",
     )
 
+    payments_by_invoice = _get_payment_entries_by_invoice([invoice_info.name for invoice_info in invoices])
+
     payment_history = []
 
     for invoice_info in invoices:
-        invoice = frappe.get_doc("Sales Invoice", invoice_info.name)
-
-        # Get linked payments
-        payments = frappe.get_all(
-            "Payment Entry Reference", filters={"reference_name": invoice.name}, fields=["parent"]
-        )
-
-        payment_entries = []
-        for payment in payments:
-            payment_doc = frappe.get_doc("Payment Entry", payment.parent)
-            payment_entries.append(
-                {
-                    "payment_entry": payment_doc.name,
-                    "amount": payment_doc.paid_amount,
-                    "date": payment_doc.posting_date,
-                    "mode": payment_doc.mode_of_payment,
-                    "status": payment_doc.status,
-                }
-            )
-
         payment_history.append(
             {
-                "invoice": invoice.name,
-                "date": invoice.posting_date,
-                "amount": invoice.grand_total,
-                "status": invoice.status,
-                "payments": payment_entries,
+                "invoice": invoice_info.name,
+                "date": invoice_info.posting_date,
+                "amount": invoice_info.grand_total,
+                "status": invoice_info.status,
+                "payments": payments_by_invoice.get(invoice_info.name, []),
             }
         )
 
     return payment_history
+
+
+def _get_payment_entries_by_invoice(invoice_names):
+    """Map invoice name -> list of its Payment Entry summaries, in two queries.
+
+    Replaces a per-invoice reference lookup plus a per-reference
+    frappe.get_doc("Payment Entry") (#1166). Reads bypass permissions, exactly as
+    the get_doc/get_all calls it replaces did.
+    """
+    if not invoice_names:
+        return {}
+
+    references = frappe.get_all(
+        "Payment Entry Reference",
+        filters={"reference_name": ["in", invoice_names]},
+        fields=["parent", "reference_name"],
+    )
+    payment_entries = {
+        pe.name: pe
+        for pe in frappe.get_all(
+            "Payment Entry",
+            filters={"name": ["in", list({ref.parent for ref in references})]},
+            fields=["name", "paid_amount", "posting_date", "mode_of_payment", "status"],
+        )
+    }
+
+    payments_by_invoice = {}
+    for ref in references:
+        pe = payment_entries[ref.parent]
+        payments_by_invoice.setdefault(ref.reference_name, []).append(
+            {
+                "payment_entry": pe.name,
+                "amount": pe.paid_amount,
+                "date": pe.posting_date,
+                "mode": pe.mode_of_payment,
+                "status": pe.status,
+            }
+        )
+    return payments_by_invoice

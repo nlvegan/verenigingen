@@ -127,3 +127,113 @@ class TestDuesScheduleManagerCoverage(EnhancedTestCase):
         self.assertEqual(payment["payment_entry"], pe.name)
         self.assertEqual(payment["amount"], pe.paid_amount)
         self.assertEqual(payment["amount"], 50.0)
+
+    # ------------------------------------------------------------------
+    # #1166: get_membership_payment_history() per-row get_doc N+1
+    # ------------------------------------------------------------------
+    def _paid_invoice_for_1166(self, member, posting_offset_days, grand_total):
+        """Submitted invoice (dated `posting_offset_days` AHEAD) plus a submitted PE.
+
+        Future-dated, because the history only lists invoices posted on or after the
+        membership start date (today)."""
+        invoice = self.create_test_sales_invoice(
+            member.customer,
+            grand_total=grand_total,
+            posting_date=frappe.utils.add_days(today(), posting_offset_days),
+        )
+        return invoice, self._pay_invoice(invoice)
+
+    def _count_sql_calls_for_1166(self, fn):
+        queries = []
+        orig_sql = frappe.db.__class__.sql
+
+        def counting_sql(db, *args, **kwargs):
+            queries.append(args[0] if args else kwargs.get("query"))
+            return orig_sql(db, *args, **kwargs)
+
+        frappe.db.__class__.sql = counting_sql
+        try:
+            result = fn()
+        finally:
+            frappe.db.__class__.sql = orig_sql
+        return result, len(queries)
+
+    def test_payment_history_matches_full_documents_for_real_rows(self):
+        """Output equality (#1166): each history row equals what the full Sales
+        Invoice / Payment Entry documents say -- same values, same Python types,
+        same newest-first order -- so reading them off bulk get_all rows is lossless."""
+        member, membership, _schedule = self._member_with_membership()
+        invoices = []
+        for offset, amount in ((0, 50.0), (1, 60.0), (2, 70.0)):
+            invoice, pe = self._paid_invoice_for_1166(member, offset, amount)
+            invoices.append((invoice, pe))
+
+        history = get_membership_payment_history(membership)
+
+        expected = []
+        for invoice, pe in invoices:
+            inv_doc = frappe.get_doc("Sales Invoice", invoice.name)
+            pe_doc = frappe.get_doc("Payment Entry", pe.name)
+            expected.append(
+                {
+                    "invoice": inv_doc.name,
+                    "date": inv_doc.posting_date,
+                    "amount": inv_doc.grand_total,
+                    "status": inv_doc.status,
+                    "payments": [
+                        {
+                            "payment_entry": pe_doc.name,
+                            "amount": pe_doc.paid_amount,
+                            "date": pe_doc.posting_date,
+                            "mode": pe_doc.mode_of_payment,
+                            "status": pe_doc.status,
+                        }
+                    ],
+                }
+            )
+        # posting_date desc: the latest-dated invoice comes first. Distinct dates
+        # make the order assertion discriminating.
+        expected.reverse()
+        self.assertEqual([h["invoice"] for h in history], [i.name for i, _ in reversed(invoices)])
+        self.assertEqual(history, expected)
+        for got, want in zip(history, expected):
+            self.assertIs(type(got["date"]), type(want["date"]))
+            self.assertIs(type(got["amount"]), type(want["amount"]))
+            self.assertIs(type(got["payments"][0]["amount"]), type(want["payments"][0]["amount"]))
+            self.assertIs(type(got["payments"][0]["date"]), type(want["payments"][0]["date"]))
+        # Control: the rows are not all identical, so a dropped or swapped field shows.
+        self.assertEqual(len({h["amount"] for h in history}), 3)
+        self.assertEqual(len({h["date"] for h in history}), 3)
+
+    def test_payment_history_query_count_does_not_scale_with_invoices(self):
+        """#1166: one get_doc per invoice and one per Payment Entry made the query
+        count grow with the member's invoices. It must now stay flat."""
+        member, membership, _schedule = self._member_with_membership()
+        self._paid_invoice_for_1166(member, 0, 50.0)
+
+        # Warm meta / table-column caches so a cold information_schema read is
+        # not mistaken for part of the N+1.
+        for doctype in ("Sales Invoice", "Payment Entry", "Payment Entry Reference"):
+            frappe.get_meta(doctype)
+            frappe.db.get_table_columns(doctype)
+        get_membership_payment_history(membership)
+
+        one_result, one_invoice_queries = self._count_sql_calls_for_1166(
+            lambda: get_membership_payment_history(membership)
+        )
+        self.assertEqual(len(one_result), 1)
+
+        self._paid_invoice_for_1166(member, 1, 60.0)
+        self._paid_invoice_for_1166(member, 2, 70.0)
+        three_result, three_invoice_queries = self._count_sql_calls_for_1166(
+            lambda: get_membership_payment_history(membership)
+        )
+        self.assertEqual(len(three_result), 3)
+        self.assertEqual(three_result[0]["payments"][0]["amount"], 70.0)
+
+        self.assertLessEqual(
+            three_invoice_queries,
+            one_invoice_queries,
+            f"query count grew with invoices: 1 invoice={one_invoice_queries}, "
+            f"3 invoices={three_invoice_queries}",
+        )
