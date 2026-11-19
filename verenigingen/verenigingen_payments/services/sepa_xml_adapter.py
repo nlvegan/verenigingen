@@ -457,8 +457,9 @@ class SEPAXMLAdapter:
                     )
                 self._record_row_left_out(invoice_item, error_msg)
 
+        original_totals = (batch_doc.entry_count, flt(batch_doc.total_amount))
         self._sync_batch_totals_to_file(batch_doc)
-        self._log_left_out_rows(batch_doc)
+        self._log_left_out_rows(batch_doc, original_totals)
         return transactions
 
     def _set_row_state(self, invoice_item, status: str, result_code, result_message) -> None:
@@ -488,14 +489,17 @@ class SEPAXMLAdapter:
         if row_left_out_of_file(invoice_item.status, invoice_item.result_code):
             self._set_row_state(invoice_item, "Pending", None, None)
 
-    def _log_left_out_rows(self, batch_doc) -> None:
+    def _log_left_out_rows(self, batch_doc, original_totals) -> None:
         """Say on the batch which invoices the file leaves out (batch_log is not allow_on_submit)."""
         skipped = self._validation_summary.skipped_invoice_details if self._validation_summary else []
         if not skipped or not isinstance(batch_doc, Document):
             return
         names = ", ".join(d["invoice"] for d in skipped)
+        original_count, original_total = original_totals
         BatchLoggingUtilities.add_to_document_batch_log(
-            batch_doc, f"{len(skipped)} invoice(s) left out of the SEPA file: {names}"
+            batch_doc,
+            f"{len(skipped)} invoice(s) left out of the SEPA file: {names} "
+            f"(batch was {original_count} / {original_total:.2f})",
         )
         if isinstance(batch_doc.name, str) and frappe.db.exists(batch_doc.doctype, batch_doc.name):
             frappe.db.set_value(

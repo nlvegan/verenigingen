@@ -66,6 +66,7 @@ class Test2839RowsLeftOutOfTheFile(EnhancedTestCase):
     def _assert_left_out_and_never_booked(self, cause):
         self.expectErrorLog("SEPA XML Adapter - Transaction Build Error")
         good, bad = self._row(self.good_row), self._row(self.bad_row)
+        before = frappe.db.get_value("Direct Debit Batch", self.batch_name, ["entry_count", "total_amount"])
         batch, root = self._regenerate()
         txs = root.findall(f".//{_NS}DrctDbtTxInf")
         self.assertEqual(len(txs), 1, f"{cause}: the file must hold only the good row")
@@ -78,6 +79,8 @@ class Test2839RowsLeftOutOfTheFile(EnhancedTestCase):
         batch.reload()
         self.assertIn(bad.invoice, batch.batch_log or "")
         self.assertNotIn(good.invoice, batch.batch_log or "")
+        # The line also names the batch's count/total before the sync to the file.
+        self.assertIn(f"(batch was {before[0]} / {flt(before[1]):.2f})", batch.batch_log or "")
 
         # Totals equal the file's content (the bank credits the control sum).
         self.assertEqual(batch.entry_count, 1)
