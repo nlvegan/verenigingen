@@ -324,10 +324,17 @@ class TestRunDocMethodForgedOwner2562(EnhancedTestCase):
         with self._dispatching_run_doc_method("frappe.client.get"):
             self.assertFalse(_is_run_doc_method_dispatch())
         previous = getattr(frappe.local, "request", None)
+        # Mock justified: request-context setup for the real _is_run_doc_method_dispatch; frappe.local.request is Tier 3 infra, nothing at the permission boundary is stubbed
         setattr(frappe.local, "request", Request(EnvironBuilder(path="/api/v2/method/run_doc_method").get_environ()))
         try:
             self.assertTrue(_is_run_doc_method_dispatch())
+            for other in ("/api/v2/method/run_doc_method_x", "/x/run_doc_method/y"):
+                with self.subTest(path=other):
+                    # Mock justified: request-context setup for the real _is_run_doc_method_dispatch; frappe.local.request is Tier 3 infra, nothing at the permission boundary is stubbed
+                    setattr(frappe.local, "request", Request(EnvironBuilder(path=other).get_environ()))
+                    self.assertFalse(_is_run_doc_method_dispatch())
         finally:
+            # Mock justified: request-context setup for the real _is_run_doc_method_dispatch; frappe.local.request is Tier 3 infra, nothing at the permission boundary is stubbed
             setattr(frappe.local, "request", previous)
 
     def test_attaching_a_file_to_a_not_yet_saved_member_is_allowed_for_staff(self):
