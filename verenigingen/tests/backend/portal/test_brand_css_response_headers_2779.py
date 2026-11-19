@@ -20,12 +20,19 @@ import sys
 import frappe
 from frappe.utils import get_bench_path
 
+import verenigingen
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.brand_css_generator import get_brand_css_file_path
 
 _PROBE_2779 = r"""
 import json, sys
 import frappe
 SITE = sys.argv[1]
+# The subprocess must exercise the tree under test, not the installed one: fail loudly if not.
+import os, verenigingen
+_got = os.path.realpath(os.path.dirname(verenigingen.__file__))
+if _got != os.path.realpath(sys.argv[2]):
+    sys.exit("subprocess imported verenigingen from %s, expected %s" % (_got, sys.argv[2]))
 frappe.init(site=SITE)
 frappe.connect()
 import frappe.app
@@ -54,8 +61,15 @@ class TestBrandCssResponseHeaders2779(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        cls._ensure_static_brand_css()
         result = subprocess.run(
-            [sys.executable, "-c", _PROBE_2779, frappe.local.site],
+            [
+                sys.executable,
+                "-c",
+                _PROBE_2779,
+                frappe.local.site,
+                os.path.dirname(verenigingen.__file__),
+            ],
             cwd=os.path.join(get_bench_path(), "sites"),
             capture_output=True,
             text=True,
@@ -65,6 +79,22 @@ class TestBrandCssResponseHeaders2779(EnhancedTestCase):
             raise AssertionError(result.stdout + "\n" + result.stderr)
         line = next(x for x in result.stdout.splitlines() if x.startswith("RESULT"))
         cls.out = json.loads(line[len("RESULT") :])
+
+    @classmethod
+    def _ensure_static_brand_css(cls):
+        """Guarantee the static brand CSS file the routes serve, and undo it afterwards.
+
+        Sites that never saved Brand Settings have no ``brand_colors.css``; for a guest the
+        routes then fall back to ``get_single("Brand Settings")``, which is refused (403 page,
+        fallback CSS; filed as #2900), so the probe would measure site state, not the header fix. A file write
+        only: no DB row, no commit.
+        """
+        path = get_brand_css_file_path()
+        if os.path.exists(path):
+            return
+        with open(path, "w") as f:
+            f.write(":root { --brand-primary: #cf3131; }\n")
+        cls.addClassCleanup(os.remove, path)
 
     def test_control_all_three_routes_answer_for_a_guest(self):
         for key, resp in self.out.items():
