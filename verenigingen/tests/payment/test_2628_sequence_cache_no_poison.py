@@ -85,14 +85,16 @@ class Test2628SequenceCacheDoesNotPoison(VereningingenTestCase):
             "RCUR",
         )
 
-    def test_service_level_failure_returns_fallback_uncached_then_recovers(self):
+    def test_service_level_failure_returns_no_guess_uncached_then_recovers(self):
         mandate = self.create_test_sepa_mandate(scenario="normal")
         self.expectErrorLog("SEPA Mandate Service - Sequence Type Error")
         pair = [(mandate.name, self.invoice)]
 
         with patch.object(sepa_mandate_usage, "get_mandate_sequence_type", side_effect=RuntimeError("boom")):
             first = self.service.get_sequence_types_batch(pair)
-        self.assertEqual(first[self._key(mandate)], "RCUR")
+        # #2716 ruling: no guess is returned at all (it used to be RCUR), so the caller leaves
+        # the invoice out. Real value is FRST, so the recovery below still discriminates.
+        self.assertNotIn(self._key(mandate), first)
         self.assertNotIn(self._key(mandate), self.service._sequence_cache)
 
         second = self.service.get_sequence_types_batch(pair)
@@ -105,7 +107,7 @@ class Test2628SequenceCacheDoesNotPoison(VereningingenTestCase):
 
         with _fail_usage_query(RuntimeError("transient usage lookup failure")):
             first = self.service.get_sequence_types_batch(pair)
-        self.assertEqual(first[self._key(mandate)], "FRST")
+        self.assertNotIn(self._key(mandate), first)  # #2716: no guess (it used to be FRST)
         self.assertNotIn(self._key(mandate), self.service._sequence_cache)
 
         second = self.service.get_sequence_types_batch(pair)

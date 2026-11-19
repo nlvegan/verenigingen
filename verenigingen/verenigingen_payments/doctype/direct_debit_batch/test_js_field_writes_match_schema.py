@@ -36,8 +36,10 @@ Parsing scope -- read this before touching the parser again:
     refuses everything else:
 
     - A field-name argument that is a **plain quoted string literal**
-      (``'foo'`` or ``"foo"``) is checked against the schema. This covers all
-      17 real call sites in this file today.
+      (``'foo'`` or ``"foo"``) is checked against the schema. This covers
+      every ``frm.set_value`` and ``frappe.model.set_value`` call site in the
+      file today (no count is quoted here on purpose: a hand-written number goes stale
+      on the next edit to the JS; the scan checks every site it finds).
     - **Anything else is unparseable and hard-fails** the
       ``test_no_unparseable_*`` tests below with "needs manual audit" --
       a variable (``frappe.model.set_value(cdt, cdn, someVar, value)``), a

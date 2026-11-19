@@ -46,6 +46,7 @@ class TestSetupTerminationRoles(FrappeTestCase):
     def test_role_setup_propagates_db_errors(self):
         """#1662: the step no longer swallows its own failure (it used to print and return None,
         so execute_after_install could not see it). A DB error must reach the caller."""
+        # Mock justified: fault injection: a DB error must propagate out of the role setup, no real DB failure can be staged
         with patch.object(frappe.db, "exists", side_effect=RuntimeError("boom")):
             with self.assertRaisesRegex(RuntimeError, "boom"):
                 setup_mod.setup_termination_roles_and_permissions()

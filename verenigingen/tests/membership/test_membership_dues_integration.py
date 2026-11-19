@@ -431,6 +431,7 @@ class TestMemberPaidYtdFailsLoudly(VereningingenTestCase):
         """
         from unittest.mock import patch
 
+        # Mock justified: fault injection: both the SQL path and the get_all fallback fail, which cannot be staged on a live DB
         with patch.object(frappe.db, "sql", side_effect=RuntimeError("database is down")):
             with patch.object(frappe, "get_all", side_effect=RuntimeError("database is down")):
                 with self.assertRaises(RuntimeError):
@@ -444,6 +445,7 @@ class TestMemberPaidYtdFailsLoudly(VereningingenTestCase):
         """
         from unittest.mock import patch
 
+        # Mock justified: fault injection: only the SQL path fails, to prove the fallback to the Python path
         with patch.object(frappe.db, "sql", side_effect=RuntimeError("database is down")):
             with patch.object(frappe, "get_all", return_value=[]):
                 self.assertEqual(mdi._calculate_member_paid_ytd_optimized("CUST-0001"), 0.0)
