@@ -1060,6 +1060,10 @@ class PaymentReconciliationManager:
                 ):
                     return False
 
+            # "batch" is deliberately not guarded above. A batch match keys on a BATCH-<name>
+            # in the Bank Transaction's DESCRIPTION (not its reference) with matching totals,
+            # so a Mollie row reaches it only if its app-generated description contains a
+            # BATCH- name and the totals agree. Improbable for a Mollie row; not measured.
             if match["type"] == "batch":
                 # A batch match's `reference` is a Direct Debit Batch name, NOT a
                 # Sales Invoice name. Reconcile each invoice in the batch rather
