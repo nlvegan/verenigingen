@@ -118,3 +118,47 @@ class TestLiveSeatHonoursToDate2472(VereningingenTestCase):
         self._vacate_2472(self.chapter_a)
         self.assertIn(Roles.CHAPTER_BOARD_MEMBER, self._roles_2472())
         self.assertIn(BOARD_PROFILE, get_user_role_profiles(self.user.name))
+
+    def _has_board_role_row_2472(self):
+        return bool(
+            frappe.db.exists("Has Role", {"parent": self.user.name, "role": Roles.CHAPTER_BOARD_MEMBER})
+        )
+
+    def test_withdraw_if_unseated_keeps_role_with_one_live_and_one_lapsed_seat(self):
+        """Direct call, so the profile sync cannot mask the helper's use in the withdrawal."""
+        from verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member import (
+            withdraw_board_member_role_if_unseated,
+        )
+
+        self._seat_2472(self.chapter_a)
+        self._seat_2472(self.chapter_b, to_date=add_days(today(), -1))
+        self.assertTrue(self._has_board_role_row_2472(), "fixture: role granted")
+
+        withdraw_board_member_role_if_unseated(self.volunteer.name)
+
+        self.assertTrue(self._has_board_role_row_2472(), "a live seat exists; role must stay")
+
+    def test_withdraw_if_unseated_drops_role_when_only_a_lapsed_seat_remains(self):
+        from verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member import (
+            withdraw_board_member_role_if_unseated,
+        )
+
+        self._seat_2472(self.chapter_b, to_date=add_days(today(), -1))
+        # Probe shortcut: the profile sync (rightly) never granted the role for a lapsed-only seat,
+        # so insert the Has Role row directly to stand in for a grant made while the seat was live.
+        # The direct call, not a sync, is then the only thing that can remove it.
+        if not self._has_board_role_row_2472():
+            frappe.get_doc(
+                {
+                    "doctype": "Has Role",
+                    "parent": self.user.name,
+                    "parenttype": "User",
+                    "parentfield": "roles",
+                    "role": Roles.CHAPTER_BOARD_MEMBER,
+                }
+            ).db_insert()
+        self.assertTrue(self._has_board_role_row_2472(), "fixture: role present before the call")
+
+        withdraw_board_member_role_if_unseated(self.volunteer.name)
+
+        self.assertFalse(self._has_board_role_row_2472(), "only a lapsed seat remains; role must go")
