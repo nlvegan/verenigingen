@@ -602,6 +602,24 @@ def write_baseline(path: Path, counts: Dict[str, int], families: Dict) -> None:
     path.write_text("\n".join(header + body) + "\n", encoding="utf-8")
 
 
+def _update_command(root: str, baseline: Path) -> str:
+    """The command that regenerates the baseline for THIS population (#1429).
+
+    Hard-coding the bare form sent a scripts/ contributor to regenerate the
+    verenigingen baseline instead.
+    """
+    cmd = "python scripts/validation/duplicate_helper_validator.py"
+    if root != SCAN_ROOT:
+        cmd += f" --root {root}"
+    if Path(baseline) != DEFAULT_BASELINE:
+        try:
+            shown = Path(baseline).resolve().relative_to(REPO_ROOT.resolve())
+        except ValueError:
+            shown = Path(baseline)
+        cmd += f" --baseline {shown}"
+    return cmd + " --update-baseline"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
@@ -721,7 +739,7 @@ def main() -> int:
         print(
             "\nThese copies are not near-identical, so the shared name is very likely a\n"
             "coincidence rather than a copy-paste. Record them and move on:\n"
-            "    python scripts/validation/duplicate_helper_validator.py --update-baseline"
+            f"    {_update_command(args.root, args.baseline)}"
         )
 
     if blocking:
@@ -733,7 +751,7 @@ def main() -> int:
             "person fixes one of these and the others keep the bug, silently. Import the\n"
             "existing one, or move it to a shared module.\n\n"
             "If the duplication is genuinely intended, record it:\n"
-            "    python scripts/validation/duplicate_helper_validator.py --update-baseline"
+            f"    {_update_command(args.root, args.baseline)}"
         )
         return 1
 
