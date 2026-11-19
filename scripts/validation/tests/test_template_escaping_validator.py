@@ -112,6 +112,42 @@ class TestAccepted(unittest.TestCase):
         self.assertEqual(len(found("{{ %s }}" % text, REL)), 1)
 
 
+class TestScope(unittest.TestCase):
+    """#1897: www/ and verenigingen_payments/templates are rendered by the same autoescape-off jenv."""
+
+    def test_the_three_roots_are_swept(self):
+        self.assertEqual(
+            set(v.TEMPLATE_ROOTS),
+            {
+                "verenigingen/templates",
+                "verenigingen/www",
+                "verenigingen/verenigingen_payments/templates",
+            },
+        )
+        swept = {p.relative_to(v.REPO_ROOT).parts[1] for p in v.template_files()}
+        self.assertTrue({"templates", "www", "verenigingen_payments"} <= swept)
+
+    def test_check_file_scans_a_www_page_and_a_payments_email(self):
+        for rel in (
+            "verenigingen/www/word-lid.html",
+            "verenigingen/verenigingen_payments/templates/emails/sepa_mandate_created.html",
+        ):
+            with self.subTest(rel=rel):
+                self.assertEqual(v.check_file(v.REPO_ROOT / rel), [])
+        # control: a bare output in a www path is a finding, not skipped as out of scope
+        probe = v.REPO_ROOT / "verenigingen/www/zz_escaping_probe_1897.html"
+        try:
+            probe.write_text("<p>{{ member_name }}</p>", encoding="utf-8")
+            self.assertEqual([t for _r, _l, t in v.check_file(probe)], ["member_name"])
+        finally:
+            probe.unlink()
+
+    def test_word_lid_sanitised_html_is_allowlisted_only_there(self):
+        rel = "verenigingen/www/word-lid.html"
+        self.assertEqual(found("{{ intro_html | safe }}", rel), [])
+        self.assertEqual(len(found("{{ intro_html | safe }}", REL)), 1)
+
+
 class TestTree(unittest.TestCase):
     def test_whole_tree_is_clean(self):
         findings = [f for p in v.template_files() for f in v.check_file(p)]

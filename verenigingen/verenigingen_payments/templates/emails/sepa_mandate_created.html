@@ -18,11 +18,11 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2 style="margin: 0; color: #0066cc;">{{ company_name }}</h2>
+            <h2 style="margin: 0; color: #0066cc;">{{ company_name|e }}</h2>
         </div>
 
         <div class="content">
-            <h3>Dear {{ member_name }},</h3>
+            <h3>Dear {{ member_name|e }},</h3>
 
             <p>Your SEPA Direct Debit mandate has been successfully activated. This allows us to collect membership fees and other agreed payments directly from your bank account.</p>
 
@@ -31,19 +31,19 @@
                 <table style="width: 100%;">
                     <tr>
                         <td><strong>Mandate Reference:</strong></td>
-                        <td>{{ mandate_id }}</td>
+                        <td>{{ mandate_id|e }}</td>
                     </tr>
                     <tr>
                         <td><strong>IBAN:</strong></td>
-                        <td>{{ iban }}</td>
+                        <td>{{ iban|e }}</td>
                     </tr>
                     <tr>
                         <td><strong>Bank:</strong></td>
-                        <td>{{ bank_name }}</td>
+                        <td>{{ bank_name|e }}</td>
                     </tr>
                     <tr>
                         <td><strong>Sign Date:</strong></td>
-                        <td>{{ sign_date }}</td>
+                        <td>{{ sign_date|e }}</td>
                     </tr>
                 </table>
             </div>
@@ -61,20 +61,20 @@
             <p>If you have any questions about this mandate or need to make changes, please contact us or visit your member portal.</p>
 
             <center>
-                <a href="{{ website_url }}/payment-dashboard" class="button">View Payment Dashboard</a>
+                <a href="{{ website_url|e }}/payment-dashboard" class="button">View Payment Dashboard</a>
             </center>
 
             <p>Thank you for setting up direct debit. This helps us process payments efficiently and reduces administrative costs.</p>
 
             <p>Best regards,<br>
-            {{ company_name }} Membership Team</p>
+            {{ company_name|e }} Membership Team</p>
         </div>
 
         <div class="footer">
-            <p>This is an automated message from {{ company_name }}.<br>
+            <p>This is an automated message from {{ company_name|e }}.<br>
             Please do not reply to this email. For support, visit your member portal.<br>
-            © {{ current_year }} {{ company_name }}. All rights reserved.<br>
-            <a href="{{ unsubscribe_link|default('#') }}" style="color: #6c757d;">Manage email preferences</a></p>
+            © {{ current_year|e }} {{ company_name|e }}. All rights reserved.<br>
+            <a href="{{ unsubscribe_link|default('#')|e }}" style="color: #6c757d;">Manage email preferences</a></p>
         </div>
     </div>
 </body>
