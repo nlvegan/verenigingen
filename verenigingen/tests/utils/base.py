@@ -93,6 +93,12 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         cls.setup_payment_modes()  # Ensure payment modes exist for all tests
 
+        # #2766: stored exchange rates, so no invoice on a foreign-currency price list
+        # reaches erpnext's live fetch (refused for a non-System session user).
+        from verenigingen.tests.fixtures.enhanced_test_factory import ensure_test_exchange_rates
+
+        ensure_test_exchange_rates()
+
         # Ensure a current-year Fiscal Year (covering all companies) and a global
         # default Company exist once per session. erpnext v16 leaves neither
         # reliably set on fresh CI sites, which breaks dated-document submission
