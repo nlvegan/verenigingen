@@ -178,6 +178,51 @@ class TestSalesInvoiceChapterPopulation(EnhancedTestCase):
         self.assertIsNone(result, "Should return None when chapter membership is inactive")
         print("✅ get_member_primary_chapter correctly ignored inactive membership")
 
+    def _primary_chapter_after_seating_1161(self, row_state):
+        """Seat a fresh member on an Active chapter with `row_state` on the Chapter Member row, and
+        return (chapter name, the row as stored, get_member_primary_chapter's answer).
+
+        Reads the row back so a hook that normalises the state cannot make the test vacuous."""
+        member = self.create_test_member(
+            first_name="Test",
+            last_name=f"Row {self.test_id}",
+            email=f"row{self.test_id.lower()}@example.com",
+        )
+        chapter = self.create_chapter()
+        chapter.append("members", {"member": member.name, "chapter_join_date": today(), **row_state})
+        chapter.save()
+        stored = frappe.db.get_value(
+            "Chapter Member",
+            {"parent": chapter.name, "member": member.name},
+            ["enabled", "status"],
+            as_dict=True,
+        )
+        return chapter.name, stored, get_member_primary_chapter(member.name)
+
+    def test_primary_chapter_ignores_enabled_row_with_inactive_status(self):
+        """#1161: the status filter alone (the old test-local shadow had only `enabled`)."""
+        chapter_name, stored, result = self._primary_chapter_after_seating_1161(
+            {"enabled": 1, "status": "Inactive"}
+        )
+        self.assertEqual((stored.enabled, stored.status), (1, "Inactive"), "fixture must keep this state")
+        self.assertIsNone(result, f"Inactive-status row on {chapter_name} must not be primary")
+
+    def test_primary_chapter_ignores_disabled_row_with_active_status(self):
+        """#1161: the enabled filter alone (a disabled row can still carry status Active)."""
+        chapter_name, stored, result = self._primary_chapter_after_seating_1161(
+            {"enabled": 0, "status": "Active"}
+        )
+        self.assertEqual((stored.enabled, stored.status), (0, "Active"), "fixture must keep this state")
+        self.assertIsNone(result, f"Disabled row on {chapter_name} must not be primary")
+
+    def test_primary_chapter_returns_enabled_active_row(self):
+        """Control for the two tests above: the same fixture with BOTH set returns the chapter."""
+        chapter_name, stored, result = self._primary_chapter_after_seating_1161(
+            {"enabled": 1, "status": "Active"}
+        )
+        self.assertEqual((stored.enabled, stored.status), (1, "Active"))
+        self.assertEqual(result, chapter_name)
+
     def test_get_member_primary_chapter_with_multiple_chapters(self):
         """Test get_member_primary_chapter returns most recent chapter"""
         print("\n🧪 Testing get_member_primary_chapter with multiple chapters...")
