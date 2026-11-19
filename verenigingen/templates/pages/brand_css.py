@@ -28,15 +28,12 @@ def get_context(context):
     # Set response content and headers after generating CSS
     context.css_content = css_with_timestamp
 
-    # Set headers. Mirror serve_brand_css()'s defensive guard: frappe.response
-    # may not have an initialized headers dict in every context, so create one
-    # before assigning into it (avoids a NoneType item-assignment crash).
-    frappe.response.content_type = "text/css; charset=utf-8"
-    if not hasattr(frappe.response, "headers") or frappe.response.headers is None:
-        frappe.response.headers = {}
-    frappe.response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    frappe.response.headers["Pragma"] = "no-cache"
-    frappe.response.headers["Expires"] = "0"
+    # Headers go in frappe.local.response_headers, the only dict app.py applies to the
+    # HTTP response. frappe.response is the body dict and ignores content_type here (#2779).
+    frappe.local.response_headers["Content-Type"] = "text/css; charset=utf-8"
+    frappe.local.response_headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    frappe.local.response_headers["Pragma"] = "no-cache"
+    frappe.local.response_headers["Expires"] = "0"
 
     return context
 
@@ -59,17 +56,12 @@ def serve_brand_css():
 
         css_with_timestamp = f"/* Generated at {now()} */\n{css}"
 
-        # Set response content type
-        if hasattr(frappe, "response"):
-            frappe.response.content_type = "text/css; charset=utf-8"
-
-            # Initialize headers if they don't exist
-            if not hasattr(frappe.response, "headers") or frappe.response.headers is None:
-                frappe.response.headers = {}
-
-            frappe.response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            frappe.response.headers["Pragma"] = "no-cache"
-            frappe.response.headers["Expires"] = "0"
+        # This endpoint answers in the JSON envelope, so Content-Type stays JSON; only the
+        # cache headers are meaningful. They must go in response_headers: keys set on
+        # frappe.response land in the JSON body instead (#2779).
+        frappe.local.response_headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        frappe.local.response_headers["Pragma"] = "no-cache"
+        frappe.local.response_headers["Expires"] = "0"
 
         return css_with_timestamp
 
