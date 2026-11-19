@@ -113,8 +113,9 @@ class TeamRole(Document):
         # (the assignment_history child table on Volunteer); there is no "Assignment
         # History" doctype, and querying it raised a "table doesn't exist" error that
         # crashed every Team Role deletion.
-        # The history role is "<role_name>" or "<role_name> - <extra>", so a contains
-        # match is intended; the free-text role_name must still match literally (#1399).
+        # Contains-match is kept as it was (the Team writer produces "<role_name>" or
+        # "<role_name> - <extra>"; other writers' role text may embed it too). The
+        # free-text role_name must still match literally (#1399).
         history_references = frappe.db.count(
             "Volunteer Assignment",
             filters={"role": ["like", f"%{escape_sql_like_wildcards(self.role_name)}%"]},

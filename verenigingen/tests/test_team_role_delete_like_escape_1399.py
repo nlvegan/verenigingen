@@ -73,12 +73,22 @@ class TestTeamRoleDeleteLikeEscape1399(VereningingenTestCase):
         suffix = frappe.generate_hash(length=6)
         self._check_wildcard_not_overmatching_1399(f"Pct%{suffix}", f"PctZZZ{suffix}")
 
+    def test_backslash_is_literal(self):
+        """A backslash in role_name must be escaped too, or it eats the next character."""
+        suffix = frappe.generate_hash(length=6)
+        role = self._make_role_1399(f"Back\\{suffix}")
+        self._add_history_1399(role.role_name)
+        # An unescaped "\\" turns the pattern into an escape of the next char and loses this row.
+        self._add_history_1399(f"BackX{suffix}")
+        self.assertEqual(self._delete_and_get_history_count_1399(role), 1)
+
     def test_real_references_are_still_counted_exact_and_with_suffix(self):
-        """Control: literal matches (exact and 'role - extra') are counted, a lookalike is not."""
+        """Control: literal matches (exact, 'role - extra' and 'prefix role') are counted, a lookalike is not."""
         suffix = frappe.generate_hash(length=6)
         role = self._make_role_1399(f"Wild_{suffix}")
         self._add_history_1399(role.role_name)
         self._add_history_1399(f"{role.role_name} - Treasurer")
+        self._add_history_1399(f"Lead {role.role_name}")
         self._add_history_1399(f"WildX{suffix}")
-        self.assertEqual(self._delete_and_get_history_count_1399(role), 2)
+        self.assertEqual(self._delete_and_get_history_count_1399(role), 3)
         self.assertFalse(frappe.db.exists("Team Role", role.name))
