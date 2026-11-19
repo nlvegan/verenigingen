@@ -499,3 +499,81 @@ class TestRunCompleteSetupWrapper(FrappeTestCase):
         self.assertTrue(result["success"], result.get("message"))
         self.assertTrue(frappe.db.exists("Workspace", "Verenigingen"))
         self.assertTrue(frappe.db.exists("Module Onboarding", "Verenigingen"))
+
+
+class TestWorkspaceSetupSurvivesTheFixturesSync(FrappeTestCase):
+    """#2349: sync_fixtures re-imports the Workspace fixture on `install-app` (after
+    after_install) and on EVERY migrate, so what setup_workspace() writes into the Workspace
+    was reverted by the next fixtures sync unless the fixture itself ships it."""
+
+    CARD = "Termination & Appeals"
+
+    def setUp(self):
+        super().setUp()
+        workspace = frappe.get_doc("Workspace", "Verenigingen")
+        # Workspace is shared site state and setup_workspace() commits, so a rollback is not
+        # enough: put the original rows back by hand.
+        self._saved = {
+            "module_onboarding": workspace.module_onboarding,
+            "links": [row.as_dict(no_nulls=False) for row in workspace.links],
+            "shortcuts": [row.as_dict(no_nulls=False) for row in workspace.shortcuts],
+        }
+        self.addCleanup(self._restore_the_workspace)
+
+    def _restore_the_workspace(self):
+        workspace = frappe.get_doc("Workspace", "Verenigingen")
+        workspace.module_onboarding = self._saved["module_onboarding"]
+        for table in ("links", "shortcuts"):
+            workspace.set(table, [])
+            for row in self._saved[table]:
+                workspace.append(table, {k: v for k, v in row.items() if k not in ("name", "idx")})
+        workspace.save(ignore_permissions=True)
+        frappe.db.commit()
+
+    @staticmethod
+    def _state():
+        workspace = frappe.get_doc("Workspace", "Verenigingen")
+        return {
+            "module_onboarding": workspace.module_onboarding,
+            "labels": {row.label for row in workspace.links},
+            "shortcuts": {row.label for row in workspace.shortcuts},
+        }
+
+    @staticmethod
+    def _quietly(fn, *args):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return fn(*args)
+
+    def _sync_fixtures_as_migrate_does(self):
+        from frappe.utils.fixtures import sync_fixtures
+
+        self._quietly(sync_fixtures, "verenigingen")
+
+    def test_what_setup_workspace_writes_survives_the_next_fixtures_sync(self):
+        self._quietly(setup_mod.setup_workspace)
+        written = self._state()
+        # Control: the step really wrote the three things, or the comparison below is empty.
+        self.assertEqual(written["module_onboarding"], "Verenigingen")
+        self.assertIn(self.CARD, written["labels"])
+        self.assertTrue({"Termination Requests", "SEPA Mandates"} <= written["shortcuts"])
+
+        self._sync_fixtures_as_migrate_does()
+
+        self.assertEqual(self._state(), written, "the fixtures sync reverted setup_workspace()")
+
+    def test_a_workspace_without_the_setup_state_converges_through_the_fixtures_sync_alone(self):
+        # Fresh install: after_install's setup_workspace runs BEFORE the fixtures sync, so the
+        # sync is the last writer and must itself carry the state. Strip it, then sync.
+        workspace = frappe.get_doc("Workspace", "Verenigingen")
+        workspace.module_onboarding = None
+        workspace.set("links", [row for row in workspace.links if row.label != self.CARD])
+        workspace.set("shortcuts", [])
+        workspace.save(ignore_permissions=True)
+        self.assertEqual(self._state()["module_onboarding"], None, "precondition: stripped")
+
+        self._sync_fixtures_as_migrate_does()
+
+        after = self._state()
+        self.assertEqual(after["module_onboarding"], "Verenigingen")
+        self.assertIn(self.CARD, after["labels"])
+        self.assertTrue({"Termination Requests", "SEPA Mandates"} <= after["shortcuts"])
