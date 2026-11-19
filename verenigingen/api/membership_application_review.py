@@ -762,6 +762,17 @@ def approve_application(
     refused instead of approving the same application twice. (One Pending Review application per email can
     exist: a newer one supersedes the older, so the per-application lock also serialises the email.)
     """
+    return _approve_application(
+        application_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+    )
+
+
+def _approve_application(
+    application_name, membership_type, chapter, notes, create_invoice, activate_as_volunteer
+):
+    """The body of approve_application, undecorated: chapter_dashboard_api.quick_approve_application
+    calls this so one dashboard approval ticks one rate-limit bucket and writes one audit row (#2280).
+    The permission check is part of this body, so it still runs first for every caller."""
     from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
     from verenigingen.utils.db_advisory_lock import advisory_lock
 

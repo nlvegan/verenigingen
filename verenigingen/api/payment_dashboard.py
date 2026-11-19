@@ -143,8 +143,8 @@ def get_dashboard_data(member: str = None) -> OperationResult[Dict[str, Any]]:
                 has_failed_payments = failed_count > 0
 
         # Get next payment info
-        # Note: get_next_payment returns dict (from security decorator to_dict()) for internal calls
-        next_payment_result = get_next_payment(member)
+        # _next_payment returns the raw OperationResult; the dict branch is kept for safety
+        next_payment_result = _next_payment(member)
         if isinstance(next_payment_result, dict):
             next_payment = next_payment_result.get("data") if next_payment_result.get("success") else None
         else:
@@ -237,6 +237,13 @@ def get_payment_history(
     member: str = None, year=None, status=None, **kwargs
 ) -> OperationResult[Dict[str, Any]]:
     """Get payment history for member"""
+    return _payment_history(member, year, status, **kwargs)
+
+
+# The _payment_history / _mandate_history / _payment_schedule / _next_payment bodies below are the
+# undecorated implementations: the exports and the dashboard call these, not the endpoints, so one
+# user action ticks one rate-limit bucket and writes one audit row (#2280).
+def _payment_history(member: str = None, year=None, status=None, **kwargs) -> OperationResult[Dict[str, Any]]:
     try:
         # Get actual member ID
         # Modernized validation with helper
@@ -440,6 +447,10 @@ def get_payment_history(
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def get_mandate_history(member: str = None) -> OperationResult[Dict[str, Any]]:
     """Get SEPA mandate history"""
+    return _mandate_history(member)
+
+
+def _mandate_history(member: str = None) -> OperationResult[Dict[str, Any]]:
     try:
         # Get actual member ID
         # Modernized validation with helper
@@ -486,6 +497,10 @@ def get_mandate_history(member: str = None) -> OperationResult[Dict[str, Any]]:
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
     """Get upcoming payment schedule"""
+    return _payment_schedule(member)
+
+
+def _payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
     try:
         # Get actual member ID
         # Modernized validation with helper
@@ -573,6 +588,10 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
     """Get next scheduled payment"""
+    return _next_payment(member)
+
+
+def _next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
     try:
         # Get actual member ID
         explicit_member = member
@@ -587,10 +606,9 @@ def get_next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
         if not member:
             return OperationResult.ok(None, message=_("No member found for current user"))
 
-        schedule_result = get_payment_schedule(member)
+        schedule_result = _payment_schedule(member)
 
-        # get_payment_schedule is itself a @*_api endpoint, so an in-process call
-        # receives a serialized dict (not an OperationResult). Normalize before use.
+        # _unwrap_internal_result accepts a serialized dict or a raw OperationResult.
         success, schedule, raw = _unwrap_internal_result(schedule_result)
         if not success:
             return raw
@@ -656,7 +674,7 @@ def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
         from verenigingen.utils.payment_retry import PaymentRetryManager
 
         retry_manager = PaymentRetryManager()
-        result = retry_manager.schedule_retry(invoice_id, "MANUAL", "Manual retry requested by member")
+        result = retry_manager._schedule_retry(invoice_id, "MANUAL", "Manual retry requested by member")
 
         if result["scheduled"]:
             data = {"next_retry": result["next_retry"]}
@@ -736,10 +754,9 @@ def export_payment_history_csv(year=None) -> OperationResult[Dict[str, Any]]:
         if not member:
             return OperationResult.fail(_("No member found for current user"))
 
-        history_result = get_payment_history(member, year)
+        history_result = _payment_history(member, year)
 
-        # get_payment_history is itself a @*_api endpoint, so an in-process call
-        # receives a serialized dict (not an OperationResult). Normalize before use.
+        # _unwrap_internal_result accepts a serialized dict or a raw OperationResult.
         success, history, raw = _unwrap_internal_result(history_result)
         if not success:
             return raw
@@ -795,13 +812,11 @@ def export_all_financial_data() -> OperationResult[Dict[str, Any]]:
         # "All" financial data means all of it: get_payment_history's own default
         # (Limits.DEFAULT_PAGE_SIZE * 5 = 100) would otherwise truncate the CSV
         # silently while the mandate history below carries every row.
-        success, history, raw = _unwrap_internal_result(
-            get_payment_history(member, limit=Limits.MAX_PAGE_SIZE)
-        )
+        success, history, raw = _unwrap_internal_result(_payment_history(member, limit=Limits.MAX_PAGE_SIZE))
         if not success:
             return raw
 
-        mandate_success, mandates, mandate_raw = _unwrap_internal_result(get_mandate_history(member))
+        mandate_success, mandates, mandate_raw = _unwrap_internal_result(_mandate_history(member))
         if not mandate_success:
             return mandate_raw
 

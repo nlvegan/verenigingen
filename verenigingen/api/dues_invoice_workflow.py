@@ -27,6 +27,11 @@ from verenigingen.verenigingen_payments.utils.mandate_candidates import unambigu
 def check_member_dues_status(
     period_start: str = None, period_end: str = None
 ) -> OperationResult[Dict[str, Any]]:
+    """Check which members need dues invoices for the current period (see _member_dues_status)."""
+    return _member_dues_status(period_start, period_end)
+
+
+def _member_dues_status(period_start: str = None, period_end: str = None) -> OperationResult[Dict[str, Any]]:
     """
     Check which members need dues invoices for the current period.
 
@@ -41,13 +46,18 @@ def check_member_dues_status(
         OperationResult with member analysis results
     """
     try:
+        from verenigingen.services.billing.bulk_invoice_generation_service import (
+            get_bulk_invoice_generation_service,
+        )
         from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
-            calculate_cutoff_date_for_period,
             get_eligible_schedules_for_period,
         )
 
-        # Calculate cutoff date (ignores period_start/period_end for now - uses system cutoff)
-        cutoff_date = calculate_cutoff_date_for_period()
+        # Calculate cutoff date (ignores period_start/period_end for now - uses system cutoff).
+        # The service, not the @critical_api calculate_cutoff_date_for_period endpoint that
+        # delegates to it: that one demands CRITICAL access and POST, which this MEDIUM
+        # endpoint does not (#2280).
+        cutoff_date = get_bulk_invoice_generation_service().calculate_cutoff_date()
 
         # Use unified eligibility logic
         eligibility_result = get_eligible_schedules_for_period(
@@ -495,10 +505,9 @@ def prepare_sepa_batch(
 def _unwrap_api_result(result):
     """Normalize an API call result to ``(success, data)``.
 
-    check_member_dues_status / check_coverage_scheduling_mismatches are
-    @standard_api-decorated, so the security wrapper serializes their
-    OperationResult to a plain dict (``{"success", "data", ...}``) even for
-    in-process calls. This handles both the dict and raw-OperationResult forms.
+    The endpoints are @standard_api-decorated, so the security wrapper serializes
+    their OperationResult to a plain dict (``{"success", "data", ...}``); the
+    undecorated bodies return the raw OperationResult. This handles both forms.
     """
     if isinstance(result, dict):
         return bool(result.get("success")), result.get("data")
@@ -529,12 +538,12 @@ def get_workflow_status() -> OperationResult[Dict[str, Any]]:
             "Sales Invoice", {"status": ["in", ["Unpaid", "Overdue"]], "docstatus": 1}
         )
 
-        # Get members analysis. These are decorated endpoints, so an in-process
-        # call returns the serialized dict, not an OperationResult — unwrap both.
-        members_success, members_data = _unwrap_api_result(check_member_dues_status())
+        # Get members analysis. The undecorated bodies, not the endpoints: an endpoint call
+        # would tick a second rate-limit bucket and re-run the security checks (#2280).
+        members_success, members_data = _unwrap_api_result(_member_dues_status())
 
         # Check for coverage/scheduling mismatches
-        mismatches_success, mismatches_data = _unwrap_api_result(check_coverage_scheduling_mismatches())
+        mismatches_success, mismatches_data = _unwrap_api_result(_coverage_scheduling_mismatches())
 
         # Extract data from the (possibly serialized) responses
         if members_success and members_data:
@@ -591,6 +600,11 @@ def get_workflow_status() -> OperationResult[Dict[str, Any]]:
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.FINANCIAL)
 def check_coverage_scheduling_mismatches() -> OperationResult[Dict[str, Any]]:
+    """Check for scheduling/coverage mismatches (see _coverage_scheduling_mismatches)."""
+    return _coverage_scheduling_mismatches()
+
+
+def _coverage_scheduling_mismatches() -> OperationResult[Dict[str, Any]]:
     """
     Check for mismatches between next_invoice_date and actual invoice coverage.
     Detects data integrity issues where scheduling doesn't align with coverage periods.
