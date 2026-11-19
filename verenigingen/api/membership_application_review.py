@@ -132,12 +132,13 @@ def _activate_pending_chapter_memberships(member, applied_chapter):
 
     Note on Chapter Member SQL: it is a child table on Chapter, so the chapter name lives in ``parent``.
 
-    Errors are logged but do not fail the approval - the membership and
-    invoice have already been created at the call site, and a follow-up
-    chapter manual activation is recoverable.
+    Errors are logged but do not fail the approval. This step runs BEFORE the membership and the first
+    invoice are created (#2916), so a swallowed failure here leaves that invoice without a chapter; a
+    follow-up manual activation is recoverable but does not back-fill the invoice.
     """
+    activated = []
     if not applied_chapter:
-        return
+        return activated
     try:
         from verenigingen.utils.application_helpers import activate_pending_chapter_membership
 
@@ -152,7 +153,8 @@ def _activate_pending_chapter_memberships(member, applied_chapter):
         )
         for row in pending:
             try:
-                activate_pending_chapter_membership(member, row.chapter)
+                if activate_pending_chapter_membership(member, row.chapter):
+                    activated.append(row.chapter)
             except Exception as e:  # noqa: BLE001
                 frappe.logger().warning(
                     f"Failed to activate pending Chapter Member for member="
@@ -160,6 +162,31 @@ def _activate_pending_chapter_memberships(member, applied_chapter):
                 )
     except Exception as e:  # noqa: BLE001
         frappe.logger().warning(f"Pending chapter activation step failed for member={member.name}: {e}")
+    return activated
+
+
+def _activate_pending_rows_before_invoice(member, applied_chapter, reviewer_chapter):
+    """Activate the Pending chapter rows an approval decides, BEFORE the first invoice is created (#2916).
+
+    Every invoice attribution reader resolves the chapter through get_member_primary_chapter, which counts
+    Active rows only, so a row activated after the invoice left custom_member_chapter empty.
+    The application's own chapter is activated; so is the reviewer's chapter when it already holds a Pending
+    row (the reviewer assigning it is the decision). Pending rows in any other chapter stay Pending (#2064).
+    Returns the activated chapters: the Member is still Pending here, so Chapter.on_update sends no join mail
+    (it tells the board only of an Active member) and the caller sends it once the Member is Active (#1843).
+    """
+    activated = _activate_pending_chapter_memberships(member, applied_chapter)
+    if reviewer_chapter and reviewer_chapter != applied_chapter:
+        activated += _activate_pending_chapter_memberships(member, reviewer_chapter)
+    return activated
+
+
+def _tell_boards_of_activated_joins(member, chapters):
+    """The #1843 board join mail for rows activated before the Member became Active (see above)."""
+    from verenigingen.verenigingen.doctype.chapter.managers.member_manager import MemberManager
+
+    for chapter_name in chapters:
+        MemberManager(frappe.get_doc("Chapter", chapter_name)).notify_board_of_activated_join(member.name)
 
 
 def assign_member_to_chapter(member, chapter, notify=None):
@@ -189,7 +216,7 @@ def assign_member_to_chapter(member, chapter, notify=None):
 
         # already_exists is the ordinary case of approving with the applicant's own chapter or a chapter
         # holding the member's Pending row (add_member leaves that row; _activate_pending_chapter_memberships
-        # flips the applied and the reviewer's chapter afterwards), so only other outcomes are failures. The
+        # flips the applied and the reviewer's chapter before the core), so only other outcomes are failures. The
         # approval still proceeds, so they must reach the Error Log: frappe.logger() writes
         # nowhere anyone reads (#1797).
         if not result.get("success") and result.get("action") != "already_exists":
@@ -661,6 +688,8 @@ def _approve_membership_application_locked(
 
     create_member_iban_history(member)
 
+    activated_chapters = _activate_pending_rows_before_invoice(member, applied_chapter, chapter)
+
     approval_fields = _prepare_approval_fields(member, membership_type, notes)
     # Honor the caller's create_invoice flag. Historically this was hardcoded to
     # True, silently ignoring create_invoice=False (e.g. historic CSV imports or
@@ -677,8 +706,9 @@ def _approve_membership_application_locked(
     # Assign the reviewer's chapter only now that the Member is saved as Active (#1797).
     # add_member derives a NEW row's enabled/status from the Member's current status; run
     # before the flip, it read 'Pending' and wrote the row enabled=0/Inactive, which the
-    # activation step below (it only flips 'Pending' rows) never repaired.
+    # activation step (it only flips 'Pending' rows) never repaired.
     assign_member_to_chapter(member, chapter)
+    _tell_boards_of_activated_joins(member, activated_chapters)
     if chapter:
         member.reload()
         member.update_current_chapter_display()
@@ -688,14 +718,6 @@ def _approve_membership_application_locked(
         # raised PermissionError after activation. The caller was already authorized for this
         # member by validate_chapter_permission_or_throw.
         member.db_set("current_chapter", member.current_chapter, update_modified=False)
-
-    # Activate the Pending row materialise_member wrote for the application's own chapter; Pending rows
-    # in other chapters are undecided join requests and stay as they are (#2064).
-    _activate_pending_chapter_memberships(member, applied_chapter)
-    if chapter and chapter != applied_chapter:
-        # assign_member_to_chapter left an existing Pending row in the reviewer's chapter as it was
-        # (add_member returns already_exists); the reviewer assigning it is the decision (#2064).
-        _activate_pending_chapter_memberships(member, chapter)
 
     # Get invoice and membership type docs for downstream steps
     invoice = None
