@@ -372,6 +372,13 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 f"settings pointing at them survive",
             )
 
+        # #2766: the stored exchange rates every test relies on, built in the factory
+        # module. Losing them to the drain puts the live-fetch refusal back.
+        self.assertTrue(
+            hasattr(factory_module.ensure_test_exchange_rates, "__wrapped__"),
+            "ensure_test_exchange_rates creates shared master data and must be @shared_fixture",
+        )
+
     def test_the_shared_mollie_account_helper_is_declared_shared(self):
         """`ensure_mollie_gl_accounts` creates Accounts and a Bank Account.
 

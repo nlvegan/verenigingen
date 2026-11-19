@@ -174,6 +174,13 @@ def before_tests():
         make_test_records("Customer", verbose=False, force=True, commit=True)
         frappe.db.commit()
 
+    # #2766: committed exchange rates for every module, including those whose test
+    # case has no harness setUp (plain FrappeTestCase / unittest). Idempotent.
+    from verenigingen.tests.fixtures.enhanced_test_factory import ensure_test_exchange_rates
+
+    ensure_test_exchange_rates()
+    frappe.db.commit()
+
     # Seed the Mode of Payment records the app and many tests depend on
     # (Bank Transfer, SEPA Direct Debit, Mollie, Manual, Cash). The same helper
     # is wired into after_migrate for production sites; CI sites are bench-new
