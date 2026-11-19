@@ -6163,7 +6163,8 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         A list in another currency (a fresh site's 'Standard Selling' is INR) makes
         erpnext fetch a live exchange rate on insert, which it refuses unless the
         session user is a System User -- so the invoice depended on whatever user an
-        earlier module left behind. Shared master data: never drained.
+        earlier module left behind. Shared master data, not claimed by either drain; a
+        test's rollback can still remove it, and the get-or-create rebuilds it.
         """
         if frappe.db.get_value("Price List", "Standard Selling", "currency") == currency:
             return "Standard Selling"

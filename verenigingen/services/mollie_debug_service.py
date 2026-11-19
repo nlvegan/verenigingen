@@ -10,6 +10,7 @@ from frappe.utils import add_days, today
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.security.api_security_framework import OperationType
+from verenigingen.utils.transaction_errors import submit_atomically
 from verenigingen.verenigingen_payments.core.compliance.audit_trail import (
     AuditEventType,
     AuditSeverity,
@@ -2741,18 +2742,23 @@ class MollieDebugService(StatelessService):
             )
 
     def _submit_processed_documents(self, processing_result, payment_id, payment_result):
-        """Submit bank transaction and payment entry if they exist and are in draft."""
+        """Submit bank transaction and payment entry if they exist and are in draft.
+
+        Each submit is atomic (#2447): this handler swallows the failure into ``submit_error``
+        and the request commits, so a throw inside ``on_submit`` would otherwise leave the
+        Payment Entry as docstatus 1 with no GL rows instead of the draft staff can retry.
+        """
         try:
             if processing_result.bank_transaction:
                 bt_doc = frappe.get_doc("Bank Transaction", processing_result.bank_transaction)
                 if bt_doc.docstatus == 0 and frappe.has_permission("Bank Transaction", "submit", bt_doc):
-                    bt_doc.submit()
+                    submit_atomically(bt_doc)
                     payment_result["bank_transaction_submitted"] = True
 
             if processing_result.payment_entry:
                 pe_doc = frappe.get_doc("Payment Entry", processing_result.payment_entry)
                 if pe_doc.docstatus == 0 and frappe.has_permission("Payment Entry", "submit", pe_doc):
-                    pe_doc.submit()
+                    submit_atomically(pe_doc)
                     payment_result["payment_entry_submitted"] = True
         except Exception as submit_error:
             payment_result["submit_error"] = str(submit_error)

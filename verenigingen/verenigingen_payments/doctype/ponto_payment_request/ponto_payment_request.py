@@ -29,7 +29,7 @@ from frappe.model.document import Document
 from frappe.utils import flt
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
-from verenigingen.utils.transaction_errors import atomic_status_transition
+from verenigingen.utils.transaction_errors import atomic_status_transition, insert_and_submit_atomically
 from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_request_status
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     REQUEST_GUARDED_FIELDS,
@@ -594,8 +594,7 @@ class PontoPaymentRequest(PontoSubmitCompensation, Document):
         pe.reference_date = frappe.utils.today()
         pe.bank_account = bank_account
 
-        pe.insert()
-        pe.submit()
+        insert_and_submit_atomically(pe)
 
         self.payment_entry = pe.name
         self.save()

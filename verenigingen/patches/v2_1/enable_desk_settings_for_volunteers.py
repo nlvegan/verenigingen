@@ -7,6 +7,7 @@ back-fills any users whose settings were previously left disabled.
 
 import frappe
 
+from verenigingen.services.member.account.user_role_profile_calculator import get_users_holding_profiles
 from verenigingen.utils.user_desk_settings import DESK_ENABLED_PROFILES, DESK_PROPERTIES
 
 
@@ -14,7 +15,8 @@ def execute():
     """Enable desk settings for all users with volunteer+ role profiles."""
     users = frappe.get_all(
         "User",
-        filters={"role_profile_name": ["in", list(DESK_ENABLED_PROFILES)]},
+        # Any position: role_profile_name mirrors only the first profile (#2432).
+        filters={"name": ["in", get_users_holding_profiles(list(DESK_ENABLED_PROFILES))]},
         fields=["name", "role_profile_name"] + list(DESK_PROPERTIES),
     )
 

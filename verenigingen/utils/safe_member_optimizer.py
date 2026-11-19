@@ -22,7 +22,6 @@ Architecture Principles:
 - Enable graceful fallback for edge cases
 """
 
-from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 import frappe
@@ -46,9 +45,13 @@ class SafeMemberOptimizer:
         self.enabled = True  # ENABLED: Security vulnerabilities fixed - atomic validation pattern
 
     @staticmethod
-    @lru_cache(maxsize=128)  # Use Python LRU cache - compatible with all Frappe versions
     def get_member_meta_cached():
-        """Cache Member DocType metadata to reduce repeated schema queries"""
+        """Member DocType metadata.
+
+        Not memoised here: a process-wide lru_cache had no site in its key and went stale after
+        a Custom Field / Property Setter change (#1935). frappe.get_meta already caches per site
+        and is invalidated on Customize Form.
+        """
         try:
             return frappe.get_meta("Member")
         except Exception as e:
@@ -57,9 +60,8 @@ class SafeMemberOptimizer:
             return frappe.get_meta("Member")
 
     @staticmethod
-    @lru_cache(maxsize=128)  # Use Python LRU cache - compatible with all Frappe versions
     def get_child_table_meta_cached(child_doctype: str):
-        """Cache child table metadata for SEPA mandates, payment history, etc."""
+        """Child table metadata for SEPA mandates, payment history, etc. (not memoised, see #1935)"""
         # Security: Validate child_doctype parameter
         if not isinstance(child_doctype, str) or not child_doctype:
             frappe.log_error(
@@ -80,9 +82,8 @@ class SafeMemberOptimizer:
             return frappe.get_meta(child_doctype)
 
     @staticmethod
-    @lru_cache(maxsize=128)  # Use Python LRU cache - compatible with all Frappe versions
     def get_link_field_options_cached(doctype: str):
-        """Cache Link field target DocTypes to reduce metadata queries"""
+        """Link field target DocTypes (not memoised, see #1935)"""
         # Security: Validate doctype parameter
         if not isinstance(doctype, str) or not doctype:
             frappe.log_error(f"Invalid doctype parameter: {doctype}", "Safe Member Optimizer Security")

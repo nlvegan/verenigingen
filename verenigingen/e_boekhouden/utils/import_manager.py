@@ -75,7 +75,7 @@ class EBoekhoudenImportManager:
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
-    def update_existing_imports(self, from_date=None, to_date=None, force_update=False):
+    def update_existing_imports(self, from_date=None, to_date=None, force_update: bool = False):
         """
         Update existing imports with latest data from E-Boekhouden
 

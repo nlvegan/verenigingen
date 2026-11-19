@@ -220,6 +220,98 @@ class TestExpenseApproverServicePositivePaths(EnhancedTestCase):
         svc._load_volunteer()
         self.assertEqual(svc._get_chapter_member_approver(), board_user.email)
 
+    # -- #2704: only an enabled AND Active seat resolves a chapter approver (#2528 rule) --
+
+    def _approver_for_row_state_2704(self, state):
+        """Subject's row in a chapter with a treasurer, left in ``state`` by the real writer:
+        request_to_join (pending), Member suspend writer (suspended: enabled=1/Inactive),
+        remove_member(permanent=False) (removed: enabled=0), plain add (active)."""
+        from verenigingen.events.subscribers.member_subscribers import _update_chapter_membership_status
+
+        chapter = self._ensure_chapter(f"R2704{state}")
+        board_vol, board_user = self._make_board_volunteer_with_user(f"r2704{state}")
+        self._add_board_member(chapter.name, board_vol.name)
+        if state == "pending":
+            frappe.get_doc("Chapter", chapter.name).member_manager.request_to_join(
+                self.member.name, notify=False
+            )
+        else:
+            self._add_chapter_member(chapter.name, self.member.name)
+        if state == "suspended":
+            _update_chapter_membership_status(self.member, "Suspended")
+        elif state == "removed":
+            frappe.get_doc("Chapter", chapter.name).member_manager.remove_member(
+                self.member.name, leave_reason="left", notify=False
+            )
+        row = frappe.db.get_value(
+            "Chapter Member",
+            {"parent": chapter.name, "member": self.member.name},
+            ["enabled", "status"],
+            as_dict=True,
+        )
+        expected = {"pending": 1, "suspended": 1, "removed": 0, "active": 1}[state]
+        self.assertEqual(row.enabled, expected, f"fixture: {state} row {row}")
+        if state in ("pending", "suspended", "active"):
+            self.assertEqual(
+                row.status, {"pending": "Pending", "suspended": "Inactive", "active": "Active"}[state]
+            )
+        svc = self._service()
+        svc._load_volunteer()
+        return svc._get_chapter_member_approver(), board_user.email
+
+    def test_chapter_member_approver_active_row_control(self):
+        approver, treasurer = self._approver_for_row_state_2704("active")
+        self.assertEqual(approver, treasurer)
+
+    def test_chapter_member_approver_ignores_pending_row(self):
+        approver, _treasurer = self._approver_for_row_state_2704("pending")
+        self.assertIsNone(approver)
+
+    def test_chapter_member_approver_ignores_suspended_row(self):
+        """enabled=1, status=Inactive: an enabled-only filter would still route to the treasurer."""
+        approver, _treasurer = self._approver_for_row_state_2704("suspended")
+        self.assertIsNone(approver)
+
+    def test_chapter_member_approver_ignores_removed_row(self):
+        approver, _treasurer = self._approver_for_row_state_2704("removed")
+        self.assertIsNone(approver)
+
+    # -- #2704: a non-Active chapter row falls through to the next tier, not to None or the chapter --
+
+    def _pin_national_with_treasurer_2704(self):
+        national = self._ensure_chapter("Nat2704")
+        previous = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", national.name)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", previous
+        )
+        national_vol, national_user = self._make_board_volunteer_with_user("nat2704")
+        self._add_board_member(national.name, national_vol.name)
+        return national_user.email
+
+    def _end_to_end_approver_2704(self, state):
+        national_email = self._pin_national_with_treasurer_2704()
+        self.assertNotEqual(national_email, None)
+        approver, chapter_email = self._approver_for_row_state_2704(state)
+        # the chapter tier alone answers per the row state; the entry point must fall through
+        svc = self._service()
+        return svc.get_expense_approver(), chapter_email, national_email, approver
+
+    def test_get_expense_approver_active_chapter_row_routes_to_chapter_treasurer(self):
+        resolved, chapter_email, national_email, _ = self._end_to_end_approver_2704("active")
+        self.assertEqual(resolved, chapter_email)
+        self.assertNotEqual(chapter_email, national_email)
+
+    def test_get_expense_approver_pending_chapter_row_falls_through_to_national_seat(self):
+        resolved, chapter_email, national_email, _ = self._end_to_end_approver_2704("pending")
+        self.assertEqual(resolved, national_email)
+        self.assertNotEqual(resolved, chapter_email)
+
+    def test_get_expense_approver_suspended_chapter_row_falls_through_to_national_seat(self):
+        resolved, chapter_email, national_email, _ = self._end_to_end_approver_2704("suspended")
+        self.assertEqual(resolved, national_email)
+        self.assertNotEqual(resolved, chapter_email)
+
     def test_chapter_member_approver_none_when_member_link_missing(self):
         """Volunteer without a member link short-circuits to None."""
         frappe.db.set_value("Volunteer", self.volunteer.name, "member", None, update_modified=False)

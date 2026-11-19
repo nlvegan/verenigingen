@@ -253,11 +253,11 @@ function updateTabContent(data) {
             <div class="border rounded-lg p-4">
                 <div class="flex justify-between items-center">
                     <div>
-                        <h4 class="font-medium">${txn.name}</h4>
-                        <p class="text-sm text-gray-500">€${parseFloat(txn.deposit).toLocaleString()} - ${txn.date}</p>
-                        <p class="text-sm text-gray-600">Batch: ${txn.custom_sepa_batch}</p>
+                        <h4 class="font-medium">${escapeHtml(txn.name)}</h4>
+                        <p class="text-sm text-gray-500">€${parseFloat(txn.deposit).toLocaleString()} - ${escapeHtml(txn.date)}</p>
+                        <p class="text-sm text-gray-600">Batch: ${escapeHtml(txn.custom_sepa_batch)}</p>
                     </div>
-                    <span class="status-badge status-reconciled">${txn.custom_processing_status}</span>
+                    <span class="status-badge status-reconciled">${escapeHtml(txn.custom_processing_status)}</span>
                 </div>
             </div>
         `).join('');
@@ -270,11 +270,11 @@ function updateTabContent(data) {
             <div class="border rounded-lg p-4">
                 <div class="flex justify-between items-center">
                     <div>
-                        <h4 class="font-medium">${review.reference_name}</h4>
-                        <p class="text-sm text-gray-600">${review.description.substring(0, 100)}...</p>
-                        <p class="text-sm text-gray-500">Created: ${review.creation}</p>
+                        <h4 class="font-medium">${escapeHtml(review.reference_name)}</h4>
+                        <p class="text-sm text-gray-600">${escapeHtml(review.description.substring(0, 100))}...</p>
+                        <p class="text-sm text-gray-500">Created: ${escapeHtml(review.creation)}</p>
                     </div>
-                    <button onclick="viewReviewTask('${review.name}')" class="action-btn">
+                    <button data-task-name="${escapeHtml(review.name)}" onclick="viewReviewTask(this.dataset.taskName)" class="action-btn">
                         View Task
                     </button>
                 </div>
@@ -313,20 +313,21 @@ function displayUnmatchedTransactions(matches) {
         <div class="border rounded-lg p-4">
             <div class="flex justify-between items-center">
                 <div>
-                    <h4 class="font-medium">${match.bank_transaction}</h4>
-                    <p class="text-sm text-gray-600">${match.description}</p>
+                    <h4 class="font-medium">${escapeHtml(match.bank_transaction)}</h4>
+                    <p class="text-sm text-gray-600">${escapeHtml(match.description)}</p>
                     <p class="text-sm text-gray-500">Amount: €${parseFloat(match.transaction_amount).toLocaleString()}</p>
                 </div>
                 <div class="text-right">
                     <p class="text-sm font-medium mb-2">Potential Matches:</p>
                     ${match.matching_batches.map(batch => `
                         <div class="mb-2">
-                            <button onclick="processSepaBatch('${match.bank_transaction}', '${batch.batch_name}')"
+                            <button data-bank-transaction="${escapeHtml(match.bank_transaction)}" data-batch-name="${escapeHtml(batch.batch_name)}"
+                                    onclick="processSepaBatch(this.dataset.bankTransaction, this.dataset.batchName)"
                                     class="action-btn text-xs">
-                                Match with ${batch.batch_name}
+                                Match with ${escapeHtml(batch.batch_name)}
                             </button>
                             <span class="ml-2 status-badge ${batch.confidence === 'high' ? 'status-reconciled' : 'status-partial'}">
-                                ${batch.confidence}
+                                ${escapeHtml(batch.confidence)}
                             </span>
                         </div>
                     `).join('')}
@@ -350,7 +351,7 @@ function processSepaBatch(bankTransaction, batchName) {
                 loadDashboardData(); // Refresh the data
             } else {
                 const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
-                frappe.msgprint(`Error: ${errorMsg}`);
+                frappe.msgprint(`Error: ${escapeHtml(errorMsg)}`);
             }
         }
     });
@@ -405,7 +406,7 @@ function processReturnFile() {
                     loadDashboardData();
                 } else {
                     const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
-                    frappe.msgprint(`Error: ${errorMsg}`);
+                    frappe.msgprint(`Error: ${escapeHtml(errorMsg)}`);
                 }
             }
         });
@@ -415,7 +416,7 @@ function processReturnFile() {
 }
 
 function viewReviewTask(taskName) {
-    window.open(`/app/todo/${taskName}`, '_blank');
+    window.open(`/app/todo/${encodeURIComponent(taskName)}`, '_blank');
 }
 </script>
 {% endblock %}

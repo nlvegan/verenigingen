@@ -15,6 +15,8 @@ from frappe.utils import add_days, today
 from verenigingen.tests.utils.base import VereningingenWorkflowTestCase
 from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 
+CI_ALWAYS_SKIPS = "only test is @unittest.skip'd: Volunteer Expense DocType archived (VOLUNTEER_EXPENSE_ARCHIVED)"
+
 
 class TestVolunteerJourney(VereningingenWorkflowTestCase):
     """

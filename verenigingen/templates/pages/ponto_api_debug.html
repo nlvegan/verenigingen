@@ -571,10 +571,21 @@ document.addEventListener('DOMContentLoaded', function() {
                     resultArea.textContent += '\n\n=== SUBMITTED ===\n' + JSON.stringify(r.message, null, 2);
 
                     if (r.message.redirect_link) {
-                        resultArea.innerHTML = resultArea.textContent +
-                            '\n\n<strong>AUTHORIZATION LINK:</strong>\n' +
-                            '<a href="' + r.message.redirect_link + '" target="_blank" class="redirect-link">' +
-                            r.message.redirect_link + '</a>';
+                        // Built as DOM nodes: re-parsing textContent as HTML would execute
+                        // markup carried by the JSON response above (#2586).
+                        const heading = document.createElement('strong');
+                        heading.textContent = 'AUTHORIZATION LINK:';
+                        resultArea.append('\n\n', heading, '\n');
+                        if (isHttpUrl(r.message.redirect_link)) {
+                            const anchor = document.createElement('a');
+                            anchor.href = r.message.redirect_link;
+                            anchor.target = '_blank';
+                            anchor.className = 'redirect-link';
+                            anchor.textContent = r.message.redirect_link;
+                            resultArea.appendChild(anchor);
+                        } else {
+                            resultArea.append(String(r.message.redirect_link));
+                        }
                     }
                 } else {
                     resultArea.textContent += '\n\nSubmit Error: ' + (r.message?.error || 'Unknown error');
@@ -644,14 +655,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
             html += `
                 <tr>
-                    <td><a href="/app/ponto-payment-link/${link.name}" target="_blank">${link.name}</a></td>
-                    <td>${link.amount} ${link.currency}</td>
-                    <td>${link.payment_type}${link.frequency ? ' (' + link.frequency + ')' : ''}</td>
-                    <td><span class="status-badge ${statusClass}">${link.status}</span></td>
-                    <td title="${link.description || ''}">${description}</td>
+                    <td><a href="/app/ponto-payment-link/${encodeURIComponent(link.name)}" target="_blank">${escapeHtml(link.name)}</a></td>
+                    <td>${escapeHtml(link.amount)} ${escapeHtml(link.currency)}</td>
+                    <td>${escapeHtml(link.payment_type)}${link.frequency ? ' (' + escapeHtml(link.frequency) + ')' : ''}</td>
+                    <td><span class="status-badge ${statusClass}">${escapeHtml(link.status)}</span></td>
+                    <td title="${escapeHtml(link.description || '')}">${escapeHtml(description)}</td>
                     <td>
-                        <button class="btn-brutal" onclick="refreshLinkStatus('${link.name}')">Refresh</button>
-                        ${link.redirect_link ? '<a href="' + link.redirect_link + '" target="_blank" class="btn-brutal btn-brutal--info">Pay Link</a>' : ''}
+                        <button class="btn-brutal" data-link-name="${escapeHtml(link.name)}" onclick="refreshLinkStatus(this.dataset.linkName)">Refresh</button>
+                        ${isHttpUrl(link.redirect_link) ? '<a href="' + escapeHtml(link.redirect_link) + '" target="_blank" class="btn-brutal btn-brutal--info">Pay Link</a>' : ''}
                     </td>
                 </tr>
             `;
@@ -659,6 +670,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         html += '</tbody></table>';
         container.innerHTML = html;
+    }
+
+    // A redirect link comes from the Ponto API; only http(s) may become an href (not javascript:).
+    function isHttpUrl(value) {
+        return typeof value === 'string' && /^https?:\/\//i.test(value);
     }
 
     function getStatusClass(status) {
