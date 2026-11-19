@@ -691,7 +691,6 @@
  "verenigingen.tests.payment.test_mollie_payment_entry_factory_coverage_b1": 5,
  "verenigingen.tests.payment.test_mollie_payment_service": 10,
  "verenigingen.tests.payment.test_mollie_payment_webhook_helpers": 16,
- "verenigingen.tests.payment.test_mollie_performance_benchmarks": 17,
  "verenigingen.tests.payment.test_mollie_rate_limiter_coverage_b1": 16,
  "verenigingen.tests.payment.test_mollie_reconciliation_engine": 21,
  "verenigingen.tests.payment.test_mollie_refund_handler": 8,
