@@ -21,7 +21,6 @@ Performance Targets:
 
 import json
 import time
-from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 import frappe
@@ -43,9 +42,9 @@ class MemberPerformanceOptimizer:
         self.cache_timeout = 300  # 5 minutes
 
     @staticmethod
-    @lru_cache(maxsize=32)
     def get_doctype_meta_cached(doctype: str) -> Dict[str, Any]:
-        """Cache DocType metadata to avoid repeated loading
+        """DocType metadata summary (not memoised: a process-wide lru_cache had no site in its key, #1935;
+        frappe.get_meta is already cached per site)
 
         Args:
             doctype: DocType name to cache metadata for
@@ -398,9 +397,6 @@ class MemberPerformanceOptimizer:
 
     def clear_all_member_caches(self):
         """Clear all member-related caches"""
-        # Clear function caches
-        self.get_doctype_meta_cached.cache_clear()
-
         # Clear Redis caches with member pattern.
         #
         # Use delete_keys(pattern), NOT a get_keys(pattern) + delete_value(key) loop.

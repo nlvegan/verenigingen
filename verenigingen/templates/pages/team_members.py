@@ -82,7 +82,11 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
     # Also allow if member belongs to the same chapter as the team
     if not is_team_member:
         is_team_member = bool(
-            frappe.db.exists("Chapter Member", {"parent": team_chapter, "member": member, "enabled": 1})
+            frappe.db.exists(
+                "Chapter Member",
+                # enabled AND Active (#2528, #2704): a Pending or suspended row is not membership
+                {"parent": team_chapter, "member": member, "enabled": 1, "status": "Active"},
+            )
         )
 
     # An unknown team id and a real-but-forbidden one must be indistinguishable to a
@@ -200,7 +204,7 @@ def _get_available_teams_for_user(user: str, member: str) -> list:
     # Also get teams from user's chapter(s)
     chapter_teams = frappe.get_all(
         "Chapter Member",
-        filters={"member": member, "enabled": 1},
+        filters={"member": member, "enabled": 1, "status": "Active"},
         fields=["parent"],
     )
 

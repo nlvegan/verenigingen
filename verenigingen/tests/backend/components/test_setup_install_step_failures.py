@@ -339,6 +339,7 @@ class TestRemainingSwallowersReachTheRunner(FrappeTestCase):
                 raise RuntimeError("db gone (test)")
             return real_set_value(dt, *args, **kwargs)
 
+        # Mock justified: fault injection: raises for the Verenigingen Settings write only, every other write runs for real
         with mock.patch.object(frappe.db, "set_value", set_value):
             failed = setup_mod.execute_after_install()
         self.assertIn("mark initial setup complete", failed)

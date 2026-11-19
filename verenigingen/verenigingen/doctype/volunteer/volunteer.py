@@ -69,6 +69,7 @@ from verenigingen.services.member.utils.member_age_service import calculate_memb
 from verenigingen.services.volunteer.status_derivation_service import (
     get_volunteer_status_derivation_service,
 )
+from verenigingen.services.volunteer.volunteer_link_guard_service import guard_employee_and_member_links
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -78,12 +79,10 @@ from verenigingen.utils.validation_utilities import AgeValidator, DocumentExiste
 
 
 def safe_log_error(message: str, title: Optional[str] = None) -> None:
-    """Helper to log errors with length protection"""
-    # Truncate message to prevent log title validation errors
-    safe_message = message[:100] + "..." if len(message) > 100 else message
+    """Helper to log errors; the message is kept in full (#1138), the title is never empty."""
     # title must never be None -- see #1121 / employee_user_link.py for why
-    safe_title = title or safe_message.split("\n")[0][:140]
-    frappe.log_error(title=safe_title, message=safe_message)
+    safe_title = title or message.split("\n")[0][:140]
+    frappe.log_error(title=safe_title, message=message)
 
 
 class Volunteer(Document):
@@ -115,6 +114,7 @@ class Volunteer(Document):
         self.validate_required_fields()
         self.validate_member_link()
         self.validate_unique_member_link()
+        guard_employee_and_member_links(self)
         self.validate_volunteer_age()
         self.validate_dates()
         self.validate_retired_has_no_current_assignment()

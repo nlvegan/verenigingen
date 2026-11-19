@@ -750,8 +750,8 @@ def setup_termination_system_integration():
     # Step 2: Setup workflows (using separate workflow setup module)
     from verenigingen.setup.workflow_setup import setup_workflows_corrected
 
-    # setup_workflows_corrected returns True on a healthy site (the appeals skip counts as
-    # success); False means its prerequisites or the commit failed, so it is a failure.
+    # setup_workflows_corrected returns True on a healthy site; False means its
+    # prerequisites or the commit failed, so it is a failure.
     if not setup_workflows_corrected():
         raise RuntimeError("Termination workflow setup reported failure")
     print("✅ Workflows created successfully")

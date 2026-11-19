@@ -608,7 +608,7 @@ repos:
         entry: python scripts/validation/public_js_endpoint_resolver.py
         language: system
         pass_filenames: false
-        files: '^verenigingen/public/js/.*\.(js|vue)$'
+        files: '^verenigingen/(public/js|e_boekhouden)/.*\.(js|vue)$'
         stages: [pre-commit]
         verbose: true
 

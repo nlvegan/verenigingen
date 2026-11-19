@@ -438,6 +438,7 @@ class TestIssuerNeverFabricatesAnId(EnhancedTestCase):
                 raise error
             return real_sql(query, *args, **kwargs)
 
+        # Mock justified: fault injection: the counter FOR UPDATE lock raises the injected error, every other statement runs for real
         return patch.object(frappe.db, "sql", side_effect=sql)
 
     def test_a_deadlock_on_the_counter_lock_raises_and_issues_nothing(self):

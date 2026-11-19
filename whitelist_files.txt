@@ -19,7 +19,6 @@
 ./scripts/debug/debug_dashboard_access.py
 ./scripts/debug/debug_volunteer_lookup.py
 ./scripts/debug/fix_dashboard_chart_issue.py
-./scripts/debug/incremental_update_debug_test.py
 ./scripts/debug/membership_dues_coverage_debugger.py
 ./scripts/debug/payment_history_debugger.py
 ./scripts/debug/remove_period_closing_vouchers.py

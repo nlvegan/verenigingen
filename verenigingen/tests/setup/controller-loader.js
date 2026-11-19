@@ -184,6 +184,9 @@ function loadFrappeController(controllerPath) {
 			setup_board_grid: global.setup_board_grid || jest.fn(),
 			display_chapter_join_requests: global.display_chapter_join_requests || jest.fn(),
 
+			// Form-locals store (read by child-table handlers such as invoices_add)
+			locals: global.locals,
+
 			// Verenigingen namespace and operation result helpers
 			verenigingen: global.verenigingen,
 			escapeHtml: global.escapeHtml,

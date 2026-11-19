@@ -811,7 +811,7 @@ def reset_member_id_counter(counter_value):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.ADMIN)
+@critical_api(operation_type=OperationType.ADMIN)
 def get_next_member_id_preview():
     """Get the next member ID that would be assigned"""
     from verenigingen.verenigingen.doctype.member.member_id_manager import MemberIDManager

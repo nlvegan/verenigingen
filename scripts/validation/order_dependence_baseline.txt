@@ -377,6 +377,7 @@ COMMIT_EXEMPT tests/e_boekhouden/test_rest_orchestration_start.py::1  # order-de
 COMMIT_EXEMPT tests/e_boekhouden/test_settings.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/financial/test_mollie_financial_safeguards.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/fixtures/enhanced_test_factory.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/fixtures/test_data_factory.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/fixtures/test_membership_type_amount_sync.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/services/test_coverage_calculator_module.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/integration/services/test_cutoff_date_calculations.py::1  # order-dep-exempt
@@ -445,7 +446,7 @@ COMMIT_EXEMPT tests/support/wsgi_http_session.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/test_enhanced_test_factory_drain.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/test_harness_cleanup_tracked_docs_dangling_link.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/test_harness_drains_survive_setup_failure.py::2  # order-dep-exempt
-COMMIT_EXEMPT tests/test_harness_leak_attribution.py::16  # order-dep-exempt
+COMMIT_EXEMPT tests/test_harness_leak_attribution.py::18  # order-dep-exempt
 COMMIT_EXEMPT tests/test_member_import_cleanup_engine.py::4  # order-dep-exempt
 COMMIT_EXEMPT tests/test_notification_seed_leak_2053.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/test_notification_sender_keys_registered_1999.py::1  # order-dep-exempt
@@ -455,6 +456,7 @@ COMMIT_EXEMPT tests/utils/factories.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/reminder_mail_state.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/stock_email_templates.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/test_drain_role_grants.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/utils/test_meta_caches_follow_customization_1935.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/api_audit_log/test_api_audit_log.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/contribution_amendment_request/test_contribution_amendment_request_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/critical_operation_rule/test_critical_operation_rule.py::2  # order-dep-exempt
@@ -464,6 +466,7 @@ COMMIT_EXEMPT verenigingen/doctype/member/test_member_id_manager.py::1  # order-
 COMMIT_EXEMPT verenigingen/doctype/membership_dues_schedule/test_membership_dues_schedule_hooks.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/mt940_import/test_mt940_import.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen/doctype/vip_import/test_vip_import.py::6  # order-dep-exempt
+COMMIT_EXEMPT verenigingen_payments/ing_checkout/tests/test_mandate_api_ownership.py::1  # order-dep-exempt
 COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_customer_creation_concurrency.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_dues_payment_processor_coverage_sweep.py::2  # order-dep-exempt
 COMMIT_EXEMPT verenigingen_payments/mollie/tests/test_payment_service_unit.py::1  # order-dep-exempt

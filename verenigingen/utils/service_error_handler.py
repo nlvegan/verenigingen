@@ -15,6 +15,8 @@ import logging
 import frappe
 from frappe import _
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
 
 class ServiceError(Exception):
     """Custom exception for service-specific errors with context."""
@@ -43,6 +45,13 @@ def handle_service_error(error, service_name, operation, context=None, raise_err
     Raises:
         ServiceError: If raise_error is True
     """
+    if raise_error and isinstance(error, NON_RESUMABLE_DB_ERRORS):
+        # #1190: a 1213/1205 must reach the caller as itself. Wrapping it in a
+        # ServiceError made every downstream `except NON_RESUMABLE_DB_ERRORS` dead.
+        # Not logged here either: the Error Log insert would be issued on the
+        # transaction the server just destroyed (see transaction_errors.py).
+        raise error
+
     error_message = str(error)
     context_str = f" | Context: {context}" if context else ""
     full_message = f"[{service_name}] {operation} failed: {error_message}{context_str}"

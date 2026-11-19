@@ -126,6 +126,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
             return real_sql(*a, **kw)
 
         try:
+            # Mock justified: call-through spy: counts queries, then runs the real frappe.db.sql
             with patch.object(frappe.db, "sql", counting_sql):
                 frappe.handler.execute_cmd(cmd)
         finally:
@@ -765,6 +766,7 @@ class TestPontoCallbackGuestStatus(EnhancedTestCase):
             return real_sql(*a, **kw)
 
         try:
+            # Mock justified: call-through spy: counts queries, then runs the real frappe.db.sql
             with patch.object(frappe.db, "sql", counting_sql):
                 response = get_response(betaalverzoek_callback.PONTO_RETURN_ROUTE.lstrip("/"))
         finally:
