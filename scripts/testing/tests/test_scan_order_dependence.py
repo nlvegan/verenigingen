@@ -512,6 +512,15 @@ class GetValueReuseTest(unittest.TestCase):
                 result = self._scan(tmp, self._setup_body(call))
                 self.assertIn("REUSE=1", result.stdout, result.stdout)
 
+    def test_unresolved_settings_named_doctype_is_still_flagged(self):
+        # Control against a "name ends in Settings" shortcut, and the determinism
+        # decision: only THIS app's JSON is consulted, so another app's Single
+        # (System Settings) and an unknown "... Settings" are both still REUSE.
+        for dt in ("Imaginary Widget Settings", "System Settings"):
+            with self.subTest(dt=dt), tempfile.TemporaryDirectory() as tmp:
+                result = self._scan(tmp, self._setup_body(f'frappe.db.get_value("{dt}", None, "x")'))
+                self.assertIn("REUSE=1", result.stdout, result.stdout)
+
     def test_non_literal_doctype_with_none_filter_is_still_flagged(self):
         # The scanner cannot tell what a variable names, so it keeps flagging it.
         with tempfile.TemporaryDirectory() as tmp:

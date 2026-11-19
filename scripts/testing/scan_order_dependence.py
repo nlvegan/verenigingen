@@ -198,24 +198,15 @@ def _known_single_doctypes():
     A Single has exactly one row, so ``get_value("<Single>", None, field)`` -- the
     standard way to read one -- cannot depend on what a neighbouring test left behind
     and is not REUSE. The scanner is AST-only, so "is this a Single" is answered from
-    the doctype JSONs: this checkout's own app, plus the sibling apps of the bench when
-    one can be found (frappe/erpnext Singles such as System Settings). Without a bench,
-    only this app's Singles resolve and an unresolved name keeps being flagged -- the
-    fail-closed direction for a ratchet.
-    """
-    here = Path(__file__).resolve().parent
-    roots = [here.parent.parent / "verenigingen"]
-    sys.path.insert(0, str(here.parent / "validation"))
-    try:
-        from bench_resolution import find_bench_root
+    the doctype JSONs of THIS app only.
 
-        bench = find_bench_root(here)
-    except ImportError:
-        bench = None
-    finally:
-        sys.path.pop(0)
-    if bench is not None:
-        roots.extend(p for p in (bench / "apps").glob("*/*") if p.is_dir())
+    Singles of other apps (frappe/erpnext/hrms, e.g. System Settings) are deliberately
+    NOT resolved: CI scans a bare checkout with no bench, so resolving them where a
+    bench exists would make the census differ between a local run and CI and turn
+    "Baseline is in sync" red after a green local run. A setUp read of one still counts
+    as REUSE, exactly as before #1338. The census is identical with or without a bench.
+    """
+    roots = [Path(__file__).resolve().parent.parent.parent / "verenigingen"]
     singles = set()
     for root in roots:
         for dirpath, dirs, files in os.walk(root):
