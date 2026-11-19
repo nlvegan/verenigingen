@@ -269,6 +269,54 @@ class TestTeamMembersPage(EnhancedTestCase):
         finally:
             frappe.db.sql("DELETE FROM `tabChapter Member` WHERE name=%s", orphan_name)
 
+    # ---- #2704: chapter-based access needs an enabled AND Active Chapter Member row ----
+
+    def _outsider_in_team_chapter_2704(self, state):
+        """A non-team member whose row in the team's chapter is left in ``state`` by the real
+        writer: request_to_join (pending), the Member suspend writer (suspended: enabled=1/Inactive),
+        plain add (active)."""
+        from verenigingen.events.subscribers.member_subscribers import _update_chapter_membership_status
+
+        chapter = self.ensure_test_chapter(f"TeamAcc2704{state}")
+        self.team.db_set("chapter", chapter.name)
+        email = f"team-out-{state}-{frappe.generate_hash()[:8]}@test.invalid"
+        member = self._make_member_with_user(email)
+        if state == "pending":
+            frappe.get_doc("Chapter", chapter.name).member_manager.request_to_join(member.name, notify=False)
+        else:
+            chapter_doc = frappe.get_doc("Chapter", chapter.name)
+            chapter_doc.append("members", {"member": member.name, "enabled": 1})
+            chapter_doc.save()
+        if state == "suspended":
+            _update_chapter_membership_status(member, "Suspended")
+        row = frappe.db.get_value(
+            "Chapter Member", {"parent": chapter.name, "member": member.name}, ["enabled", "status"], as_dict=True
+        )
+        expected = {"pending": "Pending", "suspended": "Inactive", "active": "Active"}[state]
+        self.assertEqual((row.enabled, row.status), (1, expected), "fixture: " + state)
+        return email, member
+
+    def test_active_chapter_row_grants_team_view_control(self):
+        email, _member = self._outsider_in_team_chapter_2704("active")
+        ctx = self._ctx_with_team(email, self.team.name)
+        self.assertEqual(ctx.team.name, self.team.name)
+
+    def test_pending_chapter_row_does_not_grant_team_view(self):
+        email, _member = self._outsider_in_team_chapter_2704("pending")
+        with self.assertRaises(frappe.PermissionError):
+            self._ctx_with_team(email, self.team.name)
+
+    def test_suspended_chapter_row_does_not_grant_team_view(self):
+        email, _member = self._outsider_in_team_chapter_2704("suspended")
+        with self.assertRaises(frappe.PermissionError):
+            self._ctx_with_team(email, self.team.name)
+
+    def test_selector_lists_chapter_team_only_for_active_row(self):
+        for state, listed in (("active", True), ("pending", False), ("suspended", False)):
+            _email, member = self._outsider_in_team_chapter_2704(state)
+            teams = team_members._get_available_teams_for_user(_email, member.name)
+            self.assertEqual(any(t.name == self.team.name for t in teams), listed, state)
+
     # ---- _get_available_teams_for_user ---------------------------------
 
     def test_available_teams_for_member(self):

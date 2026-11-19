@@ -20,7 +20,7 @@ from verenigingen.verenigingen_payments.page.sepa_mandate_diagnostics.sepa_manda
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def create_missing_sepa_mandates(dry_run=True, member_name: str | None = None):
+def create_missing_sepa_mandates(dry_run: bool = True, member_name: str | None = None):
     """
     Create SEPA mandates for members with SEPA Direct Debit payment method but no active mandate.
 

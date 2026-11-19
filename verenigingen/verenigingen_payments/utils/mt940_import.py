@@ -12,6 +12,7 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
 from verenigingen.utils.transaction_errors import (
     NON_RESUMABLE_DB_ERRORS,
+    insert_and_submit_atomically,
     release_savepoint_if_present,
     rollback_to_savepoint,
 )
@@ -1271,8 +1272,9 @@ def create_enhanced_bank_transaction_from_mt940(
         # propagate to the except block below, which logs and re-raises to the per-
         # transaction caller in process_mt940_document(), so a real failure shows up in that
         # import's `errors` list instead of being counted as an indistinguishable "skipped".
-        bt.insert()
-        bt.submit()
+        # One unit (#2447): the per-transaction caller records the error and carries on, so a
+        # bare insert left a draft holding this row's reference key.
+        insert_and_submit_atomically(bt)
 
         # Log enhanced transaction creation for debugging
         frappe.logger().info(

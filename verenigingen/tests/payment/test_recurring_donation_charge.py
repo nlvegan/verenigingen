@@ -853,9 +853,11 @@ class _SweepMollieClient:
     def __init__(self, payments_by_subscription):
         self._by_subscription = payments_by_subscription
 
-    def get_subscription(self, customer_id, subscription_id):
-        page = _SweepPage(self._by_subscription.get(subscription_id, []))
-        return SimpleNamespace(payments=SimpleNamespace(list=lambda limit=None: page))
+    def list_subscription_payments(self, customer_id, subscription_id, limit=None):
+        return _SweepPage(self._by_subscription.get(subscription_id, []))
+
+    def get_next_payments_page(self, page):
+        return page.get_next()
 
 
 class TestRecurringChargeWebhookWiring(EnhancedTestCase):
@@ -1720,12 +1722,12 @@ class TestRecurringChargeWebhookWiring(EnhancedTestCase):
         self._setup_origin()
         self.expectErrorLog("Recurring Donation Charge Sweep")
 
-        def _unreachable(customer_id, subscription_id):
+        def _unreachable(customer_id, subscription_id, limit=None):
             raise RuntimeError(f"Mollie unreachable for {subscription_id}")
 
         title = "Recurring Donation Charge Sweep Problems"
         before = frappe.db.count("Error Log", {"method": title})
-        with patch(f"{_SWEEP}.MollieClient", return_value=SimpleNamespace(get_subscription=_unreachable)):
+        with patch(f"{_SWEEP}.MollieClient", return_value=SimpleNamespace(list_subscription_payments=_unreachable)):
             summary = sweep_recurring_donation_charges()
 
         self.assertTrue(summary["errors"], summary)

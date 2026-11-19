@@ -202,14 +202,14 @@ function executeMandateSync(dryRun) {
                 const errorMsg = verenigingen.utils.getErrorMessage(r.message, 'Unknown error');
                 statusDiv.innerHTML = `
                     <div class="alert alert-danger">
-                        Error running mandate sync: ${errorMsg}
+                        Error running mandate sync: ${escapeHtml(errorMsg)}
                     </div>`;
             }
         },
         error: function(err) {
             statusDiv.innerHTML = `
                 <div class="alert alert-danger">
-                    Request failed: ${err.message || 'Unknown error'}
+                    Request failed: ${escapeHtml(err.message || 'Unknown error')}
                 </div>`;
         }
     });
@@ -249,7 +249,7 @@ function runReconciliation() {
             } else {
                 statusDiv.innerHTML = `
                     <div class="alert alert-danger">
-                        Error: ${r.message ? (r.message.error_message || r.message.error) : 'Unknown error occurred'}
+                        Error: ${escapeHtml(r.message ? (r.message.error_message || r.message.error) : 'Unknown error occurred')}
                     </div>`;
             }
 
@@ -258,7 +258,7 @@ function runReconciliation() {
         error: function(err) {
             statusDiv.innerHTML = `
                 <div class="alert alert-danger">
-                    Request failed: ${err.message || 'Unknown error'}
+                    Request failed: ${escapeHtml(err.message || 'Unknown error')}
                 </div>`;
             progressContainer.style.display = 'none';
         }
@@ -286,7 +286,7 @@ function displaySummary(data) {
                         <strong>Members with Issues:</strong> <span class="badge badge-danger">${membersWithIssues}</span>
                     </div>
                     <div class="col-md-3">
-                        <strong>Dues Keywords:</strong> ${data.dues_keywords.join(', ')}
+                        <strong>Dues Keywords:</strong> ${escapeHtml(data.dues_keywords.join(', '))}
                     </div>
                     <div class="col-md-3">
                         <strong>Mode:</strong> <span class="badge badge-${testMode ? 'warning' : 'success'}">${testMode ? 'TEST' : 'LIVE'}</span>
@@ -352,12 +352,12 @@ function displayMembers(members) {
                     <div class="row">
                         <div class="col-md-6">
                             <h5>
-                                <a href="/app/member/${member.member_id}" target="_blank">
-                                    ${member.member_name}
+                                <a href="/app/member/${encodeURIComponent(member.member_id)}" target="_blank">
+                                    ${escapeHtml(member.member_name)}
                                 </a>
-                                <span class="badge badge-${getStatusBadgeClass(member.member_status)}">${member.member_status}</span>
+                                <span class="badge badge-${getStatusBadgeClass(member.member_status)}">${escapeHtml(member.member_status)}</span>
                             </h5>
-                            <small class="text-muted">ID: ${member.member_id} | Customer: ${member.customer_id}</small>
+                            <small class="text-muted">ID: ${escapeHtml(member.member_id)} | Customer: ${escapeHtml(member.customer_id)}</small>
                         </div>
                         <div class="col-md-6 text-right">
                             ${member.has_issues ? '<span class="badge badge-danger">Has Issues</span>' : '<span class="badge badge-success">OK</span>'}
@@ -369,9 +369,9 @@ function displayMembers(members) {
                         <div class="col-md-6">
                             <h6>Current Database Fields</h6>
                             <ul class="list-unstyled">
-                                <li><strong>Subscription Status:</strong> ${member.current_subscription_status || 'None'}</li>
-                                <li><strong>Subscription ID:</strong> <code>${member.current_subscription_id || 'None'}</code></li>
-                                <li><strong>Next Payment:</strong> ${member.current_next_payment_date || 'None'}</li>
+                                <li><strong>Subscription Status:</strong> ${escapeHtml(member.current_subscription_status || 'None')}</li>
+                                <li><strong>Subscription ID:</strong> <code>${escapeHtml(member.current_subscription_id || 'None')}</code></li>
+                                <li><strong>Next Payment:</strong> ${escapeHtml(member.current_next_payment_date || 'None')}</li>
                             </ul>
                         </div>
                         <div class="col-md-6">
@@ -387,7 +387,7 @@ function displayMembers(members) {
                         <div class="discrepancy-alert">
                             <strong>⚠️ Issues Found:</strong>
                             <ul class="mb-0">
-                                ${member.discrepancies.map(d => `<li>${d}</li>`).join('')}
+                                ${member.discrepancies.map(d => `<li>${escapeHtml(d)}</li>`).join('')}
                             </ul>
                         </div>
                     ` : ''}
@@ -410,7 +410,7 @@ function displayMembers(members) {
                     ${member.suggested_subscription_id || member.suggested_status ? `
                         <div class="update-buttons">
                             <strong>Suggested Fix:</strong>
-                            <button class="btn btn-sm btn-warning" onclick="applyQuickFix('${escapeHtml(member.member_id)}', '${escapeHtml(member.suggested_subscription_id || '')}', '${escapeHtml(member.suggested_status || '')}', '${escapeHtml(member.suggested_next_invoice_date || '')}')">
+                            <button class="btn btn-sm btn-warning" data-member-id="${escapeHtml(member.member_id)}" data-subscription-id="${escapeHtml(member.suggested_subscription_id || '')}" data-status="${escapeHtml(member.suggested_status || '')}" data-next-invoice-date="${escapeHtml(member.suggested_next_invoice_date || '')}" onclick="applyQuickFix(this.dataset.memberId, this.dataset.subscriptionId, this.dataset.status, this.dataset.nextInvoiceDate)">
                                 <i class="fa fa-magic"></i> Apply Quick Fix
                             </button>
                             <small class="text-muted ml-2">
@@ -435,17 +435,17 @@ function renderSubscriptions(subscriptions, isActive, memberId) {
 
     return subscriptions.map(sub => `
         <div class="subscription-item">
-            <div><strong>${sub.description}</strong></div>
-            <div><small>ID: <code>${sub.subscription_id}</code></small></div>
+            <div><strong>${escapeHtml(sub.description)}</strong></div>
+            <div><small>ID: <code>${escapeHtml(sub.subscription_id)}</code></small></div>
             <div>
-                <span class="badge badge-${sub.status === 'active' ? 'success' : 'secondary'}">${sub.status}</span>
-                <span class="badge badge-light">€${sub.amount}</span>
-                <span class="badge badge-light">${sub.interval}</span>
+                <span class="badge badge-${sub.status === 'active' ? 'success' : 'secondary'}">${escapeHtml(sub.status)}</span>
+                <span class="badge badge-light">€${escapeHtml(sub.amount)}</span>
+                <span class="badge badge-light">${escapeHtml(sub.interval)}</span>
             </div>
-            ${sub.next_payment_date ? `<div><small>Next: ${sub.next_payment_date}</small></div>` : ''}
-            ${sub.cancelled_at ? `<div><small>Cancelled: ${sub.cancelled_at}</small></div>` : ''}
+            ${sub.next_payment_date ? `<div><small>Next: ${escapeHtml(sub.next_payment_date)}</small></div>` : ''}
+            ${sub.cancelled_at ? `<div><small>Cancelled: ${escapeHtml(sub.cancelled_at)}</small></div>` : ''}
             ${isActive ? `
-                <button class="btn btn-xs btn-primary mt-1" onclick="setMemberSubscription('${escapeHtml(memberId)}', '${escapeHtml(sub.subscription_id)}')">
+                <button class="btn btn-xs btn-primary mt-1" data-member-id="${escapeHtml(memberId)}" data-subscription-id="${escapeHtml(sub.subscription_id)}" onclick="setMemberSubscription(this.dataset.memberId, this.dataset.subscriptionId)">
                     Set as Current
                 </button>
             ` : ''}

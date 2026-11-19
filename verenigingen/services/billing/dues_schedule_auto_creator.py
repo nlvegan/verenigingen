@@ -281,7 +281,7 @@ def auto_create_missing_dues_schedules(preview_mode=False, send_emails=True):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=True):
+def auto_create_missing_dues_schedules_enhanced(preview_mode: bool = False, send_emails: bool = True):
     """Enhanced version that supports preview mode and returns detailed results"""
     if not frappe.has_permission("Membership Dues Schedule", "create"):
         frappe.throw("You don't have permission to create dues schedules")

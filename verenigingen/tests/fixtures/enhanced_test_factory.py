@@ -251,7 +251,8 @@ def ensure_selling_price_list(currency="EUR"):
     A list in another currency (a fresh site's 'Standard Selling' is INR) makes
     erpnext fetch a live exchange rate on insert, which it refuses unless the
     session user is a System User -- so the invoice depended on whatever user an
-    earlier module left behind. Shared master data: never drained.
+    earlier module left behind. Shared master data, not claimed by either drain; a
+    test's rollback can still remove it, and the get-or-create rebuilds it.
 
     Module-level so factories that are not an EnhancedTestCase (the SEPA factory)
     reuse it instead of growing another copy.

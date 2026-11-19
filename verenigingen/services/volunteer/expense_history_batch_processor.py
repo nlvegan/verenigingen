@@ -16,7 +16,7 @@ from frappe import _
 from frappe.utils import add_days, getdate, now, today
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 class ExpenseHistoryBatchProcessor:
@@ -85,6 +85,8 @@ class ExpenseHistoryBatchProcessor:
         Returns list of expense claims that need to be processed.
         """
         # Submitted claims only (docstatus 1) -- matches the live on_submit path.
+        # get_all on purpose (#1819): a scheduler job that must see every claim; scoping it to a
+        # caller would silently skip history. The whitelisted entry is not admin-gated, see #2753.
         all_claims = frappe.get_all(
             "Expense Claim",
             filters={"docstatus": 1},
@@ -221,7 +223,7 @@ class ExpenseHistoryBatchProcessor:
 
 # Scheduled task functions
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.ADMIN)
+@critical_api(operation_type=OperationType.ADMIN)
 def process_pending_expense_history_updates():
     """
     Scheduled task to process pending expense history updates.
@@ -233,7 +235,7 @@ def process_pending_expense_history_updates():
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.ADMIN)
+@critical_api(operation_type=OperationType.ADMIN)
 def validate_expense_history_integrity():
     """
     Scheduled task to validate expense history integrity.
@@ -283,7 +285,7 @@ def validate_expense_history_integrity():
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.ADMIN)
+@critical_api(operation_type=OperationType.ADMIN)
 def cleanup_orphaned_expense_history():
     """
     Cleanup orphaned expense history entries.
