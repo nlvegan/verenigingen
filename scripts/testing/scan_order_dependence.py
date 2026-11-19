@@ -116,6 +116,8 @@ import json
 import os
 import sys
 import tempfile
+from functools import lru_cache
+from pathlib import Path
 
 SETUP_FUNCS = {"setUp", "setUpClass", "setUpModule"}
 SCOPING_KW = {"filters", "name", "or_filters"}  # presence => query is (likely) scoped
@@ -175,6 +177,56 @@ def _get_value_filters_arg(call):
 
 
 _FILTERS_OMITTED = object()
+
+
+def _get_value_doctype_literal(call):
+    """The doctype name when it is passed as a string literal, else None."""
+    arg = call.args[0] if call.args else None
+    if arg is None:
+        for kw in call.keywords:
+            if kw.arg in ("doctype", "dt"):
+                arg = kw.value
+    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+        return arg.value
+    return None
+
+
+@lru_cache(maxsize=1)
+def _known_single_doctypes():
+    """Names of every doctype whose JSON says ``"issingle": 1`` (#1338).
+
+    A Single has exactly one row, so ``get_value("<Single>", None, field)`` -- the
+    standard way to read one -- cannot depend on what a neighbouring test left behind
+    and is not REUSE. The scanner is AST-only, so "is this a Single" is answered from
+    the doctype JSONs of THIS app only.
+
+    Singles of other apps (frappe/erpnext/hrms, e.g. System Settings) are deliberately
+    NOT resolved: CI scans a bare checkout with no bench, so resolving them where a
+    bench exists would make the census differ between a local run and CI and turn
+    "Baseline is in sync" red after a green local run. A setUp read of one still counts
+    as REUSE, exactly as before #1338. The census is identical with or without a bench.
+    """
+    roots = [Path(__file__).resolve().parent.parent.parent / "verenigingen"]
+    singles = set()
+    for root in roots:
+        for dirpath, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if d not in ("node_modules", ".git", "__pycache__", "public")]
+            if os.path.basename(os.path.dirname(dirpath)) != "doctype":
+                continue
+            name = os.path.basename(dirpath) + ".json"
+            if name not in files:
+                continue
+            try:
+                with open(os.path.join(dirpath, name), encoding="utf-8") as fh:
+                    text = fh.read()
+                if '"issingle"' not in text:
+                    continue
+                data = json.loads(text)
+            except (OSError, ValueError):
+                continue
+            if data.get("issingle") in (1, True) and data.get("name"):
+                singles.add(data["name"])
+    return frozenset(singles)
 
 
 def _get_value_is_unscoped(call):
@@ -324,10 +376,15 @@ class Visitor(ast.NodeVisitor):
         # limit=1) called directly in a test, get_value's single-row return is its normal,
         # intended shape everywhere, not a signal of this specific anti-pattern -- see
         # #1311's own before/after census for why setUp-only keeps this reviewable.
-        if _is_get_value(node) and _get_value_is_unscoped(node):
-            in_setup = any(f in SETUP_FUNCS for f in self.func_stack)
-            if in_setup:
-                self._add("REUSE", node)
+        # #1338: not for a Single -- it has one row, whatever the filter shape. The
+        # Single lookup walks doctype JSONs, so it runs last, only for a real candidate.
+        if (
+            _is_get_value(node)
+            and any(f in SETUP_FUNCS for f in self.func_stack)
+            and _get_value_is_unscoped(node)
+            and _get_value_doctype_literal(node) not in _known_single_doctypes()
+        ):
+            self._add("REUSE", node)
 
         self.generic_visit(node)
 
