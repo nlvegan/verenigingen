@@ -593,7 +593,7 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
         )
         try:
             with patch.object(refund_creator_module, "discard_unposted_journal_entry", lock_then_discard):
-                UnifiedWebhookWrapperService().process_reversal_webhook(
+                result = UnifiedWebhookWrapperService().process_reversal_webhook(
                     payment_id=self.payment_id,
                     reversal_id=refund_id,
                     amount=100.0,
@@ -604,6 +604,7 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
             for je in locks:
                 je.unlock()
 
+        self.assertEqual(result["status"], "error", "the first delivery must stay non-2xx")
         live_jes = frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 1}, pluck="name")
         self.assertTrue(live_jes, "premise: the blocked discard must leave the Journal Entry live")
         bank_transactions = frappe.get_all(
@@ -624,6 +625,53 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
             ),
             "staff must be told the live entry and the bank line need reconciling by hand",
         )
+
+    def test_a_draft_journal_entry_on_the_key_does_not_keep_the_bank_transaction_2754(self):
+        """Control for #2754: only a LIVE (docstatus 1) entry keeps the bank line; a draft does not.
+
+        SHORTCUT: no creator flow leaves a draft behind deterministically, so the refund
+        creator is replaced by a stand-in that inserts a draft Journal Entry on the key and
+        returns None, like a failed booking. A lookup loosened to ``docstatus != 2`` fails this.
+        """
+        refund_id = f"re_draft_{frappe.generate_hash(length=8)}"
+        key = f"{self.payment_id}_refund_{refund_id}"
+        self._make_forward_journal_entry()
+
+        def leave_a_draft(creator, *args, **kwargs):
+            je = frappe.get_doc(
+                {
+                    "doctype": "Journal Entry",
+                    "company": COMPANY,
+                    "posting_date": today(),
+                    "cheque_no": key,
+                    "cheque_date": today(),
+                    "accounts": [
+                        {"account": self.income_account, "debit_in_account_currency": 5},
+                        {"account": self.clearing_account, "credit_in_account_currency": 5},
+                    ],
+                }
+            ).insert()
+            self.track_test_record("Journal Entry", je.name)
+            return None
+
+        self.expectErrorLog("Mollie Reversal Booking Failed")
+        with patch.object(refund_creator_module.DonationRefundJournalEntryCreator, "create_refund_journal_entry", leave_a_draft):
+            UnifiedWebhookWrapperService().process_reversal_webhook(
+                payment_id=self.payment_id,
+                reversal_id=refund_id,
+                amount=100.0,
+                reversal_type="refund",
+                reversal_date=today(),
+            )
+
+        self.assertEqual(
+            frappe.db.get_value("Journal Entry", {"cheque_no": key}, "docstatus"), 0, "premise: a draft"
+        )
+        bank_transactions = frappe.get_all(
+            "Bank Transaction", filters={"reference_number": key}, fields=["name", "docstatus"]
+        )
+        self.assertEqual(len(bank_transactions), 1, "premise: the booker wrote one bank line")
+        self.assertEqual(bank_transactions[0].docstatus, 2, "a draft is not live: the bank line is withdrawn")
 
     def test_the_sweep_also_reverses_in_kind_not_always_with_a_journal_entry(self):
         """The payment-webhook sweep must dispatch on the forward artefact too.
