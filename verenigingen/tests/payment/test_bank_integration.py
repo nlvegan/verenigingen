@@ -547,9 +547,17 @@ class TestBankAPIClient(VereningingenTestCase):
                 "permissions": [{"role": "System Manager", "read": 1}],
             }
         ).insert()
-        self.addCleanup(frappe.delete_doc, "DocType", doctype.name, force=True)
+        self.addCleanup(self._remove_bank_settings_doctype, doctype.name)
         frappe.db.set_single_value("Bank Integration Settings", "api_endpoint", "https://bank.invalid/psd2")
         frappe.db.set_single_value("Bank Integration Settings", "account_id", "ACC1")
+
+    @staticmethod
+    def _remove_bank_settings_doctype(name):
+        # delete_doc removes the DocType and its DocField/DocPerm rows but NOT the
+        # tabSingles values, which would otherwise outlive the DocType.
+        frappe.delete_doc("DocType", name, force=True)
+        frappe.db.delete("Singles", {"doctype": name})
+        frappe.clear_cache(doctype=name)
 
     def _fetch_with_transport(self, **requests_get_kwargs):
         from unittest.mock import patch
