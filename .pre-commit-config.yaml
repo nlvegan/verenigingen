@@ -250,13 +250,13 @@ repos:
         description: >-
           Frappe renders page AND email templates with Jinja autoescape OFF, so a bare
           `{{ member.full_name }}` prints user-typed text as markup (stored XSS). Every
-          `{{ }}` under verenigingen/templates must end in |e (or |tojson, a numeric
+          `{{ }}` under verenigingen/templates, www and verenigingen_payments/templates must end in |e (or |tojson, a numeric
           filter), be a literal `_("...")`, or carry a reasoned allowlist entry in the
           validator. Needs jinja2 on the PATH python.
         entry: python scripts/validation/template_escaping_validator.py
         language: system
         pass_filenames: true
-        files: '^verenigingen/templates/.*\.html$'
+        files: '^verenigingen/(templates|www|verenigingen_payments/templates)/.*\.html$'
         stages: [pre-commit]
 
       - id: veg11-destructive-command-validator
