@@ -13,6 +13,7 @@
  * - XSS-safe HTML escaping
  * - Consistent response unwrapping
  * - Error message extraction
+ * - Success message extraction
  *
  * Usage: Available globally via verenigingen.utils namespace
  */
@@ -113,6 +114,26 @@ verenigingen.utils.getErrorMessage = function (message, defaultMsg) {
 		}
 	}
 	return String(message || defaultMsg);
+};
+
+/**
+ * Get the success message from an OperationResult (#1490).
+ *
+ * On the nested schema (to_dict() default) the `message=` kwarg of
+ * `OperationResult.ok(data, message=...)` lands in metadata, so the success text is
+ * `meta.message` -- never a top-level "message". The legacy flat schema
+ * (`to_dict(nested=False)`) flattens metadata to the top level instead; that shape is
+ * deliberately NOT read here (the inlined `meta.message` reads this replaces never read
+ * it either), so it yields the default.
+ * @param {*} message - Response from frappe.call (r.message)
+ * @param {string} defaultMsg - Text when the response carries no success message
+ * @returns {string} meta.message, or defaultMsg
+ */
+verenigingen.utils.getSuccessMessage = function (message, defaultMsg) {
+	if (message && typeof message === 'object' && message.meta && typeof message.meta === 'object') {
+		return message.meta.message || defaultMsg;
+	}
+	return defaultMsg;
 };
 
 /**
@@ -299,6 +320,7 @@ if (typeof window !== 'undefined') {
 	window.escapeHtml = verenigingen.utils.escapeHtml;
 	window.unwrapOperationResult = verenigingen.utils.unwrapOperationResult;
 	window.getErrorMessage = verenigingen.utils.getErrorMessage;
+	window.getSuccessMessage = verenigingen.utils.getSuccessMessage;
 	window.getHttpErrorMessage = verenigingen.utils.getHttpErrorMessage;
 	window.parseDonorExistsResponse = verenigingen.utils.parseDonorExistsResponse;
 }
