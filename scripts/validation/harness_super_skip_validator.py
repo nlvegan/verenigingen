@@ -22,9 +22,15 @@ a bare ``FrappeTestCase``/``unittest.TestCase`` subclass defines no such
 contract, so skipping ``super()`` there is a no-op, not a defect) that DEFINES
 one of the four lifecycle methods in its own body with NO ``super().<name>(...)``
 call anywhere in that method's AST. An explicit base call
-``Base.<same name>(self, ...)`` also honours the contract, provided ``Base`` is
-an ancestor of the class by the name resolution below (#1348); a call to an
-unrelated class, or to a different lifecycle method, does not. It does not evaluate what the override
+``Base.<same name>(self, ...)`` (``self`` passed positionally; a classmethod
+uses the zero-argument ``Base.setUpClass()``) also honours the contract, provided
+``Base`` is a harness root or harness-rooted class AND an ancestor of the class by
+the name resolution below (#1348). A call to an unrelated class, to a non-harness
+ancestor such as ``FrappeTestCase``/``ErrorLogGuardMixin``, or to a different
+lifecycle method, does not. Known gap (#1348 gap 2, latent not impossible): a
+non-harness mixin placed ahead of the harness base that defines a lifecycle
+method without ``super()`` is not checked; both harness roots already put
+``ErrorLogGuardMixin`` ahead of ``FrappeTestCase``. It does not evaluate what the override
 does with the isolation it skips, or whether the omission is currently
 harmless -- only whether the contract is honoured. It also does not flag a
 class that never overrides the method at all (normal MRO dispatch already
@@ -131,19 +137,18 @@ class _SuperCallFinder(NodeVisitor):
         self.generic_visit(node)
 
 
-def _is_classmethod(func_node) -> bool:
-    return any(isinstance(d, Name) and d.id == "classmethod" for d in func_node.decorator_list)
-
-
 def _explicit_base_calls(func_node) -> set:
     """Names ``X`` in ``X.<same method name>(self, ...)`` calls (#1348).
 
-    An instance method must pass its own first parameter; a classmethod is
-    called as ``X.setUpClass()`` (binding X), so no argument is required.
-    Whether X is really a base of the class is decided by the caller.
+    An instance method must pass its own first parameter positionally. In a
+    classmethod the accepted form is ``X.setUpClass()`` (zero arguments: it
+    binds X); ``X.setUpClass(cls)`` raises TypeError and ``X.setUpClass.__func__(cls)``
+    is not recognised, so both stay flagged. Whether X is a harness base of the
+    class is decided by the caller.
     """
     args = func_node.args.args
     first = args[0].arg if args else None
+    is_classmethod = any(isinstance(d, Name) and d.id == "classmethod" for d in func_node.decorator_list)
     names = set()
     for node in walk(func_node):
         if not (isinstance(node, Call) and isinstance(node.func, Attribute)):
@@ -153,8 +158,11 @@ def _explicit_base_calls(func_node) -> set:
         owner = _base_name(node.func.value)
         if not owner:
             continue
-        passes_self = bool(node.args) and isinstance(node.args[0], Name) and node.args[0].id == first
-        if passes_self or _is_classmethod(func_node):
+        if is_classmethod:
+            ok = not node.args
+        else:
+            ok = bool(node.args) and isinstance(node.args[0], Name) and node.args[0].id == first
+        if ok:
             names.add(owner)
     return names
 
@@ -250,7 +258,15 @@ def find_violations(root: Path = SCAN_ROOT) -> list:
             continue
         ancestors = _ancestors(name, registry)
         for method, has_super in info.methods.items():
-            calls_base = bool(info.explicit_calls.get(method, set()) & ancestors)
+            # Only a harness base honours the contract: FrappeTestCase or
+            # ErrorLogGuardMixin are ancestors too, but calling them directly
+            # skips the harness lifecycle (the #1307 defect).
+            harness_callees = {
+                c
+                for c in info.explicit_calls.get(method, set()) & ancestors
+                if c in HARNESS_ROOTS or _is_harness_rooted(c, registry)
+            }
+            calls_base = bool(harness_callees)
             if not has_super and not calls_base:
                 violations.append(
                     Violation(

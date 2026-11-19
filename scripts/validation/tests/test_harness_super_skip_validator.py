@@ -164,12 +164,17 @@ class ExplicitBaseCallTest(unittest.TestCase):
     but only when Base is really a base of the class and the method name matches."""
 
     def _violations(self, body: str, extra: str = "", bases: str = "EnhancedTestCase"):
+        # Realistic layout: the harness sits under a SCANNED path and extends
+        # ErrorLogGuardMixin + a FrappeTestCase-like base, as the real one does.
         files = {
-            "verenigingen/harness.py": _HARNESS_SRC.replace(
-                "class VereningingenTestCase", "class EnhancedTestCase"
+            "verenigingen/tests/fixtures/enhanced_test_factory.py": (
+                "class ErrorLogGuardMixin:\n    def setUp(self):\n        pass\n"
+                "class FrappeTestCase:\n    def setUp(self):\n        pass\n"
+                "class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):\n"
+                "    def setUp(self):\n        self._test_docs = []\n"
             ),
             "verenigingen/tests/test_e.py": (
-                "from verenigingen.harness import EnhancedTestCase\n"
+                "from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase\n"
                 + extra
                 + f"class TestE({bases}):\n"
                 + body
@@ -190,6 +195,26 @@ class ExplicitBaseCallTest(unittest.TestCase):
             "    @classmethod\n    def setUpClass(cls):\n        EnhancedTestCase.setUpClass()\n"
         )
         self.assertEqual([], self._violations(body))
+
+    def test_explicit_call_to_a_harness_rooted_grandparent_is_not_flagged(self):
+        """Pins transitive ancestry: the callee is two levels up, not a direct base."""
+        extra = "class _Mid(EnhancedTestCase):\n    pass\nclass _Low(_Mid):\n    pass\n"
+        body = "    def setUp(self):\n        EnhancedTestCase.setUp(self)\n"
+        self.assertEqual([], self._violations(body, extra, bases="_Low"))
+
+    def test_control_explicit_call_to_non_harness_ancestor_is_still_flagged(self):
+        """FrappeTestCase/ErrorLogGuardMixin are ancestors of the harness but
+        calling them directly skips the harness setUp (the #1307 defect)."""
+        for callee in ("FrappeTestCase", "ErrorLogGuardMixin"):
+            with self.subTest(callee=callee):
+                body = f"    def setUp(self):\n        {callee}.setUp(self)\n"
+                self.assertEqual([("TestE", "setUp")], self._violations(body))
+
+    def test_control_classmethod_base_call_with_cls_argument_is_still_flagged(self):
+        """``Base.setUpClass(cls)`` raises TypeError at runtime; only the
+        zero-argument form is accepted."""
+        body = "    @classmethod\n    def setUpClass(cls):\n        EnhancedTestCase.setUpClass(cls)\n"
+        self.assertEqual([("TestE", "setUpClass")], self._violations(body))
 
     def test_control_unrelated_class_call_is_still_flagged(self):
         extra = "class Unrelated:\n    def setUp(self):\n        pass\n"
