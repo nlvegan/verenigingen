@@ -30,6 +30,7 @@ _PROBE_2900 = r"""
 import json, os, sys
 import frappe
 SITE, PKG, COLOURS = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+RESTORE_ONLY = len(sys.argv) > 4 and sys.argv[4] == "restore"
 import verenigingen
 _got = os.path.realpath(os.path.dirname(verenigingen.__file__))
 if _got != os.path.realpath(PKG):
@@ -42,6 +43,12 @@ from werkzeug.wrappers import Request
 from frappe.sessions import Session, delete_session
 
 ORIGINAL = {f: frappe.db.get_single_value("Brand Settings", f) for f in COLOURS}
+if RESTORE_ONLY:
+    for f, v in COLOURS.items():
+        frappe.db.set_single_value("Brand Settings", f, v)
+    frappe.db.commit()
+    frappe.cache().delete_value("brand_settings_css")
+    sys.exit(0)
 CACHE_KEYS = ("brand_settings_css", "active_brand_settings")
 def _drop_caches():
     for k in CACHE_KEYS:
@@ -71,6 +78,12 @@ try:
                 "headers": {k.lower(): v for k, v in r.headers},
                 "body": r.get_data(as_text=True),
             }
+    _drop_caches()
+    r = c.get(
+        "/api/method/verenigingen.verenigingen.doctype.brand_settings.brand_settings.generate_brand_css",
+        headers=H,
+    )
+    out["guest_admin_only"] = {"status": r.status_code, "body": r.get_data(as_text=True)}
 finally:
     frappe.init(site=SITE)
     frappe.connect()
@@ -92,6 +105,10 @@ _TEST_COLOURS_2900 = {
     "primary_hover_color": "#92a3b4",
     "text_primary_color": "#c5d6e7",
 }
+# Written with set_single_value, which skips validate_colors: a hostile value a Guest must never see.
+_HOSTILE_2900 = "red; } body { background: url(http://evil/x) } :root { --x: 1"
+_HOSTILE_FIELD_2900 = "error_color"
+_HOSTILE_DEFAULT_2900 = "#dc3545"
 
 
 class TestBrandCssGuestNoStaticFile2900(EnhancedTestCase):
@@ -99,6 +116,7 @@ class TestBrandCssGuestNoStaticFile2900(EnhancedTestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls._move_static_brand_css_aside_2900()
+        cls._restore_original_colours_on_cleanup_2900()
         result = subprocess.run(
             [
                 sys.executable,
@@ -106,7 +124,7 @@ class TestBrandCssGuestNoStaticFile2900(EnhancedTestCase):
                 _PROBE_2900,
                 frappe.local.site,
                 os.path.dirname(verenigingen.__file__),
-                json.dumps(_TEST_COLOURS_2900),
+                json.dumps({**_TEST_COLOURS_2900, _HOSTILE_FIELD_2900: _HOSTILE_2900}),
             ],
             cwd=os.path.join(get_bench_path(), "sites"),
             capture_output=True,
@@ -117,6 +135,33 @@ class TestBrandCssGuestNoStaticFile2900(EnhancedTestCase):
             raise AssertionError(result.stdout + "\n" + result.stderr)
         line = next(x for x in result.stdout.splitlines() if x.startswith("RESULT"))
         cls.out = json.loads(line[len("RESULT") :])
+
+    @classmethod
+    def _restore_original_colours_on_cleanup_2900(cls):
+        """Crash-safe restore: the probe child's own ``finally`` never runs if it is killed."""
+        originals = {
+            f: frappe.db.get_single_value("Brand Settings", f)
+            for f in [*_TEST_COLOURS_2900, _HOSTILE_FIELD_2900]
+        }
+
+        def restore():
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    _PROBE_2900,
+                    frappe.local.site,
+                    os.path.dirname(verenigingen.__file__),
+                    json.dumps(originals),
+                    "restore",
+                ],
+                cwd=os.path.join(get_bench_path(), "sites"),
+                check=True,
+                capture_output=True,
+                timeout=120,
+            )
+
+        cls.addClassCleanup(restore)
 
     @classmethod
     def _move_static_brand_css_aside_2900(cls):
@@ -173,3 +218,36 @@ class TestBrandCssGuestNoStaticFile2900(EnhancedTestCase):
         self.assertTrue(PUBLIC_BRAND_COLOUR_FIELDS)
         for fieldname in PUBLIC_BRAND_COLOUR_FIELDS:
             self.assertEqual(meta.get_field(fieldname).fieldtype, "Color", fieldname)
+
+    def test_hostile_stored_value_never_reaches_a_guest(self):
+        for key in ("guest_page", "guest_api"):
+            _, css = self._css_2900(key)
+            self.assertNotIn("evil", css, key)
+            self.assertNotIn(_HOSTILE_2900, css, key)
+            self.assertIn(f"--brand-error: {_HOSTILE_DEFAULT_2900};", css, key)
+
+    def test_generate_brand_css_stays_admin_only_for_a_guest(self):
+        self.assertEqual(self.out["guest_admin_only"]["status"], 403)
+        self.assertNotIn("brand-primary", self.out["guest_admin_only"]["body"])
+
+    def test_public_read_requests_exactly_the_allowlisted_fields(self):
+        # Mock justified: a pass-through spy, not a stub; the real read still happens.
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen.doctype.brand_settings.brand_settings import (
+            PUBLIC_BRAND_COLOUR_FIELDS,
+            get_public_brand_colours,
+        )
+
+        real = frappe.db.get_value
+        asked = []
+
+        def spy(doctype, filters=None, fieldname="name", *args, **kwargs):
+            if doctype == "Brand Settings":
+                asked.append(fieldname)
+            return real(doctype, filters, fieldname, *args, **kwargs)
+
+        with patch.object(frappe.db, "get_value", spy):
+            get_public_brand_colours()
+        self.assertEqual(len(asked), 1)
+        self.assertEqual(set(asked[0]), set(PUBLIC_BRAND_COLOUR_FIELDS))

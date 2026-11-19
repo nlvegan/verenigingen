@@ -1,6 +1,8 @@
 # Copyright (c) 2025, Verenigingen and contributors
 # For license information, please see license.txt
 
+import re
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -540,7 +542,19 @@ def get_public_brand_colours():
     """
     stored = frappe.db.get_value("Brand Settings", None, list(PUBLIC_BRAND_COLOUR_FIELDS), as_dict=True)
     stored = stored or {}
-    return {field: stored.get(field) or default for field, default in PUBLIC_BRAND_COLOUR_FIELDS.items()}
+    return {
+        field: _public_hex_or_default(stored.get(field), default)
+        for field, default in PUBLIC_BRAND_COLOUR_FIELDS.items()
+    }
+
+
+def _public_hex_or_default(value, default):
+    """Only a 3- or 6-digit hex colour (what validate_colors allows on save) reaches a Guest.
+
+    Writes that skip validation (set_value, a patch) could otherwise inject arbitrary CSS into a
+    public response.
+    """
+    return value if value and re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", value) else default
 
 
 @frappe.whitelist()
