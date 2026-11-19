@@ -55,6 +55,12 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
         user.save(ignore_permissions=True)
         return email
 
+    def _user_with_bare_role_2280(self, role):
+        """A user holding the ROLE only, no role profile (authorization rule 5: capped at MEDIUM)."""
+        email = f"p2280-{frappe.generate_hash(length=8)}@example.com"
+        self.create_test_user(email, roles=[role])
+        return email
+
     def _member_for_user_2280(self, email):
         member = self.create_test_member(
             first_name="Dbl", last_name="Decorated", email=email, user=email, status="Active"
@@ -102,21 +108,32 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
     # ------------------------------------------------------------------ #
     # dues_invoice_workflow
     # ------------------------------------------------------------------ #
-    def test_check_member_dues_status_answers_for_its_own_level_and_method(self):
-        """The endpoint is MEDIUM and GET/POST. It called a CRITICAL, POST-only endpoint, so Staff
-        (MEDIUM, no CRITICAL) was refused with 'Required: critical' and a GET with 'Method GET not
-        allowed'. Control: a LOW-only caller is still refused by the endpoint's own gate."""
-        staff = self._user_with_profile_2280("Verenigingen Staff")
-        for user, method in ((staff, "POST"), (staff, "GET")):
-            with self.subTest(user=user, method=method):
-                cmd = DUES + "check_member_dues_status"
-                result, error, buckets = self._dispatch_2280(cmd, user, method)
-                self.assertIsNone(error)
-                self.assertTrue(result["success"], result)
-                self.assertTicksOnly(cmd, buckets)
+    def test_check_member_dues_status_keeps_the_critical_post_only_access_it_effectively_had(self):
+        """#2280 ruling: the endpoint lists every member needing an invoice (id + full name), and on
+        develop only CRITICAL callers on POST got through (its nested call to the CRITICAL, POST-only
+        calculate_cutoff_date_for_period refused the rest). The endpoint now enforces that itself, once,
+        and ticks only its own bucket."""
+        cmd = DUES + "check_member_dues_status"
+        refused = {
+            "Auditor profile": self._user_with_profile_2280("Verenigingen Auditor"),
+            "Volunteer profile": self._user_with_profile_2280("Verenigingen Volunteer"),
+            "Chapter Board Member profile": self._user_with_profile_2280("Verenigingen Chapter Board Member"),
+            "Staff profile": self._user_with_profile_2280("Verenigingen Staff"),
+            "bare-role Staff": self._user_with_bare_role_2280("Verenigingen Staff"),
+            "bare-role System Manager": self._user_with_bare_role_2280("System Manager"),
+        }
+        for label, user in refused.items():
+            with self.subTest(caller=label):
+                _, error, _ = self._dispatch_2280(cmd, user, "POST")
+                self.assertIsInstance(error, frappe.PermissionError)
 
-        member_only = self._user_with_profile_2280("Verenigingen Member")
-        _, error, _ = self._dispatch_2280(DUES + "check_member_dues_status", member_only, "POST")
+        treasurer = self._user_with_profile_2280("Verenigingen Treasurer")  # holds CRITICAL
+        result, error, buckets = self._dispatch_2280(cmd, treasurer, "POST")
+        self.assertIsNone(error)
+        self.assertTrue(result["success"], result)
+        self.assertTicksOnly(cmd, buckets)
+
+        _, error, _ = self._dispatch_2280(cmd, treasurer, "GET")  # POST-only, as on develop
         self.assertIsInstance(error, frappe.PermissionError)
 
     def test_get_workflow_status_ticks_one_bucket_and_reports_the_real_status(self):
@@ -153,6 +170,37 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
         member_only = self._user_with_profile_2280("Verenigingen Member")
         _, error, _ = self._dispatch_2280(cmd, member_only, "GET")
         self.assertIsInstance(error, frappe.PermissionError)
+
+    def test_get_next_payment_for_another_member_still_needs_a_real_high_grant(self):
+        """Own record: MEDIUM is enough. Another member's id: a real HIGH grant (a role PROFILE), as
+        get_payment_schedule's gate required on develop; a bare role is capped at MEDIUM. The
+        cross-member read by a HIGH holder still writes the HIGH audit row."""
+        cmd = PAY + "get_next_payment"
+        other = self.create_test_member(first_name="Other", last_name="Member", status="Active")
+
+        bare_staff = self._user_with_bare_role_2280("Verenigingen Staff")
+        self._member_for_user_2280(bare_staff)
+        result, error, _ = self._dispatch_2280(cmd, bare_staff, "GET", member=other.name)
+        self.assertIsNone(error)
+        self.assertFalse(result["success"], "a bare-role caller read another member's next payment")
+        self.assertIn("Access denied", result["error"]["message"])
+        result, error, _ = self._dispatch_2280(cmd, bare_staff, "GET")  # own record: MEDIUM
+        self.assertTrue(result["success"], result)
+
+        for profile in ("Verenigingen Staff", "Verenigingen Treasurer"):
+            with self.subTest(profile=profile):
+                holder = self._user_with_profile_2280(profile)
+                self._member_for_user_2280(holder)
+                audited_before = self._audit_counts_2280()
+                result, error, _ = self._dispatch_2280(cmd, holder, "GET", member=other.name)
+                self.assertIsNone(error)
+                self.assertTrue(result["success"], result)
+                self.assertEqual(
+                    dict(self._audit_counts_2280() - audited_before), {"get_payment_schedule": 1}
+                )
+                result, _, buckets = self._dispatch_2280(cmd, holder, "GET")  # own record
+                self.assertTrue(result["success"], result)
+                self.assertTicksOnly(cmd, buckets)
 
     def test_payment_dashboard_endpoints_tick_one_bucket_and_audit_once(self):
         treasurer = self._user_with_profile_2280("Verenigingen Treasurer")
@@ -271,3 +319,20 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
                 _, error, buckets = self._dispatch_2280(cmd, member_only, "POST")
                 self.assertIsInstance(error, frappe.PermissionError)
                 self.assertEqual(buckets, {}, "a refused caller must not tick any bucket")
+
+    def test_retry_failed_payment_body_still_refuses_a_critical_non_owner_without_write(self):
+        """The body's own check (Sales Invoice write or ownership) is independent of the decorator:
+        a CRITICAL caller who may not write Sales Invoices and does not own the invoice is refused,
+        and nothing is scheduled."""
+        member = self.create_test_member(first_name="Retry", last_name="Owner", status="Active")
+        invoice = self.create_test_sales_invoice(member=member.name)
+        cmd = PAY + "retry_failed_payment"
+        outsider = self._user_with_profile_2280("Verenigingen National Board Member")  # holds CRITICAL
+        with self.as_user(outsider):
+            self.assertFalse(frappe.has_permission("Sales Invoice", "write"))  # precondition
+        result, error, buckets = self._dispatch_2280(cmd, outsider, "POST", invoice_id=invoice.name)
+        self.assertIsNone(error, "the CRITICAL gate must have passed so the body check is what refuses")
+        self.assertFalse(result["success"], result)
+        self.assertIn("permission", result["error"]["message"])
+        self.assertFalse(frappe.db.exists("SEPA Payment Retry", {"invoice": invoice.name}))
+        self.assertTicksOnly(cmd, buckets)

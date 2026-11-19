@@ -144,7 +144,7 @@ def get_dashboard_data(member: str = None) -> OperationResult[Dict[str, Any]]:
 
         # Get next payment info
         # _next_payment returns the raw OperationResult; the dict branch is kept for safety
-        next_payment_result = _next_payment(member)
+        next_payment_result = _next_payment(member, caller_cleared_high=True)
         if isinstance(next_payment_result, dict):
             next_payment = next_payment_result.get("data") if next_payment_result.get("success") else None
         else:
@@ -591,7 +591,7 @@ def get_next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
     return _next_payment(member)
 
 
-def _next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
+def _next_payment(member: str = None, caller_cleared_high: bool = False) -> OperationResult[Dict[str, Any]]:
     try:
         # Get actual member ID
         explicit_member = member
@@ -606,7 +606,13 @@ def _next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
         if not member:
             return OperationResult.ok(None, message=_("No member found for current user"))
 
-        schedule_result = _payment_schedule(member)
+        # Own record: MEDIUM is enough. ANOTHER member's schedule needs the HIGH grant that
+        # get_payment_schedule's decorator checks (and audits); calling the endpoint on that path only
+        # keeps develop's gate. get_dashboard_data is HIGH itself and says so (caller_cleared_high).
+        if explicit_member and member != get_member_from_user() and not caller_cleared_high:
+            schedule_result = get_payment_schedule(member)
+        else:
+            schedule_result = _payment_schedule(member)
 
         # _unwrap_internal_result accepts a serialized dict or a raw OperationResult.
         success, schedule, raw = _unwrap_internal_result(schedule_result)

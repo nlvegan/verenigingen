@@ -22,8 +22,12 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
 
 
+# CRITICAL and POST-only, deliberately (#2280 ruling): this lists every member needing an invoice by
+# id and full name. It used to be declared MEDIUM but called the CRITICAL, POST-only
+# calculate_cutoff_date_for_period, so CRITICAL + POST was its effective access (the only callers,
+# dues-invoice-manager.html and the debugger page, POST). The declaration now says so.
 @frappe.whitelist(allow_guest=False, methods=["GET", "POST"])
-@standard_api(operation_type=OperationType.FINANCIAL)
+@critical_api(operation_type=OperationType.FINANCIAL)
 def check_member_dues_status(
     period_start: str = None, period_end: str = None
 ) -> OperationResult[Dict[str, Any]]:
