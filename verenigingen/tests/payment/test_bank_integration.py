@@ -17,8 +17,10 @@ verenigingen/utils/bank_integration.py (re-exports *).
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import frappe
+import requests
 
 from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -941,6 +943,47 @@ class TestBankStatementImportDuplicateGuardAndCamtPath(VereningingenTestCase):
         (second_name,) = self._guard_payment_entries()
         self.assertNotEqual(second_name, first_name)
         self.assertEqual(frappe.db.get_value("Payment Entry", first_name, "docstatus"), 2)
+
+
+class TestBankApiTransportFailures(VereningingenTestCase):
+    """#2591: `BankAPIClient.fetch_statements` reports a Timeout or ConnectionError from the
+    bank as a failure with a specific message, never as success.
+
+    Driven through the real method with `requests.get` replaced at the IO boundary. No
+    Bank Integration Settings row exists on a test site (the DocType never installs, #2881),
+    so the settings lookup is stood in for as `test_client_ip_sources.TestBankPsuIp` does.
+    """
+
+    def _fetch_with_transport(self, **requests_get_kwargs):
+        settings = frappe._dict(api_endpoint="https://bank.invalid", account_id="ACC1", access_token="")
+        with (
+            # Mock justified: stands in for the Bank Integration Settings row that test sites lack (#2881); the DocType never installs
+            patch("frappe.db.exists", return_value=True),
+            patch("frappe.get_single", return_value=settings),  # Mock justified: same missing settings row
+            patch("requests.get", **requests_get_kwargs) as fake_get,  # Mock justified: External Service
+        ):
+            result = BankAPIClient().fetch_statements("2025-03-15")
+        return result, fake_get
+
+    def test_a_request_timeout_is_reported_as_a_timeout(self):
+        result, fake_get = self._fetch_with_transport(side_effect=requests.exceptions.Timeout())
+        self.assertEqual(fake_get.call_count, 1, "premise: the request was attempted")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "Bank API request timeout - please try again later")
+
+    def test_a_connection_error_is_reported_as_a_connection_error(self):
+        result, fake_get = self._fetch_with_transport(side_effect=requests.exceptions.ConnectionError())
+        self.assertEqual(fake_get.call_count, 1, "premise: the request was attempted")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "Cannot connect to bank API - please check network connection")
+
+    def test_a_generic_failure_takes_neither_transport_handler(self):
+        """Control: an unrelated exception reaches the catch-all, so the two messages above
+        really belong to their own handlers."""
+        self.expectErrorLog("Bank API integration error: boom")
+        result, _ = self._fetch_with_transport(side_effect=ValueError("boom"))
+        self.assertFalse(result["success"])
+        self.assertTrue(result["error"].startswith("Unexpected error"), result)
 
 
 if __name__ == "__main__":
