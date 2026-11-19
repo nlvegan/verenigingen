@@ -112,11 +112,11 @@ class TestDocTypeNameRatchet(unittest.TestCase):
     def test_baseline_has_no_slack_on_push_and_queue(self):
         """#1040: the growth check above cannot tighten; this is the shrink half.
 
-        Same triggers as code-validation.yml's `--fail-on-shrink` (every event but a
-        pull request; merge_group runs the full suite pre-merge, so a stale baseline
-        is caught in the queue). On a PR it self-heals, because the PR-side census
-        job runs only selected modules and a PR must not go red for staleness it did
-        not cause. Outside CI the variable is unset and this does not enforce.
+        Enforced only when GITHUB_EVENT_NAME is `push` or `merge_group` (the full suite
+        runs there; a stale baseline is caught in the queue, pre-merge). On a pull
+        request it self-heals, because the PR-side census job runs only selected
+        modules and a PR must not go red for staleness it did not cause. Any other
+        event (workflow_dispatch, schedule) or none (local runs) skips it.
         """
         event = os.environ.get("GITHUB_EVENT_NAME", "")
         if event not in ("push", "merge_group"):
@@ -126,7 +126,10 @@ class TestDocTypeNameRatchet(unittest.TestCase):
         self.assertEqual(
             slack, {},
             "scripts/validation/doctype_name_baseline.txt records more unknown doctype names "
-            "than the tree has ({key: (recorded, live)}). Run "
+            "than the tree has ({key: (recorded, live)}). This is NOT necessarily a regression: "
+            "if a listed name is now a DocType in an upstream app (frappe/erpnext/hrms/payments "
+            "shipped it), the census dropped it and the baseline must shrink to match. Either "
+            "way the fix is the same: run "
             "`python scripts/validation/doctype_name_validator.py --update-baseline` and commit it.",
         )
 
