@@ -97,8 +97,9 @@ from verenigingen.utils.error_handling import (
 )
 from verenigingen.utils.performance_utils import performance_monitor, QueryOptimizer, cached
 from verenigingen.utils.validation.api_validators import (
-    validate_api_input, APIValidator, require_roles, rate_limit
+    validate_api_input, APIValidator, require_roles
 )
+from frappe.rate_limiter import rate_limit
 from verenigingen.utils.config_manager import ConfigManager
 """
 
@@ -146,9 +147,9 @@ from verenigingen.utils.config_manager import ConfigManager
 
             # Add rate limiting for resource-intensive operations
             if any(keyword in function_def.lower() for keyword in ["export", "bulk", "send", "process"]):
-                decorators.append("@rate_limit(max_requests=5, window_minutes=60)")
+                decorators.append("@rate_limit(limit=5, seconds=3600)")
             elif "validate" in function_def.lower():
-                decorators.append("@rate_limit(max_requests=30, window_minutes=60)")
+                decorators.append("@rate_limit(limit=30, seconds=3600)")
 
             # Add caching for read-only operations
             if any(keyword in function_def.lower() for keyword in ["get_", "list_", "fetch_"]):
