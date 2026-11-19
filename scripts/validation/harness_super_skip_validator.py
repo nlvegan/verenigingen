@@ -132,7 +132,7 @@ def _method_calls_super(func_node) -> bool:
     return finder.found
 
 
-def _collect_classes(root: Path) -> dict:
+def _collect_classes(root: Path, unscannable: list | None = None) -> dict:
     """file-order-stable class_name -> ClassInfo across every scannable file.
 
     A duplicate class name across files overwrites the earlier entry, same
@@ -144,7 +144,9 @@ def _collect_classes(root: Path) -> dict:
         try:
             source = path.read_text(encoding="utf-8")
             tree = parse(source, filename=str(path))
-        except (SyntaxError, UnicodeDecodeError):
+        except (SyntaxError, UnicodeDecodeError) as exc:
+            if unscannable is not None:
+                unscannable.append(f"{path}: {type(exc).__name__}: {exc}")
             continue
         for node in tree.body:
             _visit_top_level_classes(node, path, root, registry)
@@ -187,8 +189,8 @@ class Violation:
         return f"{self.file}::{self.class_name}::{self.method}"
 
 
-def find_violations(root: Path = SCAN_ROOT) -> list:
-    registry = _collect_classes(root)
+def find_violations(root: Path = SCAN_ROOT, unscannable: list | None = None) -> list:
+    registry = _collect_classes(root, unscannable)
     violations = []
     for name, info in registry.items():
         if name in HARNESS_ROOTS:
@@ -241,7 +243,18 @@ def main():
     parser.add_argument("--update-baseline", type=Path, default=None)
     args = parser.parse_args()
 
-    violations = find_violations()
+    unscannable: list = []
+    violations = find_violations(unscannable=unscannable)
+    if unscannable:
+        # #2815: fail closed -- a class in a file we could not parse is missing from
+        # the registry, and --update-baseline would record that gap as the truth.
+        print(
+            "HARNESS-SUPER-SKIP SCAN FAILED: could not examine "
+            f"{len(set(unscannable))} file(s), so the findings would understate the tree:\n  "
+            + "\n  ".join(sorted(set(unscannable))),
+            file=sys.stderr,
+        )
+        return 1
 
     if args.update_baseline is not None:
         _write_baseline(args.update_baseline, violations)

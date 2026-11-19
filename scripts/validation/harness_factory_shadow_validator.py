@@ -216,7 +216,7 @@ def _repointed_after_super(class_node: ClassDef) -> tuple:
     return True, True, repointed
 
 
-def _root_shadowed_attrs(root: Path) -> set:
+def _root_shadowed_attrs(root: Path, unscannable: list | None = None) -> set:
     """Names X such that `self.X = ...` appears anywhere in a harness ROOT
     class's (VereningingenTestCase / EnhancedTestCase) own setUp() body --
     i.e. attributes the harness itself unconditionally (re)assigns per test,
@@ -226,7 +226,9 @@ def _root_shadowed_attrs(root: Path) -> set:
         try:
             source = path.read_text(encoding="utf-8")
             tree = parse(source, filename=str(path))
-        except (SyntaxError, UnicodeDecodeError):
+        except (SyntaxError, UnicodeDecodeError) as exc:
+            if unscannable is not None:
+                unscannable.append(f"{path}: {type(exc).__name__}: {exc}")
             continue
         for node in tree.body:
             if isinstance(node, ClassDef) and node.name in HARNESS_ROOTS:
@@ -246,7 +248,7 @@ class _ClassRecord:
     file: Path = None
 
 
-def _collect(root: Path) -> dict:
+def _collect(root: Path, unscannable: list | None = None) -> dict:
     """class_name -> _ClassRecord across every scannable file (last write
     wins on a duplicate name -- same name-resolution trade-off as
     harness_super_skip_validator; see its docstring)."""
@@ -255,7 +257,9 @@ def _collect(root: Path) -> dict:
         try:
             source = path.read_text(encoding="utf-8")
             tree = parse(source, filename=str(path))
-        except (SyntaxError, UnicodeDecodeError):
+        except (SyntaxError, UnicodeDecodeError) as exc:
+            if unscannable is not None:
+                unscannable.append(f"{path}: {type(exc).__name__}: {exc}")
             continue
         for node in tree.body:
             if not isinstance(node, ClassDef):
@@ -278,13 +282,13 @@ class Violation:
         return f"{self.file}::{self.class_name}::{self.attr}"
 
 
-def find_violations(root: Path = SCAN_ROOT) -> list:
-    shadowed_attrs = _root_shadowed_attrs(root)
+def find_violations(root: Path = SCAN_ROOT, unscannable: list | None = None) -> list:
+    shadowed_attrs = _root_shadowed_attrs(root, unscannable)
     # ClassInfo registry (name -> .bases) for harness-rootedness resolution --
     # reuse the sibling validator's own collector so both tools agree on what
     # "harness-rooted" means.
-    registry = _collect_classes(root)
-    records = _collect(root)
+    registry = _collect_classes(root, unscannable)
+    records = _collect(root, unscannable)
 
     violations = []
     for name, rec in records.items():
@@ -350,7 +354,18 @@ def main():
     parser.add_argument("--update-baseline", type=Path, default=None)
     args = parser.parse_args()
 
-    violations = find_violations()
+    unscannable: list = []
+    violations = find_violations(unscannable=unscannable)
+    if unscannable:
+        # #2815: fail closed -- a class in a file we could not parse is missing from
+        # the registry, and --update-baseline would record that gap as the truth.
+        print(
+            "HARNESS-FACTORY-SHADOW SCAN FAILED: could not examine "
+            f"{len(set(unscannable))} file(s), so the findings would understate the tree:\n  "
+            + "\n  ".join(sorted(set(unscannable))),
+            file=sys.stderr,
+        )
+        return 1
 
     if args.update_baseline is not None:
         _write_baseline(args.update_baseline, violations)
