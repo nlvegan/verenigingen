@@ -266,6 +266,10 @@ class TestContactRequestAutomation(VereningingenTestCase):
             escalate_overdue_requests,
         )
 
+        # With no outgoing account an escalation is refused and never noted, so "not escalated" would
+        # hold vacuously; own the account and key so only the threshold can keep it out (#2820).
+        ensure_outgoing_email_account(self)
+        own_notification_keys(self, "contact_request_escalated")
         # Low urgency threshold is 14 days; 2 days old is NOT overdue yet.
         request = self._make_contact_request(
             subject="Low recent",
@@ -285,6 +289,10 @@ class TestContactRequestAutomation(VereningingenTestCase):
             escalate_contact_request,
         )
 
+        # The note is only written after a real send; without an outgoing account (CI's fresh site)
+        # the send is refused and the note is never appended (#2820).
+        ensure_outgoing_email_account(self)
+        own_notification_keys(self, "contact_request_escalated")
         request = self._make_contact_request(
             subject="Has prior notes",
             status="In Progress",
