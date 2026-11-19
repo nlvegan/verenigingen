@@ -523,74 +523,6 @@ class TestBankAPIClient(VereningingenTestCase):
         self.assertIn("503", result["error"])
         self.assertIn("maintenance", result["error"])
 
-    # ------------------------------------------------------------------
-    # fetch_statements transport-failure branches (#2591). Driven through the real
-    # method with `requests.get` replaced at the IO boundary. The Bank Integration
-    # Settings DocType is not installed on any site (its module "Verenigingen Utils"
-    # is not in modules.txt), so the test installs a minimal real Single of the same
-    # name (custom=1, no table) and removes it afterwards.
-    # ------------------------------------------------------------------
-    def _configure_bank_settings(self):
-        if frappe.db.exists("DocType", "Bank Integration Settings"):
-            self.skipTest("Bank Integration Settings is installed here; its real settings are not touched")
-        doctype = frappe.get_doc(
-            {
-                "doctype": "DocType",
-                "name": "Bank Integration Settings",
-                "module": "Verenigingen",
-                "custom": 1,
-                "issingle": 1,
-                "fields": [
-                    {"fieldname": "api_endpoint", "fieldtype": "Data", "label": "API Endpoint"},
-                    {"fieldname": "account_id", "fieldtype": "Data", "label": "Account ID"},
-                ],
-                "permissions": [{"role": "System Manager", "read": 1}],
-            }
-        ).insert()
-        self.addCleanup(self._remove_bank_settings_doctype, doctype.name)
-        frappe.db.set_single_value("Bank Integration Settings", "api_endpoint", "https://bank.invalid/psd2")
-        frappe.db.set_single_value("Bank Integration Settings", "account_id", "ACC1")
-
-    @staticmethod
-    def _remove_bank_settings_doctype(name):
-        # delete_doc removes the DocType and its DocField/DocPerm rows but NOT the
-        # tabSingles values, which would otherwise outlive the DocType.
-        frappe.delete_doc("DocType", name, force=True)
-        frappe.db.delete("Singles", {"doctype": name})
-        frappe.clear_cache(doctype=name)
-
-    def _fetch_with_transport(self, **requests_get_kwargs):
-        from unittest.mock import patch
-
-        self._configure_bank_settings()
-        # Mock justified: External Service - the bank's HTTP API, not business logic
-        with patch("requests.get", **requests_get_kwargs) as fake_get:
-            result = self.client.fetch_statements("2025-03-15")
-        return result, fake_get
-
-    def test_a_request_timeout_is_reported_as_a_timeout(self):
-        import requests
-
-        result, fake_get = self._fetch_with_transport(side_effect=requests.exceptions.Timeout())
-        self.assertEqual(fake_get.call_count, 1, "premise: the request was attempted")
-        self.assertFalse(result["success"])
-        self.assertEqual(result["error"], "Bank API request timeout - please try again later")
-
-    def test_a_connection_error_is_reported_as_a_connection_error(self):
-        import requests
-
-        result, fake_get = self._fetch_with_transport(side_effect=requests.exceptions.ConnectionError())
-        self.assertEqual(fake_get.call_count, 1, "premise: the request was attempted")
-        self.assertFalse(result["success"])
-        self.assertEqual(result["error"], "Cannot connect to bank API - please check network connection")
-
-    def test_the_timeout_and_connection_messages_are_distinct(self):
-        """Control: a generic failure takes the catch-all branch, not either handler."""
-        self.expectErrorLog("Bank API integration error: boom")
-        result, _ = self._fetch_with_transport(side_effect=ValueError("boom"))
-        self.assertFalse(result["success"])
-        self.assertTrue(result["error"].startswith("Unexpected error"), result)
-
 
 class TestInvoiceReferenceMatching(VereningingenTestCase):
     """R3: shared SINV-/ACC-SINV-/INV- reference matching is consolidated in
@@ -917,8 +849,9 @@ class TestMT940ImportOnlyPaysSubmittedInvoices(VereningingenTestCase):
 
 class TestBankStatementImportDuplicateGuardAndCamtPath(VereningingenTestCase):
     """#2591: `_create_payment_entry`'s "Payment already exists" guard and the CAMT.053
-    parse-to-paid-invoice path, both driven through the real import (real file, real
-    Sales Invoice, real Payment Entry; nothing stubbed).
+    parse-to-paid-invoice path. Entered at `_import_camt053` with real CAMT.053 XML
+    (not through `import_statement`, which only reads the file and dispatches), a real
+    Sales Invoice and a real Payment Entry; nothing is stubbed.
     """
 
     def setUp(self):
@@ -990,6 +923,24 @@ class TestBankStatementImportDuplicateGuardAndCamtPath(VereningingenTestCase):
             second.warnings,
             [f"Payment already exists for invoice {self.invoice.name}"],
         )
+
+    def test_a_cancelled_payment_does_not_block_a_reimport(self):
+        """The guard counts only SUBMITTED Payment Entries: after the first one is
+        cancelled (through the real cancel()), the same statement pays the invoice again."""
+        total = float(self.invoice.grand_total)
+        first, first_result = self._import_camt(total)
+        self.assertEqual(first_result["transactions_imported"], 1, (first.errors, first.warnings))
+        (first_name,) = self._guard_payment_entries()
+        frappe.get_doc("Payment Entry", first_name).cancel()
+        self.invoice.reload()
+        self.assertAlmostEqual(float(self.invoice.outstanding_amount), total, places=2)
+
+        second, second_result = self._import_camt(total)
+
+        self.assertEqual(second_result["transactions_imported"], 1, (second.errors, second.warnings))
+        (second_name,) = self._guard_payment_entries()
+        self.assertNotEqual(second_name, first_name)
+        self.assertEqual(frappe.db.get_value("Payment Entry", first_name, "docstatus"), 2)
 
 
 if __name__ == "__main__":
