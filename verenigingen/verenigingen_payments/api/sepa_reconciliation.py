@@ -95,6 +95,7 @@ from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
 )
+from verenigingen.verenigingen_payments.utils.sepa_constants import row_left_out_of_file
 
 # ========================
 # PHASE 1: CONSERVATIVE APPROACH
@@ -515,8 +516,11 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
     batch_items = frappe.get_all(
         "Direct Debit Batch Invoice",
         filters={"parent": sepa_batch.name},
-        fields=["name", "invoice", "amount", "member", "member_name", "idx"],
+        fields=["name", "invoice", "amount", "member", "member_name", "idx", "status", "result_code"],
     )
+    # #2839: a row the generated file does not contain was never collected; the bank
+    # transaction covers only the rows that were in the file.
+    batch_items = [i for i in batch_items if not row_left_out_of_file(i.status, i.result_code)]
 
     if not batch_items:
         return {

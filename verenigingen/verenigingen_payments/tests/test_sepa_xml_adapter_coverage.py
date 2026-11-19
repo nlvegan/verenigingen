@@ -14,7 +14,6 @@ pure mapping helpers (no frappe.db mocks):
   these used to borrow another of the member's mandates, see #605).
 - _prefetch_mandate_data: bulk-prefetch a REAL active mandate into the cache.
 - _get_mandate_sign_date: cache-miss -> DB lookup integration end to end.
-- _get_batch_sequence_type: dedicated field, legacy batch_type fallback, default.
 - _get_local_instrument: CORE / B2B / COR1 / legacy-sequence default mapping.
 - _handle_validation_issues: strict-mode raises on missing mandate dates;
   permissive mode only warns.
@@ -33,10 +32,7 @@ from verenigingen.verenigingen_payments.services.sepa_xml_adapter import (
     BatchValidationSummary,
     SEPAXMLAdapter,
 )
-from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
-    SEPALocalInstrument,
-    SEPASequenceType,
-)
+from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import SEPALocalInstrument
 
 
 class _InvoiceRow:
@@ -47,12 +43,6 @@ class _InvoiceRow:
         self.mandate_reference = mandate_reference
         self.member = member
         self.mandate_sign_date = mandate_sign_date
-
-
-class _BatchStub:
-    def __init__(self, sequence_type=None, batch_type=None):
-        self.sequence_type = sequence_type
-        self.batch_type = batch_type
 
 
 class TestMandateSignDateDBLookup(EnhancedTestCase):
@@ -168,32 +158,6 @@ class TestSequenceAndInstrumentMapping(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.adapter = SEPAXMLAdapter()
-
-    def test_batch_sequence_type_from_dedicated_field(self):
-        self.assertEqual(
-            self.adapter._get_batch_sequence_type(_BatchStub(sequence_type="FRST")),
-            SEPASequenceType.FRST,
-        )
-        self.assertEqual(
-            self.adapter._get_batch_sequence_type(_BatchStub(sequence_type="FNAL")),
-            SEPASequenceType.FNAL,
-        )
-
-    def test_batch_sequence_type_legacy_batch_type_fallback(self):
-        """A batch with no sequence_type but a legacy sequence value in batch_type
-        honours the legacy field."""
-        self.assertEqual(
-            self.adapter._get_batch_sequence_type(_BatchStub(sequence_type=None, batch_type="OOFF")),
-            SEPASequenceType.OOFF,
-        )
-
-    def test_batch_sequence_type_defaults_to_rcur(self):
-        """Neither field carries a valid sequence -> RCUR. batch_type=CORE is a
-        SCHEME value, not a sequence, so it must NOT be treated as a sequence."""
-        self.assertEqual(
-            self.adapter._get_batch_sequence_type(_BatchStub(sequence_type=None, batch_type="CORE")),
-            SEPASequenceType.RCUR,
-        )
 
     def test_local_instrument_mapping(self):
         self.assertEqual(self.adapter._get_local_instrument("CORE"), SEPALocalInstrument.CORE)

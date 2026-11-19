@@ -12,6 +12,7 @@ from frappe import _
 
 from verenigingen.verenigingen_payments.services.batch_validation_service import batch_validation_service
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
+from verenigingen.verenigingen_payments.utils.sepa_constants import row_left_out_of_file
 from verenigingen.verenigingen_payments.utils.sepa_utilities import (
     BatchLoggingUtilities,
     CalculationUtilities,
@@ -59,8 +60,15 @@ class BatchProcessingService:
 
         success_count = 0
         already_collected = 0
+        left_out = 0
 
         for invoice_item in batch_doc.invoices:
+            # #2839: the generated file does not contain this row, so the bank was never asked
+            # for this debit. Booking it would mark the invoice Paid without a collection.
+            if row_left_out_of_file(invoice_item.status, invoice_item.result_code):
+                left_out += 1
+                continue
+
             # #2573: a row is set Successful only after its Payment Entry was created
             # (same transaction), so Successful means "this batch already collected it".
             # Re-entering would make ERPNext reject the duplicate and overwrite the row
@@ -114,7 +122,8 @@ class BatchProcessingService:
         BatchLoggingUtilities.add_to_document_batch_log(
             batch_doc,
             f"Processed {success_count} of {len(batch_doc.invoices)} invoices"
-            + (f" ({already_collected} already collected, skipped)" if already_collected else ""),
+            + (f" ({already_collected} already collected, skipped)" if already_collected else "")
+            + (f" ({left_out} not in the SEPA file, skipped)" if left_out else ""),
         )
         batch_doc.db_set("batch_log", batch_doc.batch_log, update_modified=False)
 
