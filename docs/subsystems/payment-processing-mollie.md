@@ -54,7 +54,7 @@ DocType at `vereinigingen_payments/doctype/mollie_settings/`:
 - `complete_payment_service.py` -- End-to-end payment completion
 - `payment_processors.py` -- Payment type-specific processors
 - `payment_type_router.py` -- Routes payments to correct processor
-- `payment_context_resolver.py` -- Resolves payment context (member, invoice, donation)
+- `payment_context_resolver.py` -- `PaymentContext` container (the resolver class was deleted in #2676)
 - `order_payment_processor.py` -- Order-based payments
 - `dues_payment_processor.py` -- Membership dues payments
 - `bulk_payment_checker.py` -- Bulk payment status verification
