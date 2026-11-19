@@ -251,6 +251,23 @@ class TestRunTerminationDiagnostics(FrappeTestCase):
             "A healthy site must pass: no termination Workflow is expected (#2790)",
         )
 
+    def test_diagnostics_fail_when_a_required_doctype_is_missing(self):
+        """A missing required doctype must fail the diagnostics (#2790 review N1).
+        Only the lookup is made to report absence, for ONE doctype; no DocType is deleted.
+        Control: the same call with the real lookup passes (see the healthy-site test)."""
+        real_exists = frappe.db.exists
+
+        def selective_exists(doctype, name=None, *args, **kwargs):
+            if doctype == "DocType" and name == "Expulsion Report Entry":
+                return False
+            return real_exists(doctype, name, *args, **kwargs)
+
+        self.assertTrue(real_exists("DocType", "Expulsion Report Entry"))
+        with patch.object(frappe.db, "exists", side_effect=selective_exists):
+            result = setup_mod.run_termination_diagnostics()
+        self.assertTrue(result["success"])
+        self.assertFalse(result["diagnostics_passed"])
+
     def test_status_endpoint_does_not_report_a_workflows_flag(self):
         """#2790: check_termination_system_status must not expose a workflows_exist
         flag that is False on every healthy site (nothing reads it)."""
