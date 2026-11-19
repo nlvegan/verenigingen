@@ -36,8 +36,8 @@ from verenigingen.tests.payment.test_sepa_literal_recipients import (
     _snapshot_rows,
 )
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
-from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.operation_result import OperationResult
 
 CONFIG = "Verenigingen Email Configuration"
 SOURCE = "verenigingen.services.communication.email_service.get_email_service"
@@ -280,16 +280,20 @@ class TestStaffRecipients2095(EnhancedTestCase):
         request = frappe._dict(
             name="MCR-2095", subject="s", member_name="m", assigned_to=None, request_date="2026-01-01", urgency="High"
         )
-        reached_note = False
+        missing = None
         with self.mail() as mail:
             try:
                 cra.escalate_contact_request(request, 3)
-            except frappe.DoesNotExistError:
+            except frappe.DoesNotExistError as e:
                 # the stand-in request has no row for the escalation NOTE, written after the mail went out
-                reached_note = True
+                missing = str(e)
         # The caller must see a real SENT result: a stub whose skip_reason is truthy makes it return
         # before the note, and the audience below would then be checked on a send it believed skipped (#2816).
-        self.assertTrue(reached_note, "escalate_contact_request treated the stubbed send as skipped or failed")
+        # Not any DoesNotExistError: only the missing stand-in request proves the note step was reached.
+        self.assertTrue(
+            missing and "Member Contact Request" in missing and "MCR-2095" in missing,
+            f"escalate_contact_request did not reach the note step for the stand-in request: {missing!r}",
+        )
         self.check(mail, reaches=("va_only",), misses=("sm_only", "fm_only", "staff_only"))
 
     def test_expense_approver_fallback_reaches_every_holder(self):
