@@ -512,6 +512,10 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
     """
     from erpnext.accounts.doctype.journal_entry.journal_entry import get_default_bank_cash_account
 
+    from verenigingen.verenigingen_payments.services.batch_processing_service import (
+        batch_processing_service,
+    )
+
     # Get all batch items
     batch_items = frappe.get_all(
         "Direct Debit Batch Invoice",
@@ -592,6 +596,11 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
                     item, bank_transaction, sepa_batch, company, customer, receivable_account, bank_account
                 )
                 reconciled_items.append(result)
+                # #2798: the bank settled this row; record it like Mark as Processed does,
+                # inside the same transaction as the Payment Entry (a rollback undoes both).
+                batch_processing_service.record_collected_by_bank_reconciliation(
+                    frappe.get_doc("Direct Debit Batch Invoice", item.name), result["payment_entry"]
+                )
 
             except ConcurrentOperationError as e:
                 # Concurrent operation - rollback and inform caller
@@ -642,6 +651,9 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
                         }
                     ],
                 }
+
+        # #2798: batch status follows the rows just recorded (Processed when all collected).
+        batch_processing_service.refresh_batch_status_from_rows(sepa_batch)
 
         # All items processed successfully - commit the transaction
         frappe.db.commit()
