@@ -19,7 +19,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-# Two sites owned by PR #2865 (#2641), which removes them. Listed so this test is green
+# Two sites owned by PR #2865 (#2641), which removes them. Cleanup tracked in #2918. Listed so this test is green
 # on develop whichever of the two PRs merges first; delete these entries after #2865 lands.
 PENDING_IN_PR_2865 = {
     ("scripts/api_maintenance/sepa_integration_setup.py", "verenigingen.setup.sepa_custom_fields"),
