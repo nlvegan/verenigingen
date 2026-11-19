@@ -30,6 +30,22 @@ try:
 except ImportError:  # dotted-module run: python -m unittest scripts.validation.tests.<name>
     from .test_workflow_field_validator_exit_code import _SWALLOW, steps_running
 
+def _require_flake8_or_fail_in_ci(testcase, ci=None, which=shutil.which):
+    """FAIL where flake8 is missing and CI is set (GitHub Actions sets `CI=true`); skip
+    otherwise (#2930, same shape as #1585). A skip reads as neither pass nor fail, so a Code
+    Validation job that stopped installing flake8 would leave the flake8-step gate unchecked
+    and green. `ci`/`which` are parameters only so the guard itself can be tested."""
+    ci = os.environ.get("CI") if ci is None else ci
+    if which("flake8"):
+        return
+    if ci:
+        testcase.fail(
+            "flake8 is not installed but CI is set: the flake8-step gate would be silently "
+            "skipped (#2930). Install flake8 in the Code Validation job."
+        )
+    testcase.skipTest("flake8 not installed")
+
+
 _WORKFLOW = Path(__file__).resolve().parents[3] / ".github" / "workflows" / "ci.yml"
 
 # step name -> the command on that step which must be able to fail
@@ -117,20 +133,41 @@ class CiSyntaxGatesExitCodeTests(unittest.TestCase):
         (self.tmp / "verenigingen" / "a").joinpath("bad.json").write_text("{not json")
         self.assertNotEqual(self._exit_code("Check JavaScript/JSON files"), 0)
 
-    @unittest.skipUnless(shutil.which("flake8"), "flake8 not installed")
     def test_a_flake8_finding_fails_the_flake8_step(self):
+        _require_flake8_or_fail_in_ci(self)
         # E9 (syntax).
         (self.tmp / "verenigingen" / "bad.py").write_text("def f(:\n")
         self.assertNotEqual(self._exit_code("Run Flake8 linting"), 0)
 
-    @unittest.skipUnless(shutil.which("flake8"), "flake8 not installed")
     def test_an_undefined_name_fails_the_flake8_step_despite_the_repo_config(self):
         # #2441: the repo's `.flake8` ignores F821 and a longer ignore prefix beats the
         # shorter `--select=F82`, so the step must clear the ignore list itself. The real
         # config is copied in: without it this test cannot see the masking.
+        _require_flake8_or_fail_in_ci(self)
         shutil.copy(_WORKFLOW.parents[2] / ".flake8", self.tmp / ".flake8")
         (self.tmp / "verenigingen" / "bad.py").write_text("def f():\n    return undefined_name\n")
         self.assertNotEqual(self._exit_code("Run Flake8 linting"), 0)
+
+
+class FlakeGuardTests(unittest.TestCase):
+    """#2930: the missing-flake8 guard of the two flake8 tests above."""
+
+    def test_missing_flake8_fails_under_ci(self):
+        # SkipTest is not a failureException, so a guard that skipped under CI would skip
+        # THIS test too; the wrapper turns that into a red.
+        try:
+            with self.assertRaises(self.failureException) as ctx:
+                _require_flake8_or_fail_in_ci(self, ci="true", which=lambda _: None)
+        except unittest.SkipTest:
+            self.fail("guard skipped instead of failing under CI")
+        self.assertIn("#2930", str(ctx.exception))
+
+    def test_missing_flake8_skips_outside_ci(self):
+        with self.assertRaises(unittest.SkipTest):
+            _require_flake8_or_fail_in_ci(self, ci="", which=lambda _: None)
+
+    def test_present_flake8_neither_skips_nor_fails(self):
+        _require_flake8_or_fail_in_ci(self, ci="true", which=lambda _: "/usr/bin/flake8")
 
 
 if __name__ == "__main__":
