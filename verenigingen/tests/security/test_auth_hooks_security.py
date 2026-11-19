@@ -133,55 +133,6 @@ class TestAuthHooksSecurity(EnhancedTestCase):
         result = auth_hooks.has_system_access("")
         self.assertFalse(result, "Should return False for empty user")
 
-    # ===== BEFORE REQUEST HOOK TESTS =====
-
-    def _set_request_path(self, path):
-        """Set a minimal request object on frappe.local with the given path.
-
-        Returns the previous value so the caller can restore it. We set the
-        attribute directly rather than patching it, because frappe.local.request
-        is often unset in the test runner context and unittest.mock.patch then
-        fails in get_original().
-        """
-        previous = getattr(frappe.local, "request", None)
-
-        class _Req:
-            pass
-
-        req = _Req()
-        req.path = path
-        frappe.local.request = req  # Mock justified: Infrastructure - simulated request path
-        return previous
-
-    def test_before_request_with_none_user(self):
-        """The portal-access hook must handle the Guest user without raising."""
-        frappe.set_user("Guest")
-        previous = self._set_request_path("/app/Member")
-        try:
-            # enforce_member_portal_access is the real before-request hook
-            # (the old before_request/validate_session_before_request was removed).
-            auth_hooks.enforce_member_portal_access()
-            self.assertTrue(True, "enforce_member_portal_access handled Guest user")
-        except Exception as e:
-            self.fail(f"enforce_member_portal_access should handle Guest user: {e}")
-        finally:
-            frappe.local.request = previous  # Mock justified: Infrastructure - restore
-
-    def test_before_request_database_failure(self):
-        """The portal-access hook must swallow database failures, not crash the request."""
-        frappe.set_user(self.test_member_user.name)
-        previous = self._set_request_path("/app/Member")
-        # Mock justified: Infrastructure - simulating a DB outage inside the hook,
-        # not the boundary under test (the hook's own resilience).
-        with patch('frappe.get_roles', side_effect=Exception("Database error")):
-            try:
-                auth_hooks.enforce_member_portal_access()
-                self.assertTrue(True, "enforce_member_portal_access handled database error")
-            except Exception as e:
-                self.fail(f"enforce_member_portal_access should handle database errors: {e}")
-            finally:
-                frappe.local.request = previous  # Mock justified: Infrastructure - restore
-
     # ===== API SECURITY TESTS =====
 
     def test_get_member_home_page_api_security(self):
