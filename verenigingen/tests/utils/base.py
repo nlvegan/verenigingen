@@ -1705,6 +1705,15 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             or frappe.get_all("Company", limit=1, pluck="name")[0],
         }
         defaults.update(kwargs)
+        # Without a list in the company currency erpnext fetches a live exchange rate
+        # for the site default ("Standard Selling" = INR on a fresh site), refused for
+        # a non-System session user (#2766).
+        if "selling_price_list" not in defaults:
+            from verenigingen.tests.fixtures.enhanced_test_factory import ensure_selling_price_list
+
+            defaults["selling_price_list"] = ensure_selling_price_list(
+                frappe.db.get_value("Company", defaults["company"], "default_currency")
+            )
 
         invoice = frappe.new_doc("Sales Invoice")
         for key, value in defaults.items():

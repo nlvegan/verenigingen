@@ -245,6 +245,29 @@ def suspend_insert_capture():
         _insert_capture_suspended = previous
 
 
+def ensure_selling_price_list(currency="EUR"):
+    """Return an enabled selling Price List name IN `currency` (#2766).
+
+    A list in another currency (a fresh site's 'Standard Selling' is INR) makes
+    erpnext fetch a live exchange rate on insert, which it refuses unless the
+    session user is a System User -- so the invoice depended on whatever user an
+    earlier module left behind. Shared master data, not claimed by either drain; a
+    test's rollback can still remove it, and the get-or-create rebuilds it.
+
+    Module-level so factories that are not an EnhancedTestCase (the SEPA factory)
+    reuse it instead of growing another copy.
+    """
+    if frappe.db.get_value("Price List", "Standard Selling", "currency") == currency:
+        return "Standard Selling"
+    name = f"Test Selling {currency}"
+    if not frappe.db.exists("Price List", name):
+        with suspend_insert_capture():
+            frappe.get_doc(
+                {"doctype": "Price List", "price_list_name": name, "selling": 1, "currency": currency}
+            ).insert(ignore_permissions=True)
+    return name
+
+
 def shared_fixture(method):
     """Declare that a get-or-create helper produces SHARED master data.
 
@@ -6172,23 +6195,8 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         return uom_name
 
     def _ensure_selling_price_list(self, currency="EUR"):
-        """Return an enabled selling Price List IN `currency` (#2766).
-
-        A list in another currency (a fresh site's 'Standard Selling' is INR) makes
-        erpnext fetch a live exchange rate on insert, which it refuses unless the
-        session user is a System User -- so the invoice depended on whatever user an
-        earlier module left behind. Shared master data, not claimed by either drain; a
-        test's rollback can still remove it, and the get-or-create rebuilds it.
-        """
-        if frappe.db.get_value("Price List", "Standard Selling", "currency") == currency:
-            return "Standard Selling"
-        name = f"Test Selling {currency}"
-        if not frappe.db.exists("Price List", name):
-            with suspend_insert_capture():
-                frappe.get_doc(
-                    {"doctype": "Price List", "price_list_name": name, "selling": 1, "currency": currency}
-                ).insert(ignore_permissions=True)
-        return name
+        """Return an enabled selling Price List IN `currency` (#2766)."""
+        return ensure_selling_price_list(currency)
 
     def create_test_user(self, email, roles=None, **kwargs):
         """Create a test user with specified roles"""
