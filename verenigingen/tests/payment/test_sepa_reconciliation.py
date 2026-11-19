@@ -703,6 +703,126 @@ class TestReconcileFullSepaBatch(ReconBase):
         self.assertEqual(result["reconciled_count"], 0)
 
 
+class TestReconciledBatchThenMarkProcessed2798(ReconBase):
+    """#2798: a batch settled by bank reconciliation must be recorded as collected, so a
+    later "Mark as Processed" (`mark_batch_invoices_as_paid`) skips its rows instead of
+    re-booking invoices whose outstanding is already 0 and flipping rows and batch to Failed.
+
+    Drives the REAL flows end to end (real batch, invoices, Payment Entries): reconcile,
+    then mark paid. No row status is pinned by hand. Row count and amounts come from the
+    fixture."""
+
+    def _reconciled_batch(self, count=2):
+        # Marking paid logs a benign Fiscal Year auto-create row when it submits dated docs.
+        self.expectErrorLog("Fiscal Year")
+        items = [
+            self._make_member_with_invoice(first_name=f"R2798N{i}", grand_total=25.0 + i)
+            for i in range(count)
+        ]
+        batch = self._make_batch(items)
+        bt = self._make_bank_transaction(
+            deposit=batch.total_amount, date=today(), description="SEPA DD batch"
+        )
+        return items, batch, bt
+
+    def _row_states(self, batch):
+        return {
+            r.name: frappe.db.get_value(
+                "Direct Debit Batch Invoice", r.name, ["status", "result_code"], as_dict=True
+            )
+            for r in batch.invoices
+        }
+
+    def _pe_counts(self, items):
+        return [
+            frappe.db.count(
+                "Payment Entry Reference",
+                {"reference_name": it["invoice"].name, "reference_doctype": "Sales Invoice"},
+            )
+            for it in items
+        ]
+
+    def test_reconciliation_records_the_rows_as_collected_and_the_batch_processed(self):
+        items, batch, bt = self._reconciled_batch()
+        result = recon.reconcile_full_sepa_batch(bt, batch)
+        self.assertEqual(result["type"], "full_reconciliation", msg=result)
+
+        for state in self._row_states(batch).values():
+            self.assertEqual(state.status, "Successful")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Processed")
+
+    def test_mark_processed_after_reconciliation_leaves_rows_batch_and_error_log_alone(self):
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        items, batch, bt = self._reconciled_batch()
+        recon.reconcile_full_sepa_batch(bt, batch)
+        pe_after_reconcile = self._pe_counts(items)
+        self.assertEqual(pe_after_reconcile, [1] * len(items))
+        errors_before = frappe.db.count("Error Log", {"method": "SEPA Direct Debit Payment Error"})
+        batch.reload()
+
+        collected_now = batch_processing_service.mark_batch_invoices_as_paid(batch)
+
+        self.assertEqual(collected_now, 0, "reconciliation already collected every row")
+        for state in self._row_states(batch).values():
+            self.assertEqual(state.status, "Successful")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Processed")
+        self.assertEqual(self._pe_counts(items), pe_after_reconcile, "no duplicate Payment Entry")
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "SEPA Direct Debit Payment Error"}), errors_before
+        )
+
+    def test_reconciliation_advances_the_mandate_sequence_like_mark_paid_does(self):
+        """A collected FRST must not stay FRST: the next batch would be rejected by the bank.
+        The usage row is created through the real helper the batch builder uses."""
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            create_mandate_usage_record,
+        )
+
+        items, batch, bt = self._reconciled_batch(count=1)
+        invoice = items[0]["invoice"]
+        create_mandate_usage_record(
+            items[0]["mandate"].name, "Sales Invoice", invoice.name, invoice.grand_total, "FRST"
+        )
+        usage = frappe.db.get_value(
+            "SEPA Mandate Usage", {"reference_name": invoice.name, "status": "Pending"}, "name"
+        )
+        self.assertTrue(usage, "fixture must hold a Pending usage row, or this test proves nothing")
+
+        recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(frappe.db.get_value("SEPA Mandate Usage", usage, "status"), "Collected")
+
+    def test_control_a_batch_never_reconciled_is_still_marked_paid(self):
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        items, batch, _ = self._reconciled_batch()
+        collected_now = batch_processing_service.mark_batch_invoices_as_paid(batch)
+
+        self.assertEqual(collected_now, len(items))
+        for state in self._row_states(batch).values():
+            self.assertEqual(state.status, "Successful")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Processed")
+        self.assertEqual(self._pe_counts(items), [1] * len(items))
+
+    def test_control_a_refused_reconciliation_leaves_rows_pending_and_batch_status(self):
+        items, batch, bt = self._reconciled_batch()
+        status_before = frappe.db.get_value("Direct Debit Batch", batch.name, "status")
+        # Break the member->customer link so phase-1 validation refuses the whole batch.
+        frappe.db.set_value("Member", items[0]["member"].name, "customer", None)
+
+        result = recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(result["type"], "validation_failed", msg=result)
+        for state in self._row_states(batch).values():
+            self.assertEqual(state.status, "Pending")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), status_before)
+
+
 # =============================================================================
 # _validate_batch_reconciliation (helper - read-only validation)
 # =============================================================================

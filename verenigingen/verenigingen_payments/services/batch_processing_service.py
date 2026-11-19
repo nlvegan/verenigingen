@@ -120,6 +120,29 @@ class BatchProcessingService:
 
         return success_count
 
+    def record_collected_by_bank_reconciliation(
+        self, batch_doc, row_name: str, payment_entry_name: str
+    ) -> None:
+        """Record that bank reconciliation booked this row's Payment Entry (#2798).
+
+        Same writes as the success branch of mark_batch_invoices_as_paid, so a later
+        "Mark as Processed" skips the row (#2573) instead of re-booking an invoice that is
+        already paid and flipping row and batch to Failed. db_set only, no commit: the
+        caller's transaction owns atomicity with the Payment Entry.
+        """
+        row = next(r for r in batch_doc.invoices if r.name == row_name)
+        self._set_invoice_status_after_submit(
+            row, "Successful", "PDNG", f"Payment entry {payment_entry_name} created"
+        )
+        self._mark_mandate_usage_collected(row.invoice)
+
+    def refresh_batch_status_from_rows(self, batch_doc) -> None:
+        """Recompute the batch status from its rows' persisted state (#2798)."""
+        collected = frappe.db.count(
+            "Direct Debit Batch Invoice", {"parent": batch_doc.name, "status": "Successful"}
+        )
+        self._update_batch_status_after_processing(batch_doc, collected)
+
     def process_batch_submission(self, batch_doc) -> bool:
         """
         Process the batch submission - placeholder for bank integration.
