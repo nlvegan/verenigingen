@@ -174,6 +174,9 @@ def quick_approve_application(application_name: str):
             True,
             False,
         )
+    except NON_RESUMABLE_DB_ERRORS:
+        # handle_api_error re-raises these, so the decorator below audits the call itself: no second row.
+        raise
     except Exception as e:
         # handle_api_error below turns this into a returned failure, so high_security_api would audit
         # the call as a success. Before #2280 the nested approve_application audited the refusal as

@@ -442,3 +442,22 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
         failed = {k: v for k, v in self._new_audit_rows_2280(before).items() if "api_call_failed" in k}
         self.assertEqual(sum(failed.values()), 1, failed)
         self.assertIn("fix_stuck_schedule:high:api_call_failed", failed)
+
+    def test_a_deadlock_in_a_dashboard_approval_is_audited_once(self):
+        """A non-resumable DB error escapes handle_api_error, so the decorator audits the call: the
+        endpoint's own emit must not add a second api_call_failed row for the same failure."""
+        from frappe.exceptions import QueryDeadlockError
+
+        cmd = "verenigingen.api.chapter_dashboard_api.quick_approve_application"
+        before = self._audit_rows_2280()
+        # Mock justified: fault injection, a deadlock cannot be provoked on demand
+        with patch(
+            "verenigingen.api.membership_application_review._approve_application",
+            side_effect=QueryDeadlockError("deadlock"),
+        ):
+            _, error, _ = self._dispatch_2280(
+                cmd, "Administrator", "POST", application_name="NOSUCH-APPLICATION-2280"
+            )
+        self.assertIsInstance(error, QueryDeadlockError)
+        failed = {k: v for k, v in self._new_audit_rows_2280(before).items() if "api_call_failed" in k}
+        self.assertEqual(failed, {"quick_approve_application:high:api_call_failed": 1})

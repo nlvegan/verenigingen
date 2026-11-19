@@ -379,7 +379,6 @@ function checkMemberStatus() {
 
     frappe.call({
         method: 'verenigingen.api.dues_invoice_workflow.check_member_dues_status',
-        type: 'POST',
         args: {
             period_start: workflowConfig.period_start,
             period_end: workflowConfig.period_end
@@ -539,14 +538,24 @@ function checkMemberStatus() {
         error: function(r) {
             hideSpinner('status-spinner');
             let errorMsg = __('Failed to check member status.');
-            if (r && r.status === 403) {
-                // The status check is a treasurer-level (CRITICAL, POST-only) action: a refusal is a 403 (#2280)
-                errorMsg = __('You do not have permission to check member status. This requires treasurer-level access.');
-            } else if (r && r.message) {
+            if (r && r.message) {
                 errorMsg = r.message.error || r.message.message || r.message || errorMsg;
             }
             showResults('Error', errorMsg, 'error');
         }
+    }).fail(function(xhr) {
+        // The website frappe.call (website.js) answers a 403 with a bare "Not permitted" popup and never
+        // calls opts.error (only a 417 does), so the refusal is handled on the request itself (#2280).
+        // The status check is a treasurer-level (CRITICAL, POST-only) action.
+        if (xhr.status === 417) return;  // opts.error already ran
+        hideSpinner('status-spinner');
+        showResults(
+            'Error',
+            xhr.status === 403
+                ? __('You do not have permission to check member status. This requires treasurer-level access.')
+                : __('Failed to check member status.'),
+            'error'
+        );
     });
 }
 
