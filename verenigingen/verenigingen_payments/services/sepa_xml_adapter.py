@@ -19,6 +19,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional
 
 import frappe
+from frappe import _
 from frappe.utils import get_datetime, getdate, now_datetime
 
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
@@ -133,12 +134,9 @@ class SEPAXMLAdapter:
         # Create creditor from settings
         creditor = self._build_creditor_from_settings(settings)
 
-        # Determine sequence type (SeqTp) from the batch's dedicated
-        # sequence_type field, with a legacy fallback to batch_type.
-        sequence_type = self._get_batch_sequence_type(batch_doc)
-
-        # Build transactions from batch invoices
-        transactions = self._build_transactions_from_batch(batch_doc, sequence_type)
+        # Build transactions from batch invoices. Each row carries its OWN SeqTp
+        # (FRST vs RCUR is per mandate); there is no batch-level fallback (#2839).
+        transactions = self._build_transactions_from_batch(batch_doc)
 
         # Update validation summary
         self._validation_summary.successful_transactions = len(transactions)
@@ -418,7 +416,6 @@ class SEPAXMLAdapter:
     def _build_transactions_from_batch(
         self,
         batch_doc,
-        batch_sequence_type: SEPASequenceType,
     ) -> List[SEPATransaction]:
         """
         Build SEPATransaction list from batch invoice items.
@@ -434,7 +431,7 @@ class SEPAXMLAdapter:
 
         for invoice_item in batch_doc.invoices:
             try:
-                transaction = self._build_transaction(invoice_item, batch_sequence_type)
+                transaction = self._build_transaction(invoice_item)
                 if transaction:
                     transactions.append(transaction)
             except Exception as e:
@@ -457,7 +454,6 @@ class SEPAXMLAdapter:
     def _build_transaction(
         self,
         invoice_item,
-        batch_sequence_type: SEPASequenceType,
     ) -> Optional[SEPATransaction]:
         """Build a single SEPATransaction from an invoice item."""
         # Get mandate sign date with fallback lookup
@@ -470,12 +466,10 @@ class SEPAXMLAdapter:
                 invoice_item.invoice or "UNKNOWN", invoice_item.mandate_reference or "UNKNOWN"
             )
 
-        # Determine transaction sequence type
-        # Use invoice-level sequence type if available, otherwise use batch default
-        invoice_sequence_type = invoice_item.sequence_type if invoice_item.sequence_type else None
-        sequence_type = (
-            self._get_sequence_type(invoice_sequence_type) if invoice_sequence_type else batch_sequence_type
-        )
+        # The row's own SeqTp, or a refusal (#2839). A blank/unknown value raises
+        # here and is recorded as a skipped transaction by the per-invoice handler
+        # (like an invalid IBAN), so the rest of the batch still ships.
+        sequence_type = self._get_sequence_type(invoice_item.sequence_type, invoice_item.invoice)
 
         # Validate the debtor IBAN up front. An invalid IBAN raises here and is caught
         # by the per-invoice handler in _build_transactions_from_batch, which records it
@@ -661,32 +655,26 @@ class SEPAXMLAdapter:
         except Exception as e:
             frappe.logger().warning(f"Error pre-fetching mandate data: {str(e)}")
 
-    def _get_sequence_type(self, type_str: Optional[str]) -> SEPASequenceType:
-        """Convert sequence type string to SEPASequenceType enum."""
+    def _get_sequence_type(self, type_str: Optional[str], invoice: Optional[str] = None) -> SEPASequenceType:
+        """Convert a row's sequence type string to SEPASequenceType, or refuse.
+
+        A blank or unknown value is NOT defaulted: FRST vs RCUR is a fact about the
+        mandate's usage history, and a guessed SeqTp reaches the bank (#2839).
+        A scheme value such as "CORE" says nothing about first-vs-recurring either.
+        """
         type_map = {
             "FRST": SEPASequenceType.FRST,
             "RCUR": SEPASequenceType.RCUR,
             "OOFF": SEPASequenceType.OOFF,
             "FNAL": SEPASequenceType.FNAL,
-            "CORE": SEPASequenceType.RCUR,  # legacy: scheme value stored in a sequence field
         }
-        return type_map.get(type_str, SEPASequenceType.RCUR)
-
-    def _get_batch_sequence_type(self, batch_doc) -> SEPASequenceType:
-        """Resolve the batch-level SeqTp.
-
-        Primary source is the dedicated ``sequence_type`` field. Batches created
-        before the scheme/sequence split stored the sequence value in
-        ``batch_type``; honour that as a legacy fallback. Default to RCUR.
-        """
-        valid = ("FRST", "RCUR", "FNAL", "OOFF")
-        seq = getattr(batch_doc, "sequence_type", None)
-        if seq in valid:
-            return self._get_sequence_type(seq)
-        legacy = getattr(batch_doc, "batch_type", None)
-        if legacy in valid:
-            return self._get_sequence_type(legacy)
-        return SEPASequenceType.RCUR
+        if type_str not in type_map:
+            frappe.throw(
+                _("Invoice {0}: sequence type {1} is blank or unknown; refusing to guess FRST/RCUR.").format(
+                    invoice or "UNKNOWN", frappe.bold(type_str or _("(blank)"))
+                )
+            )
+        return type_map[type_str]
 
     def _get_local_instrument(self, batch_type: Optional[str]) -> SEPALocalInstrument:
         """Map the batch scheme (``batch_type``) to the pain.008 LclInstrm code.
