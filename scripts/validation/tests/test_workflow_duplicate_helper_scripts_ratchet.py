@@ -9,8 +9,6 @@ for it too. The verenigingen-root steps are the control: they must still be ther
 import unittest
 from pathlib import Path
 
-import yaml
-
 try:
     from test_workflow_field_validator_exit_code import steps_running
 except ImportError:  # dotted-module run
@@ -55,17 +53,19 @@ class ScriptsDuplicateHelperRatchetIsWiredTests(unittest.TestCase):
         self.assertEqual(len(blocks), 1, blocks)
 
     def test_the_scripts_sync_gate_passes_fail_on_shrink(self):
-        """Parse the step: without $FAIL_ON_SHRINK the push-side shrink gate is
-        silently off, and a whole-file substring would still find it elsewhere."""
-        steps = yaml.safe_load(self.text)["jobs"][_JOB]["steps"]
+        """Scoped to the one step: without $FAIL_ON_SHRINK the push-side shrink gate is
+        silently off, and a whole-file substring would still find it in the sibling step.
+        Text, not PyYAML: CI's validation job has no PyYAML, and a skip would hide this."""
         sync = [
-            st
-            for st in steps
-            if "baseline_shrink_gate.py" in st.get("run", "") and "--root scripts" in st.get("run", "")
+            b
+            for b in self._steps(_BASELINE)
+            if "baseline_shrink_gate.py" in b and "--root scripts" in b
         ]
         self.assertEqual(len(sync), 1, sync)
-        self.assertIn("$FAIL_ON_SHRINK", sync[0]["run"])
-        self.assertIn("--fail-on-shrink", sync[0]["env"]["FAIL_ON_SHRINK"])
+        run = sync[0].split("run: |", 1)[1]
+        env = sync[0].split("run: |", 1)[0]
+        self.assertIn("$FAIL_ON_SHRINK", run)
+        self.assertRegex(env, r"FAIL_ON_SHRINK:.*'--fail-on-shrink'")
 
 
 if __name__ == "__main__":
