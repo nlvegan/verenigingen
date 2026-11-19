@@ -138,28 +138,6 @@ class SEPAMandateTestDataFactory:
         }
     }
     
-    # European test IBANs for cross-border testing
-    EUROPEAN_TEST_IBANS = {
-        "DE": [
-            "DE89370400440532013000",  # Deutsche Bank
-            "DE12500105170648489890",  # DZ Bank
-            "DE47500105179972073000"   # Commerzbank
-        ],
-        "FR": [
-            "FR1420041010050500013M02606",  # BNP Paribas
-            "FR7630001007941234567890185",  # Crédit Agricole
-            "FR8820076020004321234567890"   # La Banque Postale
-        ],
-        "BE": [
-            "BE68539007547034",  # KBC Bank
-            "BE71096123456769"   # ING Belgium
-        ],
-        "AT": [
-            "AT611904300234573201",  # Erste Bank
-            "AT483200000012345864"   # Raiffeisen
-        ]
-    }
-    
     # SEPA mandate types with business context
     MANDATE_TYPES = {
         "CORE": {
@@ -267,23 +245,6 @@ class SEPAMandateTestDataFactory:
         # itself fails (e.g. a circular-import edge case), in which case we
         # cannot compute a fresh checksum and fall back to the old pool.
         return random.choice(self.DUTCH_BANKS[bank_code]["test_ibans"])
-        
-    def get_random_european_iban(self, country: Optional[str] = None) -> str:
-        """
-        Get a random European test IBAN for cross-border testing.
-        
-        Args:
-            country: ISO country code (DE, FR, BE, AT)
-            
-        Returns:
-            Valid European test IBAN
-        """
-        if country and country in self.EUROPEAN_TEST_IBANS:
-            return random.choice(self.EUROPEAN_TEST_IBANS[country])
-            
-        # Get random country and random IBAN
-        random_country = random.choice(list(self.EUROPEAN_TEST_IBANS.keys()))
-        return random.choice(self.EUROPEAN_TEST_IBANS[random_country])
         
     def get_bank_info_for_iban(self, iban: str) -> Dict[str, str]:
         """
