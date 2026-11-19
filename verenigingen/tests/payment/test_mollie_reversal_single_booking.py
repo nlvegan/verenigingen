@@ -38,10 +38,13 @@ Run:
         --module verenigingen.tests.payment.test_mollie_reversal_single_booking
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import flt, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.ledger_failure_accounts import make_balance_restricted_account
 from verenigingen.tests.services.test_donation_refund_journal_entry_creator_coverage import (
     COMPANY,
     _RefundFixtureMixin,
@@ -61,6 +64,10 @@ from verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency import
 from verenigingen.verenigingen_payments.mollie.utils.unified_payment_entry_creator import (
     create_refund_payment_entry,
     create_unified_payment_entry,
+)
+from verenigingen.verenigingen_payments.services import (
+    donation_refund_journal_entry_creator as refund_creator_module,
+    journal_entry_booking_support as booking_support,
 )
 from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
     get_bank_transaction_creator,
@@ -545,6 +552,77 @@ class TestReversalMirrorsTheForwardArtefact(_RefundFixtureMixin, EnhancedTestCas
             live,
             "the Journal Entry did not post, so its Bank Transaction must be withdrawn -- "
             f"a live row here is a phantom withdrawal on the clearing account: {live}",
+        )
+
+    def test_a_reversal_journal_entry_that_is_still_live_keeps_its_bank_transaction_2754(self):
+        """#2754: a Journal Entry whose discard was BLOCKED is live, so its bank line must stay.
+
+        The submit fails AFTER ``docstatus=1`` is written (a Credit-only income account
+        refuses the refund's debit in ``GLEntry.on_update``), then a REAL file lock
+        (``je.lock()``) makes the discard's ``cancel()`` refuse up front, so the entry is
+        still docstatus 1. The creator returns None for that exactly as for a clean cancel,
+        and the caller used to withdraw the Bank Transaction anyway: a posted reversal
+        Journal Entry with no bank line.
+        """
+        self._make_forward_journal_entry()
+        restricted = make_balance_restricted_account(COMPANY, "Income", "Credit")
+        previous = frappe.db.get_single_value("Verenigingen Settings", "unrestricted_donation_account")
+        frappe.db.set_single_value("Verenigingen Settings", "unrestricted_donation_account", restricted)
+        frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
+        self.addCleanup(frappe.clear_document_cache, "Verenigingen Settings", "Verenigingen Settings")
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "unrestricted_donation_account", previous
+        )
+        refund_id = f"re_live_{frappe.generate_hash(length=8)}"
+        key = f"{self.payment_id}_refund_{refund_id}"
+
+        locks = []
+        real_discard = booking_support.discard_unposted_journal_entry
+
+        def lock_then_discard(je_name, *args, **kwargs):
+            je = frappe.get_doc("Journal Entry", je_name)
+            je.lock()
+            locks.append(je)
+            return real_discard(je_name, *args, **kwargs)
+
+        self.expectErrorLog(
+            "Secure Operation Failed: submit on Journal Entry",
+            "Mollie Journal Entry Not Posted",
+            "Mollie Journal Entry Still Claims Its Key",
+            "Mollie Reversal Needs Manual Reconciliation",
+        )
+        try:
+            with patch.object(refund_creator_module, "discard_unposted_journal_entry", lock_then_discard):
+                UnifiedWebhookWrapperService().process_reversal_webhook(
+                    payment_id=self.payment_id,
+                    reversal_id=refund_id,
+                    amount=100.0,
+                    reversal_type="refund",
+                    reversal_date=today(),
+                )
+        finally:
+            for je in locks:
+                je.unlock()
+
+        live_jes = frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 1}, pluck="name")
+        self.assertTrue(live_jes, "premise: the blocked discard must leave the Journal Entry live")
+        bank_transactions = frappe.get_all(
+            "Bank Transaction", filters={"reference_number": key}, fields=["name", "docstatus"]
+        )
+        self.assertEqual(len(bank_transactions), 1, "premise: the booker wrote exactly one bank line")
+        self.assertEqual(
+            bank_transactions[0].docstatus,
+            1,
+            f"live Journal Entry {live_jes} books this reversal, so its Bank Transaction "
+            f"{bank_transactions[0].name} must not be withdrawn",
+        )
+        self.assertTrue(
+            frappe.get_all(
+                "Error Log",
+                filters={"method": "Mollie Reversal Needs Manual Reconciliation", "error": ["like", f"%{live_jes[0]}%"]},
+                pluck="name",
+            ),
+            "staff must be told the live entry and the bank line need reconciling by hand",
         )
 
     def test_the_sweep_also_reverses_in_kind_not_always_with_a_journal_entry(self):
