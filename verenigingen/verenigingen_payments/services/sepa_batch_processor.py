@@ -1207,6 +1207,12 @@ class SEPABatchProcessor:
             # a Company").
             if self.company:
                 invoice.company = self.company.name
+                # #2810: price list in the company currency (no live rate fetch).
+                from verenigingen.utils.invoice_price_list import get_selling_price_list_for_company
+
+                invoice.selling_price_list = get_selling_price_list_for_company(
+                    self.company.name, invoice.customer
+                )
             invoice.posting_date = today()
             invoice.due_date = schedule.next_invoice_date
 
