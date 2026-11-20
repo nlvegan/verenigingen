@@ -17,6 +17,7 @@ from typing import Optional
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class BankAccountCreationError(frappe.ValidationError):
@@ -116,8 +117,14 @@ def _insert(doc, label: str, justification: str, permission: str, title: str, de
             justification=justification,
             required_permissions=[permission],
         )
+    except (*NON_RESUMABLE_DB_ERRORS, frappe.DuplicateEntryError):
+        # Deadlock/timeout must reach whoever retries on the type (execute_with_deadlock_retry);
+        # wrapping them in BankAccountCreationError hides them (#2976). A duplicate stays itself.
+        raise
     except Exception as e:
-        _fail(title, f"Error creating {label}: {e}", details)
+        message = f"Error creating {label}: {e}"
+        frappe.log_error(title=title, message=message)
+        raise BankAccountCreationError(message, details) from e
     if not result.success:
         _fail(title, f"Failed to create {label}: {'; '.join(result.errors)}", details)
     return result.document.name
