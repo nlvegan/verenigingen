@@ -1,0 +1,37 @@
+# Known field-reference findings (#2960) -- the ratchet baseline for
+# scripts/validation/archived/doctype_field_validator.py (the `doctype-field-validator` hook).
+# Format:
+#     <path>::<doctype>::<field>::<count>
+#
+# The hook was blind (see #2960) until its regex, path handling and app path were fixed; these
+# are the high-confidence findings it then reported. They are NOT triaged: several look like the
+# variable-name guess (#2925), so they are recorded, not asserted to be defects.
+#
+# A run fails only if it introduces a NEW key here, or raises an existing key's count. This
+# file should only ever SHRINK: fix a site (or teach the validator it is a false positive)
+# and regenerate with `--update-baseline`. Do not raise a count to silence a new finding.
+# Only high-confidence findings are recorded (only those fail a commit). They include findings
+# on other apps' doctypes (frappe/erpnext/hrms/website) that a bench loads: this hook runs
+# locally on a bench only (it is not a CI job), unlike the #2323 baseline, so there is no
+# bench-vs-CI difference to scope away. A bench missing an app just yields fewer findings.
+scripts/setup/deploy_role_profiles.py::Role Profile::modules::1
+scripts/validation/child_table_creation_validator.py::Dock Item::istable::1
+scripts/validation/doctype_loader.py::Dock Item::app::1
+scripts/validation/doctype_loader.py::Dock Item::issingle::1
+scripts/validation/doctype_loader.py::Dock Item::istable::1
+scripts/validation/framework/comprehensive_field_validator.py::Dock Item::fieldtype::1
+scripts/validation/harness_logger_teardown_validator.py::Target Detail::attr::1
+scripts/validation/production/doctype_field_analyzer.py::Dock Item::app::1
+scripts/validation/production/doctype_field_analyzer.py::Dock Item::istable::1
+verenigingen/services/team_service.py::About Us Team Member::is_active::3
+verenigingen/services/team_service.py::About Us Team Member::team_role::3
+verenigingen/templates/pages/membership_adjustment.py::Chapter Board Member::chapter::2
+verenigingen/utils/migration/migration_duplicate_detection.py::Dock Item::item_code::1
+verenigingen/verenigingen/doctype/chapter/managers/member_manager.py::Movement Member::member::1
+verenigingen/verenigingen/doctype/membership/scheduler.py::Member::bank_account::1
+verenigingen/verenigingen/doctype/team/team.py::About Us Team Member::from_date::1
+verenigingen/verenigingen/doctype/team/team.py::About Us Team Member::is_active::3
+verenigingen/verenigingen/doctype/team/team.py::About Us Team Member::team_role::2
+verenigingen/verenigingen/doctype/team/team.py::About Us Team Member::volunteer::3
+verenigingen/verenigingen_payments/clients/settlements_client.py::Payroll Period Date::costs::2
+verenigingen/verenigingen_payments/clients/settlements_client.py::Payroll Period Date::revenue::2

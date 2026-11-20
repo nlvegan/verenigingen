@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 # Import comprehensive DocType loader
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata, get_unified_doctype_loader
 
 @dataclass
 class ValidationIssue:
@@ -39,7 +39,9 @@ class AccurateFieldValidator:
         self.verbose = verbose
         
         # Use comprehensive DocType loader (standardized)
-        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=verbose)
+        # Resolves the real bench (walk-up, or git for a worktree outside it); `app_path.parent.parent`
+        # is the bench only for <bench>/apps/<app>.
+        self.doctype_loader = get_unified_doctype_loader(str(self.app_path), verbose=verbose)
         self.doctypes = self._convert_doctypes_for_compatibility()
         
         self.custom_fields = self._load_custom_fields()
@@ -379,7 +381,7 @@ class AccurateFieldValidator:
                                     )
                                     
                                     violations.append(ValidationIssue(
-                                        file=str(file_path.relative_to(self.app_path)),
+                                        file=self._display_path(file_path),
                                         line=line_num,
                                         field=field_name,
                                         doctype=doctype,
@@ -655,7 +657,7 @@ class AccurateFieldValidator:
             'frappe.db.sql',
             'as_dict=True',
             'SELECT.*FROM',
-            '.format(',
+            '\\.format\\(',  # escaped: a bare '.format(' is an invalid regex (#2960)
             'GROUP BY',
             'ORDER BY',
             'frappe.db.get_value',
@@ -702,6 +704,17 @@ class AccurateFieldValidator:
         else:
             return "low"
         
+    def _display_path(self, file_path: Path) -> str:
+        """Path relative to the app root, whether given absolute or (as pre-commit does) relative.
+
+        `Path.relative_to` raised ValueError on a repo-relative path, which was swallowed (#2960).
+        """
+        resolved = Path(file_path).resolve()
+        try:
+            return str(resolved.relative_to(self.app_path.resolve()))
+        except ValueError:
+            return str(file_path)
+
     def validate_file(self, file_path: Path) -> List[ValidationIssue]:
         """Validate a single file"""
         violations = []
@@ -722,9 +735,14 @@ class AccurateFieldValidator:
             # Use AST parsing for accuracy
             violations = self.parse_with_ast(content, file_path)
             
-        except Exception as e:
-            # If file can't be processed, skip it silently
+        except SyntaxError:
+            # Not parseable Python: other hooks report that, there is nothing to validate here.
             pass
+        except Exception as e:
+            # Never silent (#2960): a blanket `pass` here hid three faults that made the whole
+            # hook report nothing. stderr, so it shows in a hook run and in CI logs.
+            print(f"doctype_field_validator: could not validate {file_path}: "
+                  f"{type(e).__name__}: {e}", file=sys.stderr)
             
         return violations
         
@@ -745,16 +763,14 @@ class AccurateFieldValidator:
                 continue
                 
             # In pre-commit mode, skip test and debug files
-            if pre_commit and any(pattern in str(py_file) for pattern in [
-                '/tests/', '/test_', '/debug_', '/scripts/testing/', '/scripts/debug/'
-            ]):
+            if pre_commit and is_test_or_debug_file(py_file):
                 continue
             
             files_checked += 1
             
             file_violations = self.validate_file(py_file)
             if file_violations:
-                print(f"  - Found {len(file_violations)} issues in {py_file.relative_to(self.app_path)}")
+                print(f"  - Found {len(file_violations)} issues in {self._display_path(py_file)}")
             violations.extend(file_violations)
         
         print(f"📊 Checked {files_checked} Python files")
@@ -779,16 +795,90 @@ class AccurateFieldValidator:
         return '\n'.join(report)
 
 
+PRE_COMMIT_SKIP_PATTERNS = ['/tests/', '/test_', '/debug_', '/scripts/testing/', '/scripts/debug/']
+
+
+def is_test_or_debug_file(path: Path) -> bool:
+    """Pre-commit mode validates production files only. Shared by the app scan and the
+    per-file path: the hook's own `exclude` regex only matches top-level tests/, so without this
+    the hook (file mode) saw test files the scan (and so the baseline) never did (#2960)."""
+    return any(pattern in str(Path(path).resolve()) for pattern in PRE_COMMIT_SKIP_PATTERNS)
+
+
+BASELINE_PATH = Path(__file__).resolve().parent.parent / "doctype_field_validator_baseline.txt"
+BASELINE_HEADER = """# Known field-reference findings (#2960) -- the ratchet baseline for
+# scripts/validation/archived/doctype_field_validator.py (the `doctype-field-validator` hook).
+# Format:
+#     <path>::<doctype>::<field>::<count>
+#
+# The hook was blind (see #2960) until its regex, path handling and app path were fixed; these
+# are the high-confidence findings it then reported. They are NOT triaged: several look like the
+# variable-name guess (#2925), so they are recorded, not asserted to be defects.
+#
+# A run fails only if it introduces a NEW key here, or raises an existing key's count. This
+# file should only ever SHRINK: fix a site (or teach the validator it is a false positive)
+# and regenerate with `--update-baseline`. Do not raise a count to silence a new finding.
+# Only high-confidence findings are recorded (only those fail a commit). They include findings
+# on other apps' doctypes (frappe/erpnext/hrms/website) that a bench loads: this hook runs
+# locally on a bench only (it is not a CI job), unlike the #2323 baseline, so there is no
+# bench-vs-CI difference to scope away. A bench missing an app just yields fewer findings.
+"""
+
+
+def baseline_key(issue: ValidationIssue) -> str:
+    # No line number: a key must survive an unrelated edit above the site.
+    return f"{issue.file}::{issue.doctype}::{issue.field}"
+
+
+def load_baseline(path: Path = BASELINE_PATH) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    if not path.exists():
+        return counts
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, _, count = line.rpartition("::")
+        counts[key] = int(count)
+    return counts
+
+
+def write_baseline(issues: List[ValidationIssue], path: Path = BASELINE_PATH) -> int:
+    counts: Dict[str, int] = {}
+    for issue in issues:
+        counts[baseline_key(issue)] = counts.get(baseline_key(issue), 0) + 1
+    body = "".join(f"{key}::{counts[key]}\n" for key in sorted(counts))
+    path.write_text(BASELINE_HEADER + body, encoding="utf-8")
+    return sum(counts.values())
+
+
+def new_findings(issues: List[ValidationIssue], baseline: Dict[str, int]) -> List[ValidationIssue]:
+    """Findings beyond what the baseline allows for their key (a new key, or a higher count)."""
+    seen: Dict[str, int] = {}
+    new = []
+    for issue in issues:
+        key = baseline_key(issue)
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] > baseline.get(key, 0):
+            new.append(issue)
+    return new
+
+
 def main():
     """Main function with ultra-precise validation"""
     import sys
-    
-    app_path = "/home/frappe/frappe-bench/apps/verenigingen"
-    
+
+    # The app root from this file's location (scripts/validation/archived/ -> repo root), not a
+    # hardcoded absolute path that exists on no other machine (#2960).
+    app_path = str(Path(__file__).resolve().parents[3])
+
     # Check for options
-    pre_commit = '--pre-commit' in sys.argv
+    update_baseline = '--update-baseline' in sys.argv
+    pre_commit = '--pre-commit' in sys.argv or update_baseline
+    use_baseline = '--no-baseline' not in sys.argv
     verbose = '--verbose' in sys.argv
-    reduced_fp_mode = '--reduced-fp-mode' in sys.argv
+    # The baseline is recorded in the hook's mode, so regenerating it must use that mode too.
+    reduced_fp_mode = '--reduced-fp-mode' in sys.argv or update_baseline
     single_file = None
     
     # Extract file paths (non-option arguments)
@@ -796,6 +886,8 @@ def main():
     for arg in sys.argv[1:]:
         if not arg.startswith('--') and arg.endswith('.py'):
             file_paths.append(Path(arg))
+    if update_baseline:
+        file_paths = []
     
     validator = AccurateFieldValidator(app_path, verbose=verbose)
     
@@ -811,7 +903,7 @@ def main():
         print(f"🔍 Validating {len(file_paths)} files from pre-commit...")
         violations = []
         for file_path in file_paths:
-            if file_path.exists():
+            if file_path.exists() and not (pre_commit and is_test_or_debug_file(file_path)):
                 violations.extend(validator.validate_file(file_path))
     elif pre_commit:
         print("🚨 Running in pre-commit mode (production files only)...")
@@ -820,6 +912,22 @@ def main():
         print("🔍 Running comprehensive validation...")
         violations = validator.validate_app(pre_commit=pre_commit)
         
+    if update_baseline:
+        # Only what the hook can fail on: high confidence.
+        recorded = [v for v in violations if v.confidence == "high"]
+        print(f"Wrote {BASELINE_PATH.name}: {write_baseline(recorded)} findings")
+        return 0
+
+    if pre_commit and use_baseline:
+        # Only high-confidence findings fail a commit, so only those are ratcheted; the
+        # medium/low ones stay visible and non-blocking.
+        high = [v for v in violations if v.confidence == "high"]
+        fresh = {id(v) for v in new_findings(high, load_baseline())}
+        suppressed = len(high) - len(fresh)
+        violations = [v for v in violations if v.confidence != "high" or id(v) in fresh]
+        print(f"Ratchet: {suppressed} baselined high-confidence finding(s) suppressed "
+              f"({BASELINE_PATH.name}).")
+
     print("\n" + "="*50)
     report = validator.generate_report(violations)
     print(report)
