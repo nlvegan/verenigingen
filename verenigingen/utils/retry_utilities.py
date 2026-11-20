@@ -576,8 +576,8 @@ def execute_with_deadlock_retry(
 # - verenigingen/utils/optimized_queries.py - Now uses execute_with_deadlock_retry()
 #
 # NOT REFACTORED (specialized behavior justifies inline logic):
-# - bank_transaction_creator.py:728 - Shared retry loop handles both deadlock
-#   AND duplicate entry errors (race condition recovery). Interleaved structure
+# - bank_transaction_creator.py:728 - Retry loop handles duplicate entry errors
+#   (race condition recovery); a deadlock is re-raised since #2983. Interleaved structure
 #   not cleanly extractable.
 # - account_creation_manager.py:584,634 - Does frappe.db.rollback() and recreates
 #   fresh document before each retry. Specialized for User creation conflicts.
