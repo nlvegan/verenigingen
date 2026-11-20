@@ -366,11 +366,12 @@ class TestMollieDebugServiceValidation(EnhancedTestCase):
         self.assertEqual(result, str(frappe.utils.getdate(past)))
 
     def _with_site_a_day_ahead_of_mollie_utc(self):
-        """Site-local day = Mollie's UTC day + 1 (Kolkata, 18:30-24:00 UTC), pinned.
+        """Site-local day = Mollie's UTC day + 1, pinned.
 
-        The site clock is the real `site_a_day_ahead_of_process` lever; the UTC clock
-        read by `mollie_signature_date` is stubbed to the day before site-local today,
-        because a real UTC clock is only behind a UTC+14 site for part of the day.
+        The lever pins the site to Pacific/Kiritimati (UTC+14), which is a calendar day
+        ahead of UTC only from 10:00-24:00 UTC. The UTC clock read by
+        `mollie_signature_date` is therefore stubbed to the day before site-local today,
+        so the red test holds all day rather than only in that window.
         """
         import contextlib
         import datetime as dt
@@ -402,9 +403,11 @@ class TestMollieDebugServiceValidation(EnhancedTestCase):
         self.assertIn("future", str(ctx.exception))
 
     def test_validate_mandate_accepts_utc_today_and_past_when_site_is_ahead(self):
+        import datetime as dt
+
         with self._with_site_a_day_ahead_of_mollie_utc() as (site_today, utc_today):
             self.assertEqual(self._validate_mandate(signature_date=str(utc_today)), str(utc_today))
-            past = utc_today - __import__("datetime").timedelta(days=3)
+            past = utc_today - dt.timedelta(days=3)
             self.assertEqual(self._validate_mandate(signature_date=str(past)), str(past))
 
     def test_validate_mandate_blank_signature_date_is_returned_unchanged(self):
