@@ -215,3 +215,32 @@ class BatchRowBankDataFromMandateMixin:
         self.assertFalse(result.get("success"), result)
         self.assertIn("No active SEPA mandate", " ".join(result.get("errors", [])))
         self.assertFalse(frappe.db.exists("Direct Debit Batch Invoice", {"invoice": chain["invoice"].name}))
+
+    def test_member_with_two_active_membership_mandates_is_refused(self):
+        """Ambiguity must refuse even when the payload agrees with ONE of the two mandates:
+        picking the newest or the matching one would be a guess about which account to debit.
+
+        Probe shortcut: the second mandate is created Cancelled and then flipped to Active
+        (with the membership purpose) via `db.set_value`, bypassing the single-active guard
+        in SEPA Mandate.validate, which is what makes this state unreachable through the UI.
+        """
+        chain = self._build_member_with_invoice(first_name="MandateTwo")
+        second = self.factory.create_test_sepa_mandate(member=chain["member"].name, status="Cancelled")
+        frappe.db.set_value(
+            "SEPA Mandate",
+            second.name,
+            {"status": "Active", "used_for_memberships": 1},
+            update_modified=False,
+        )
+        self.assertEqual(
+            frappe.db.count(
+                "SEPA Mandate",
+                {"member": chain["member"].name, "status": "Active", "used_for_memberships": 1},
+            ),
+            2,
+            "fixture must really hold two Active membership mandates",
+        )
+        result = self._create_with_rows([self._row_payload(chain)])
+        self.assertFalse(result.get("success"), result)
+        self.assertIn("active SEPA mandates", " ".join(result.get("errors", [])))
+        self.assertFalse(frappe.db.exists("Direct Debit Batch Invoice", {"invoice": chain["invoice"].name}))
