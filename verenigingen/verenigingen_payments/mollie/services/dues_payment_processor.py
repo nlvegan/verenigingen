@@ -18,11 +18,10 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
-from verenigingen.e_boekhouden.utils.security_helper import migration_context
 from verenigingen.services.billing.coverage_calculator import calculate_coverage_for_payment_date
 from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
 from verenigingen.services.billing.invoice_matcher import find_matching_invoice
-from verenigingen.utils.bank_utils import get_or_create_unknown_bank
+from verenigingen.utils.bank_account_creation import create_party_bank_account
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
 from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
@@ -267,16 +266,7 @@ class DuesPaymentProcessor:
                 return
 
             # Create Bank Account linking IBAN to Customer
-            # Use migration context for proper permission handling
-            with migration_context("party_creation"):
-                bank_account = frappe.new_doc("Bank Account")
-                bank_account.account_name = f"{customer} - {iban[-4:]}"
-                bank_account.bank = get_or_create_unknown_bank()
-                bank_account.iban = iban
-                bank_account.party_type = "Customer"
-                bank_account.party = customer
-                bank_account.is_default = 0
-                bank_account.insert()
+            create_party_bank_account("Customer", customer, iban, source="Mollie")
 
             frappe.logger().info(f"[Mollie] Created Bank Account link: IBAN {iban} -> Customer {customer}")
 
