@@ -387,8 +387,10 @@ class TestApprovalInvoiceBuilderPinsPriceList(_DecoyDefaultCase, base_paths._Inv
     is what hid this)."""
 
     def setUp(self):
-        _PriceListCase.setUp(self)
-        base_paths._InvoicePathBase.setUp(self)
+        # Skip _DecoyDefaultCase.setUp (it installs the decoy for the EUR company; this class
+        # installs it for the settings company below). _PriceListCase.setUp chains on to
+        # _InvoicePathBase.setUp through the MRO.
+        super(_DecoyDefaultCase, self).setUp()
         settings_company = frappe.db.get_single_value("Verenigingen Settings", "company")
         self.assertTrue(settings_company, "precondition: Verenigingen Settings.company is set")
         self._made_rate_for = settings_company
@@ -427,7 +429,8 @@ class TestSepaDuesBuilderPinsPriceList(_DecoyDefaultCase):
     )
 
     def setUp(self):
-        _PriceListCase.setUp(self)
+        # Skip _DecoyDefaultCase.setUp: the decoy is installed in the test, for the SEPA company.
+        super(_DecoyDefaultCase, self).setUp()
         self.test_member = self.create_test_member()
         self.test_membership_type = self.create_test_membership_type(amount=20.0)
         self._setup_type_template(self.test_membership_type)
