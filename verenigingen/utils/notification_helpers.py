@@ -44,6 +44,7 @@ from typing import Optional
 import frappe
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.staff_alert_events import begin_event, finish_event
 
 
@@ -71,7 +72,7 @@ def send_volunteer_email(
     extra_context: Optional[dict] = None,
     reference_doctype: Optional[str] = None,
     reference_name: Optional[str] = None,
-) -> dict:
+) -> OperationResult:
     """
     Send email to a volunteer via their linked member's email address.
 
@@ -91,8 +92,12 @@ def send_volunteer_email(
         reference_name: Document name to link the email to
 
     Returns:
-        dict: Result with 'success' status. On failure, includes 'reason'.
-              On success, includes EmailService result data.
+        OperationResult: The EmailService result on send or skip (a disabled key,
+              cooldown or opt-out is a successful result with ``data["skipped"]``; see
+              ``skip_reason``). A missing volunteer, linked member or member email, or
+              any exception, is ``OperationResult.fail(...)`` with the reason in
+              ``error_message``. EmailService itself fails on "No recipients provided",
+              so these guards are failures, not skips.
 
     Example:
         # Send board appointment notification
@@ -108,17 +113,17 @@ def send_volunteer_email(
     """
     try:
         if not volunteer:
-            return {"success": False, "reason": "No volunteer provided"}
+            return OperationResult.fail("No volunteer provided")
 
         volunteer_doc = frappe.get_doc("Volunteer", volunteer)
         if not volunteer_doc.member:
             frappe.logger().debug(f"Volunteer {volunteer} has no linked member")
-            return {"success": False, "reason": "Volunteer has no linked member"}
+            return OperationResult.fail("Volunteer has no linked member")
 
         member_doc = frappe.get_doc("Member", volunteer_doc.member)
         if not member_doc.email:
             frappe.logger().debug(f"Member {volunteer_doc.member} has no email")
-            return {"success": False, "reason": "Member has no email address"}
+            return OperationResult.fail("Member has no email address")
 
         # Build context with common fields
         context = {
@@ -148,13 +153,13 @@ def send_volunteer_email(
 
     except frappe.DoesNotExistError as e:
         frappe.logger().warning(f"send_volunteer_email: Document not found - {str(e)}")
-        return {"success": False, "reason": f"Document not found: {str(e)}"}
+        return OperationResult.fail(f"Document not found: {str(e)}")
     except Exception as e:
         frappe.log_error(
             f"send_volunteer_email failed for {volunteer}: {str(e)}",
             "Volunteer Email Error",
         )
-        return {"success": False, "reason": str(e)}
+        return OperationResult.fail(str(e))
 
 
 def get_notification_recipients(setting_field, default_roles=None):
