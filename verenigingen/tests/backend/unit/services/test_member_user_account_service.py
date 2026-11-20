@@ -46,8 +46,8 @@ class TestMemberUserAccountService(EnhancedTestCase):
         self.assertTrue(result.success)
         self.assertIsInstance(result.data, str)  # Username
         self.assertIn("action", result.metadata)
-        # Action can be either created_new or linked_existing depending on test isolation
-        self.assertIn(result.metadata["action"], ["created_new", "linked_existing"])
+        # The email is unique to this test, so no User can pre-exist: a new one is created.
+        self.assertEqual(result.metadata["action"], "created_new")
 
     def test_create_member_user_account_user_already_exists_returns_failed_result(self):
         """Test creating account when user already exists returns failed OperationResult"""
@@ -228,7 +228,7 @@ class TestMemberUserAccountService(EnhancedTestCase):
         # OperationResult pattern
         self.assertTrue(result.success)
         self.assertIn("action", result.metadata)
-        self.assertIn(result.metadata["action"], ["created_new", "linked_existing"])
+        self.assertEqual(result.metadata["action"], "created_new")
 
     def test_operation_result_data_is_username(self):
         """Test that OperationResult.data contains the username string"""
