@@ -14,9 +14,84 @@ PROBE SHORTCUTS: the staff user carries the Staff ROLE directly rather than via 
 Team (the Member rule only reads roles); ``Member.user`` is linked with ``db.set_value``.
 """
 
+import json
+import os
+import subprocess
+import sys
+
 import frappe
+from frappe.utils import get_bench_path
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+# The WSGI app runs on its own connection, so its fixtures must be committed. That is done in
+# a SUBPROCESS that owns its connection and removes everything in `finally`, never in the test
+# process (a bare commit there would grow the order-dependence baseline).
+_PROBE = r"""
+import json, sys, uuid
+import frappe
+
+SITE = sys.argv[1]
+TAG = uuid.uuid4().hex[:6]
+PWD = "Pr0be-" + uuid.uuid4().hex
+frappe.init(site=SITE)
+frappe.connect()
+made = []
+out = {}
+try:
+    frappe.set_user("Administrator")
+
+    def mk_user(label, role):
+        email = "p3040-%s-%s@example.com" % (label, TAG)
+        u = frappe.new_doc("User")
+        u.email, u.first_name, u.send_welcome_email = email, "P3040" + label, 0
+        u.append("roles", {"role": role})
+        u.new_password = PWD
+        u.insert(ignore_permissions=True)
+        made.append(("User", email))
+        return email
+
+    def mk_member(label, user):
+        m = frappe.get_doc({"doctype": "Member", "first_name": "P3040" + label, "last_name": "Probe",
+            "email": "m-%s-%s@example.com" % (label, TAG), "birth_date": "1990-01-01",
+            "payment_method": "Bank Transfer"}).insert(ignore_permissions=True)
+        made.append(("Member", m.name))
+        if user:
+            frappe.db.set_value("Member", m.name, "user", user, update_modified=False)
+        return m.name
+
+    owner = mk_user("owner", "Verenigingen Member")
+    other = mk_user("other", "Verenigingen Member")
+    staff = mk_user("staff", "Verenigingen Staff")
+    member = mk_member("a", owner)
+    mk_member("b", other)
+    f = frappe.get_doc({"doctype": "File", "file_name": "p3040-%s.txt" % TAG, "content": b"secret",
+        "is_private": 1, "attached_to_doctype": "Member", "attached_to_name": member}).insert()
+    made.append(("File", f.name))
+    url = f.file_url
+    frappe.db.commit()
+    frappe.destroy()
+
+    import frappe.app
+    from werkzeug.test import Client
+    H = {"X-Frappe-Site-Name": SITE}
+    for label, user in (("owner", owner), ("staff", staff), ("other", other)):
+        c = Client(frappe.app.application)
+        login = c.post("/api/method/login", data={"usr": user, "pwd": PWD}, headers=H)
+        out[label] = [login.status_code, c.get(url, headers=H).status_code]
+finally:
+    frappe.init(site=SITE)
+    frappe.connect()
+    frappe.set_user("Administrator")
+    for dt, name in reversed(made):
+        try:
+            frappe.delete_doc(dt, name, force=True, ignore_permissions=True)
+        except Exception as e:
+            out.setdefault("cleanup_errors", []).append("%s %s: %s" % (dt, name, e))
+    frappe.db.commit()
+    frappe.destroy()
+print("RESULT" + json.dumps(out))
+"""
 
 
 class TestMemberHasPermissionSignature3040(EnhancedTestCase):
@@ -78,25 +153,45 @@ class TestMemberHasPermissionSignature3040(EnhancedTestCase):
         self.assertFalse(member.has_permission("read", debug=True, user=self.other_user))
         self.assertTrue(member.has_permission(permtype="read", user=self.owner_user))
 
-    def test_http_download_of_private_file(self):
-        """Real WSGI login + private-file download: 200 owner/staff, 403 other member (never 500)."""
-        import frappe.app
-        from frappe.utils.password import update_password
-        from werkzeug.test import Client
-        from werkzeug.wrappers import Response
+    def test_permtype_reaches_has_member_permission(self):
+        """The permission type is forwarded, not replaced by 'read'. A service account (Webhook
+        User role) defers to its Member DocPerm, which grants read but not delete, so the answer
+        depends on the type; it must equal the module rule's answer for each type."""
+        from verenigingen.permissions import has_member_permission
 
-        password = f"Sig3040-{frappe.generate_hash(length=8)}!x"
-        for user in (self.owner_user, self.staff_user, self.other_user):
-            update_password(user, password)
-        frappe.db.commit()  # Mock justified: the WSGI request uses its own connection and must see the fixtures
-        url = frappe.db.get_value("File", self.file_name, "file_url")
-        site_host = {"Host": frappe.local.site}
-        statuses = {}
-        for label, user in (("owner", self.owner_user), ("staff", self.staff_user), ("other", self.other_user)):
-            client = Client(frappe.app.application, Response)
-            login = client.post(
-                "/api/method/login", data={"usr": user, "pwd": password}, headers=site_host
-            )
-            self.assertEqual(login.status_code, 200, login.get_data(as_text=True)[:300])
-            statuses[label] = client.get(url, headers=site_host).status_code
-        self.assertEqual(statuses, {"owner": 200, "staff": 200, "other": 403})
+        webhook_user = self.create_test_user_with_roles(
+            email=f"sig3040-hook-{frappe.generate_hash(length=6)}@example.com",
+            roles=["Verenigingen Webhook User"],
+        ).name
+        frappe.clear_cache(user=webhook_user)
+        member = frappe.get_doc("Member", self.member.name)
+        expected = {
+            ptype: bool(has_member_permission(member, webhook_user, ptype))
+            for ptype in ("read", "write", "delete")
+        }
+        # control: the real rule must distinguish the types, else forwarding is untestable
+        self.assertEqual(len(set(expected.values())), 2, expected)
+        actual = {
+            ptype: member.has_permission(ptype, user=webhook_user) for ptype in ("read", "write", "delete")
+        }
+        self.assertEqual(actual, expected)
+
+
+class TestMemberAttachedFileDownload3040(EnhancedTestCase):
+    """No setUp fixtures on purpose: uncommitted rows here would hold naming-series locks the
+    probe subprocess (its own connection) then waits on."""
+
+    def test_http_download_of_private_file(self):
+        """Real WSGI login + private-file download (subprocess): 200 owner/staff, 403 other, never 500."""
+        result = subprocess.run(
+            [sys.executable, "-c", _PROBE, frappe.local.site],
+            cwd=os.path.join(get_bench_path(), "sites"),
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        lines = [x for x in result.stdout.splitlines() if x.startswith("RESULT")]
+        self.assertTrue(lines, f"probe printed no RESULT: {result.stdout[-500:]} {result.stderr[-1500:]}")
+        out = json.loads(lines[0][len("RESULT") :])
+        self.assertNotIn("cleanup_errors", out)
+        self.assertEqual(out, {"owner": [200, 200], "staff": [200, 200], "other": [200, 403]})
