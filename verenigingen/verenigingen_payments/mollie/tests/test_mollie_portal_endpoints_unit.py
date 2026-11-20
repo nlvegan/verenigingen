@@ -18,7 +18,9 @@ The endpoints are still invoked as a logged-in plain member so the @self_service
 tier gate is exercised exactly as in production.
 """
 
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -249,3 +251,33 @@ class TestMolliePortalEndpointsUnit(PortalSelfServiceTestMixin, EnhancedTestCase
 
         # The UTC date at call time (tolerating a UTC-midnight rollover during the test).
         self.assertIn(mandate_data["signatureDate"], {date_before, date_after})
+
+    # --- #2369: no live test may send a site-local signatureDate ---------------
+
+    _SITE_LOCAL_SIGNATURE_DATE = re.compile(
+        r"""signatureDate["']\s*:\s*(?:frappe\.utils\.|utils\.)?(?:today|nowdate)\(""",
+    )
+
+    def test_no_mandate_signature_date_is_site_local(self):
+        """#2369: a mandate signatureDate built from site-local today() is rejected by Mollie.
+
+        Mollie 422s a signature date in the future by ITS clock, and site-local today() is
+        tomorrow whenever the site timezone is east of UTC and it is late in the UTC day
+        (``The signature date is invalid ...``). The live tests in ``test_real_api`` did
+        this and went red 3/7 for part of every day; they always skip in CI, so only a
+        source scan can pin it there. Every mandate-create payload under the app must use
+        ``mollie_signature_date()`` (or an explicit UTC date) instead.
+        """
+        # Control: the pattern really does see the offending shapes.
+        for bad in ('"signatureDate": today(),', "'signatureDate':frappe.utils.nowdate(),"):
+            self.assertTrue(self._SITE_LOCAL_SIGNATURE_DATE.search(bad), bad)
+
+        app_root = Path(mollie_payment.__file__).resolve().parents[1]
+        offenders = [
+            f"{path.relative_to(app_root)}:{number}"
+            for path in app_root.rglob("*.py")
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+            if path.resolve() != Path(__file__).resolve()  # its control samples match by design
+            and self._SITE_LOCAL_SIGNATURE_DATE.search(line)
+        ]
+        self.assertEqual(offenders, [], "site-local signatureDate sent to Mollie: use mollie_signature_date()")
