@@ -343,7 +343,7 @@ from verenigingen.utils.config_manager import ConfigManager
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def run_api_optimization(dry_run=True):
+def run_api_optimization(dry_run: bool = True):
     """Run API endpoint optimization"""
     optimizer = APIEndpointOptimizer()
     return optimizer.optimize_all_endpoints(dry_run=dry_run)

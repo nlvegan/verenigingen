@@ -219,7 +219,9 @@ class VolunteerExpenseApproverService(StatelessService):
             return None
 
         chapter_memberships = frappe.get_all(
-            "Chapter Member", filters={"member": volunteer.member, "enabled": 1}, fields=["parent"]
+            "Chapter Member",
+            filters={"member": volunteer.member, "enabled": 1, "status": "Active"},
+            fields=["parent"],
         )
 
         for membership in chapter_memberships:

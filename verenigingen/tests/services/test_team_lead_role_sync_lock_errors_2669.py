@@ -166,6 +166,7 @@ class TestTeamLeadRoleSyncLockErrors2669(VereningingenTestCase):
         self.assertTrue(self._has_team_lead_role(user))
 
     def test_direct_call_reraises_a_lock_error(self):
+        # Mock justified: fault injection: an injected lock wait timeout, which cannot be staged on a live DB
         with patch.object(frappe.db, "exists", side_effect=frappe.QueryTimeoutError("injected")):
             with self.assertRaises(frappe.QueryTimeoutError):
                 _sync_team_lead_role("nobody@test.invalid")

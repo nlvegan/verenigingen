@@ -12,7 +12,7 @@ from frappe.utils import now_datetime
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.notification_helpers import resolve_admin_recipients
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 def log_auth_error(error_type, details, user=None):
@@ -79,7 +79,7 @@ def check_recent_auth_errors():
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.ADMIN)
+@critical_api(operation_type=OperationType.ADMIN)
 def get_auth_health_status():
     """
     Get the current authentication system health status

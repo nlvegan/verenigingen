@@ -39,7 +39,7 @@ from verenigingen.utils.validation_utilities import DateRangeValidator
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def bulk_generate_dues_invoices(
-    filter_criteria: dict | None = None, dry_run=True, max_invoices=50
+    filter_criteria: dict | None = None, dry_run: bool = True, max_invoices=50
 ) -> OperationResult[Dict[str, Any]]:
     """
     Generate invoices for multiple dues schedules with comprehensive filtering and validation
@@ -264,7 +264,9 @@ def bulk_generate_dues_invoices(
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
-def get_dues_schedules_summary(include_orphaned=True, days_ahead=30) -> OperationResult[Dict[str, Any]]:
+def get_dues_schedules_summary(
+    include_orphaned: bool = True, days_ahead=30
+) -> OperationResult[Dict[str, Any]]:
     """
     Get a comprehensive summary of dues schedules for admin dashboard
 
@@ -368,7 +370,7 @@ def get_dues_schedules_summary(include_orphaned=True, days_ahead=30) -> Operatio
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.ADMIN)
-def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20) -> OperationResult[Dict[str, Any]]:
+def cleanup_orphaned_schedules(dry_run: bool = True, max_cleanup=20) -> OperationResult[Dict[str, Any]]:
     """
     Clean up orphaned dues schedules that reference non-existent members
 
@@ -691,7 +693,9 @@ def validate_invoice_generation_readiness() -> OperationResult[Dict[str, Any]]:
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.ADMIN)
-def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50) -> OperationResult[Dict[str, Any]]:
+def cleanup_orphaned_member_references(
+    dry_run: bool = True, max_cleanup=50
+) -> OperationResult[Dict[str, Any]]:
     """
     Clean up orphaned member references in schedules without deleting the schedules themselves.
     This is useful when you want to preserve the schedules but remove invalid member links.
@@ -815,7 +819,7 @@ def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50) -> Operatio
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.ADMIN)
-def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20) -> OperationResult[Dict[str, Any]]:
+def cleanup_orphaned_membership_data(dry_run: bool = True, max_cleanup=20) -> OperationResult[Dict[str, Any]]:
     """
     Enhanced cleanup for orphaned membership-related data including:
     - Orphaned dues schedules (existing functionality)

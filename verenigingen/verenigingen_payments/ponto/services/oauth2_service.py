@@ -40,6 +40,7 @@ from urllib.parse import urlencode
 import frappe
 from frappe.utils import get_url
 
+from verenigingen.utils.single_writer_fields import WRITER_SAVE_FLAG
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoAuthenticationError
 from verenigingen.verenigingen_payments.ponto.utils.secure_cert_manager import SecureCertManager
 
@@ -705,6 +706,8 @@ class PontoOAuth2Service:
         try:
             settings = frappe.get_single("Ponto Settings")
             settings.access_token_expiry = None
+            # This save IS the writer of access_token_expiry; validate must not re-read it (#2739).
+            settings.flags[WRITER_SAVE_FLAG] = True
             # SECURITY JUSTIFICATION: Token revocation is a security operation initiated by admin
             # or system. Clearing tokens doesn't expose sensitive data - it removes access.
             # Operation logged via revoke_tokens() logger call.

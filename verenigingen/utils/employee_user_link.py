@@ -10,16 +10,14 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 
 
 def safe_log_error(message, title=None):
-    """Helper to log errors with length protection"""
-    # Truncate message to prevent log title validation errors
-    safe_message = message[:100] + "..." if len(message) > 100 else message
+    """Helper to log errors; the message is kept in full (#1138), the title is never empty."""
     # frappe.log_error(title=None, message=<truthy>) raises TypeError inside
     # frappe's own swap-detection heuristic (`"\n" in title`) -- title must
     # never be None/empty here (#1121 follow-up). Fall back to the message's
     # own first line so the fallback itself can never look like a multi-line
     # traceback and re-trigger that same heuristic.
-    safe_title = title or safe_message.split("\n")[0][:140]
-    frappe.log_error(title=safe_title, message=safe_message)
+    safe_title = title or message.split("\n")[0][:140]
+    frappe.log_error(title=safe_title, message=message)
 
 
 def create_user_for_volunteer(volunteer_doc):
@@ -116,6 +114,22 @@ def update_employee_with_user(employee_name, user_id):
         return False
 
 
+def _find_employee_of_members_user(volunteer_doc):
+    """The Employee whose user_id is the volunteer's member's user, if any."""
+    member_user = (
+        frappe.db.get_value("Member", volunteer_doc.member, "user") if volunteer_doc.member else None
+    )
+    if not member_user:
+        return None
+    return frappe.db.get_value("Employee", {"user_id": member_user}, "name")
+
+
+def _link_volunteer_to_employee(volunteer_doc, employee_id):
+    """Write Volunteer.employee_id the way the other writers do (no save: #2752's guard)."""
+    frappe.db.set_value("Volunteer", volunteer_doc.name, "employee_id", employee_id, update_modified=False)
+    volunteer_doc.employee_id = employee_id
+
+
 def create_employee_for_approved_volunteer(volunteer_doc):
     """Create employee for volunteer when membership is approved - SECURE VERSION with proper permissions"""
     try:
@@ -132,6 +146,12 @@ def create_employee_for_approved_volunteer(volunteer_doc):
                 f"Employee {volunteer_doc.employee_id} already exists for volunteer {volunteer_doc.name}"
             )
             return volunteer_doc.employee_id
+
+        # An Employee already owned by the member's user is that volunteer's Employee
+        existing_employee = _find_employee_of_members_user(volunteer_doc)
+        if existing_employee:
+            _link_volunteer_to_employee(volunteer_doc, existing_employee)
+            return existing_employee
 
         # Get member data to access first_name and last_name
         member_doc = None
@@ -188,6 +208,10 @@ def create_employee_for_approved_volunteer(volunteer_doc):
 
         employee.insert()
         employee_id = employee.name
+
+        # Link before anything below can fail, or the Employee is left orphaned and
+        # the next call creates another one (#2775)
+        _link_volunteer_to_employee(volunteer_doc, employee_id)
 
         frappe.logger().info(f"Created employee {employee_id} for volunteer {volunteer_doc.name}")
 

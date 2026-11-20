@@ -203,13 +203,13 @@ $(document).ready(function() {
         groups.forEach(function(group) {
             tbody.append(`
                 <tr>
-                    <td><strong>${group.title}</strong></td>
-                    <td>${group.description || '-'}</td>
+                    <td><strong>${escapeHtml(group.title)}</strong></td>
+                    <td>${escapeHtml(group.description || '-')}</td>
                     <td><span class="badge badge-success">${group.member_count}</span></td>
                     <td><span class="badge badge-warning">${group.unsubscribed_count}</span></td>
                     <td><span class="badge badge-info">${group.total_count}</span></td>
                     <td>
-                        <button class="btn btn-sm btn-default" onclick="viewGroup('${group.name}')">
+                        <button class="btn btn-sm btn-default" data-group-name="${escapeHtml(group.name)}" onclick="viewGroup(this.dataset.groupName)">
                             <i class="fa fa-eye"></i> View
                         </button>
                     </td>
@@ -250,7 +250,7 @@ $(document).ready(function() {
                     } else {
                         frappe.msgprint({
                             title: __('Sync Errors'),
-                            message: r.message.errors.join('<br>'),
+                            message: r.message.errors.map(escapeHtml).join('<br>'),
                             indicator: 'red'
                         });
                     }
@@ -298,7 +298,7 @@ $(document).ready(function() {
         if (data.errors && data.errors.length > 0) {
             logHtml += `⚠️ Errors:<br>`;
             data.errors.forEach(function(error) {
-                logHtml += `&nbsp;&nbsp;- ${error}<br>`;
+                logHtml += `&nbsp;&nbsp;- ${escapeHtml(error)}<br>`;
             });
         }
 

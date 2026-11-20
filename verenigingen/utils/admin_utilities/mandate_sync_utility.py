@@ -243,7 +243,7 @@ class MandateSyncUtility:
 
 @frappe.whitelist()
 @critical_api()  # Member data updates
-def run_mandate_sync(dry_run=True):
+def run_mandate_sync(dry_run: bool = True):
     """
     Whitelisted method to run mandate sync from Desk.
 

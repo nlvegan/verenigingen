@@ -732,8 +732,14 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # own_notification_keys. Baseline shrink committed with the code.
         # 213 -> 211 findings, 194 -> 192 keys (#2284): TestSecureDocumentOperationAuthorization's
         # two BUSINESS LOGIC MOCK findings went with its rewrite onto real users and roles.
-        self.assertEqual(211, len(self.findings), "finding count moved")
-        self.assertEqual(192, len(tqe.counts_of(self.findings)), "key count moved")
+        # 211 -> 255 findings, 192 -> 225 keys (#1493): `patch.object(frappe.db, "sql")`
+        # resolved to "db.sql" (only the base's last segment was kept), so every
+        # 3-segment `frappe.db.<m>` rule missed it. 75 findings surfaced; 31 sites
+        # (fault injection and call-through spies) now carry a per-site
+        # `# Mock justified: <reason>` marker, and 44 findings / 33 keys (return-value
+        # fakes, whole-fake suites) were baselined. See the baseline file's header.
+        self.assertEqual(255, len(self.findings), "finding count moved")
+        self.assertEqual(225, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them
@@ -794,6 +800,176 @@ class StructuralMockDetectionTest(unittest.TestCase):
             "        pass\n"
         )
         self.assertIn("DATABASE MOCK", _kinds(src))
+
+    def test_patch_object_on_a_dotted_base_is_detected(self):
+        """#1493: `patch.object(frappe.db, "exists")` resolved to "db.exists" (only the
+        base's LAST segment was kept), so every 3-segment `frappe.db.<m>` rule missed it.
+        Each spelling of the base below must produce a DATABASE MOCK finding.
+        """
+        for base_expr in ("frappe.db", "mod.frappe.db"):
+            src = (
+                "from unittest.mock import patch\n"
+                "import frappe\n"
+                "def test_x():\n"
+                f'    with patch.object({base_expr}, "exists"):\n'
+                "        pass\n"
+            )
+            self.assertIn("DATABASE MOCK", _kinds(src), base_expr)
+
+    def test_patch_object_target_keeps_the_full_dotted_base(self):
+        """Control for the above: the resolved target itself, not just the finding."""
+        src = (
+            "from unittest.mock import patch\n"
+            "import frappe\n"
+            "def test_x():\n"
+            '    with patch.object(frappe.db, "exists"):\n'
+            "        pass\n"
+        )
+        self.assertEqual([(4, "frappe.db.exists")], tqe._patch_targets(src))
+
+    def test_patch_object_on_an_unrelated_dotted_base_is_not_detected(self):
+        """Control: the longer target must not turn into a substring match."""
+        src = (
+            "from unittest.mock import patch\n"
+            "import frappe\n"
+            "def test_x():\n"
+            '    with patch.object(frappe.dbx, "exists"):\n'
+            "        pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", _kinds(src))
+
+    # ---- #1493: per-site `# Mock justified:` marker for Tier 2 DATABASE MOCK ----
+
+    _JUST_HEAD = (
+        "from unittest.mock import patch\n"
+        "import frappe\n"
+        "def test_x():\n"
+    )
+
+    def _db_kinds(self, body: str):
+        return _kinds(self._JUST_HEAD + body)
+
+    def test_a_trailing_justification_suppresses_its_own_site(self):
+        body = (
+            '    with patch.object(frappe.db, "sql", side_effect=RuntimeError("x")):'
+            "  # Mock justified: fault injection, a real outage cannot be staged\n"
+            "        pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", self._db_kinds(body))
+
+    def test_a_justification_on_the_line_directly_above_counts(self):
+        body = (
+            "    # Mock justified: fault injection, a real outage cannot be staged\n"
+            '    with patch.object(frappe.db, "sql", side_effect=RuntimeError("x")):\n'
+            "        pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", self._db_kinds(body))
+
+    def test_a_justification_covers_only_its_own_site(self):
+        body = (
+            '    with patch.object(frappe.db, "sql"):  # Mock justified: spy, calls through\n'
+            "        pass\n"
+            '    with patch.object(frappe.db, "exists"):\n'
+            "        pass\n"
+        )
+        findings = _findings(self._JUST_HEAD + body)
+        self.assertEqual([("DATABASE MOCK", 6)], [(f.kind, f.lineno) for f in findings])
+
+    def test_a_justification_above_cannot_be_borrowed_by_the_next_patch_line(self):
+        """#1601 shape: the comment-only line justifies the line directly below it,
+        not the patch line after that, and a TRAILING comment on a patch line does
+        not reach down to the next line either."""
+        body = (
+            '    with patch.object(frappe.db, "sql"):  # Mock justified: spy\n'
+            '        with patch.object(frappe.db, "exists"):\n'
+            "            pass\n"
+        )
+        findings = _findings(self._JUST_HEAD + body)
+        self.assertEqual([("DATABASE MOCK", 5)], [(f.kind, f.lineno) for f in findings])
+
+    def test_one_marker_covers_only_one_db_patch_on_its_line(self):
+        """Chosen: the EXTRA patch is reported (the marker is not refused), so a
+        return-value fake cannot hide beside a fault-injection marker."""
+        body = (
+            "    # Mock justified: fault injection\n"
+            '    with patch.object(frappe.db, "sql", side_effect=RuntimeError("x")), '
+            'patch.object(frappe.db, "exists", return_value=True):\n'
+            "        pass\n"
+        )
+        findings = _findings(self._JUST_HEAD + body)
+        self.assertEqual([("DATABASE MOCK", 5)], [(f.kind, f.lineno) for f in findings])
+
+    def test_a_decorator_with_the_marker_directly_above_is_honoured(self):
+        src = (
+            "from unittest.mock import patch\n"
+            "import frappe\n"
+            "# Mock justified: fault injection\n"
+            '@patch.object(frappe.db, "sql", side_effect=RuntimeError("x"))\n'
+            "def test_x(m):\n"
+            "    pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", _kinds(src))
+
+    def test_two_stacked_decorators_with_one_marker_report_the_second(self):
+        src = (
+            "from unittest.mock import patch\n"
+            "import frappe\n"
+            "# Mock justified: fault injection\n"
+            '@patch.object(frappe.db, "sql", side_effect=RuntimeError("x"))\n'
+            '@patch.object(frappe.db, "exists", return_value=True)\n'
+            "def test_x(m, n):\n"
+            "    pass\n"
+        )
+        findings = _findings(src)
+        self.assertEqual([("DATABASE MOCK", 5)], [(f.kind, f.lineno) for f in findings])
+
+    def test_a_multiline_patch_object_with_the_marker_above_its_first_line_is_honoured(self):
+        body = (
+            "    # Mock justified: fault injection\n"
+            "    with patch.object(\n"
+            '        frappe.db, "sql", side_effect=RuntimeError("x")\n'
+            "    ):\n"
+            "        pass\n"
+        )
+        self.assertNotIn("DATABASE MOCK", self._db_kinds(body))
+
+    def test_a_marker_on_an_argument_line_is_not_honoured_and_reports_the_first_line(self):
+        body = (
+            "    with patch.object(\n"
+            '        frappe.db, "sql", side_effect=RuntimeError("x")  # Mock justified: fault injection\n'
+            "    ):\n"
+            "        pass\n"
+        )
+        findings = _findings(self._JUST_HEAD + body)
+        self.assertEqual([("DATABASE MOCK", 4)], [(f.kind, f.lineno) for f in findings])
+
+    def test_a_justification_two_lines_away_does_not_count(self):
+        body = (
+            "    # Mock justified: fault injection\n"
+            "    x = 1\n"
+            '    with patch.object(frappe.db, "sql"):\n'
+            "        pass\n"
+        )
+        self.assertIn("DATABASE MOCK", self._db_kinds(body))
+
+    def test_an_empty_reason_is_refused(self):
+        for comment in ("# Mock justified:", "# Mock justified:   "):
+            body = (
+                f'    with patch.object(frappe.db, "sql"):  {comment}\n'
+                "        pass\n"
+            )
+            self.assertIn("DATABASE MOCK", self._db_kinds(body), comment)
+
+    def test_marker_text_inside_a_string_does_not_count(self):
+        body = (
+            '    with patch.object(frappe.db, "sql", return_value="# Mock justified: x"):\n'
+            "        pass\n"
+        )
+        self.assertIn("DATABASE MOCK", self._db_kinds(body))
+
+    def test_an_unmarked_site_is_still_reported(self):
+        body = '    with patch.object(frappe.db, "sql"):\n        pass\n'
+        self.assertIn("DATABASE MOCK", self._db_kinds(body))
 
     def test_a_lookalike_name_is_not_detected(self):
         """Suffix anchoring must not degrade into a substring match.
@@ -935,6 +1111,162 @@ class StructuralMockDetectionTest(unittest.TestCase):
             "    pass\n"
         )
         self.assertEqual(["DATABASE MOCK"], _kinds(src))
+
+
+# --------------------------------------------------------------------------
+# #1576: seven further monkeypatch shapes `_reassign_targets` could not see
+# --------------------------------------------------------------------------
+
+
+def _reassign_snippet(stmt: str, header: str = "") -> str:
+    return (
+        header
+        + "class TestThing:\n"
+        + "    def test_it(self):\n"
+        + f"        {stmt}\n"
+    )
+
+
+class ReassignEvasionShapesTest(unittest.TestCase):
+    """Each shape installs a policed Tier-2 database target without `patch()` or a
+    plain `frappe.x = y`. Every one must now be found (and, being a plain finding at
+    its own line, can be justified per site by the `# Mock justified:` marker)."""
+
+    def _assert_db_mock(self, stmt, header="", target=None):
+        src = _reassign_snippet(stmt, header)
+        self.assertIn("DATABASE MOCK", _kinds(src, "test_thing.py"), src)
+        if target:
+            self.assertIn(target, [t for _, t in tqe._reassign_targets(src)])
+
+    def test_shape1_from_import_submodule_alias(self):
+        self._assert_db_mock(
+            "fdb.get_value = lambda *a, **k: None",
+            "from frappe import db as fdb\n", "frappe.db.get_value")
+
+    def test_shape1b_from_import_submodule_without_alias(self):
+        self._assert_db_mock(
+            "db.get_value = lambda *a, **k: None",
+            "from frappe import db\n", "frappe.db.get_value")
+
+    def test_shape2_whole_module_alias(self):
+        self._assert_db_mock(
+            "f.get_all = lambda *a, **k: []", "import frappe as f\n", "frappe.get_all")
+
+    def test_shape3_setattr_on_module(self):
+        self._assert_db_mock(
+            'setattr(frappe, "get_all", lambda *a, **k: [])', "", "frappe.get_all")
+
+    def test_shape4_setattr_on_submodule(self):
+        self._assert_db_mock(
+            'setattr(frappe.db, "get_value", lambda *a, **k: None)', "", "frappe.db.get_value")
+
+    def test_shape5_annotated_assignment(self):
+        self._assert_db_mock(
+            "frappe.get_all: object = lambda *a, **k: []", "", "frappe.get_all")
+
+    def test_shape6_tuple_targets(self):
+        src = _reassign_snippet("frappe.get_all, frappe.db.sql = a, b")
+        self.assertEqual(
+            ["frappe.get_all", "frappe.db.sql"], [t for _, t in tqe._reassign_targets(src)])
+        self.assertIn("DATABASE MOCK", _kinds(src, "test_thing.py"))
+
+    def test_shape6b_list_and_starred_targets(self):
+        src = _reassign_snippet("[frappe.get_all, *frappe.db.sql] = a, b")
+        self.assertEqual(
+            ["frappe.get_all", "frappe.db.sql"], [t for _, t in tqe._reassign_targets(src)])
+
+    def test_shape7_pytest_monkeypatch_setattr(self):
+        self._assert_db_mock(
+            'monkeypatch.setattr(frappe, "get_all", lambda *a, **k: [])', "", "frappe.get_all")
+
+    def test_shape7b_pytest_monkeypatch_dotted_string(self):
+        self._assert_db_mock(
+            'monkeypatch.setattr("frappe.db.get_value", lambda *a, **k: None)',
+            "", "frappe.db.get_value")
+
+    # ---- controls: a legitimate reassignment must not be flagged ----
+
+    def _assert_clean(self, stmt, header="", resolves_nothing=True):
+        src = _reassign_snippet(stmt, header)
+        if resolves_nothing:
+            self.assertEqual([], tqe._reassign_targets(src), src)
+        self.assertEqual([], _kinds(src, "test_thing.py"), src)
+
+    def test_control_alias_of_a_non_frappe_module(self):
+        self._assert_clean("fdb.get_value = 1", "from other import db as fdb\n")
+        self._assert_clean("f.get_all = 1", "import other as f\n")
+
+    def test_control_unbound_alias_name_is_not_frappe(self):
+        self._assert_clean("fdb.get_value = 1")
+
+    def test_control_setattr_on_flags_local_and_self(self):
+        # frappe-rooted, so resolved -- but not a policed target
+        self._assert_clean('setattr(frappe.flags, "in_test", True)', resolves_nothing=False)
+        self._assert_clean('setattr(frappe.local, "form_dict", {})', resolves_nothing=False)
+        self._assert_clean('setattr(self, "get_all", [])')
+        self._assert_clean('setattr(doc, "get_all", [])')
+
+    def test_control_setattr_with_a_dynamic_attribute_name(self):
+        self._assert_clean("setattr(frappe, name, value)")
+
+    def test_control_monkeypatch_of_a_non_frappe_target(self):
+        self._assert_clean('monkeypatch.setattr(some_module, "get_all", x)')
+        self._assert_clean('monkeypatch.setattr("other.get_all", x)')
+        self._assert_clean('monkeypatch.setattr(os, "environ", {})')
+
+    def test_control_annotation_without_a_value_assigns_nothing(self):
+        self._assert_clean("frappe.get_all: object")
+
+    def test_control_annotated_and_tuple_non_frappe_and_unpoliced(self):
+        self._assert_clean("self.get_all: object = []")
+        self._assert_clean("self.a, local.get_all = 1, 2")
+        self._assert_clean("frappe.flags.a, frappe.local.b = 1, 2", resolves_nothing=False)
+
+    def test_control_a_receiver_merely_named_setattr_is_not_monkeypatch(self):
+        self._assert_clean('foo.setattr(frappe, "get_all", x)')
+
+    def test_control_a_relative_import_is_not_the_frappe_module(self):
+        self._assert_clean("db.get_value = 1", "from .frappe import db\n")
+
+    def test_control_a_lookalike_package_name_is_not_frappe(self):
+        self._assert_clean("fdb.get_value = 1", "from frappe_x import db as fdb\n")
+        self._assert_clean("fx.get_all = 1", "import frappe_x as fx\n")
+        self._assert_clean("fx.get_all = 1", "import frappe_x.sub as fx\n")
+
+    def test_an_aliased_submodule_import_resolves_to_that_submodule(self):
+        src = _reassign_snippet("u.get_all = x", "import frappe.utils as u\n")
+        self.assertEqual(["frappe.utils.get_all"], [t for _, t in tqe._reassign_targets(src)])
+
+    def test_an_alias_rebound_locally_is_still_flagged_by_design(self):
+        """Deliberate over-approximation: aliasing is file-wide. Exempting a name
+        rebound anywhere (`db = None`, a `db` argument) would let ONE such line opt
+        every real `db.get_value = ...` in the file out of the guard, so a fake
+        connection named like the alias costs a (justifiable) false positive instead."""
+        for body in ("db = FakeConn()\n        db.get_value = 1", "db.get_value = 1"):
+            src = _reassign_snippet(body, "from frappe import db\n")
+            self.assertIn("frappe.db.get_value", [t for _, t in tqe._reassign_targets(src)])
+        evaded = ("from frappe import db\n"
+                  "class TestThing:\n"
+                  "    def helper(self, db):\n"
+                  "        pass\n"
+                  "    def test_it(self):\n"
+                  "        db.get_value = 1\n")
+        self.assertIn("DATABASE MOCK", _kinds(evaded, "test_thing.py"))
+
+    def test_control_a_tuple_of_plain_names_is_a_local_binding(self):
+        self._assert_clean("get_all, sql = frappe.get_all, frappe.db.sql")
+
+    def test_control_unit_tier_still_allows_database_reassignment(self):
+        for stmt, header in (
+            ("fdb.get_value = 1", "from frappe import db as fdb\n"),
+            ('setattr(frappe, "get_all", x)', ""),
+        ):
+            src = _reassign_snippet(stmt, header)
+            self.assertNotIn("DATABASE MOCK", _kinds(src, "test_thing_unit.py"))
+
+    def test_a_business_logic_target_via_setattr_is_prohibited_in_any_tier(self):
+        src = _reassign_snippet('setattr(frappe, "get_doc_process_hook", x)')
+        self.assertIn("BUSINESS LOGIC MOCK PROHIBITED", _kinds(src, "test_thing_unit.py"))
 
 
 # --------------------------------------------------------------------------

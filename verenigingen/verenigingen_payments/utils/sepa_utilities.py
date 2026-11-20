@@ -283,6 +283,25 @@ class BatchLoggingUtilities:
             doc.batch_log = log_message
 
     @staticmethod
+    def record_undeterminable_sequence_type(batch, invoice_name, mandate_name=None) -> None:
+        """Record that an invoice was LEFT OUT of `batch` because its FRST/RCUR type
+        could not be determined (#2716).
+
+        A guessed SeqTp contradicting the mandate's history risks a bank rejection, so
+        the invoice is not collected this run (it stays unpaid and eligible next run).
+        Staff see it in the batch's `batch_log` (persisted by the caller's save/insert)
+        and in the Error Log. `batch` may be None where no batch document exists.
+        """
+        message = (
+            f"Invoice {invoice_name} was left out of this batch: the SEPA sequence type (FRST/RCUR) "
+            f"of mandate {mandate_name or '(none found)'} could not be determined, and a guess could "
+            f"be rejected by the bank. It was not collected this run; see the Error Log for the cause."
+        )
+        frappe.log_error(title="SEPA Batch - Sequence Type Undeterminable", message=message)
+        if batch is not None:
+            BatchLoggingUtilities.add_to_document_batch_log(batch, message)
+
+    @staticmethod
     def log_batch_operation(batch_name: str, operation: str, details: dict = None) -> None:
         """
         Log batch operation with structured details.

@@ -143,7 +143,8 @@ class SEPAMandateService:
     def get_sequence_types_batch(self, mandate_invoice_pairs: List[Tuple[str, str]]) -> Dict[str, str]:
         """
         Determine sequence types for multiple mandate-invoice pairs
-        Returns dict with 'mandate_name:invoice_name' as key and sequence type as value
+        Returns dict with 'mandate_name:invoice_name' as key and sequence type as value.
+        A pair whose type could not be determined has NO entry (#2716).
         """
         if not mandate_invoice_pairs:
             return {}
@@ -178,8 +179,11 @@ class SEPAMandateService:
                 cache_key = f"{mandate_name}:{invoice_name}"
                 # A determination that fell back to a guess is not cached: this service is a
                 # process-wide singleton with no TTL, so the guess would stick (#2628).
-                if not sequence_info.get("error"):
-                    self._sequence_cache[cache_key] = sequence_type
+                if sequence_info.get("error"):
+                    # Undeterminable (#2716): leave the key out so the caller leaves the invoice
+                    # out of the batch; a guess can contradict the mandate's history at the bank.
+                    continue
+                self._sequence_cache[cache_key] = sequence_type
                 results[cache_key] = sequence_type
 
             except NON_RESUMABLE_DB_ERRORS:
@@ -190,9 +194,7 @@ class SEPAMandateService:
                     f"Error determining sequence type for mandate {mandate_name}, invoice {invoice_name}: {str(e)}",
                     "SEPA Mandate Service - Sequence Type Error",
                 )
-                # Default to RCUR for this call only; caching the guess would pin it (#2628)
-                cache_key = f"{mandate_name}:{invoice_name}"
-                results[cache_key] = "RCUR"
+                # No entry for this pair (#2716): neither cached (#2628) nor guessed.
 
         return results
 

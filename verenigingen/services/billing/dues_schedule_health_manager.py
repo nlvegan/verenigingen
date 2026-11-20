@@ -714,7 +714,7 @@ def comprehensive_dues_health_maintenance():
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
-def sync_all_member_fields(batch_size=100, max_members=None, continue_on_error=True):
+def sync_all_member_fields(batch_size=100, max_members=None, continue_on_error: bool = True):
     """
     ✅ ENHANCED: Synchronize all member fields with transaction safety and batch processing
     """

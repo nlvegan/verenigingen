@@ -7,6 +7,7 @@ from frappe.model.document import Document
 from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
+from verenigingen.utils.single_check_defaults import apply_safe_default, ing_has_live_credentials
 
 
 class INGCheckoutSettings(Document):
@@ -17,6 +18,11 @@ class INGCheckoutSettings(Document):
     - iDEAL payments
     - SEPA Direct Debit
     """
+
+    def load_from_db(self):
+        super().load_from_db()
+        # #2565: an unset row reads 0 (production); the safe reading is sandbox unless operating
+        apply_safe_default(self, "sandbox_mode", has_live_credentials=ing_has_live_credentials)
 
     def validate(self):
         """Validate settings before save."""

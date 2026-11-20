@@ -5,167 +5,6 @@ from verenigingen.utils.secure_operations import is_duplicate_key_error, secure_
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
-def create_appeals_workflow_corrected():
-    """Create appeals workflow - SKIP if DocType doesn't exist"""
-
-    # Check if the appeals doctype exists
-    if not frappe.db.exists("DocType", "Termination Appeals Process"):
-        print("   ℹ️  Skipping appeals workflow - Termination Appeals Process DocType not found")
-        return True
-
-    workflow_name = "Termination Appeals Workflow"
-
-    if frappe.db.exists("Workflow", workflow_name):
-        print("   ✓ Appeals workflow already exists")
-        return True
-
-    print(f"   📋 Creating appeals workflow with corrected roles: {workflow_name}")
-
-    try:
-        workflow_doc = frappe.new_doc("Workflow")
-        workflow_doc.workflow_name = workflow_name
-        workflow_doc.document_type = "Termination Appeals Process"
-        workflow_doc.is_active = 1
-        workflow_doc.workflow_state_field = "appeal_status"
-        workflow_doc.send_email_alert = 0
-
-        # Appeals states with single roles
-        workflow_doc.append(
-            "states",
-            {
-                "state": "Draft",
-                "doc_status": "0",
-                "allow_edit": "System Manager",  # Single role
-                "is_optional_state": 1,
-            },
-        )
-
-        workflow_doc.append(
-            "states",
-            {
-                "state": "Pending",
-                "doc_status": "0",
-                "allow_edit": "Verenigingen Administrator",  # Corrected role name
-            },
-        )
-
-        workflow_doc.append(
-            "states",
-            {
-                "state": "Approved",  # Appeal upheld
-                "doc_status": "1",
-                "allow_edit": "System Manager",  # Single role
-            },
-        )
-
-        workflow_doc.append(
-            "states",
-            {
-                "state": "Rejected",  # Appeal rejected
-                "doc_status": "1",
-                "allow_edit": "System Manager",  # Single role
-            },
-        )
-
-        # Appeals transitions with single roles
-        # Multiple transitions for different roles
-
-        # Draft -> Pending (Submit) - System Manager can submit
-        workflow_doc.append(
-            "transitions",
-            {
-                "state": "Draft",
-                "action": "Submit",
-                "next_state": "Pending",
-                "allowed": "System Manager",  # Single role
-            },
-        )
-
-        # Draft -> Pending (Submit) - Association Manager can submit
-        workflow_doc.append(
-            "transitions",
-            {
-                "state": "Draft",
-                "action": "Submit",
-                "next_state": "Pending",
-                "allowed": "Verenigingen Administrator",  # Corrected role name
-            },
-        )
-
-        # Pending -> Approved (Approve) - Association Manager
-        workflow_doc.append(
-            "transitions",
-            {
-                "state": "Pending",
-                "action": "Approve",
-                "next_state": "Approved",
-                "allowed": "Verenigingen Administrator",  # Corrected role name
-            },
-        )
-
-        # Pending -> Approved (Approve) - System Manager
-        workflow_doc.append(
-            "transitions",
-            {
-                "state": "Pending",
-                "action": "Approve",
-                "next_state": "Approved",
-                "allowed": "System Manager",  # Single role
-            },
-        )
-
-        # Pending -> Rejected (Reject) - Association Manager
-        workflow_doc.append(
-            "transitions",
-            {
-                "state": "Pending",
-                "action": "Reject",
-                "next_state": "Rejected",
-                "allowed": "Verenigingen Administrator",  # Corrected role name
-            },
-        )
-
-        # Pending -> Rejected (Reject) - System Manager
-        workflow_doc.append(
-            "transitions",
-            {
-                "state": "Pending",
-                "action": "Reject",
-                "next_state": "Rejected",
-                "allowed": "System Manager",  # Single role
-            },
-        )
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        result = secure_document_operation(
-            operation="insert",
-            doc=workflow_doc,
-            justification=f"Create {workflow_doc.workflow_name} workflow during system setup - appeals process business automation",
-            required_permissions=["Workflow:create"],
-        )
-
-        if not result.success:
-            frappe.log_error(
-                title="Appeals Workflow Creation Failed",
-                message=f"Failed to create appeals workflow {workflow_doc.workflow_name}: {'; '.join(result.errors)}",
-            )
-            return False
-
-        workflow_doc = result.document
-
-        print(
-            f"   ✅ Successfully created appeals workflow with {len(workflow_doc.states)} states and {len(workflow_doc.transitions)} transitions"
-        )
-        return True
-
-    except Exception as e:
-        print(f"   ❌ Failed to create appeals workflow: {str(e)}")
-        import traceback
-
-        traceback.print_exc()
-        return False
-
-
 def create_workflow_state_masters():
     """Create workflow state masters if they don't exist"""
 
@@ -303,8 +142,6 @@ def setup_workflows_corrected():
     if not validate_prerequisites():
         return False
 
-    success_count = 0
-
     # Step 2: Create workflow masters if needed
     try:
         states_created = create_workflow_state_masters()
@@ -320,15 +157,12 @@ def setup_workflows_corrected():
     # layer is the source of truth for termination status; an active workflow on
     # `status` would refuse the services' direct status writes.
 
-    # Step 4: Create appeals workflow
-    if create_appeals_workflow_corrected():
-        success_count += 1
-
-    # Step 5: Commit all changes
+    # Step 4: Commit all changes. No workflow is built here any more (#1611 removed the
+    # appeals one), so success means prerequisites passed and the commit worked.
     try:
         frappe.db.commit()
-        print(f"   ✅ Successfully committed {success_count} workflows")
-        return success_count > 0
+        print("   ✅ Workflow setup committed")
+        return True
     except Exception as e:
         print(f"   ❌ Commit failed: {str(e)}")
         frappe.db.rollback()
