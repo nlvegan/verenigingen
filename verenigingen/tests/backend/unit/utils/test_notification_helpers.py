@@ -22,6 +22,7 @@ from verenigingen.utils.notification_helpers import (
     notify_administrators,
     send_volunteer_email,
 )
+from verenigingen.utils.operation_result import OperationResult
 
 
 class TestSendVolunteerEmail(FrappeTestCase):
@@ -120,7 +121,7 @@ class TestSendVolunteerEmail(FrappeTestCase):
             return MagicMock()
 
         mock_email_service = MagicMock()
-        mock_email_service.send_templated_email.return_value = {"success": True}
+        mock_email_service.send_templated_email.return_value = OperationResult.ok({})
 
         with patch("frappe.get_doc", side_effect=get_doc_side_effect):
             with patch(
@@ -134,7 +135,8 @@ class TestSendVolunteerEmail(FrappeTestCase):
                     extra_context={"custom_field": "custom_value"},
                 )
 
-        self.assertTrue(result["success"])
+        self.assertTrue(result.success)
+        self.assertIsNone(result.skip_reason)
         call_kwargs = mock_email_service.send_templated_email.call_args.kwargs
         self.assertEqual(call_kwargs["recipients"], ["test@example.com"])
         self.assertEqual(call_kwargs["template_name"], "test_template")
