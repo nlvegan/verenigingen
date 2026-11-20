@@ -340,7 +340,8 @@ def check_existing_payment(doc, data, payment_id, gateway_name):
 
 def _open_payment_is_stale(doc, status_result, gateway, payment_id):
     """True, after cancelling it at Mollie, when a Sales Invoice's open payment is for the
-    wrong amount (#2244).
+    wrong amount (#2244). False when it is right, and also when it is wrong but Mollie would
+    not cancel it.
 
     The payment was created for the outstanding amount of that moment; if the invoice was
     part-paid (or settled) since, paying it would book the wrong amount. A payment whose amount
@@ -353,8 +354,9 @@ def _open_payment_is_stale(doc, status_result, gateway, payment_id):
     held = status_result.get("amount")
     if owed is not None and held is not None and flt(held) == flt(owed):
         return False
-    gateway.cancel_payment(payment_id)
-    return True
+    # A payment Mollie will not cancel is still payable: a replacement would be a second live
+    # payment (double-charge window), so the payer keeps the old one.
+    return gateway.cancel_payment(payment_id)
 
 
 @frappe.whitelist()

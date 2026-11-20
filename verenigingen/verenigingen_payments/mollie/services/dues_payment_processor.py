@@ -805,6 +805,13 @@ class DuesPaymentProcessor:
                 return result
 
             # Identify payment type
+            if member_name and invoice_name:
+                invoice_member = frappe.db.get_value("Sales Invoice", invoice_name, "member")
+                if invoice_member != member_name:
+                    result["status"] = "error"
+                    result["error"] = f"Invoice {invoice_name} does not belong to member {member_name}"
+                    return result
+
             payment_type = "dues" if member_name else self.identify_payment_type(payment)
             result["payment_type"] = payment_type
 

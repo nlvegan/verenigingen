@@ -159,18 +159,21 @@ class TestSalesInvoiceCheckoutIdempotency2244(EnhancedTestCase):
         self.assertNotEqual(new_data["amount"], old_data["amount"], "fixture: the amounts must differ")
         self.assertEqual(self._stored_payment_id(invoice), new_id)
 
-    def test_a_failed_cancel_of_the_stale_payment_still_creates_the_replacement(self):
+    def test_a_failed_cancel_of_the_stale_payment_keeps_the_old_payment_instead_of_a_second_live_one(self):
+        """If Mollie will not cancel the stale payment it is still payable, so creating a second
+        live one would open a double-charge window: the payer is sent to the old one."""
         self.expectErrorLog("Mollie Stale Payment Cancel Failed")
         _m, invoice, email = _si2244_member_invoice(self, currency="EUR", grand_total=40.0)
-        self._checkout(invoice, email)
+        first = self._checkout(invoice, email)
         frappe.db.set_value("Sales Invoice", invoice.name, "outstanding_amount", 15.0)
         self.mollie.delete_raises = True
 
         second = self._checkout(invoice, email)
 
         self.assertEqual(second["status"], "Open", second)
-        self.assertEqual(len(self.mollie.created), 2)
-        self.assertEqual(self._stored_payment_id(invoice), self.mollie.created[1][0])
+        self.assertEqual(second["paymentUrl"], first["paymentUrl"])
+        self.assertEqual(len(self.mollie.created), 1, "a second live payment was created")
+        self.assertEqual(self._stored_payment_id(invoice), self.mollie.created[0][0])
 
     def test_a_cancelled_payment_is_replaced_without_a_cancel_call(self):
         _m, invoice, email = _si2244_member_invoice(self, currency="EUR")
@@ -418,9 +421,16 @@ class TestSalesInvoiceWebhookBooking2244(_GuestDispatchMixin, EnhancedTestCase):
         self.assertEqual(self._books(), before)
         self.assertEqual(before["pes"], [])
 
-    def test_a_refund_of_a_booked_invoice_payment_is_booked_once(self):
-        self._deliver_si2244(self._paid_invoice_payment())
-        self.assertEqual(self._books()["outstanding"], 0.0, "fixture: the delivery must book")
+    def test_a_refund_announced_for_an_invoice_payment_reaches_the_reversal_booking(self):
+        """Routing seam with real code, no booked Payment Entry. Refund discovery commits, so with a
+        forward Payment Entry booked first the harness drain could not delete it (TEST-LEAK); the
+        reversal booking itself is covered for dues in ``test_provider_webhook_urls_guest_reachable``.
+        Here the invoice has no Member, so the forward payment is refused (nothing booked) and the
+        refund the delivery announces is still discovered and handed to the reversal booking, which
+        refuses it because the original payment was never booked: a 5xx naming that. Control: the
+        same delivery with no refund announced answers 2xx (``test_a_payment_for_an_invoice_without_a_member_...``)."""
+        self.invoice.db_set("member", None)
+        self.expectErrorLog(UNBOOKABLE_TITLE, "Mollie Webhook Processing Error")
         refunded = round(self.total / 5, 2)
         refund = {
             "id": f"re_{frappe.generate_hash(length=8)}",
@@ -447,15 +457,23 @@ class TestSalesInvoiceWebhookBooking2244(_GuestDispatchMixin, EnhancedTestCase):
             def chargebacks(s):
                 return SimpleNamespace(list=lambda: [])
 
-        client = _Refunds()
-        first = self._deliver_si2244(payment, client)
-        again = self._deliver_si2244(payment, client)
+        self._deliver_si2244(payment, _Refunds())
 
-        self.assertLess(self._si2244_http_status(), 400, first)
-        self.assertLess(self._si2244_http_status(), 400, again)
-        key = f"{self.payment_id}_refund_{refund['id']}"
-        self.assertEqual(len(frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": 1})), 1)
-        self.assertEqual(self._books()["outstanding"], refunded)
+        self.assertGreaterEqual(self._si2244_http_status(), 400, "the refund never reached the reversal booking")
+        books = self._books()
+        self.assertEqual((books["pes"], books["journal_entries"]), ([], []))
+        logged = frappe.get_all(
+            "Error Log",
+            filters={"method": "Mollie Webhook Processing Error", "error": ["like", f"%{self.payment_id}%"]},
+            pluck="error",
+        )
+        self.assertTrue(
+            any("reversal(s) of" in row and "not booked" in row for row in logged),
+            "the reversal booking was not asked for this payment's refund",
+        )
+        self.addCleanup(
+            frappe.db.delete, "Error Log", {"method": "Mollie Webhook Processing Error", "error": ["like", f"%{self.payment_id}%"]}
+        )
 
     def test_a_redelivery_after_staff_cancelled_the_entry_is_not_booked_again(self):
         """#2406 applies: the dues writer refuses, alerts staff on its own key and still acknowledges."""
@@ -472,6 +490,37 @@ class TestSalesInvoiceWebhookBooking2244(_GuestDispatchMixin, EnhancedTestCase):
         self.assertLess(self._si2244_http_status(), 400, result)
         refusal.assert_not_rebooked(self, self.payment_id, first)
         self.assertEqual(len(refusal.alert_events(self.payment_id)), 1)
+
+    def test_a_payment_that_is_not_paid_raises_no_alert_even_when_it_is_not_the_invoices_current_one(self):
+        """Control for the status guard: an open or cancelled payment of a replaced id is ordinary
+        (the payer abandoned it), so it must not be reported as an unbookable PAID payment."""
+        self.invoice.db_set("payment_id", f"tr_newer{frappe.generate_hash(length=6)}")
+        for status in ("open", "canceled", "expired"):
+            payment = self._paid_invoice_payment(status=status)
+
+            result = self._deliver_si2244(payment)
+
+            self.assertLess(self._si2244_http_status(), 400, result)
+            rows = self._alert_rows()
+            self.assertEqual((rows["logs"], rows["events"]), ([], []), status)
+
+    def test_the_dues_processor_refuses_a_member_who_does_not_own_the_invoice(self):
+        from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
+            DuesPaymentProcessor,
+        )
+
+        other = self.create_test_member(first_name="Other2244", last_name=f"O{frappe.generate_hash()[:6]}")
+
+        result = DuesPaymentProcessor().process_dues_payment(
+            self.payment_id,
+            payment=self._paid_invoice_payment(),
+            invoice_name=self.invoice.name,
+            member_name=other.name,
+        )
+
+        self.assertEqual(result["status"], "error", result)
+        self.assertEqual(self._books()["pes"], [])
+        self.assertEqual(self._books()["outstanding"], self.total)
 
     # ---- unbookable: staff are told once, Mollie is acknowledged ----
 
