@@ -38,7 +38,12 @@ ORDINARY_ERRNO = 2013
 
 
 def _sepa2409_driver_fault(needle, errno):
-    """Make the cursor fail with a real driver OperationalError for statements naming ``needle``."""
+    """Make the cursor fail with a real driver OperationalError for statements naming ``needle``.
+
+    Statements issued while a failure is being RECORDED (frames named log_error / log_security_event)
+    are not failed: otherwise the lock error would escape from inside the swallow handler's logging
+    and a test would pass without the handler re-raising. (A lock error inside the logging call
+    itself would propagate anyway; that is not tested and is harmless.)"""
     real = frappe.db.execute_query
     # get_single_value serves a cached value without touching the cursor; drop it so the read is real.
     frappe.db.value_cache.pop(SETTINGS, None)
@@ -123,8 +128,9 @@ class TestSepaAuthorizationLockErrors2409(AuthorizationTestBase):
                     with self.assertRaises(error):
                         manager.has_permission(SEPAOperation.SETTINGS_MODIFY)
 
-    def test_control_ordinary_error_in_ip_allowlist_retry_still_denies_and_logs(self):
+    def test_control_ordinary_error_in_ip_allowlist_retry_still_denies(self):
         manager = self._manager_with_unreadable_ip_allowlist()
+        self.expectErrorLog("injected 2013")
         with self.as_user(self.sysadmin.name), _sepa2409_driver_fault(SETTINGS, ORDINARY_ERRNO):
             self.assertFalse(
                 manager._check_contextual_permissions(SEPAOperation.SETTINGS_MODIFY, self.sysadmin.name)
@@ -156,7 +162,8 @@ class TestSepaAuthorizationLockErrors2409(AuthorizationTestBase):
                     with self.assertRaises(error):
                         self.manager.has_permission(SEPAOperation.BATCH_PROCESS, context=context)
 
-    def test_control_ordinary_error_in_batch_check_still_denies_and_logs(self):
+    def test_control_ordinary_error_in_batch_check_still_denies(self):
+        self.expectErrorLog("injected 2013", "NO-SUCH-BATCH")
         with self.as_user(self.staff.name), _sepa2409_driver_fault("tabDirect Debit Batch", ORDINARY_ERRNO):
             context = self._batch_context()
             with patch.object(auth_module, "log_error", wraps=auth_module.log_error) as logged:
@@ -166,6 +173,7 @@ class TestSepaAuthorizationLockErrors2409(AuthorizationTestBase):
 
     def test_control_missing_batch_still_denies(self):
         """A batch that does not exist is an ordinary DoesNotExistError: deny, as before."""
+        self.expectErrorLog("NO-SUCH-BATCH")
         with self.as_user(self.staff.name):
             self.assertFalse(
                 self.manager.has_permission(SEPAOperation.BATCH_PROCESS, context=self._batch_context())
@@ -258,8 +266,9 @@ class TestSepaAuthorizationLockErrors2409(AuthorizationTestBase):
         self.assertFalse(self.manager.has_permission(SEPAOperation.BATCH_CREATE, self.member.name))
         self.assertFalse(self.manager.has_permission(SEPAOperation.SETTINGS_MODIFY, self.staff.name))
 
-    def test_control_ordinary_failure_in_contextual_check_still_denies_and_logs(self):
+    def test_control_ordinary_failure_in_contextual_check_still_denies(self):
         """A non-DB error raised by a callee under the contextual try: deny + log, never allow."""
+        self.expectErrorLog("boom")
         with patch.object(self.manager, "_check_batch_permissions", side_effect=ValueError("boom")):
             with patch.object(auth_module, "log_error", wraps=auth_module.log_error) as logged:
                 self.assertFalse(
