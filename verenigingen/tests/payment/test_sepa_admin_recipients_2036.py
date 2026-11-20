@@ -16,12 +16,12 @@ from unittest.mock import MagicMock, patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.utils.operation_result import OperationResult
 from verenigingen.tests.payment.test_sepa_literal_recipients import (
     _put_key_row,
     _restore_rows,
     _snapshot_rows,
 )
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.verenigingen_payments.services.sepa_xml_adapter import (
     BatchValidationSummary,
     SEPAXMLAdapter,

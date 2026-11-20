@@ -46,12 +46,12 @@ from frappe.utils import today
 
 from verenigingen.services.volunteer import expense_handlers as eh
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.utils.operation_result import OperationResult
 from verenigingen.tests.payment.test_sepa_literal_recipients import (
     _put_key_row,
     _restore_rows,
     _snapshot_rows,
 )
+from verenigingen.utils.operation_result import OperationResult
 
 EMAIL_FACTORY = "verenigingen.services.communication.email_service.get_email_service"
 ENQUEUE = "verenigingen.services.volunteer.expense_handlers.frappe.enqueue"
