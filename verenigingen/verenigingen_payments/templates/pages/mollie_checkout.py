@@ -34,7 +34,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import cint, fmt_money
+from frappe.utils import cint, flt, fmt_money
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, public_api
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
@@ -181,8 +181,16 @@ def make_payment(data, reference_doctype, reference_docname, gateway_name: str =
         # unknown name and someone else's document all fail the same way (#2045).
         doc = load_owned_reference(reference_doctype, reference_docname, data.get("payer_email"))
 
-        # Check if payment already exists
-        existing_payment_id = getattr(doc, "payment_id", None)
+        # Check if payment already exists. A Sales Invoice's id is read under a row lock (#2244):
+        # two concurrent checkouts would both see none and each create a LIVE Mollie payment.
+        # The lock lasts to the end of the request, i.e. past the payment_id write in
+        # process_payment, so the second caller reads the first one's id.
+        if reference_doctype == "Sales Invoice":
+            existing_payment_id = frappe.db.get_value(
+                "Sales Invoice", doc.name, "payment_id", for_update=True
+            )
+        else:
+            existing_payment_id = getattr(doc, "payment_id", None)
 
         if not existing_payment_id:
             # No existing payment, create new one
@@ -301,6 +309,8 @@ def check_existing_payment(doc, data, payment_id, gateway_name):
             return {"status": "Completed", "paymentUrl": None, "message": _("Payment completed successfully")}
 
         elif status_result["status"] in ["Open", "Pending"]:
+            if _open_payment_is_stale(doc, status_result, gateway, payment_id):
+                return create_new_payment(doc, data, gateway_name)
             return {
                 "status": status_result["status"],
                 "paymentUrl": status_result.get("payment_url"),
@@ -326,6 +336,25 @@ def check_existing_payment(doc, data, payment_id, gateway_name):
         # If we can't check status, try to create new payment
         frappe.logger().info(f"Could not check payment status, creating new payment for {doc.name}")
         return create_new_payment(doc, data, gateway_name)
+
+
+def _open_payment_is_stale(doc, status_result, gateway, payment_id):
+    """True, after cancelling it at Mollie, when a Sales Invoice's open payment is for the
+    wrong amount (#2244).
+
+    The payment was created for the outstanding amount of that moment; if the invoice was
+    part-paid (or settled) since, paying it would book the wrong amount. A payment whose amount
+    Mollie did not report cannot be verified and is treated as stale too, the safe side: a
+    replacement costs nothing, a mismatched one costs a wrong booking.
+    """
+    if doc.doctype != "Sales Invoice":
+        return False
+    owed = gateway._amount_to_charge(doc)
+    held = status_result.get("amount")
+    if owed is not None and held is not None and flt(held) == flt(owed):
+        return False
+    gateway.cancel_payment(payment_id)
+    return True
 
 
 @frappe.whitelist()

@@ -653,6 +653,16 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
+    "mollie_invoice_payment_unbookable": {
+        "label": "Mollie Invoice Payment Could Not Be Booked (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when a paid Mollie payment for a Sales Invoice cannot be booked: the invoice is not "
+        "linked to a Member, no longer exists, or the payment is not the invoice's current one (a replaced payment "
+        "that was paid anyway). The payment is NOT booked and Mollie is acknowledged; staff book or refund it by "
+        "hand. Sent once per payment. The mail names the Mollie payment id, the invoice, the amount and the reason.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
     "mollie_ambiguous_party": {
         "label": "Mollie Payment Matches Several Members (Admin)",
         "category": CATEGORY_PAYMENT,
@@ -978,6 +988,7 @@ REQUIRES_ACTION_KEYS = frozenset(
         "ponto_orphaned_payment",
         "mollie_forward_payment_staff_cancelled",
         "mollie_ambiguous_party",
+        "mollie_invoice_payment_unbookable",
         "door_unavailable",
         "sepa_batch_error",
         "sepa_batch_scheduler_alert",

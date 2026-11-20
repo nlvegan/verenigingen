@@ -726,6 +726,7 @@ class DuesPaymentProcessor:
         creation_mode: Optional[str] = None,
         invoice_name: Optional[str] = None,
         alert_staff: bool = False,
+        member_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Process a membership dues payment from Mollie.
@@ -804,7 +805,7 @@ class DuesPaymentProcessor:
                 return result
 
             # Identify payment type
-            payment_type = self.identify_payment_type(payment)
+            payment_type = "dues" if member_name else self.identify_payment_type(payment)
             result["payment_type"] = payment_type
 
             if payment_type != "dues":
@@ -813,7 +814,7 @@ class DuesPaymentProcessor:
                 return result
 
             # Find associated member
-            member_name = self.find_member_for_payment(payment, alert_staff)
+            member_name = member_name or self.find_member_for_payment(payment, alert_staff)
             if not member_name:
                 result["status"] = "error"
                 result["error"] = "No member found for this payment"
