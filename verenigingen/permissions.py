@@ -2330,6 +2330,30 @@ def get_team_member_permission_query(user):
     return f"({team_filter})"
 
 
+def _amended_from_is_allowed(doc, user, ptype):
+    """A claim may be created, or re-pointed, only at an ``amended_from`` the user may read (#3035).
+
+    Frappe checks that the link exists, never that the user may see it, so a member could amend a
+    stranger's cancelled claim onto their own employee. This runs from the create/write permission
+    check because Frappe validates links BEFORE any validate hook, and answers "not found" for an
+    unknown id only; here an unknown and a forbidden id take one path and leave one refusal.
+    Admins never reach it (they return earlier); ``ignore_permissions`` never calls the check.
+    """
+    source = doc.get("amended_from")
+    if not source:
+        return True
+    if doc.get("name") and source == frappe.db.get_value("Expense Claim", doc.name, "amended_from"):
+        return True  # stored link, unchanged: a legacy link is not re-judged on any later check
+
+    stored = frappe.db.get_value("Expense Claim", source, ["employee", "custom_chapter"], as_dict=True)
+    if not stored:
+        # Equaliser, not a lookup: for an existing source has_expense_claim_permission reads its
+        # employee's user; an unknown id skips that read, so repeat one query of the same shape here.
+        # It must mirror that extra query, or an unknown and a forbidden id differ in query count.
+        frappe.db.get_value("Employee", "", "user_id")
+    return bool(stored) and has_expense_claim_permission(stored, user)
+
+
 def has_expense_claim_permission(doc, user=None, ptype=None):
     """Permission check for Expense Claim doctype
 
@@ -2348,6 +2372,13 @@ def has_expense_claim_permission(doc, user=None, ptype=None):
     # Admin roles can see all
     if _has_admin_access(user_roles, Roles.EXPENSE_CLAIM_FULL_ACCESS_ROLES):
         return True
+
+    if (
+        not isinstance(doc, str)
+        and ptype in ("create", "write")
+        and not _amended_from_is_allowed(doc, user, ptype)
+    ):
+        return False
 
     # Get expense claim chapter
     if isinstance(doc, str):
