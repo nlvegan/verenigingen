@@ -44,6 +44,18 @@ def _driver_raises_on_insert_into(table, driver_error):
 
 
 class TestBankHelperLetsDbErrorsEscape2976(_CoaBankBase):
+    def setUp(self):
+        super().setUp()
+        self.expectErrorLog("Bank")  # every failure path here writes the helper's Error Log row
+
+    def _assert_error_log_row(self, title):
+        """The helper's Error Log row exists (tabError Log is MyISAM: it is not rolled back,
+        so delete it by name)."""
+        rows = frappe.get_all("Error Log", filters={"method": title}, pluck="name")
+        self.assertTrue(rows, f"no Error Log row titled {title!r}")
+        for name in rows:
+            frappe.delete_doc("Error Log", name, force=True, ignore_permissions=True)
+
     def _new_bank_name(self):
         return f"Bank 2976 {frappe.generate_hash(length=8)}"
 
@@ -64,6 +76,7 @@ class TestBankHelperLetsDbErrorsEscape2976(_CoaBankBase):
             with self.assertRaises(frappe.QueryDeadlockError) as caught:
                 ensure_bank_record(self._new_bank_name())
         self.assertTrue(is_deadlock_error(caught.exception))
+        self._assert_error_log_row("integration Bank creation failed")
 
     def test_a_driver_1213_on_the_bank_account_insert_stays_a_deadlock(self):
         kwargs = self._create_account()
@@ -97,6 +110,8 @@ class TestBankHelperLetsDbErrorsEscape2976(_CoaBankBase):
             ):
                 with self.assertRaises(frappe.DuplicateEntryError):
                     call()
+        self._assert_error_log_row("integration Bank creation failed")
+        self._assert_error_log_row("integration Bank Account creation failed")
 
     def test_the_injected_nonresumable_class_propagates_from_the_helper(self):
         for error in (non_resumable_errors.deadlock(), non_resumable_errors.lock_wait_timeout()):
@@ -105,16 +120,15 @@ class TestBankHelperLetsDbErrorsEscape2976(_CoaBankBase):
                     ensure_bank_record(self._new_bank_name())
 
     def test_control_an_ordinary_failure_is_still_a_bank_account_creation_error(self):
-        self.expectErrorLog("Bank")
         with mock.patch.object(
             bank_account_creation, "secure_document_operation", side_effect=ValueError("boom")
         ):
             with self.assertRaises(BankAccountCreationError) as caught:
                 ensure_bank_record(self._new_bank_name())
         self.assertIn("boom", caught.exception.message)
+        self._assert_error_log_row("integration Bank creation failed")
 
     def test_the_wrapped_error_chains_its_cause(self):
-        self.expectErrorLog("Bank")
         with mock.patch.object(
             bank_account_creation, "secure_document_operation", side_effect=ValueError("boom")
         ):

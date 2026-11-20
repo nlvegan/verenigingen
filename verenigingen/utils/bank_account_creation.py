@@ -117,9 +117,13 @@ def _insert(doc, label: str, justification: str, permission: str, title: str, de
             justification=justification,
             required_permissions=[permission],
         )
-    except (*NON_RESUMABLE_DB_ERRORS, frappe.DuplicateEntryError):
+    except (*NON_RESUMABLE_DB_ERRORS, frappe.DuplicateEntryError) as e:
         # Deadlock/timeout must reach whoever retries on the type (execute_with_deadlock_retry);
         # wrapping them in BankAccountCreationError hides them (#2976). A duplicate stays itself.
+        # The Error Log row is still written: for the e-Boekhouden CoA callers it is the only
+        # durable record. `tabError Log` is MyISAM (non-transactional), so the row survives the
+        # rollback that follows a 1213.
+        frappe.log_error(title=title, message=f"Error creating {label}: {e}")
         raise
     except Exception as e:
         message = f"Error creating {label}: {e}"
