@@ -11,10 +11,17 @@ save rewrites every child row from the in-memory values. The writers here are th
 value with ``db.set_value`` (probe shortcut for "the state the stale form was loaded with").
 """
 
+from unittest.mock import MagicMock, patch
+
 import frappe
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.singleton_backup import singleton_backup
+from verenigingen.tests.payment.test_ponto_account_identity_2125_unit import (
+    ACCOUNTS_CLIENT,
+    TOKEN_MANAGER,
+    PontoIdentityBase,
+    _ponto_acct,
+)
 from verenigingen.verenigingen_payments.ponto.api.webhook import _update_account_sync_status
 from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
     PontoConfigurationService,
@@ -35,17 +42,7 @@ BACKGROUND_FIELDS = (
 )
 
 
-class TestStaleMappingSaveKeepsRowState(EnhancedTestCase):
-    def setUp(self):
-        super().setUp()
-        frappe.set_user("Administrator")
-        self._orig_in_test = frappe.flags.in_test
-        frappe.flags.in_test = True
-
-    def tearDown(self):
-        frappe.flags.in_test = self._orig_in_test
-        super().tearDown()
-
+class TestStaleMappingSaveKeepsRowState(PontoIdentityBase):
     def _mapping_row_2792(self, account_id):
         return frappe.db.get_value(
             ROW,
@@ -146,14 +143,76 @@ class TestStaleMappingSaveKeepsRowState(EnhancedTestCase):
         with singleton_backup(DOCTYPE):
             stale = self._stale_doc_2792()
             _update_account_sync_status(ACCOUNT_A, status="Failed", error="boom")
-            bank_account = frappe.db.get_value("Bank Account", {}, "name")
-            if bank_account:
-                stale.bank_account_mappings[1].bank_account = bank_account
+            bank_account = self._make_manual_bank_account("", "EUR")
+            stale.bank_account_mappings[1].bank_account = bank_account
             stale.append("bank_account_mappings", {"enabled": 1, "ponto_account_id": "acct-2792-new"})
             stale.save()
             new = self._mapping_row_2792("acct-2792-new")
             self.assertTrue(new)
             self.assertEqual(new.sync_status, "OK")
-            if bank_account:
-                self.assertEqual(self._mapping_row_2792(ACCOUNT_B).bank_account, bank_account)
+            self.assertEqual(self._mapping_row_2792(ACCOUNT_B).bank_account, bank_account)
             self.assertEqual(self._mapping_row_2792(ACCOUNT_A).sync_status, "Failed")
+
+    def test_control_staff_unticking_enabled_on_an_ok_row_sticks(self):
+        """`enabled` is staff-owned: only a row stored as Paused takes it from the database."""
+        with singleton_backup(DOCTYPE):
+            stale = self._stale_doc_2792()
+            _update_account_sync_status(ACCOUNT_B, status="Failed", error="boom")
+            stale.bank_account_mappings[0].enabled = 0
+            stale.save()
+            self.assertEqual(self._mapping_row_2792(ACCOUNT_A).enabled, 0)
+            self.assertEqual(self._mapping_row_2792(ACCOUNT_A).sync_status, "OK")
+
+    def test_control_ticking_enabled_on_a_paused_row_stays_unticked(self):
+        """A paused row stays disabled (is_active() was already False for enabled + Paused)."""
+        with singleton_backup(DOCTYPE):
+            stale = self._stale_doc_2792()
+            PontoConfigurationService.pause_mapping(ACCOUNT_A, "paused 2792")
+            frappe.clear_document_cache(DOCTYPE, DOCTYPE)
+            stale = frappe.get_doc(DOCTYPE)
+            row = next(r for r in stale.bank_account_mappings if r.ponto_account_id == ACCOUNT_A)
+            self.assertEqual(row.enabled, 0)
+            row.enabled = 1
+            stale.save()
+            after = self._mapping_row_2792(ACCOUNT_A)
+            self.assertEqual((after.enabled, after.sync_status), (0, "Paused"))
+
+    def _fetch_after_loading_a_stale_doc_2792(self, mappings, accounts):
+        self._prepare(mappings)
+        frappe.get_doc(DOCTYPE)  # the form open in a tab; fetch reloads its own copy
+        client = MagicMock()
+        client.list_accounts.return_value = accounts
+        with patch(TOKEN_MANAGER, return_value=MagicMock()), patch(ACCOUNTS_CLIENT, return_value=client):
+            frappe.get_single(DOCTYPE).fetch_ponto_accounts()
+
+    def test_the_fetch_audit_save_persists_a_pause(self):
+        """Writer flag: the audit pauses a currency-mismatched row and ITS save must keep that."""
+        with singleton_backup(DOCTYPE):
+            gbp_account = self._make_manual_bank_account("", "GBP")
+            self._fetch_after_loading_a_stale_doc_2792(
+                [{"ponto_account_id": ACCOUNT_A, "ponto_currency": "EUR", "bank_account": gbp_account}],
+                [_ponto_acct(ACCOUNT_A, "", "EUR")],
+            )
+            after = self._mapping_row_2792(ACCOUNT_A)
+            self.assertEqual((after.enabled, after.sync_status), (0, "Paused"))
+            self.assertIn("GL currency GBP", after.last_sync_error)
+
+    def test_the_fetch_audit_save_persists_a_resume(self):
+        """Writer flag: the audit lifts its own pause once the Bank Account is fine."""
+        with singleton_backup(DOCTYPE):
+            eur_account = self._make_manual_bank_account("", "EUR")
+            self._fetch_after_loading_a_stale_doc_2792(
+                [
+                    {
+                        "ponto_account_id": ACCOUNT_A,
+                        "ponto_currency": "EUR",
+                        "bank_account": eur_account,
+                        "enabled": 0,
+                        "sync_status": "Paused",
+                        "last_sync_error": "Bank Account x is shared by 2",
+                    }
+                ],
+                [_ponto_acct(ACCOUNT_A, "", "EUR")],
+            )
+            after = self._mapping_row_2792(ACCOUNT_A)
+            self.assertEqual((after.enabled, after.sync_status, after.last_sync_error), (1, "OK", None))
