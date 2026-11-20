@@ -8,6 +8,7 @@ Builders therefore pin a list in the company currency with this helper.
 """
 
 import frappe
+from frappe import _
 
 
 def get_selling_price_list_for_currency(currency, customer=None):
@@ -44,10 +45,28 @@ def _is_usable_selling_list(name, currency):
 
 
 def _create_selling_price_list(currency):
-    name = f"Standard Selling {currency}"
-    if not frappe.db.exists("Price List", name):
-        # Security: the caller may be a webhook/guest user; this is shared master data the
-        # invoice builder needs in order to price in the company currency.
+    """Return a usable "Standard Selling <currency>", creating it when absent.
+
+    A row of that name that is disabled, buying-only or in another currency is not
+    usable and is never returned: a distinct name is used instead. Two concurrent
+    callers can both pass the exists-check; the loser's insert raises
+    DuplicateEntryError and it adopts the winner's row if that is usable.
+    """
+    for name in (f"Standard Selling {currency}", f"Standard Selling {currency} (verenigingen)"):
+        if _is_usable_selling_list(name, currency):
+            return name
+        if not frappe.db.exists("Price List", name) and _insert_selling_price_list(name, currency):
+            return name
+        if _is_usable_selling_list(name, currency):
+            return name
+    frappe.throw(_("No usable selling Price List in {0} could be found or created").format(currency))
+
+
+def _insert_selling_price_list(name, currency):
+    """Insert the list; False when another caller created it first."""
+    # Security: the caller may be a webhook/guest user; this is shared master data the
+    # invoice builder needs in order to price in the company currency.
+    try:
         frappe.get_doc(
             {
                 "doctype": "Price List",
@@ -57,4 +76,6 @@ def _create_selling_price_list(currency):
                 "enabled": 1,
             }
         ).insert(ignore_permissions=True)
-    return name
+    except frappe.DuplicateEntryError:
+        return False
+    return True

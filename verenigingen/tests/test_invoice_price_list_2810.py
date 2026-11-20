@@ -14,7 +14,7 @@ is cleared, and the session user is a real Website User.
 
 import frappe
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, suspend_insert_capture
 from verenigingen.tests.backend.components import test_enhanced_sepa_processing as base_sepa
 from verenigingen.tests.integration import test_application_payments_invoice_paths as base_paths
 from verenigingen.tests.support.sepa_test_company import (
@@ -38,18 +38,55 @@ def _make_price_list(name, currency, *, selling=1, enabled=1):
     ).insert()
 
 
+def set_site_default_price_list(name):
+    """Write the site default selling price list OUTSIDE the harness's captured-insert drain.
+
+    `set_default` inserts a DefaultValue row; the drain claims every row inserted during a
+    test and deletes it at teardown, which deleted the RESTORED default (measured: the site
+    ended with no selling_price_list default after the SEPA class)."""
+    with suspend_insert_capture():
+        frappe.db.set_default("selling_price_list", name)
+
+
 class _PriceListCase(EnhancedTestCase):
     def setUp(self):
+        # Read BEFORE the harness's setUp (which commits and changes site state) or any
+        # fixture: the SEPA fixtures left the default unset by the time the decoy went in.
+        self._default_before = frappe.db.get_default("selling_price_list")
         super().setUp()
         self._made = []
         self.tag = frappe.generate_hash(length=6)
         self._start_user = frappe.session.user
+        self._restorers = []
+
+    def _restore_on_teardown(self, fn, *args):
+        """Run `fn(*args)` at the START of tearDown, before the price lists made here are
+        deleted. `addCleanup` runs AFTER tearDown, and the harness's tearDown commits: the
+        site default then stayed committed pointing at a deleted decoy list (#2233 class)."""
+        self._restorers.append((fn, args))
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        default = frappe.db.get_default("selling_price_list")
+        assert not default or frappe.db.exists("Price List", default), (
+            f"site default selling_price_list {default!r} names a Price List that no longer exists"
+        )
 
     def tearDown(self):
         frappe.set_user(self._start_user)
+        while self._restorers:
+            fn, args = self._restorers.pop()
+            fn(*args)
+        set_site_default_price_list(self._default_before)
+        assert frappe.db.get_default("selling_price_list") == self._default_before
         for doctype, name in reversed(self._made):
             if frappe.db.exists(doctype, name):
                 frappe.delete_doc(doctype, name, force=True)
+        # Commit the restore and the deletes together. Mid-test commits (the harness's setUp,
+        # the builders) had already committed the decoy default; without this the end-of-class
+        # rollback put it back (same reason as own_settings_company's _write).
+        frappe.db.commit()
         super().tearDown()
 
     def _price_list(self, label, currency, **kw):
@@ -116,6 +153,50 @@ class TestResolveSellingPriceList(_PriceListCase):
         # Idempotent: a second call reuses it.
         self.assertEqual(self._resolve(currency), name)
 
+    def test_unusable_standard_selling_row_is_never_returned(self):
+        """An existing "Standard Selling CHF" that is disabled, buying-only or in another
+        currency must not be handed back; a distinct usable list is made instead."""
+        currency = "CHF"
+        variants = {
+            "disabled": {"currency": currency, "enabled": 0},
+            "buying only": {"currency": currency, "selling": 0},
+            "other currency": {"currency": "JPY"},
+        }
+        for label, kw in variants.items():
+            with self.subTest(label):
+                bad = _make_price_list("Standard Selling CHF", **kw)
+                self._made.append(("Price List", bad.name))
+                picked = self._resolve(currency)
+                self.assertNotEqual(picked, bad.name)
+                self._made.append(("Price List", picked))
+                row = frappe.db.get_value("Price List", picked, ["currency", "selling", "enabled"], as_dict=True)
+                self.assertEqual((row.currency, row.selling, row.enabled), (currency, 1, 1))
+                for doctype, name in self._made[-2:]:
+                    frappe.delete_doc(doctype, name, force=True)
+
+    def test_lost_creation_race_adopts_the_winners_row(self):
+        """Probe shortcut: the race is simulated by inserting the competing row between the
+        helper's exists-check and its insert (a real second connection is not driven)."""
+        from unittest import mock
+
+        currency = "CHF"
+        name = f"Standard Selling {currency}"
+        real_exists = frappe.db.exists
+        raced = []
+
+        def exists_then_lose_race(doctype, filters=None, *a, **k):
+            found = real_exists(doctype, filters, *a, **k)
+            if doctype == "Price List" and filters == name and not found and not raced:
+                raced.append(_make_price_list(name, currency))
+            return found
+
+        # Mock justified: injects the concurrent insert at the exact point the race happens.
+        with mock.patch.object(frappe.db, "exists", side_effect=exists_then_lose_race):
+            picked = self._resolve(currency)
+        self.assertTrue(raced, "the competing insert must have happened")
+        self._made.append(("Price List", name))
+        self.assertEqual(picked, name)
+
 
 def _website_user(case):
     email = f"zz2810.{case.tag}@example.com".lower()
@@ -144,9 +225,7 @@ class TestBuildersRunAsNonSystemUser(_PriceListCase):
         self.company_currency = frappe.db.get_value("Company", self.company, "default_currency")
         self.assertNotEqual(self.company_currency, DECOY_CURRENCY)
         decoy = self._price_list("decoy default", DECOY_CURRENCY)
-        self._orig_default = frappe.db.get_default("selling_price_list")
-        frappe.db.set_default("selling_price_list", decoy)
-        self.addCleanup(frappe.db.set_default, "selling_price_list", self._orig_default)
+        set_site_default_price_list(decoy)
         frappe.cache().delete_keys("currency_exchange_rate_*")
         self.assertFalse(
             frappe.db.exists(
@@ -194,7 +273,7 @@ class TestBuildersRunAsNonSystemUser(_PriceListCase):
             frappe.db.set_single_value(doctype, field, orig)
             frappe.clear_document_cache(doctype, doctype)
 
-        self.addCleanup(restore)
+        self._restore_on_teardown(restore)
 
 
 class _DecoyDefaultCase(_PriceListCase):
@@ -209,9 +288,7 @@ class _DecoyDefaultCase(_PriceListCase):
     def _install_decoy(self, company):
         self.company_currency = frappe.db.get_value("Company", company, "default_currency")
         decoy = self._price_list("decoy default", DECOY_CURRENCY)
-        orig = frappe.db.get_default("selling_price_list")
-        frappe.db.set_default("selling_price_list", decoy)
-        self.addCleanup(frappe.db.set_default, "selling_price_list", orig)
+        set_site_default_price_list(decoy)
         rate = frappe.get_doc(
             {
                 "doctype": "Currency Exchange",
@@ -247,8 +324,8 @@ class TestGeneratorBuilderPinsPriceList(_DecoyDefaultCase):
         orig = frappe.db.get_single_value("Verenigingen Settings", "company")
         frappe.db.set_single_value("Verenigingen Settings", "company", company)
         frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
-        self.addCleanup(frappe.db.set_single_value, "Verenigingen Settings", "company", orig)
-        self.addCleanup(frappe.clear_document_cache, "Verenigingen Settings", "Verenigingen Settings")
+        self._restore_on_teardown(frappe.db.set_single_value, "Verenigingen Settings", "company", orig)
+        self._restore_on_teardown(frappe.clear_document_cache, "Verenigingen Settings", "Verenigingen Settings")
         item = ensure_membership_dues_item("Monthly")
         customer = self._zz2810_customer()
         # Stand-in for the generator instance: only the attributes the builder reads.
