@@ -217,8 +217,10 @@ def create_ideal_order(
         ref_doc = frappe.get_doc(reference_doctype, reference_name)
         ref_doc.check_permission("read")
 
-        # After the ownership/permission checks, so a forbidden invoice's settled state is never
-        # observable through this refusal (#2814, #1328).
+        # Ownership (#2814) is enforced by create_ideal_payment BEFORE this runs; that gate, not
+        # check_permission("read") above (which a board member passes for a foreign invoice),
+        # is what keeps a forbidden invoice's settled state unobservable. A direct caller of
+        # create_ideal_order is trusted and sees this refusal (measured, #3023).
         amount = _ing_amount_to_charge(ref_doc, amount)
         if amount is None:
             return {"success": False, "message": _("There is nothing left to pay on this document.")}

@@ -188,7 +188,12 @@ class TestIdealAmountComesFromTheInvoice(_Fake3023Mixin, EnhancedTestCase):
 
 
 class TestAmountCheckRunsAfterTheOwnershipRefusal(_Fake3023Mixin, ownership._Pay2814Base):
-    """A forbidden invoice's settled state must not be observable through the amount refusal."""
+    """A forbidden invoice's settled state must not be observable through the amount refusal.
+
+    Scope: the protection is the WRAPPER's #2814 ownership gate. `create_ideal_order` called
+    directly does not hide it (its `check_permission("read")` passes for a board member;
+    measured), so the amount check's position inside it is not pinned and not claimed.
+    """
 
     def setUp(self):
         super().setUp()
