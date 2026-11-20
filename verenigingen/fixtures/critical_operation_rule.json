@@ -17886,22 +17886,6 @@
  },
  {
   "doctype": "Critical Operation Rule",
-  "name": "generate_enhanced_sepa_xml",
-  "operation_name": "generate_enhanced_sepa_xml",
-  "operation_type": "admin",
-  "description": "Execute generate enhanced sepa xml operation",
-  "enabled": 1,
-  "security_level": "medium",
-  "business_context": "SEPA payment processing and European banking compliance operations",
-  "required_roles": "System Manager\nVerenigingen Staff",
-  "rate_limit_calls": 100,
-  "rate_limit_period_seconds": 3600,
-  "rate_limit_scope": "per_user",
-  "audit_level": "standard",
-  "alert_on_execution": 0
- },
- {
-  "doctype": "Critical Operation Rule",
   "name": "validate_sepa_xml_compliance",
   "operation_name": "validate_sepa_xml_compliance",
   "operation_type": "reporting",
