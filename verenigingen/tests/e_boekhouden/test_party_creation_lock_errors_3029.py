@@ -9,6 +9,7 @@ Probe shortcut, stated: the deadlock is injected, not provoked, and (as in #3008
 server ROLLBACK is issued -- the question under test is only who sees the error.
 """
 
+import itertools
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -47,14 +48,20 @@ def _lock_error_at_driver_3029(fragment, startswith, code=1213):
 
 
 class TestPartyCreationLockErrors3029(_TxUtilsBase):
-    def _reaches_caller_3029(self, fragment, startswith, call, error=frappe.QueryDeadlockError, code=1213):
-        inject, hits = _lock_error_at_driver_3029(fragment, startswith, code)
-        with inject, self.assertRaises(error):
-            call()
-        self.assertTrue(hits, "the injection must have fired")
+    _seq_3029 = itertools.count()
 
-    def _existing_party_3029(self, doctype="Customer"):
-        name = f"Probe 3029 {self.uid} {doctype}"
+    def _reaches_caller_3029(self, fragment, startswith, call):
+        """Both non-resumable classes must reach the caller: 1213 (whole transaction rolled
+        back) and 1205 (unit of work half-applied)."""
+        for code, error in ((1213, frappe.QueryDeadlockError), (1205, frappe.QueryTimeoutError)):
+            with self.subTest(code=code):
+                inject, hits = _lock_error_at_driver_3029(fragment, startswith, code)
+                with inject, self.assertRaises(error):
+                    call()
+                self.assertTrue(hits, "the injection must have fired")
+
+    def _existing_party_3029(self, doctype="Customer", provisional=False):
+        name = f"{'E-Boekhouden ' if provisional else ''}Probe 3029 {self.uid} {doctype}"
         doc = frappe.new_doc(doctype)
         setattr(doc, f"{doctype.lower()}_name", name)
         if doctype == "Customer":
@@ -123,7 +130,7 @@ class TestPartyCreationLockErrors3029(_TxUtilsBase):
     def test_get_or_create_company_party_does_not_return_none_after_a_deadlock(self):
         self._reaches_caller_3029(
             "`tabCustomer`",
-            ("SELECT",),
+            ("INSERT",),
             lambda: _get_or_create_company_party("Customer", f"Probe3029 {self.uid}", []),
         )
 
@@ -139,25 +146,35 @@ class TestPartyCreationLockErrors3029(_TxUtilsBase):
         self.expectErrorLog("EBoekhoudenPartyExtractor")
         self._reaches_caller_3029(
             "`tabCustomer`",
-            ("SELECT",),
-            lambda: EBoekhoudenPartyExtractor(self.company)._resolve_party_by_name(f"Probe {self.uid}", "Customer"),
+            ("INSERT",),
+            lambda: EBoekhoudenPartyExtractor(self.company)._resolve_party_by_name(
+                f"Probe 3029 {self.uid} BV", "Customer"
+            ),
         )
 
     def test_resolve_party_by_relation_id_does_not_return_none_after_a_deadlock(self):
+        """SELECT-injected on purpose: with no existing party this method builds
+        ``EBoekhoudenPartyResolver(self.company)``, whose ``__init__`` takes no argument, so the
+        resolver (and any INSERT behind it) is unreachable today; only the lookup read is."""
         self.expectErrorLog("EBoekhoudenPartyExtractor")
         self._reaches_caller_3029(
             "`tabCustomer`",
             ("SELECT",),
-            lambda: EBoekhoudenPartyExtractor(self.company)._resolve_party_by_relation_id("3029", "Customer"),
+            lambda: EBoekhoudenPartyExtractor(self.company)._resolve_party_by_relation_id(
+                f"3029{self.uid}", "Customer"
+            ),
         )
 
     def test_resolve_party_for_journal_entry_does_not_return_none_after_a_deadlock(self):
         self.expectErrorLog("EBoekhoudenPartyExtractor")
         self._reaches_caller_3029(
-            "`tabAccount`",
-            ("SELECT",),
+            "`tabCustomer`",
+            ("INSERT",),
             lambda: EBoekhoudenPartyExtractor(self.company).resolve_party_for_journal_entry(
-                {"party_name": "x", "party_type": "Customer"}, "Debtors - X"
+                {"party_name": f"Probe 3029 {self.uid} JE BV", "party_type": "Customer"},
+                frappe.db.get_value(
+                    "Account", {"company": self.company, "account_type": "Receivable", "is_group": 0}
+                ),
             ),
         )
 
@@ -173,10 +190,10 @@ class TestPartyCreationLockErrors3029(_TxUtilsBase):
 
     # --- party_resolver ------------------------------------------------------------------
     def test_update_party_with_fresh_data_does_not_return_false_after_a_deadlock(self):
-        party = self._existing_party_3029()
+        party = self._existing_party_3029(provisional=True)
         self._reaches_caller_3029(
             "`tabCustomer`",
-            ("SELECT",),
+            ("UPDATE",),
             lambda: EBoekhoudenPartyResolver()._update_party_with_fresh_data(
                 "Customer", party.name, {"bedrijfsnaam": "Better BV"}, []
             ),
@@ -212,6 +229,18 @@ class TestPartyCreationLockErrors3029(_TxUtilsBase):
             "`tabCustomer`",
             ("UPDATE",),
             lambda: invoice_helpers.create_customer_from_relation(
-                {"id": f"3029{self.uid}", "name": name, "email": "p@example.com"}, []
+                {"id": f"3029{self.uid}", "name": f"{name} {next(self._seq_3029)}", "email": "p@example.com"},
+                [],
+            ),
+        )
+
+    def test_create_customer_from_relation_does_not_turn_a_deadlock_on_the_party_insert_into_a_validation_error(
+        self,
+    ):
+        self._reaches_caller_3029(
+            "`tabCustomer`",
+            ("INSERT",),
+            lambda: invoice_helpers.create_customer_from_relation(
+                {"id": f"3029{self.uid}", "name": f"Probe 3029 Rel Ins {self.uid} BV"}, []
             ),
         )
