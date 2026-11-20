@@ -418,30 +418,23 @@ class TestAddressPermissions(PermissionsCoverageBase):
         addr_doc = frappe.get_doc("Address", address.name)
         self.assertFalse(has_address_permission(addr_doc, self.bare_user.name))
 
-    def test_contact_common_link_grants_access(self):
-        """Positive Contact-common-link path: when the acting user's Contact and
-        the Address share a Dynamic Link to the same party, has_address_permission
-        returns True via contact.has_common_link — the exact True path the fix
-        enables. Exercised for both the str-name and doc-object call shapes.
-
-        bare_user is not the ``user`` of any Member, so it falls through the
-        member/board branches to the Contact fallback. Sharing the link via a
-        Member (rather than a Customer) reuses existing fixtures and avoids
-        ERPNext Customer mandatory-field setup."""
+    def test_contact_common_link_does_not_grant_access(self):
+        """#2436 (ruling of #2205): a Contact sharing a link with the Address is NOT an
+        identity; only Member.user owns Member records. Replaces the old positive test
+        that asserted the Contact.email_id fallback (the premise the ruling removed);
+        test_address_contact_identity_2436 holds the controls."""
         from verenigingen.permissions import has_address_permission
 
-        # Link bare_user's auto-created Contact to other_member.
         contact_name = frappe.db.get_value("Contact", {"email_id": self.bare_user.name}, "name")
         self.assertIsNotNone(contact_name, "User.after_insert should have created a Contact")
         contact = frappe.get_doc("Contact", contact_name)
         contact.append("links", {"link_doctype": "Member", "link_name": self.other_member.name})
         contact.save()
-
-        # An address linked to the same member shares a common link with the Contact.
         address = self._make_address_for(self.other_member)
+        self.assertTrue(contact.has_common_link(frappe.get_doc("Address", address.name)))
 
-        self.assertTrue(has_address_permission(address.name, self.bare_user.name))
-        self.assertTrue(has_address_permission(frappe.get_doc("Address", address.name), self.bare_user.name))
+        self.assertFalse(has_address_permission(address.name, self.bare_user.name))
+        self.assertFalse(has_address_permission(frappe.get_doc("Address", address.name), self.bare_user.name))
 
 
 class TestFinancialAccess(PermissionsCoverageBase):
