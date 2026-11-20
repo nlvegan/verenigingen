@@ -1115,6 +1115,75 @@ class TestApproveApplicationBoard(ApprovalCase):
             frappe.db.get_value("Sales Invoice", admin_state[1], ["docstatus", "grand_total"]),
         )
 
+    def _volunteer_after_approval_3022(self, user):
+        """(volunteer status, volunteer-activation Error Log rows) after `user` approves a volunteering applicant
+        with the activation checkbox ticked, through the real approve_application endpoint."""
+        self.email = self._fresh_applicant_email()
+        name = self._stage_and_confirm(interested_in_volunteering=1)
+        errors = set(frappe.get_all("Error Log", pluck="name"))
+        result = self._approve_as(name, user=user, activate_as_volunteer=True)
+        self.assertTrue(result["success"], result)
+        member = frappe.db.get_value(SUBMISSION, name, "member")
+        volunteer = frappe.db.get_value("Volunteer", {"member": member}, ["name", "status"], as_dict=True)
+        self.assertTrue(volunteer, "approval created no Volunteer at all")
+        self.track_doc("Volunteer", volunteer.name)
+        rows = frappe.get_all(
+            "Error Log", {"name": ["not in", list(errors) or [""]], "method": ["like", "Volunteer activation%"]}, pluck="method"
+        )
+        return volunteer.status, rows
+
+    def test_board_approver_activates_the_volunteer_3022(self):
+        """#3022 / #1930: the Volunteer the approval creates (as the system user) is flipped to Active with
+        system privileges; the board approver's own DocPerms refuse a chapterless Volunteer."""
+        status, error_rows = self._volunteer_after_approval_3022(self.board.user)
+        self.assertEqual((status, error_rows), ("Active", []))
+
+    def test_board_approver_activates_a_volunteer_created_by_the_activation_3022(self):
+        """#3022 as measured: a member with NO Volunteer. The activation creates it (as the system user) and
+        flips it to Active; that flip was saved as the board user and refused. Drives the helper
+        approve_application calls (_activate_volunteer_if_requested), as the board user, past the endpoint's
+        own chapter gate; the endpoint path above already has a Volunteer by then."""
+        from verenigingen.api.membership_application_review import _activate_volunteer_if_requested
+
+        member = self.create_test_member(first_name="Fresh", last_name="Vol3022", birth_date="1990-01-01")
+        member.db_set("interested_in_volunteering", 1, update_modified=False)
+        member.reload()
+        self.assertFalse(frappe.db.exists("Volunteer", {"member": member.name}), "precondition: no Volunteer")
+        errors = set(frappe.get_all("Error Log", pluck="name"))
+        with self.as_user(self.board.user):
+            activated = _activate_volunteer_if_requested(member, True)
+        volunteer = frappe.db.get_value("Volunteer", {"member": member.name}, ["name", "status"], as_dict=True)
+        rows = frappe.get_all(
+            "Error Log", {"name": ["not in", list(errors) or [""]], "method": ["like", "Volunteer activation%"]}, pluck="method"
+        )
+        self.assertTrue(volunteer, "no Volunteer was created")
+        self.track_doc("Volunteer", volunteer.name)
+        self.assertEqual((volunteer.status, rows, activated), ("Active", [], True))
+
+    def test_staff_approver_still_activates_the_volunteer_3022(self):
+        """Control: an approver the DocPerms already allow ends in the same place."""
+        status, error_rows = self._volunteer_after_approval_3022(self.admin_user.email)
+        self.assertEqual((status, error_rows), ("Active", []))
+
+    def test_activation_scope_does_not_outlive_the_call_and_refuses_unauthorised_3022(self):
+        """The elevation is only inside the activation: afterwards the flag is gone, and a caller with no
+        Volunteer write right is refused before any write."""
+        from verenigingen.services.volunteer.volunteer_activation_service import activate_volunteer_record
+        from verenigingen.utils.secure_operations import follow_on_ignore_permissions
+
+        member = self.create_test_member(first_name="Scope", last_name="Check3022")
+        member.db_set("interested_in_volunteering", 1, update_modified=False)
+        plain = self.create_test_user_with_roles(
+            email=f"plain3022.{frappe.generate_hash(length=6)}@example.com", roles=["Verenigingen Member"]
+        )
+        with self.as_user(plain.email):
+            with self.assertRaises(frappe.ValidationError):
+                activate_volunteer_record(member)
+        self.assertFalse(frappe.db.exists("Volunteer", {"member": member.name}))
+        with self.as_user(self.board.user):
+            activate_volunteer_record(member)
+        self.assertIsNone(follow_on_ignore_permissions())
+
     def _typed(self, role_profile):
         """A membership type carrying `role_profile`. The harness gives every type the Staff profile, which
         is NOT what a real member type carries, so a job test must pick its profile on purpose."""
