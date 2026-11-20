@@ -1119,7 +1119,11 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
         that skipped the existing row would silently run on the SEEDED rate and the
         37.50 assertions would redden for an unrelated reason. So: update the existing
         row and put its rate back afterwards (the shared seed must survive), or
-        insert one and track it. erpnext caches the looked-up rate, so drop that too.
+        insert one and track it.
+
+        Latent: this service does not commit. If it ever did, the pinned rate would be
+        committed into the shared row and the restore below (uncommitted) would not
+        undo it.
         """
         today = frappe.utils.today()
         existing = frappe.db.get_value(
@@ -1128,7 +1132,6 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             ["name", "exchange_rate"],
             as_dict=True,
         )
-        cache_key = f"currency_exchange_rate_{today}:{from_currency}:{to_currency}"
         if existing:
             frappe.db.set_value("Currency Exchange", existing.name, "exchange_rate", rate)
             self.addCleanup(
@@ -1147,8 +1150,6 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
                 }
             ).insert()
             self.track_doc("Currency Exchange", rate_doc.name)
-        frappe.cache().delete_value(cache_key)
-        self.addCleanup(frappe.cache().delete_value, cache_key)
 
     def _ensure_foreign_currency_clearing_account(self, company):
         """A Bank-type GL account in a currency the company does NOT use.

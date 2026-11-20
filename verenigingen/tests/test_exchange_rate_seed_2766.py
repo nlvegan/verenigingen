@@ -11,6 +11,7 @@ cache key empty) instead of waiting for it.
 import ast
 import inspect
 import io
+import textwrap
 from contextlib import redirect_stderr
 from datetime import timedelta
 from unittest import mock
@@ -122,19 +123,65 @@ class TestExchangeRateSeed2766(EnhancedTestCase):
         claimed = [k for k in self._captured_inserts[captured_before:] if k[0] == "Currency Exchange"]
         self.assertEqual([], claimed, "the captured-insert drain would delete the shared rates")
 
-    def test_setup_reseeds_rows_a_previous_test_rolled_back(self):
-        """#2867: EnhancedTestCase.setUp itself restores the rates (the call there was untested)."""
-        self._delete_seeded_rows()
-        self.assertEqual(0, frappe.db.count("Currency Exchange", {"from_currency": "INR"}))
-        EnhancedTestCase.setUp(self)
-        for from_currency, to_currency in PAIRS:
-            self.assertTrue(
-                frappe.db.exists(
-                    "Currency Exchange",
-                    {"from_currency": from_currency, "to_currency": to_currency, "date": str(getdate())},
-                ),
-                (from_currency, to_currency),
+    def _assert_insert_capture_not_left_installed(self):
+        """Runs as a cleanup, i.e. AFTER tearDown has restored Document.db_insert."""
+        from frappe.model import document as document_module
+
+        self.assertNotEqual(
+            "_capturing_db_insert",
+            document_module.Document.db_insert.__name__,
+            "a stale insert-capture wrapper survived tearDown and would tax every later insert",
+        )
+
+    def _count_seeded_rows(self):
+        """Rows of the seeded pairs on the seeded dates (erpnext's 2016 rows are not ours)."""
+        seeded_dates = ["2000-01-01", str(getdate()), str(getdate() + timedelta(days=1))]
+        return sum(
+            frappe.db.count(
+                "Currency Exchange",
+                {"from_currency": from_currency, "to_currency": to_currency, "date": ["in", seeded_dates]},
             )
+            for from_currency, to_currency in PAIRS
+        )
+
+    def test_a_foreign_2016_row_of_a_seeded_pair_survives_the_reset_and_the_seed(self):
+        """Control: erpnext's own INR->USD 2016 record must not be counted or deleted (#2867)."""
+        key = {"from_currency": "INR", "to_currency": "USD", "date": "2016-01-01"}
+        name = frappe.db.get_value("Currency Exchange", key)
+        if not name:
+            name = (
+                frappe.get_doc(
+                    {"doctype": "Currency Exchange", **key, "exchange_rate": 0.0167, "for_buying": 1}
+                )
+                .insert()
+                .name
+            )
+        self._delete_seeded_rows()
+        self.assertEqual(0, self._count_seeded_rows())
+        self.assertTrue(frappe.db.exists("Currency Exchange", name))
+        factory.ensure_test_exchange_rates()
+        self.assertTrue(frappe.db.exists("Currency Exchange", name))
+
+    def test_setup_reseeds_rows_a_previous_test_rolled_back(self):
+        """#2867: EnhancedTestCase.setUp restores the rates.
+
+        setUp is NOT re-entered: a second `_install_insert_capture` saves the first
+        wrapper as the "original" and leaves it installed after tearDown. That the
+        call sits in setUp is checked on the source; that the call restores the rows
+        is checked on the helper it makes.
+        """
+        self.addCleanup(self._assert_insert_capture_not_left_installed)
+        calls = [
+            node.func.id
+            for node in ast.walk(ast.parse(textwrap.dedent(inspect.getsource(EnhancedTestCase.setUp))))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        ]
+        self.assertIn("ensure_test_exchange_rates", calls)
+
+        self._delete_seeded_rows()
+        self.assertEqual(0, self._count_seeded_rows())
+        factory.ensure_test_exchange_rates()
+        self.assertEqual(len(PAIRS) * 2, self._count_seeded_rows())
         with _live_fetch_refused():
             self.assertGreater(get_exchange_rate("INR", "USD", getdate()), 0)
 
