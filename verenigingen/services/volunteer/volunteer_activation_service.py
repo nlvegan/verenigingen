@@ -34,7 +34,13 @@ def _log_upgrade_result(upgrade_result, context_label):
 
 
 def activate_volunteer_record(member):
-    """Activate volunteer record when membership application is approved."""
+    """Activate volunteer record when membership application is approved.
+
+    The caller must have chapter-authorised the approver: the check in here is role-level only.
+    Defensive hardening per ruling #1930 (#3022): approve_application cannot reach the failing branch today
+    (it seats the member in the chapter first, so the approver may already write the Volunteer); the
+    elevation guards a future caller or a change in chapter-row timing.
+    """
     # Permission check - ensure user can write to Volunteer records
     if not frappe.has_permission("Volunteer", "write"):
         frappe.throw(_("You don't have permission to activate volunteers"))
