@@ -37,7 +37,7 @@ class TestExpenseClaimAmendedFrom3035(MemberClaimBase):
         data = self.claim_data(employee=employee, amended_from=source, **fields)
         return self.act_as(actor, lambda: frappe.get_doc(data).insert())
 
-    def _refusal(self, actor, employee, source):
+    def _amend_refusal_channels(self, actor, employee, source):
         """Every channel one refusal leaves, with the message_log and Error Log rows it added."""
         before = len(frappe.local.message_log)
         errors = frappe.db.count("Error Log")
@@ -68,9 +68,9 @@ class TestExpenseClaimAmendedFrom3035(MemberClaimBase):
 
     def test_a_forbidden_and_an_unknown_amended_from_are_refused_identically(self):
         foreign = self._cancelled_claim_of(self.stranger, self.stranger_emp)
-        self._refusal(self.user, self.employee, foreign.name)  # warm the role/meta caches: not measured
-        forbidden = self._refusal(self.user, self.employee, foreign.name)
-        unknown = self._refusal(self.user, self.employee, "HR-EXP-0000-99999")
+        self._amend_refusal_channels(self.user, self.employee, foreign.name)  # warm the role/meta caches: not measured
+        forbidden = self._amend_refusal_channels(self.user, self.employee, foreign.name)
+        unknown = self._amend_refusal_channels(self.user, self.employee, "HR-EXP-0000-99999")
         self.assertTrue(forbidden["logged"], "control: the refusal does log a message")
         self.assertEqual(forbidden, unknown)
 
@@ -110,3 +110,29 @@ class TestExpenseClaimAmendedFrom3035(MemberClaimBase):
         with self.assertRaises(PERMISSION):
             self.act_as(self.user, relink)
         self.assertFalse(frappe.db.get_value("Expense Claim", own.name, "amended_from"))
+
+    def test_an_expense_approver_without_a_seat_gets_the_same_refusal_for_unknown_and_forbidden(self):
+        other, other_emp, _m, _v = self._person("apr3035b", extra_roles=("Expense Approver",))
+        foreign = self._cancelled_claim_of(self.stranger, self.stranger_emp)
+        self._amend_refusal_channels(other, other_emp, foreign.name)  # warm caches: not measured
+        forbidden = self._amend_refusal_channels(other, other_emp, foreign.name)
+        unknown = self._amend_refusal_channels(other, other_emp, "HR-EXP-0000-99999")
+        self.assertTrue(forbidden["logged"], "control: the refusal does log a message")
+        self.assertEqual(forbidden, unknown)
+
+    def test_an_unchanged_legacy_link_is_not_rejudged_on_later_edits(self):
+        """Probe shortcut, stated: the foreign link is planted with ``db.set_value`` (the guard
+        refuses it on every real route); this pins that the OWNER can still edit such a claim."""
+        foreign = self._cancelled_claim_of(self.stranger, self.stranger_emp)
+        own = self.act_as(self.user, lambda: frappe.get_doc(self.claim_data()).insert())
+        frappe.db.set_value("Expense Claim", own.name, "amended_from", foreign.name)
+
+        def edit():
+            doc = frappe.get_doc("Expense Claim", own.name)
+            doc.remark = "edited"
+            doc.save()
+
+        self.act_as(self.user, edit)
+        self.assertEqual(frappe.db.get_value("Expense Claim", own.name, "remark"), "edited")
+        # the permission map's create bit is not judged against a stored, unchanged link either
+        self.assertTrue(self.act_as(self.user, lambda: frappe.get_doc("Expense Claim", own.name).has_permission("create")))

@@ -2342,14 +2342,15 @@ def _amended_from_is_allowed(doc, user, ptype):
     source = doc.get("amended_from")
     if not source:
         return True
-    if ptype == "write" and source == frappe.db.get_value("Expense Claim", doc.name, "amended_from"):
-        return True  # unchanged: a legacy link is not re-judged on every edit
+    if doc.get("name") and source == frappe.db.get_value("Expense Claim", doc.name, "amended_from"):
+        return True  # stored link, unchanged: a legacy link is not re-judged on any later check
 
     stored = frappe.db.get_value("Expense Claim", source, ["employee", "custom_chapter"], as_dict=True)
     if not stored:
-        # the check below looks the claim's employee up; do the same for an unknown id so both
-        # cost the same queries
-        frappe.db.get_value("Employee", "", "user_id")  # ast-skip: HRMS field
+        # Equaliser, not a lookup: for an existing source has_expense_claim_permission reads its
+        # employee's user; an unknown id skips that read, so repeat one query of the same shape here.
+        # It must mirror that extra query, or an unknown and a forbidden id differ in query count.
+        frappe.db.get_value("Employee", "", "user_id")
     return bool(stored) and has_expense_claim_permission(stored, user)
 
 
