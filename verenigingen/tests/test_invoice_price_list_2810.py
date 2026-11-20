@@ -48,6 +48,16 @@ def set_site_default_price_list(name):
         frappe.db.set_default("selling_price_list", name)
 
 
+def _committed_site_default():
+    """Read the default straight from tabDefaultValue (no `frappe.db.get_default` cache). Called
+    after the end-of-class rollback, the next read opens a fresh snapshot, so this is the
+    committed value."""
+    rows = frappe.db.sql(
+        "SELECT defvalue FROM `tabDefaultValue` WHERE parent = '__default' AND defkey = 'selling_price_list'"
+    )
+    return rows[0][0] if rows else None
+
+
 class _PriceListCase(EnhancedTestCase):
     def setUp(self):
         # Read BEFORE the harness's setUp (which commits and changes site state) or any
@@ -66,11 +76,22 @@ class _PriceListCase(EnhancedTestCase):
         self._restorers.append((fn, args))
 
     @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
-        default = frappe.db.get_default("selling_price_list")
-        assert not default or frappe.db.exists("Price List", default), (
-            f"site default selling_price_list {default!r} names a Price List that no longer exists"
+    def setUpClass(cls):
+        # Captured and registered BEFORE super().setUpClass(): class cleanups run LIFO, and
+        # IntegrationTestCase.setUpClass registers `_rollback_db` itself, so this one runs
+        # AFTER the end-of-class rollback and therefore sees what is really committed.
+        cls._default_at_class_start = _committed_site_default()
+        cls.addClassCleanup(cls._assert_committed_default_unchanged)
+        super().setUpClass()
+
+    @classmethod
+    def _assert_committed_default_unchanged(cls):
+        """Control for the #2233 class: the site default must EQUAL its class-start value
+        once the harness rollback has run, not merely name an existing Price List."""
+        after = _committed_site_default()
+        assert after == cls._default_at_class_start, (
+            f"site default selling_price_list leaked: {cls._default_at_class_start!r} at class "
+            f"start, {after!r} committed after the class"
         )
 
     def tearDown(self):
@@ -166,13 +187,19 @@ class TestResolveSellingPriceList(_PriceListCase):
             with self.subTest(label):
                 bad = _make_price_list("Standard Selling CHF", **kw)
                 self._made.append(("Price List", bad.name))
-                picked = self._resolve(currency)
-                self.assertNotEqual(picked, bad.name)
-                self._made.append(("Price List", picked))
-                row = frappe.db.get_value("Price List", picked, ["currency", "selling", "enabled"], as_dict=True)
-                self.assertEqual((row.currency, row.selling, row.enabled), (currency, 1, 1))
-                for doctype, name in self._made[-2:]:
-                    frappe.delete_doc(doctype, name, force=True)
+                try:
+                    picked = self._resolve(currency)
+                    self._made.append(("Price List", picked))
+                    self.assertNotEqual(picked, bad.name)
+                    row = frappe.db.get_value(
+                        "Price List", picked, ["currency", "selling", "enabled"], as_dict=True
+                    )
+                    self.assertEqual((row.currency, row.selling, row.enabled), (currency, 1, 1))
+                finally:
+                    # The next variant reuses the same name, so delete here, failure or not.
+                    for doctype, name in self._made[-2:]:
+                        if frappe.db.exists(doctype, name):
+                            frappe.delete_doc(doctype, name, force=True)
 
     def test_lost_creation_race_adopts_the_winners_row(self):
         """Probe shortcut: the race is simulated by inserting the competing row between the
@@ -188,13 +215,13 @@ class TestResolveSellingPriceList(_PriceListCase):
             found = real_exists(doctype, filters, *a, **k)
             if doctype == "Price List" and filters == name and not found and not raced:
                 raced.append(_make_price_list(name, currency))
+                self._made.append(("Price List", name))
             return found
 
         # Mock justified: injects the concurrent insert at the exact point the race happens.
         with mock.patch.object(frappe.db, "exists", side_effect=exists_then_lose_race):
             picked = self._resolve(currency)
         self.assertTrue(raced, "the competing insert must have happened")
-        self._made.append(("Price List", name))
         self.assertEqual(picked, name)
 
 
