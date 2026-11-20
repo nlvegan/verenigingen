@@ -720,6 +720,11 @@ class BackgroundJobScalabilityTest(VereningingenTestCase):
         """Set up background job testing environment"""
         super().setUp()
         self.factory = CoreTestDataFactory(cleanup_on_exit=False, seed=42)
+        # Re-wire what VereningingenTestCase.setUp() wired on the instance this one
+        # replaced. Unwired, _test_docs stays empty, base tearDown skips its rollback,
+        # and cleanup(commit=True) then COMMITS the whole test transaction, stranding
+        # every row the factory cannot reach (#2842).
+        self.factory.on_track = self.track_doc
         self.metrics_collector = PerformanceMetricsCollector()
         self.job_completion_times = []
         
@@ -850,6 +855,11 @@ class EdgeCaseScalabilityTest(VereningingenTestCase):
         """Set up edge case testing environment"""
         super().setUp()
         self.factory = CoreTestDataFactory(cleanup_on_exit=False, seed=42)
+        # Re-wire what VereningingenTestCase.setUp() wired on the instance this one
+        # replaced. Unwired, _test_docs stays empty, base tearDown skips its rollback,
+        # and cleanup(commit=True) then COMMITS the whole test transaction, stranding
+        # every row the factory cannot reach (#2842).
+        self.factory.on_track = self.track_doc
         
     def tearDown(self):
         """Clean up edge case testing"""
@@ -929,6 +939,65 @@ class EdgeCaseScalabilityTest(VereningingenTestCase):
         
         # Should handle concurrent updates gracefully (allow some failures due to locking)
         self.assertGreater(success_rate, 70.0, f"Concurrent success rate {success_rate:.1f}% too low")
+
+
+def _residue_probe_2842(self):
+    """Stand-in test body: the #2842 shape at 5 members instead of 100. Member insert
+    hooks create a Customer (+ Contact + Dynamic Link); member 0 has its customer link
+    nulled; every member then loads payment history, which writes an API Audit Log row.
+    """
+    for i in range(5):
+        member = self.factory.create_test_member()
+        if i == 0:
+            member.customer = None
+            member.save()
+        member.load_payment_history()
+
+
+class ScalabilityEdgeCaseResidueTest(unittest.TestCase):
+    """#2842: the edge-case and background-job classes must leave NO rows behind.
+
+    Drives each class's REAL setUp/tearDown (as the #1344 test above does) with the
+    heavy body swapped for _residue_probe_2842, then counts rows. Counted on this
+    connection after tearDown, which ends in a commit or a rollback, so the count is the
+    durable state. Cause: these classes replaced the factory VereningingenTestCase wired
+    to track_doc, so _test_docs stayed empty, base tearDown skipped its rollback and
+    cleanup(commit=True) committed the whole test transaction.
+    """
+
+    RESIDUE_DOCTYPES = ("Customer", "Contact", "Dynamic Link", "API Audit Log")
+    CONTROL_DOCTYPE = "Supplier"  # nothing in the probe touches it
+
+    def _residue_after(self, test_class, method_name):
+        names = self.RESIDUE_DOCTYPES + (self.CONTROL_DOCTYPE,)
+        before = {dt: frappe.db.count(dt) for dt in names}
+        with patch.object(test_class, method_name, _residue_probe_2842):
+            suite = unittest.TestSuite()
+            suite.addTest(test_class(method_name))
+            result = unittest.TestResult()
+            suite.run(result)
+        self.assertTrue(
+            result.wasSuccessful(), f"probe did not run: {result.errors!r} {result.failures!r}"
+        )
+        return {dt: frappe.db.count(dt) - before[dt] for dt in names}
+
+    def _assert_no_residue(self, test_class, method_name):
+        residue = self._residue_after(test_class, method_name)
+        # Control: the probe must not move a doctype it never touches.
+        self.assertEqual(residue.pop(self.CONTROL_DOCTYPE), 0)
+        self.assertEqual(
+            {dt: n for dt, n in residue.items() if n},
+            {},
+            f"{test_class.__name__} left rows behind (#2842)",
+        )
+
+    def test_edge_case_class_leaves_no_rows(self):
+        self._assert_no_residue(EdgeCaseScalabilityTest, "test_payment_history_with_missing_customers")
+
+    def test_background_job_class_leaves_no_rows(self):
+        self._assert_no_residue(
+            BackgroundJobScalabilityTest, "test_background_job_queue_processing_50_members"
+        )
 
 
 # Test Runner Integration
