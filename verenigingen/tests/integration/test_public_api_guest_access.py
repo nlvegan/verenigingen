@@ -169,7 +169,11 @@ class TestPublicAPIGuestAccess(EnhancedTestCase):
         suffix = frappe.generate_hash(length=6)
         # A published chapter needs a region; own one rather than borrow a shared row.
         region = frappe.get_doc(
-            {"doctype": "Region", "region_name": f"Guest Postal Region {suffix}", "region_code": f"G{suffix[:4].upper()}"}
+            {
+                "doctype": "Region",
+                "region_name": f"Guest Postal Region {suffix}",
+                "region_code": self.unique_region_code(),
+            }
         )
         region.insert()
         self.track_doc("Region", region.name)
