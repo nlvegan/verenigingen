@@ -433,6 +433,44 @@ def get_invoice_mandate_info(invoice: str):
     return {"valid": False, "error": _("No active SEPA mandate found")}
 
 
+def resolve_batch_row_bank_data(member: str, invoice_row: dict):
+    """Bank data for one batch row, from the member's mandate -- never the payload (#2813).
+
+    The row's IBAN / BIC / mandate id / name end up verbatim in the SEPA XML, and
+    nothing downstream checks them against the member (the batch only checks that SOME
+    Active mandate has that id). So the caller's `invoice_row` is a CLAIM about which
+    mandate it expects: it must agree with the member's single Active mandate or the
+    row is refused. A stale picker row (mandate changed since it was loaded) is refused
+    for the same reason a forged one is. Returns `(data, None)` or `(None, error)`.
+    """
+    choice = unambiguous_active_mandate(member, "SEPA Batch creation: ambiguous mandate (batch row)")
+    invoice = invoice_row["invoice"]
+    if choice.is_ambiguous:
+        return None, (
+            f"Invoice {invoice}: member {member} has {choice.candidates} active SEPA mandates; "
+            "refusing to guess which IBAN to debit"
+        )
+    mandate = choice.mandate
+    if not mandate or not mandate.iban or not mandate.mandate_id:
+        return None, f"Invoice {invoice}: No active SEPA mandate found for member {member}"
+
+    mandate_iban = str(mandate.iban).replace(" ", "").upper()
+    claimed_iban = str(invoice_row["iban"]).replace(" ", "").upper()
+    if claimed_iban != mandate_iban or invoice_row["mandate_reference"] != mandate.mandate_id:
+        # Deliberately does not echo the mandate's own IBAN / id back to the caller.
+        return None, (
+            f"Invoice {invoice}: the IBAN / mandate reference does not match the active SEPA mandate "
+            f"of member {member}"
+        )
+
+    return {
+        "iban": mandate_iban,
+        "bic": mandate.bic or "",
+        "mandate_reference": mandate.mandate_id,
+        "member_name": frappe.db.get_value("Member", member, "full_name") or member,
+    }, None
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def validate_invoice_mandate(invoice: str, member: str):
@@ -726,7 +764,13 @@ def create_sepa_batch_validated(**params):
                 )
                 continue
 
+            bank_data, bank_error = resolve_batch_row_bank_data(member_name, invoice)
+            if bank_error:
+                invoice_validation_errors.append(bank_error)
+                continue
+
             enriched = dict(invoice)
+            enriched.update(bank_data)
             enriched["member"] = member_name
             enriched["membership"] = membership_name
             validated_invoices.append(enriched)
