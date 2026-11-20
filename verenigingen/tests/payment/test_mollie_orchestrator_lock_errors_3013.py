@@ -29,6 +29,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.payment.mollie_orphan_payment_stub import orphan_payment_stub
 from verenigingen.tests.payment.test_mollie_orchestrator_coverage_b2 import OrchestratorBase
 from verenigingen.tests.support.mollie_settings import (
     pin_mollie_clearing_account,
@@ -96,19 +97,6 @@ class TestOrchestratorLockErrors3013(OrchestratorBase):
             "Payment Entry Unexpected Error",
         )
 
-    def _orphan_payment_stub(self, customer_id=None):
-        return SimpleNamespace(
-            id=self.pid,
-            status="paid",
-            amount={"value": f"{AMOUNT:.2f}", "currency": "EUR"},
-            paid_at=f"{today()}T10:05:00+00:00",
-            created_at=f"{today()}T10:00:00+00:00",
-            description="orphan 3013",
-            method="ideal",
-            metadata={},
-            customer_id=customer_id,
-        )
-
     def _assert_lock_error_reaches_caller(self, call, code, error, fragment, **inject_kwargs):
         inject, hits = lock_error_at_driver_3013(code, fragment, **inject_kwargs)
         outcome = []
@@ -143,7 +131,7 @@ class TestOrchestratorLockErrors3013(OrchestratorBase):
             with self.subTest(code=code):
                 self._assert_lock_error_reaches_caller(
                     lambda: self.orch.process_orphaned_payment_with_invoice(
-                        self.pid, self._orphan_payment_stub()
+                        self.pid, orphan_payment_stub(self.pid, AMOUNT, "orphan 3013", customer_id=None)
                     ),
                     code,
                     error,
@@ -155,7 +143,7 @@ class TestOrchestratorLockErrors3013(OrchestratorBase):
             with self.subTest(code=code):
                 self._assert_lock_error_reaches_caller(
                     lambda: self.orch.process_orphaned_payment_with_invoice(
-                        self.pid, self._orphan_payment_stub()
+                        self.pid, orphan_payment_stub(self.pid, AMOUNT, "orphan 3013", customer_id=None)
                     ),
                     code,
                     error,
@@ -176,7 +164,7 @@ class TestOrchestratorLockErrors3013(OrchestratorBase):
                 self.pid = f"tr_{frappe.generate_hash(length=20)}"
                 self._assert_lock_error_reaches_caller(
                     lambda: self.orch.process_orphaned_payment(
-                        self.pid, self._orphan_payment_stub(customer_id=cust_id)
+                        self.pid, orphan_payment_stub(self.pid, AMOUNT, "orphan 3013", customer_id=cust_id)
                     ),
                     code,
                     error,
@@ -242,7 +230,7 @@ class TestOrchestratorLockErrors3013(OrchestratorBase):
     def test_control_an_ordinary_error_on_the_orphan_invoice_insert_keeps_the_error_result(self):
         inject, hits = lock_error_at_driver_3013(1064, "`tabSales Invoice`")
         with inject:
-            result = self.orch.process_orphaned_payment_with_invoice(self.pid, self._orphan_payment_stub())
+            result = self.orch.process_orphaned_payment_with_invoice(self.pid, orphan_payment_stub(self.pid, AMOUNT, "orphan 3013", customer_id=None))
         self.assertTrue(hits)
         self.assertEqual(result.status, "error")
         self.assertEqual(result.error, "Failed to create orphan invoice")
@@ -254,7 +242,7 @@ class TestOrchestratorLockErrors3013(OrchestratorBase):
             with self.subTest(code=code):
                 self._assert_lock_error_reaches_caller(
                     lambda: self.orch.process_bt_only_payment(
-                        self.pid, payment=self._orphan_payment_stub(), member_name=self.member.name
+                        self.pid, payment=orphan_payment_stub(self.pid, AMOUNT, "orphan 3013", customer_id=None), member_name=self.member.name
                     ),
                     code,
                     error,
