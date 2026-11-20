@@ -282,17 +282,12 @@ class TestTerminationRequestWorkflow(TestTerminationSystem):
         self.assertEqual(termination.status, "Draft")
 
         # Test submit for approval (method should now exist)
-        try:
-            result = termination.submit_for_approval()
-            # For voluntary termination, should go directly to Approved (no secondary approval required)
-            self.assertEqual(termination.status, "Approved")
-            self.assertIsNotNone(result)
-            self.assertEqual(result["status"], "Approved")
-        except Exception as e:
-            # Log the error but don't fail the test if there are validation issues
-            print(f"submit_for_approval failed: {str(e)}")
-            # At minimum, the method should exist
-            self.assertTrue(hasattr(termination, "submit_for_approval"))
+        result = termination.submit_for_approval()
+        # For voluntary termination, should go directly to Approved (no secondary approval required)
+        self.assertEqual(termination.status, "Approved")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["status"], "Approved")
+
 
     def test_default_field_values(self):
         """Test that default values are properly set when fields are not provided"""
