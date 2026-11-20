@@ -48,7 +48,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
             'mandate_id': None,
             'iban': None,
             'name': 'SEPA-MANDATE-001',
-            'cancellation_date': None,
+            'cancelled_date': None,
             'cancellation_reason': None
         }
         defaults.update(kwargs)
@@ -319,7 +319,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
 
                 result = self.service.process_mandate_cancellation(mandate)
 
-                mock_notification_manager.send_mandate_status_notification.assert_called_once()
+                mock_notification_manager.send_mandate_cancelled_notification.assert_called_once()
                 self.assertIn('status_change', result['notifications_sent'])
 
     def test_process_mandate_cancellation_notification_failure(self):
@@ -521,7 +521,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
             self.service._handle_cancellation(mandate, result)
             after = getdate(frappe.utils.today())
 
-            self.assertIn(getdate(mandate.cancellation_date), (before, after))
+            self.assertIn(getdate(mandate.cancelled_date), (before, after))
             mock_update.assert_called_once_with(mandate, 'Cancelled')
 
     def test_handle_expiration_workflow(self):
