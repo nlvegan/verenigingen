@@ -911,113 +911,55 @@ class _MembershipApplication {
 	}
 
 	bindChapterSuggestion() {
-		// Bind chapter suggestion to postal code field changes
+		// The ONE postal-code chapter-suggestion handler on this form (#3032)
 		$(document).on('change blur', '#postal_code', async () => {
-			const postalCode = $('#postal_code').val();
-			const city = $('#city').val();
-			const country = $('#country').val();
-
-			if (postalCode && postalCode.trim().length >= 4) {
-				console.log('Checking chapter suggestion for postal code:', postalCode);
-				await this.suggestChapterFromPostalCode(postalCode, city, country);
-			} else {
-				// Hide suggestion if postal code is too short
-				$('#suggested-chapter').hide();
-			}
-		});
-
-		// Also trigger when city changes (for better matching)
-		$(document).on('change blur', '#city', async () => {
-			const postalCode = $('#postal_code').val();
-			const city = $('#city').val();
-			const country = $('#country').val();
-
-			if (postalCode && postalCode.trim().length >= 4 && city) {
-				console.log('Checking chapter suggestion for city + postal code:', city, postalCode);
-				await this.suggestChapterFromPostalCode(postalCode, city, country);
-			}
+			await this.suggestChapterFromPostalCode($('#postal_code').val());
 		});
 	}
 
-	async suggestChapterFromPostalCode(postalCode, city, country) {
-		try {
-			console.log('Suggesting chapters for:', { postalCode, city, country });
+	async suggestChapterFromPostalCode(rawPostalCode) {
+		// The server refuses "1015 CJ"; it only accepts "1015CJ".
+		const postalCode = (rawPostalCode || '').replace(/\s+/g, '').toUpperCase();
 
-			// Make API call to get chapter suggestions
-			const result = await new Promise((resolve, reject) => {
+		if (postalCode.length < 4) {
+			$('#suggested-chapter').hide();
+			return;
+		}
+
+		try {
+			// Guest-allowed endpoint: the application form is a public page.
+			const data = await new Promise((resolve, reject) => {
 				frappe.call({
-					method: 'verenigingen.verenigingen.doctype.chapter.chapter.suggest_chapters_for_member',
-					args: {
-						member: null, // We don't have a member yet during application
-						postal_code: postalCode,
-						city,
-						state: null // Could be derived from city if needed
-					},
-					callback: (r) => {
-						if (r.message !== undefined) {
-							resolve(r.message);
-						} else {
-							reject(new Error('No response'));
-						}
-					},
+					method: 'verenigingen.api.membership_application.suggest_chapters_for_postal_code',
+					args: { postal_code: postalCode },
+					// A failed suggestion must not pop a dialog over the form
+					silent: true,
+					callback: (r) => resolve(unwrapOperationResult(r.message)),
 					error: reject
 				});
 			});
 
-			console.log('Chapter suggestion result:', result);
-
-			if (result && result.length > 0) {
-				this.showChapterSuggestion(result[0]); // Show the best match
+			const suggestions = data && Array.isArray(data.suggestions) ? data.suggestions : [];
+			if (suggestions.length > 0) {
+				this.showChapterSuggestion(suggestions[0]);
 			} else {
-				// Hide suggestion if no matches found
 				$('#suggested-chapter').hide();
 			}
 		} catch (error) {
 			console.error('Error suggesting chapters:', error);
-			// Hide suggestion on error
 			$('#suggested-chapter').hide();
 		}
 	}
 
 	showChapterSuggestion(chapter) {
-		const suggestionDiv = $('#suggested-chapter');
-
-		if (suggestionDiv.length === 0) {
-			// Create suggestion div if it doesn't exist
-			$('#chapter-selection').append(`
-                <div id="suggested-chapter" class="alert alert-info mt-3" style="display: none;">
-                    <h6><i class="fa fa-lightbulb-o"></i> Suggested Chapter</h6>
-                    <div id="chapter-suggestion-content"></div>
-                    <div class="mt-2">
-                        <button type="button" class="btn btn-sm btn-primary" id="accept-chapter-suggestion">
-                            Select This Chapter
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" id="dismiss-chapter-suggestion">
-                            Dismiss
-                        </button>
-                    </div>
-                </div>
-            `);
-
-			// Bind events for suggestion buttons
-			$('#accept-chapter-suggestion').on('click', () => {
-				$('#chapter').val(chapter.name).trigger('change');
+		// Render into the elements apply_for_membership.html already provides
+		$('#suggested-chapter-name').text(chapter.chapter_name || chapter.name);
+		$('#accept-suggestion')
+			.off('click')
+			.on('click', () => {
+				$('#selected_chapter').val(chapter.name);
 				$('#suggested-chapter').hide();
 			});
-
-			$('#dismiss-chapter-suggestion').on('click', () => {
-				$('#suggested-chapter').hide();
-			});
-		}
-
-		// Update content
-		const content = `
-            <p><strong>${chapter.name}</strong></p>
-            <p class="mb-1">Location: ${chapter.city || chapter.state || 'Not specified'}</p>
-            <p class="mb-1 text-muted">Match score: ${chapter.match_score || 0}%</p>
-        `;
-
-		$('#chapter-suggestion-content').html(content);
 		$('#suggested-chapter').show();
 	}
 
@@ -1069,11 +1011,6 @@ class _MembershipApplication {
 			this.validateEmail();
 		});
 
-		// Postal code validation and chapter suggestion
-		$('#postal_code').on('blur', () => {
-			this.validatePostalCodeAndSuggestChapter();
-		});
-
 		// IBAN validation
 		$('#iban').on('blur', () => {
 			this.validateIBAN();
@@ -1099,28 +1036,6 @@ class _MembershipApplication {
 			emailField.removeClass('is-invalid').addClass('is-valid');
 			emailField.siblings('.invalid-feedback').hide();
 		}
-	}
-
-	validatePostalCodeAndSuggestChapter() {
-		const postalCode = $('#postal_code').val();
-
-		if (!postalCode || postalCode.length < 4) {
-			return;
-		}
-
-		// Call API to validate postal code and suggest chapters
-		frappe.call({
-			method: 'verenigingen.api.membership_application.suggest_chapters_for_postal_code',
-			args: { postal_code: postalCode },
-			callback: (r) => {
-				// Handle OperationResult format
-				const data = unwrapOperationResult(r.message);
-				if (data && data.suggested_chapters && data.suggested_chapters.length > 0) {
-					// Show chapter suggestions
-					this.showChapterSuggestions(data.suggested_chapters);
-				}
-			}
-		});
 	}
 
 	validateIBAN() {
@@ -3418,47 +3333,6 @@ class AddressStep extends BaseStep {
 
 			// Set Netherlands as default
 			select.val('Netherlands');
-		}
-	}
-
-	bindEvents() {
-		$('#postal_code')
-			.off('blur')
-			.on('blur', () => this.suggestChapter());
-	}
-
-	async suggestChapter() {
-		const postalCode = $('#postal_code').val();
-		const country = $('#country').val() || 'Netherlands';
-
-		if (!postalCode) {
-			return;
-		}
-
-		try {
-			if (typeof membershipApp === 'undefined' || !membershipApp.apiService) {
-				console.warn('MembershipApp API not available, skipping postal code validation');
-				return;
-			}
-
-			const result = await membershipApp.apiService.validatePostalCode(postalCode, country);
-
-			if (result.suggested_chapters && result.suggested_chapters.length > 0) {
-				const suggestion = result.suggested_chapters[0];
-				$('#suggested-chapter-name').text(suggestion.name);
-				$('#suggested-chapter').show();
-
-				$('#accept-suggestion')
-					.off('click')
-					.on('click', () => {
-						$('#selected_chapter').val(suggestion.name);
-						$('#suggested-chapter').hide();
-					});
-			} else {
-				$('#suggested-chapter').hide();
-			}
-		} catch (error) {
-			console.error('Chapter suggestion error:', error);
 		}
 	}
 
