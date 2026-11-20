@@ -354,22 +354,6 @@ class TestSetupRoleProfilesCliLadder(VereningingenTestCase):
         super().setUp()
         self._persona_emails = []
 
-    def tearDown(self):
-        """Track the stub Employees that role-profile assignment created (#1689).
-
-        setup_role_profiles_cli() -> sync_user_role_profile() ->
-        _ensure_employee_for_profile() inserts and COMMITS an Employee for a persona
-        whose profile carries the Employee role. Nothing here created it, so nothing
-        tracked it: the persona User was deleted and the Employee stayed behind with
-        a dangling user_id, which HRMS notify_approver later reads as `from_user`
-        for any claim filed against that Employee. Registered AFTER the User, so
-        the reverse-order cleanup deletes the Employee first.
-        """
-        for email in self._persona_emails:
-            for employee in frappe.get_all("Employee", filters={"user_id": email}, pluck="name"):
-                self.track_doc("Employee", employee, depends_on=("User", email))
-        super().tearDown()
-
     def _ensure_role(self, role_name):
         if not frappe.db.exists("Role", role_name):
             role = frappe.get_doc({"doctype": "Role", "role_name": role_name})

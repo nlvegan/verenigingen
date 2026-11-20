@@ -37,12 +37,6 @@ class TestBoardRowStandaloneUpdateDelete1953(VereningingenTestCase):
         )
         self.chapter_role = self._chapter_role_1953("Secretary")
 
-    def tearDown(self):
-        for user in [d["name"] for d in self._test_docs if d["doctype"] == "User"]:
-            for employee in frappe.get_all("Employee", filters={"user_id": user}, pluck="name"):
-                self.track_doc("Employee", employee)  # a seat's profile carries Employee (#1694)
-        super().tearDown()
-
     # ------------------------------------------------------------------ helpers
 
     def _chapter_role_1953(self, label):
