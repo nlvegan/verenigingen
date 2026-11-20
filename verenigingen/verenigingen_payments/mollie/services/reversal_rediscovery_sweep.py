@@ -68,7 +68,7 @@ def sweep_missed_reversals() -> Dict[str, Any]:
     }
 
     try:
-        wanted = _payments_with_unbooked_reversals(MollieClient().sdk_client, summary)
+        wanted = _payments_with_unbooked_reversals(MollieClient(), summary)
     except Exception as e:
         reraise_if_job_timeout(e)
         summary["errors"].append({"error": f"could not list reversals at Mollie: {e}"})
@@ -126,7 +126,7 @@ def _undo_partial_writes(savepoint: str) -> None:
         frappe.db.rollback()
 
 
-def _payments_with_unbooked_reversals(sdk_client: Any, summary: Dict[str, Any]) -> Dict[str, set]:
+def _payments_with_unbooked_reversals(client: MollieClient, summary: Dict[str, Any]) -> Dict[str, set]:
     """``{payment_id: {reversal ids}}`` of ours with a paid-out refund or any chargeback not yet booked.
 
     Cheap, local pre-filter only (a key lookup per reversal): the authoritative
@@ -136,8 +136,8 @@ def _payments_with_unbooked_reversals(sdk_client: Any, summary: Dict[str, Any]) 
     seen = set()
     cutoff = datetime.now(timezone.utc) - timedelta(days=_LOOKBACK_DAYS)
 
-    for reversal_type, resource in (("refund", sdk_client.refunds), ("chargeback", sdk_client.chargebacks)):
-        for reversal in _iter_recent(resource, cutoff):
+    for reversal_type, resource in (("refund", "refunds"), ("chargeback", "chargebacks")):
+        for reversal in _iter_recent(client, resource, cutoff):
             # #1806: only a refund Mollie reports as paid out is bookable; the delivery
             # sent when a queued/pending/processing one changes status finds it later.
             if reversal_type == "refund" and read_payment_field(reversal, "status") != "refunded":
@@ -176,13 +176,13 @@ def _created_at(reversal: Any) -> Optional[datetime]:
     return created if created.tzinfo else created.replace(tzinfo=timezone.utc)
 
 
-def _iter_recent(resource: Any, cutoff: datetime) -> Iterator[Any]:
+def _iter_recent(client: MollieClient, resource: str, cutoff: datetime) -> Iterator[Any]:
     """Yield reversals created at or after ``cutoff``, stopping at the first older one.
 
     The lists are newest-first. An item with no readable createdAt cannot be shown to
     be recent, so it is skipped (not booked) rather than ending the scan.
     """
-    for reversal in _iter_pages(resource):
+    for reversal in _iter_pages(client, resource):
         created = _created_at(reversal)
         if created is None:
             continue
@@ -191,14 +191,17 @@ def _iter_recent(resource: Any, cutoff: datetime) -> Iterator[Any]:
         yield reversal
 
 
-def _iter_pages(resource: Any) -> Iterator[Any]:
-    page = resource.list(limit=_PAGE_LIMIT)
+def _iter_pages(client: MollieClient, resource: str) -> Iterator[Any]:
+    # Both page requests go through MollieClient's retry (#2755). A page that still fails
+    # raises MolliePaymentError out of this generator; sweep_missed_reversals records it as
+    # one "could not list reversals" error and books nothing this run (the next run retries).
+    page = client.list_resource_page(resource, limit=_PAGE_LIMIT)
     pages_read = 1
     while True:
         yield from page
         if not page.has_next() or pages_read >= _MAX_PAGES:
             break
-        page = page.get_next()
+        page = client.get_next_payments_page(page)
         pages_read += 1
 
 

@@ -118,11 +118,9 @@ class TestSeedGatewaySandboxModeDefaults(FrappeTestCase):
 
     def test_a_missing_ponto_row_selects_the_sandbox_after_the_patch(self):
         self._drop_row_2509(PONTO)
-        self.assertEqual(
-            PontoOAuth2Service()._get_authorization_base_url(),
-            PontoOAuth2Service.LIVE_AUTHORIZATION_URL,
-            "control: without the patch the missing row selects the PRODUCTION authorization URL",
-        )
+        # #2565: the read-time guard now makes the form read the safe value; the patch is what
+        # STORES it, so the control is that no row exists yet
+        self.assertIsNone(_stored_value_2509(*PONTO), "control: the row is missing before the patch")
         self._run_patch_2509()
         self.assertEqual(_stored_value_2509(*PONTO), "1")
         self.assertEqual(
@@ -132,9 +130,7 @@ class TestSeedGatewaySandboxModeDefaults(FrappeTestCase):
 
     def test_a_missing_mollie_row_selects_test_mode_after_the_patch(self):
         self._drop_row_2509(MOLLIE)
-        self.assertFalse(
-            MollieConfigurationService.is_test_mode(), "control: without the patch the site reads LIVE"
-        )
+        self.assertIsNone(_stored_value_2509(*MOLLIE), "control: the row is missing before the patch")
         self._clear_caches_2509()
         self._run_patch_2509()
         self.assertEqual(_stored_value_2509(*MOLLIE), "1")

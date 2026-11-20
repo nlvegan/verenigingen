@@ -214,6 +214,7 @@ class TestOutstandingAmountFailsLoudly(EnhancedTestCase):
     def test_raises_instead_of_reporting_zero_owed(self):
         from unittest.mock import patch
 
+        # Mock justified: fault injection: a DB outage must raise, not read as zero owed; a real outage cannot be staged
         with patch.object(frappe.db, "sql", side_effect=RuntimeError("database is down")):
             with self.assertRaises(RuntimeError):
                 get_total_outstanding_amount("CUST-0001")

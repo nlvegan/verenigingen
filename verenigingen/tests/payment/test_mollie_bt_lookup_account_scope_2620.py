@@ -209,6 +209,7 @@ class TestRecoveryAndBulkLookups2620(BankTransactionScopeCase):
         payment_list.has_next.return_value = False
         client = MagicMock()
         client.sdk_client.payments.list.return_value = payment_list
+        client.list_resource_page.side_effect = lambda name, **kw: getattr(client.sdk_client, name).list(**kw)
         matcher = MagicMock()
         matcher.find_member_for_payment.return_value = None
         with patch(

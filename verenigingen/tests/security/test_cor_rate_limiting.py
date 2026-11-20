@@ -560,6 +560,7 @@ def _wsgi_request(remote_addr: str, forwarded_for: str = None, user: str = "Gues
         frappe.set_user(user)
         yield
     finally:
+        # Mock justified: Infrastructure - restores the execution context patched above
         frappe.local.request, frappe.local.request_ip = original[0], original[1]
         frappe.set_user(original[2])
 

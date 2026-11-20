@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.single_writer_fields import keep_stored_single_fields
 from verenigingen.verenigingen_payments.core.compliance.data_retention_policy import (
     LIVE_CAPABLE_CATEGORIES,
     DataCategory,
@@ -9,6 +10,9 @@ from verenigingen.verenigingen_payments.core.compliance.data_retention_policy im
 )
 
 MIN_RETENTION_DAYS = 30
+
+# Written by the weekly job with update_modified=False; a stale form must not roll them back (#2739).
+JOB_OWNED_FIELDS = ("last_run", "last_run_summary")
 
 
 class DataRetentionSettings(Document):
@@ -36,6 +40,7 @@ class DataRetentionSettings(Document):
         self.save()
 
     def validate(self):
+        keep_stored_single_fields(self, JOB_OWNED_FIELDS)
         self._validate_no_duplicate_categories()
         self._validate_retention_minimums()
         self._validate_live_capability()

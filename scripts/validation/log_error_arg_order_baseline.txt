@@ -362,7 +362,6 @@ verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryMa
 verenigingen/utils/member_financial_history_manager.py::MemberFinancialHistoryManager.update_entry_field::1
 verenigingen/utils/membership_dues_integration.py::create_dues_schedule_from_application::1
 verenigingen/utils/membership_type_role_profile.py::assign_membership_type_role_profile::1
-verenigingen/utils/membership_type_role_profile.py::remove_membership_role_profile::1
 verenigingen/utils/migration/migration_audit_trail.py::MigrationAuditTrail._flush_to_file::1
 verenigingen/utils/migration/stock_migration_warehouse_fix.py::clean_duplicate_migration_warehouses::1
 verenigingen/utils/migration/stock_migration_warehouse_fix.py::get_or_create_migration_warehouse_fixed::1

@@ -38,6 +38,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.mollie_settings import own_mollie_clearing_account
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import DuesPaymentProcessor
 
@@ -133,7 +134,15 @@ def _ensure_dues_item():
 
 
 def _make_eur_invoice(
-    company, customer, income_account, amount=25.0, *, coverage_start=None, coverage_end=None, submit=True
+    company,
+    customer,
+    income_account,
+    amount=25.0,
+    *,
+    coverage_start=None,
+    coverage_end=None,
+    submit=True,
+    selling_price_list=None,
 ):
     """Setup helper: an unpaid EUR Sales Invoice, submitted unless submit=False.
 
@@ -147,6 +156,11 @@ def _make_eur_invoice(
     inv.company = company
     inv.currency = "EUR"
     inv.conversion_rate = 1.0
+    if selling_price_list:
+        # A list in another currency (a fresh site's "Standard Selling" is INR) makes
+        # erpnext fetch a live exchange rate on insert, refused for a non-System session
+        # user (#2766). Callers pass `self._ensure_selling_price_list("EUR")`.
+        inv.selling_price_list = selling_price_list
     inv.posting_date = today()
     inv.set_posting_time = 1
     inv.due_date = today()
@@ -279,11 +293,9 @@ class DuesCreationTestBase(EnhancedTestCase):
         settings.flags.ignore_mandatory = True
         settings.save(ignore_permissions=True)
 
-        ms = frappe.get_single("Mollie Settings")
-        ms.mollie_clearing_account = clearing
-        ms.flags.ignore_validate = True
-        ms.flags.ignore_mandatory = True
-        ms.save(ignore_permissions=True)
+        # Restored at class cleanup: a bare save() left this clearing account in Mollie
+        # Settings for every later class in the shard (#528).
+        own_mollie_clearing_account(cls, clearing)
 
         ps = frappe.get_single("Verenigingen Payments Settings")
         ps.dues_income_account = income
@@ -396,7 +408,13 @@ class TestClearingBankAccountFixture(DuesCreationTestBase):
 class TestCreatePaymentEntryForDues(DuesCreationTestBase):
     def _invoice_for_member(self, member, amount=25.0):
         """A real submitted, unpaid EUR Sales Invoice for the member's customer."""
-        return _make_eur_invoice(self.company, member.customer, self.income_account, amount)
+        return _make_eur_invoice(
+            self.company,
+            member.customer,
+            self.income_account,
+            amount,
+            selling_price_list=self._ensure_selling_price_list("EUR"),
+        )
 
     def test_allocates_payment_entry_to_supplied_invoice(self):
         member = self._member_with_customer()
@@ -697,6 +715,7 @@ class TestHistoricalInvoiceLookup(DuesCreationTestBase):
             member.customer,
             self.income_account,
             amount=25.0,
+            selling_price_list=self._ensure_selling_price_list("EUR"),
             coverage_start=cov_start,
             coverage_end=cov_end,
         )
@@ -738,6 +757,7 @@ class TestHistoricalInvoiceLookup(DuesCreationTestBase):
             member.customer,
             self.income_account,
             amount=25.0,
+            selling_price_list=self._ensure_selling_price_list("EUR"),
             coverage_start=overlap_start,
             coverage_end=overlap_end,
         )
@@ -768,6 +788,7 @@ class TestHistoricalInvoiceLookup(DuesCreationTestBase):
             member.customer,
             self.income_account,
             amount=25.0,
+            selling_price_list=self._ensure_selling_price_list("EUR"),
             coverage_start=cov_start,
             coverage_end=cov_end,
             submit=False,
@@ -803,6 +824,7 @@ class TestHistoricalInvoiceLookup(DuesCreationTestBase):
             member.customer,
             self.income_account,
             amount=25.0,
+            selling_price_list=self._ensure_selling_price_list("EUR"),
             coverage_start=cov_start,
             coverage_end=cov_end,
             submit=False,

@@ -801,6 +801,7 @@ class TestVIPImportRobustness(FrappeTestCase):
         }
 
         try:
+            # Mock justified: fault injection: the volunteer_record write raises, every other write runs for real
             with patch.object(frappe.db, "set_value", failing_set_value):
                 from verenigingen.verenigingen.doctype.vip_import.vip_import import (
                     _process_single_row,
@@ -863,6 +864,7 @@ class TestVIPImportRobustness(FrappeTestCase):
         }
 
         try:
+            # Mock justified: fault injection: injected deadlock on the volunteer_record write, every other write runs for real
             with patch.object(frappe.db, "set_value", deadlocking_set_value):
                 from verenigingen.verenigingen.doctype.vip_import.vip_import import (
                     _process_single_row,

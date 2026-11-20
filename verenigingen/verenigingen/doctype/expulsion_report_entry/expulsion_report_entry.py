@@ -331,7 +331,7 @@ def get_expulsion_statistics(filters: dict | None = None):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def generate_expulsion_governance_report(date_range=None, chapter: str = None, include_appeals=True):
+def generate_expulsion_governance_report(date_range=None, chapter: str = None, include_appeals: bool = True):
     """Generate comprehensive governance report for expulsions.
 
     Args:

@@ -249,16 +249,16 @@ def submit_multiple_expenses(expenses):
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_organization_options(organization_type: str, volunteer_name: str | None = None):
-    """Get organization options for the current volunteer."""
+def get_organization_options(organization_type: str):
+    """Get organization options for the current volunteer.
+
+    Deliberately takes no volunteer id: a caller-supplied one was an ownership
+    bypass and an existence oracle (#2769). Frappe drops request arguments the
+    signature does not declare, so a stale client sending one is ignored.
+    """
+    volunteer_name = get_volunteer_for_current_user()
     if not volunteer_name:
-        volunteer_name = get_volunteer_for_current_user()
-        if not volunteer_name:
-            return {"success": False, "message": _("No volunteer record found")}
-        volunteer = frappe.get_doc("Volunteer", volunteer_name)
-        if not volunteer:
-            return []
-        volunteer_name = volunteer.name
+        return {"success": False, "message": _("No volunteer record found")}
 
     organizations = get_volunteer_organizations(volunteer_name)
 

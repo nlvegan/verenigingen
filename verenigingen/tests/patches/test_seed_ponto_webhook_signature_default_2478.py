@@ -47,7 +47,7 @@ class TestSeedPontoWebhookSignatureDefault(FrappeTestCase):
 
     def test_a_missing_row_among_saved_rows_is_seeded_to_1(self):
         frappe.db.sql("delete from tabSingles where doctype=%s and field=%s", (DT, FIELD))
-        self.assertEqual(frappe.get_single(DT).get(FIELD), 0, "control: the form really reads it unticked")
+        self.assertIsNone(_signature_row_2478(), "control: the row is missing before the patch")
         self._run_seed_patch_2478()
         self.assertEqual(_signature_row_2478(), "1")
         self.assertEqual(frappe.get_single(DT).get(FIELD), 1)
@@ -63,6 +63,14 @@ class TestSeedPontoWebhookSignatureDefault(FrappeTestCase):
         frappe.db.sql("delete from tabSingles where doctype=%s", DT)
         self._run_seed_patch_2478()
         self.assertIsNone(_signature_row_2478())
+
+    def test_a_blank_or_null_row_is_seeded_to_1(self):
+        """#2565: the 2478 patch shares the #2509 seed, which treats blank/NULL like missing."""
+        for blank in ("", None):
+            frappe.db.sql("delete from tabSingles where doctype=%s and field=%s", (DT, FIELD))
+            frappe.db.sql("insert into tabSingles (doctype, field, value) values (%s, %s, %s)", (DT, FIELD, blank))
+            self._run_seed_patch_2478()
+            self.assertEqual(_signature_row_2478(), "1", repr(blank))
 
     def test_it_is_idempotent(self):
         frappe.db.sql("delete from tabSingles where doctype=%s and field=%s", (DT, FIELD))

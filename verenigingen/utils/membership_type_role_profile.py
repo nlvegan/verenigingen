@@ -5,7 +5,9 @@ Simple utility functions for assigning/removing role profiles based on membershi
 Called from:
 - Contribution Amendment Request (when membership type changes)
 - Member approval workflow (when membership is first created)
-- Member termination workflow (when membership ends)
+
+Profiles are read from and written to the ``role_profiles`` child table (#2434): the
+deprecated ``User.role_profile_name`` mirrors only the FIRST profile.
 
 Unlike the chapter/team role profile managers which handle complex entity-based assignments,
 this utility handles the simpler case where each membership type has exactly one role profile.
@@ -19,6 +21,10 @@ from typing import Dict, Optional
 import frappe
 from frappe import _
 
+from verenigingen.services.member.account.user_role_profile_calculator import (
+    _has_multi_profile_support,
+    get_user_role_profiles,
+)
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
@@ -36,6 +42,18 @@ def get_role_profile_for_membership_type(membership_type: str) -> Optional[str]:
         return None
 
     return frappe.db.get_value("Membership Type", membership_type, "role_profile")
+
+
+def _add_role_profile(user_doc, role_profile: str) -> None:
+    """Add a profile beside the user's others, through the store Frappe reads.
+
+    Setting only the deprecated ``role_profile_name`` is discarded by
+    ``User.move_role_profile_name_to_role_profiles`` whenever it already equals the value.
+    """
+    if _has_multi_profile_support():
+        user_doc.append("role_profiles", {"role_profile": role_profile})
+    else:
+        user_doc.role_profile_name = role_profile
 
 
 def assign_membership_type_role_profile(user: str, membership_type: str) -> Dict:
@@ -81,10 +99,10 @@ def assign_membership_type_role_profile(user: str, membership_type: str) -> Dict
         frappe.logger().info(f"[Membership Role Profile] Skipping disabled user: {user}")
         return {"success": False, "message": _("User is disabled: {0}").format(user)}
 
-    # Get current role profile
-    current_profile = frappe.db.get_value("User", user, "role_profile_name")
+    # Every profile the user holds, not just the first (#2434)
+    current_profiles = get_user_role_profiles(user)
 
-    if current_profile == role_profile:
+    if role_profile in current_profiles:
         frappe.logger().info(
             f"[Membership Role Profile] User {user} already has role profile: {role_profile}"
         )
@@ -97,7 +115,7 @@ def assign_membership_type_role_profile(user: str, membership_type: str) -> Dict
     # Assign the role profile
     try:
         user_doc_full = frappe.get_doc("User", user)
-        user_doc_full.role_profile_name = role_profile
+        _add_role_profile(user_doc_full, role_profile)
 
         result = secure_document_operation(
             operation="save",
@@ -115,7 +133,7 @@ def assign_membership_type_role_profile(user: str, membership_type: str) -> Dict
                 "success": True,
                 "message": _("Role profile {0} assigned successfully").format(role_profile),
                 "role_profile": role_profile,
-                "previous_profile": current_profile,
+                "previous_profiles": current_profiles,
             }
         else:
             return {
@@ -129,66 +147,6 @@ def assign_membership_type_role_profile(user: str, membership_type: str) -> Dict
             "Membership Role Profile Error",
         )
         return {"success": False, "message": _("Error assigning role profile: {0}").format(str(e))}
-
-
-def remove_membership_role_profile(user: str) -> Dict:
-    """
-    Remove membership-based role profile from user (on termination).
-
-    This clears the user's role_profile_name field. In practice, this is called
-    when a member terminates their membership entirely.
-
-    Args:
-        user: User email/name
-
-    Returns:
-        dict with success status and message
-    """
-    if not user:
-        return {"success": False, "message": _("No user specified")}
-
-    # Check if user exists
-    if not frappe.db.exists("User", user):
-        return {"success": False, "message": _("User not found: {0}").format(user)}
-
-    # Get current role profile
-    current_profile = frappe.db.get_value("User", user, "role_profile_name")
-
-    if not current_profile:
-        return {"success": True, "message": _("User has no role profile to remove"), "already_removed": True}
-
-    # Remove the role profile
-    try:
-        user_doc = frappe.get_doc("User", user)
-        user_doc.role_profile_name = None
-
-        result = secure_document_operation(
-            operation="save",
-            doc=user_doc,
-            justification="Removing role profile due to membership termination",
-            required_permissions=["User:write"],
-        )
-
-        if result.success:
-            frappe.logger().info(
-                f"[Membership Role Profile] Removed role profile {current_profile} from user {user}"
-            )
-            return {
-                "success": True,
-                "message": _("Role profile removed successfully"),
-                "previous_profile": current_profile,
-            }
-        else:
-            return {
-                "success": False,
-                "message": _("Failed to remove role profile: {0}").format("; ".join(result.errors)),
-            }
-
-    except Exception as e:
-        frappe.log_error(
-            f"Error removing role profile from user {user}: {str(e)}", "Membership Role Profile Error"
-        )
-        return {"success": False, "message": _("Error removing role profile: {0}").format(str(e))}
 
 
 def update_membership_type_role_profile(
