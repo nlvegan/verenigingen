@@ -2699,14 +2699,30 @@ def _read_uploaded_return_file(file_url):
     """Return the content of an uploaded File the caller may read, resolved by its File doc.
 
     The URL is only a lookup key into ``tabFile``: no caller-supplied path is ever opened.
-    An unknown URL and a File the caller may not read are refused with the SAME exception
-    and message, so the endpoint is not an oracle for which uploads exist.
+    An unknown URL, a File the caller may not read and a File that is not a local upload
+    are refused with the SAME exception and message.
+
+    The lookup is a permission-filtered ``get_list``, so an unknown and a forbidden URL both
+    stop after the same single query (equal query count, #3031 review N1). File's
+    ``permission_query_conditions`` mirrors ``File.has_permission`` (owner, public, shares,
+    readable attachment doctype); the one residual difference is a record-level hook on the
+    attached doctype, so a surviving row is re-checked with ``has_permission`` and refused if
+    that disagrees. Only that last case costs extra queries.
     """
-    for name in frappe.get_all("File", filters={"file_url": str(file_url)}, pluck="name", limit=20):
+    refusal = _("Return file not found or not accessible")
+    rows = frappe.get_list("File", filters={"file_url": str(file_url)}, pluck="name", limit_page_length=0)
+    for name in rows:
         file_doc = frappe.get_doc("File", name)
-        if frappe.has_permission("File", "read", doc=file_doc):
+        # a remote (http...) url has no local content to read
+        if not (file_doc.file_url or "").startswith(("/files/", "/private/files/")):
+            continue
+        if not frappe.has_permission("File", "read", doc=file_doc):
+            continue
+        try:
             return file_doc.get_content()
-    frappe.throw(_("Return file not found or not accessible"), frappe.PermissionError)
+        except (OSError, frappe.DoesNotExistError):
+            continue
+    frappe.throw(refusal, frappe.PermissionError)
 
 
 def parse_pain002_file(file_content, strict=False):

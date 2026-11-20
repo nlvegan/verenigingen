@@ -41,7 +41,9 @@ SCRIPT = textwrap.dedent(
     import frappe
 
     SITE = {site!r}
-    EMAIL = "return-file-3031-wsgi@example.org"
+    import uuid
+    # per-run user: the endpoint is rate limited per user (100/hour), so a fixed user starves reruns
+    EMAIL = "rf3031-" + uuid.uuid4().hex[:8] + "@example.org"
     PW = "Return-3031-Wsgi-Xz!9"
     URL = "/api/method/verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.process_sepa_return_file"
     TABLES = ("User", "Has Role", "Contact", "Notification Settings", "Version", "File")
@@ -79,6 +81,10 @@ SCRIPT = textwrap.dedent(
         # private, owned by someone else, attached to nothing: the caller must not read it. Distinct
         # content: File.insert de-duplicates identical content onto the FIRST row's file_url.
         forbidden = make_file("return-3031-forbidden.xml", PAIN002 + "<!-- distinct hash -->", "Administrator")
+        remote = frappe.get_doc({{"doctype": "File", "file_name": "return-3031-remote.xml",
+                                 "file_url": "http://example.org/return-3031-remote.xml", "is_private": 0}})
+        remote.insert(ignore_permissions=True)
+        made_files.append(remote.name)
         frappe.db.commit()
         frappe.destroy()
 
@@ -115,6 +121,32 @@ SCRIPT = textwrap.dedent(
         call("url_traversal", file_url="/private/files/../../../../../../etc/passwd")
         call("nothing")
         out["forbidden_url_is_real"] = forbidden
+        call("url_remote", file_url="http://example.org/return-3031-remote.xml")
+
+        # query count of the lookup itself, as the same user, unknown vs forbidden
+        frappe.init(site=SITE)
+        frappe.connect()
+        frappe.set_user(EMAIL)
+        from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import _read_uploaded_return_file
+        def queries(url):
+            n = [0]
+            real = frappe.db.sql
+            def counting(*a, **k):
+                n[0] += 1
+                return real(*a, **k)
+            frappe.db.sql = counting
+            try:
+                _read_uploaded_return_file(url)
+            except Exception:
+                pass  # only the count matters here; the refusals are asserted over WSGI
+            finally:
+                del frappe.db.sql
+            return n[0]
+        queries(forbidden)  # warm caches (meta, roles) so the counted runs compare like with like
+        out["queries_unknown"] = queries("/private/files/return-3031-nonexistent.xml")
+        out["queries_forbidden"] = queries(forbidden)
+        out["queries_remote"] = queries("http://example.org/return-3031-remote.xml")
+        frappe.set_user("Administrator")
     finally:
         frappe.init(site=SITE)
         frappe.connect()
@@ -196,6 +228,16 @@ class TestReturnFileDialogUploadOverWsgi(EnhancedTestCase):
         self.assertEqual(unknown["status"], 403, unknown)
         self.assertIn("Return file not found or not accessible", json.dumps(unknown))
         self.assertEqual(unknown, forbidden)
+
+    def test_unknown_and_forbidden_urls_cost_the_same_number_of_queries(self):
+        """Query count is a channel too (review N1): the forbidden File must not cost more than a missing one."""
+        self.assertGreater(self.out["queries_unknown"], 0)
+        self.assertEqual(self.out["queries_unknown"], self.out["queries_forbidden"], self.out)
+
+    def test_a_remote_url_file_is_refused_like_an_unknown_one(self):
+        """A readable File row with an http file_url has no local content: refuse, do not 500 (review N3)."""
+        self.assertEqual(self._resp("url_remote"), self._resp("url_unknown"))
+        self.assertEqual(self.out["queries_remote"] > 0, True)
 
     def test_a_filesystem_path_is_never_opened(self):
         resp = self._resp("url_traversal")
