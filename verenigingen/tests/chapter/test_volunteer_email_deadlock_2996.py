@@ -458,6 +458,17 @@ class TestVolunteerEmailDeadlock2996(VereningingenTestCase):
             lambda: ts._send_leadership_change_notification(team, old_lead, None), old_lead
         )
 
+    def test_a_deadlock_on_the_new_leadership_user_read_escapes(self):
+        """The new lead's User read has its own re-raise; pin it separately from the old lead's."""
+        from verenigingen.events.subscribers import team_subscribers as ts
+
+        self._account_stub.start()
+        team = self._fake_team_2996(count=1)
+        new_lead = "t2996-new@test.invalid"
+        self._assert_deadlock_2996(
+            lambda: ts._send_leadership_change_notification(team, None, new_lead), new_lead
+        )
+
     def test_a_missing_leadership_user_is_still_tolerated(self):
         """Control: the user does not exist (DoesNotExistError), the notification still goes out."""
         from verenigingen.events.subscribers import team_subscribers as ts
