@@ -27,15 +27,21 @@ _MEMBER = {
     "name": "Member",
     "fields": [{"fieldname": "full_name", "fieldtype": "Data"}],
 }
+_SALES_INVOICE = {"doctype": "DocType", "name": "Sales Invoice", "fields": []}
 _MISSING = "def f():\n    member = frappe.get_doc('Member', 'x')\n    return member.zzz_no_such_field\n"
 _VALID = "def f():\n    member = frappe.get_doc('Member', 'x')\n    return member.full_name\n"
 
 
-def _build_app(root: Path, sources: dict) -> None:
+def _build_app(root: Path, sources: dict, erpnext: bool = True) -> None:
     (root / "pyproject.toml").write_text('[project]\nname = "verenigingen"\n')
     doctype_dir = root / "verenigingen" / "verenigingen" / "doctype" / "member"
     doctype_dir.mkdir(parents=True)
     (doctype_dir / "member.json").write_text(json.dumps(_MEMBER))
+    if erpnext:
+        # Stands in for erpnext being loaded: the validator refuses to judge without it.
+        si_dir = root / "verenigingen" / "verenigingen" / "doctype" / "sales_invoice"
+        si_dir.mkdir(parents=True)
+        (si_dir / "sales_invoice.json").write_text(json.dumps(_SALES_INVOICE))
     for rel, src in sources.items():
         path = root / "verenigingen" / "services" / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -60,13 +66,17 @@ _HOOK = ("--pre-commit", "--reduced-fp-mode")
 
 class _AppCase(unittest.TestCase):
     sources: dict = {}
+    erpnext = True
+    # Subdirectories of the temp dir the app is built under; the F1 tests put skip-pattern
+    # names ABOVE the app root.
+    parents: tuple = ()
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.root = Path(self._tmp.name) / "app"
-        self.root.mkdir()
-        _build_app(self.root, self.sources)
+        self.root = Path(self._tmp.name).joinpath(*self.parents, "app")
+        self.root.mkdir(parents=True)
+        _build_app(self.root, self.sources, self.erpnext)
         self.baseline = self.root / "scripts" / "validation" / "doctype_field_validator_baseline.txt"
 
 
@@ -99,6 +109,59 @@ class HookSeesTests(_AppCase):
         bad.write_bytes(b"x = '\xff\xfe'\n")
         result = _run(self.root, *_HOOK, "--no-baseline", "verenigingen/services/bad.py")
         self.assertIn("bad.py", result.stderr)
+
+
+class AncestorNamedLikeATestDirTests(_AppCase):
+    """F1: skip patterns match the path relative to the app root, not the absolute path."""
+    sources = {"missing.py": _MISSING}
+    parents = ("test_bench", "tests", "debug_x", "backup", "patches")
+
+    def test_a_finding_is_reported_in_a_checkout_under_test_like_ancestors(self):
+        # RED before the fix: '/test_' in the absolute path skipped every file, exit 0.
+        for args in (("verenigingen/services/missing.py",), ()):
+            with self.subTest(args=args):
+                result = _run(self.root, *_HOOK, "--no-baseline", *args)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("zzz_no_such_field not in Member", result.stdout)
+
+    def test_a_test_file_in_such_a_checkout_is_still_skipped(self):
+        # Control: the skip still works relative to the app root.
+        test_file = self.root / "verenigingen" / "tests" / "test_x.py"
+        test_file.parent.mkdir(parents=True)
+        test_file.write_text(_MISSING)
+        result = _run(self.root, *_HOOK, "--no-baseline", "verenigingen/tests/test_x.py")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class WithoutErpnextTests(_AppCase):
+    sources = {"missing.py": _MISSING}
+    erpnext = False
+
+    def test_without_erpnext_doctypes_the_check_is_skipped_not_blocking(self):
+        # RED before: findings on erpnext doctypes would be NEW and block; here the seeded
+        # finding must not block because the check cannot be trusted.
+        result = _run(self.root, *_HOOK, "verenigingen/services/missing.py")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Sales Invoice not loaded", result.stdout)
+
+    def test_update_baseline_refuses_without_erpnext(self):
+        result = _run(self.root, "--update-baseline")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertFalse(self.baseline.exists())
+
+
+class UnvalidatedSummaryTests(_AppCase):
+    sources = {"valid.py": _VALID}
+
+    def test_an_unprocessable_file_is_counted_on_stdout_and_a_syntax_error_is_not(self):
+        services = self.root / "verenigingen" / "services"
+        (services / "bad.py").write_bytes(b"x = '\xff\xfe'\n")
+        (services / "syntax.py").write_text("def (:\n")
+        result = _run(self.root, *_HOOK, "--no-baseline", "verenigingen/services/bad.py",
+                      "verenigingen/services/syntax.py")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("1 file(s) could not be validated", result.stdout)
+        self.assertNotIn("syntax.py", result.stderr)
 
 
 class ScanAndHookAgreeTests(_AppCase):

@@ -48,6 +48,7 @@ class AccurateFieldValidator:
         self._apply_custom_fields_to_doctypes()
         self.child_table_mapping = self._build_child_table_mapping()
         self.issues = []
+        self.unvalidated_files = 0
         
         # Build comprehensive exclusion patterns
         self.excluded_patterns = self._build_excluded_patterns()
@@ -715,6 +716,21 @@ class AccurateFieldValidator:
         except ValueError:
             return str(file_path)
 
+    def is_test_or_debug_file(self, path: Path) -> bool:
+        """Pre-commit mode validates production files only. Shared by the app scan and the
+        per-file path: the hook's own `exclude` regex only matches top-level tests/, so without
+        this the hook (file mode) saw test files the scan (and the baseline) never did (#2960)."""
+        rel = self._rooted_rel_path(path)
+        return any(pattern in rel for pattern in PRE_COMMIT_SKIP_PATTERNS)
+
+    def _rooted_rel_path(self, file_path: Path) -> str:
+        """'/'-prefixed app-relative path, the string every skip pattern is matched against.
+
+        Matching the ABSOLUTE path made a checkout under any ancestor named tests/, test_*,
+        backup/ or patches/ skip every file silently (#2960 review F1).
+        """
+        return "/" + self._display_path(file_path).replace("\\", "/").lstrip("/")
+
     def validate_file(self, file_path: Path) -> List[ValidationIssue]:
         """Validate a single file"""
         violations = []
@@ -725,7 +741,7 @@ class AccurateFieldValidator:
             'archived_unused/', 'backup/', '.disabled', 'patches/',
         ]
         
-        if any(pattern in str(file_path) for pattern in skip_patterns):
+        if any(pattern in self._rooted_rel_path(file_path) for pattern in skip_patterns):
             return violations
             
         try:
@@ -741,6 +757,7 @@ class AccurateFieldValidator:
         except Exception as e:
             # Never silent (#2960): a blanket `pass` here hid three faults that made the whole
             # hook report nothing. stderr, so it shows in a hook run and in CI logs.
+            self.unvalidated_files += 1
             print(f"doctype_field_validator: could not validate {file_path}: "
                   f"{type(e).__name__}: {e}", file=sys.stderr)
             
@@ -756,14 +773,14 @@ class AccurateFieldValidator:
         # Check Python files
         for py_file in self.app_path.rglob("**/*.py"):
             # Skip certain directories
-            if any(skip in str(py_file) for skip in [
+            if any(skip in self._rooted_rel_path(py_file) for skip in [
                 'node_modules', '__pycache__', '.git', 'migrations',
                 'archived_unused', 'backup', '.disabled', 'patches'
             ]):
                 continue
                 
             # In pre-commit mode, skip test and debug files
-            if pre_commit and is_test_or_debug_file(py_file):
+            if pre_commit and self.is_test_or_debug_file(py_file):
                 continue
             
             files_checked += 1
@@ -795,14 +812,9 @@ class AccurateFieldValidator:
         return '\n'.join(report)
 
 
+# Present whenever erpnext is loaded; the baseline holds findings on erpnext doctypes.
+ERPNEXT_SENTINEL_DOCTYPE = "Sales Invoice"
 PRE_COMMIT_SKIP_PATTERNS = ['/tests/', '/test_', '/debug_', '/scripts/testing/', '/scripts/debug/']
-
-
-def is_test_or_debug_file(path: Path) -> bool:
-    """Pre-commit mode validates production files only. Shared by the app scan and the
-    per-file path: the hook's own `exclude` regex only matches top-level tests/, so without this
-    the hook (file mode) saw test files the scan (and so the baseline) never did (#2960)."""
-    return any(pattern in str(Path(path).resolve()) for pattern in PRE_COMMIT_SKIP_PATTERNS)
 
 
 BASELINE_PATH = Path(__file__).resolve().parent.parent / "doctype_field_validator_baseline.txt"
@@ -821,7 +833,8 @@ BASELINE_HEADER = """# Known field-reference findings (#2960) -- the ratchet bas
 # Only high-confidence findings are recorded (only those fail a commit). They include findings
 # on other apps' doctypes (frappe/erpnext/hrms/website) that a bench loads: this hook runs
 # locally on a bench only (it is not a CI job), unlike the #2323 baseline, so there is no
-# bench-vs-CI difference to scope away. A bench missing an app just yields fewer findings.
+# bench-vs-CI difference to scope away. A bench WITHOUT erpnext would see every erpnext-doctype
+# reference as new, so the hook then warns and skips (exit 0) instead of blocking.
 """
 
 
@@ -903,7 +916,7 @@ def main():
         print(f"🔍 Validating {len(file_paths)} files from pre-commit...")
         violations = []
         for file_path in file_paths:
-            if file_path.exists() and not (pre_commit and is_test_or_debug_file(file_path)):
+            if file_path.exists() and not (pre_commit and validator.is_test_or_debug_file(file_path)):
                 violations.extend(validator.validate_file(file_path))
     elif pre_commit:
         print("🚨 Running in pre-commit mode (production files only)...")
@@ -912,6 +925,13 @@ def main():
         print("🔍 Running comprehensive validation...")
         violations = validator.validate_app(pre_commit=pre_commit)
         
+    if (pre_commit or update_baseline) and ERPNEXT_SENTINEL_DOCTYPE not in validator.doctypes:
+        # A bench without erpnext loads none of its doctypes, so every reference to one would
+        # read as a NEW finding and block every commit (#2960 review F2). Do not guess.
+        print(f"⚠️  {ERPNEXT_SENTINEL_DOCTYPE} not loaded: erpnext is not on this bench, so field "
+              "references to its doctypes cannot be checked. Skipping the check (and the baseline).")
+        return 1 if update_baseline else 0
+
     if update_baseline:
         # Only what the hook can fail on: high confidence.
         recorded = [v for v in violations if v.confidence == "high"]
@@ -927,6 +947,10 @@ def main():
         violations = [v for v in violations if v.confidence != "high" or id(v) in fresh]
         print(f"Ratchet: {suppressed} baselined high-confidence finding(s) suppressed "
               f"({BASELINE_PATH.name}).")
+
+    if validator.unvalidated_files:
+        # stderr is hidden on a passing pre-commit run, so say it on stdout too.
+        print(f"⚠️  {validator.unvalidated_files} file(s) could not be validated (see stderr)")
 
     print("\n" + "="*50)
     report = validator.generate_report(violations)

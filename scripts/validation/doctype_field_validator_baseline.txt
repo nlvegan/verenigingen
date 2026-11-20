@@ -13,7 +13,8 @@
 # Only high-confidence findings are recorded (only those fail a commit). They include findings
 # on other apps' doctypes (frappe/erpnext/hrms/website) that a bench loads: this hook runs
 # locally on a bench only (it is not a CI job), unlike the #2323 baseline, so there is no
-# bench-vs-CI difference to scope away. A bench missing an app just yields fewer findings.
+# bench-vs-CI difference to scope away. A bench WITHOUT erpnext would see every erpnext-doctype
+# reference as new, so the hook then warns and skips (exit 0) instead of blocking.
 scripts/setup/deploy_role_profiles.py::Role Profile::modules::1
 scripts/validation/child_table_creation_validator.py::Dock Item::istable::1
 scripts/validation/doctype_loader.py::Dock Item::app::1
