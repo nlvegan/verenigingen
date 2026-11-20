@@ -52,6 +52,7 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 if TYPE_CHECKING:
     # Quoted in annotations only; imported at call time to avoid a module-load cycle.
@@ -688,6 +689,10 @@ class SEPAMandateManager(StatelessService):
                 },
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 already rolled the transaction back, 1205 left it half-applied: a failure
+            # RESULT would let the caller carry on against that (#2869, rule from #2700).
+            raise
         except Exception as e:
             self.logger.error(f"Error creating SEPA mandate for member {member}: {e}")
             return ValidationResult.failure(_("Error creating SEPA mandate: {0}").format(str(e)))
@@ -857,6 +862,10 @@ class SEPAMandateManager(StatelessService):
                 data={"mandates_count": len(mandates), "member": member},
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 already rolled the transaction back, 1205 left it half-applied: a failure
+            # RESULT would let the caller carry on against that (#2869, rule from #2700).
+            raise
         except Exception as e:
             self.logger.error(f"Error syncing SEPA mandates for member {member}: {e}")
             return ValidationResult.failure(_("Error syncing SEPA mandates: {0}").format(str(e)))
@@ -942,6 +951,10 @@ class SEPAMandateManager(StatelessService):
                 data={"deactivated_count": deactivated_count, "deactivated_mandates": deactivated_mandates},
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 already rolled the transaction back, 1205 left it half-applied: a failure
+            # RESULT would let the caller carry on against that (#2869, rule from #2700).
+            raise
         except Exception as e:
             self.logger.error(f"Error deactivating mandates for member {member}: {e}")
             return ValidationResult.failure(_("Error deactivating mandates: {0}").format(str(e)))
