@@ -26,6 +26,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import (
     EnhancedTestCase,
     suspend_insert_capture,
 )
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestParseMijnRoodRoles(EnhancedTestCase):
@@ -1051,7 +1052,7 @@ class TestEndTeamMembership(EnhancedTestCase):
         ]
         self.assertEqual(len(ended_rows), 1)
         self.assertEqual(ended_rows[0].is_active, 0)
-        self.assertEqual(str(ended_rows[0].to_date), today())
+        assert_written_today(self, ended_rows[0].to_date)
 
     # Reuse helpers from TestEnsureTeamMembership
     _create_team = TestEnsureTeamMembership._create_team
@@ -1495,7 +1496,7 @@ class TestRoleRevocationClosesAccess(EnhancedTestCase):
         row = self._team_member_row(team_name, volunteer_name)
         self.assertEqual(row.status, "Completed")
         self.assertEqual(row.is_active, 0)
-        self.assertEqual(str(row.to_date), today())
+        assert_written_today(self, row.to_date)
 
         # The point of the fix: on_team_members_change must have re-run and
         # dropped the team-derived profile.

@@ -15,6 +15,9 @@ Coverage strategy:
     controlled schedules -- robust to pre-existing rows on a shared test site.
 """
 
+from datetime import datetime
+from unittest.mock import patch
+
 import frappe
 from dateutil.relativedelta import relativedelta
 from frappe.utils import getdate, nowdate
@@ -79,11 +82,20 @@ class TestMembershipRevenueProjectionReport(VereningingenTestCase):
     # --------------------------------------------------------- get_data behaviour
 
     def test_default_projection_is_twelve_months(self):
-        data = report.get_data(None)
+        # One clock read shared with the report; two reads straddling a month
+        # rollover disagree on the first month (#697).
+        now = frappe.utils.now_datetime()
+        with patch("frappe.utils.now_datetime", return_value=now):
+            data = report.get_data(None)
         self.assertEqual(len(data), 12)
         # Months are consecutive, formatted YYYY-MM, starting this month.
-        expected_first = frappe.utils.now_datetime().replace(day=1).strftime("%Y-%m")
-        self.assertEqual(data[0]["month"], expected_first)
+        self.assertEqual(data[0]["month"], now.replace(day=1).strftime("%Y-%m"))
+
+    def test_projection_starts_in_the_new_month_at_the_first_second_of_it(self):
+        """Pinned at the rollover the clock race used to straddle (#697)."""
+        with patch("frappe.utils.now_datetime", return_value=datetime(2027, 1, 1, 0, 0, 0)):
+            data = report.get_data({"projection_months": 2})
+        self.assertEqual([row["month"] for row in data], ["2027-01", "2027-02"])
 
     def test_projection_months_filter_is_clamped(self):
         # QUIRK (pinned, backlog-worthy): the guard is `if filters.get(...)`, so a
