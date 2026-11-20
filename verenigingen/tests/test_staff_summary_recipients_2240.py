@@ -30,6 +30,7 @@ from verenigingen.tests.payment.test_sepa_literal_recipients import (
     _snapshot_rows,
 )
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.operation_result import OperationResult
 
 CONFIG = "Verenigingen Email Configuration"
 SOURCE = "verenigingen.services.communication.email_service.get_email_service"
@@ -41,8 +42,8 @@ KEYS = (WEEKLY_KEY, DUES_KEY, "termination_overdue")
 class _Mail:
     def __init__(self):
         self.service = MagicMock(name="EmailService")
-        self.service.send_simple_email.return_value = MagicMock(success=True, error_message=None)
-        self.service.send_templated_email.return_value = MagicMock(success=True, error_message=None)
+        self.service.send_simple_email.return_value = OperationResult.ok({})
+        self.service.send_templated_email.return_value = OperationResult.ok({})
 
     @property
     def recipients(self):
