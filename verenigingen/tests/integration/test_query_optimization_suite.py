@@ -354,7 +354,8 @@ class TestQueryOptimizationSuite(EnhancedTestCase):
         # No try/print: `except Exception: print` also swallowed the AssertionError (#3078).
         # ["name", "status"] was used here, but Customer has no `status` field, so both
         # functions returned False and the comparison could not discriminate. Use one set
-        # Customer really has (incl. the implicit `name`) and one it does not.
+        # Customer really has (incl. the implicit `name`) and one it does not. The False case
+        # can also be met by a validator's own `except Exception: return False`; the True case discriminates.
         for test_fields, expected in (
             (["name", "customer_name"], True),
             (["name", "no_such_customer_field"], False),
