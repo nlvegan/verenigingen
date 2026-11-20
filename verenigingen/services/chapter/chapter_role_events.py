@@ -65,19 +65,28 @@ def on_volunteer_member_relinked(volunteer):
     (profile sync first, then the role, raising BoardAccessWithdrawalError when it cannot),
     so a manually granted profile is treated exactly as #702 treats it (#2759 is open on that).
     New user: the role-profile sync, which is what a seat add does (BoardManager applies no
-    direct role grant, #1672); the profile brings the role, and derives none for an unseated
-    volunteer. A failed grant is logged, as there.
+    direct role grant, #1672); the profile brings the role. Only for a seated volunteer. A failed
+    grant is logged, as there. Insert and empty-to-filled `member` are not re-links: nothing runs.
     """
-    if volunteer.is_new() or not volunteer.has_value_changed("member"):
-        return
     previous = volunteer.get_doc_before_save()
     old_member = previous.get("member") if previous else None
-    old_user = frappe.db.get_value("Member", old_member, "user") if old_member else None
+    # Only a TRUE re-link. On insert has_value_changed("member") is True and is_new() is
+    # already False inside on_update; filling an EMPTY member adopts an orphan and is not
+    # what #2615 asks for (the sync would provision the user's roles and Employee).
+    if not old_member or not volunteer.has_value_changed("member"):
+        return
+    old_user = frappe.db.get_value("Member", old_member, "user")
     new_user = frappe.db.get_value("Member", volunteer.member, "user") if volunteer.member else None
     if old_user and old_user != new_user:
         assign_chapter_board_role(old_user)
-    if new_user and new_user != old_user:
+    # Only a seated volunteer confers board access; syncing an unseated one would only
+    # provision the user's ordinary roles and Employee, an unrequested side effect.
+    if new_user and new_user != old_user and _holds_active_seat(volunteer.name):
         _grant_board_profile_to(new_user)
+
+
+def _holds_active_seat(volunteer_name):
+    return bool(frappe.db.count("Chapter Board Member", {"volunteer": volunteer_name, "is_active": 1}))
 
 
 def _grant_board_profile_to(user):
