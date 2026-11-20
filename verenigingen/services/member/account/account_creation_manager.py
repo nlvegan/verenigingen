@@ -41,6 +41,7 @@ from frappe import _
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.dutch_name_utils import get_full_last_name
+from verenigingen.utils.employee_user_link import find_reusable_employee_of_user
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry
 from verenigingen.utils.secure_operations import follow_on_ignore_permissions
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
@@ -1050,7 +1051,8 @@ class AccountCreationManager:
         )
 
         # Check if employee already exists for this user
-        existing_employee = frappe.db.get_value("Employee", {"user_id": self.created_user}, "name")
+        # Active only (#2850): a Left/Inactive/Suspended Employee is never re-linked here
+        existing_employee = find_reusable_employee_of_user(self.created_user)
         if existing_employee:
             # Employee already exists, use it and continue with pipeline
             self.created_employee = existing_employee
