@@ -167,12 +167,8 @@ class TestSEPAOptimizations(EnhancedTestCase):
         real_pair = (mandate.name, "TEST-INV-REAL")
         result = service.get_sequence_types_batch(missing_pairs + [real_pair])
 
-        has_collected_usage = frappe.db.exists(
-            "SEPA Mandate Usage", {"parent": mandate.name, "status": "Collected"}
-        )
-        expected = "RCUR" if has_collected_usage else "FRST"
-        self.assertEqual(result, {f"{mandate.name}:TEST-INV-REAL": expected})
-        self.assertEqual(expected, "FRST")
+        # No Collected usage on a fresh mandate -> FRST (sign_date renewal rule only applies after one).
+        self.assertEqual(result, {f"{mandate.name}:TEST-INV-REAL": "FRST"})
 
     def test_configuration_api_endpoints(self):
         """Test configuration management API endpoints"""

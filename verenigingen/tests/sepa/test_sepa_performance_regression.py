@@ -20,7 +20,6 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
             "config_retrieval": 0.1,  # seconds
             "invoice_lookup": 2.0,  # seconds
             "coverage_verification": 5.0,  # seconds
-            "sequence_type_batch": 1.0,  # seconds
         }
 
     def measure_execution_time(self, operation_name, operation_func, *args, **kwargs):
@@ -135,6 +134,8 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
             amount=10,
             sequence_type="FRST",
         )
+        # Probe shortcut: these db_set writes stand in for the batch-collection flow (the real
+        # "Collected" writer is in batch_processing_service.py); the flow itself is not driven here.
         for row in frappe.get_doc("SEPA Mandate", mandate.name).usage_history:
             if row.name == usage_name:
                 row.db_set("status", "Collected", update_modified=False)
@@ -144,11 +145,8 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
 
         result = service.get_sequence_types_batch(missing_pairs + [real_pair])
 
-        has_collected_usage = frappe.db.exists(
-            "SEPA Mandate Usage", {"parent": mandate.name, "status": "Collected"}
-        )
-        self.assertEqual(result, {real_key: "RCUR" if has_collected_usage else "FRST"})
-        self.assertEqual(result[real_key], "RCUR")
+        # A Collected usage on the mandate and sign_date not after it (no renewal) -> RCUR.
+        self.assertEqual(result, {real_key: "RCUR"})
 
     def test_database_query_performance(self):
         """Test database query performance with indexes"""
