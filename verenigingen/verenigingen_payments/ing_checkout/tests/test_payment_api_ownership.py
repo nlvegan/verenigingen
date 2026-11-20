@@ -85,6 +85,28 @@ class _Pay2814Base(mandate_ownership._Base):
             is_membership_invoice=1,
         )
 
+    def _ing2814_plan_payment(self, member_name):
+        """A Payment Plan Payment owned by `member_name`.
+
+        Probe shortcut: no parent Payment Plan exists (`payment_plan` is mandatory), so mandatory
+        and link validation are skipped; only the `member` link matters to the owner rule.
+        """
+        with self.set_user("Administrator"):
+            row = frappe.get_doc(
+                {
+                    "doctype": "Payment Plan Payment",
+                    "installment_number": 1,
+                    "amount": 5.0,
+                    "member": member_name,
+                    "status": "Pending",
+                }
+            )
+            row.flags.ignore_mandatory = True
+            row.flags.ignore_links = True
+            row.insert()
+        self.track_doc("Payment Plan Payment", row.name)
+        return row
+
     def _ing2814_order(self, label, reference_doctype, reference_name):
         order_id = f"EX-{label}-{frappe.generate_hash(length=8)}"
         txn = get_or_create_transaction(
@@ -127,6 +149,43 @@ class TestGetPaymentStatusOwnership(_Pay2814Base):
             with self.assertRaises(frappe.PermissionError):
                 payment_api.get_payment_status(order)
         self.fake_client.get_order.assert_not_called()
+
+    def test_unknown_order_indistinguishable_from_foreign_member_referenced_order(self):
+        order = self._ing2814_order("MEM", "Member", self.victim.name)
+        with self.set_user(self.attacker):
+            unknown = self._observe(payment_api.get_payment_status, UNKNOWN_ORDER)
+            forbidden = self._observe(payment_api.get_payment_status, order)
+        self.assertEqual(forbidden["outcome"][0], "raised", forbidden)
+        self.assertEqual(unknown, forbidden)
+
+    def test_unknown_order_indistinguishable_from_foreign_plan_payment_order(self):
+        order = self._ing2814_order("PPP", "Payment Plan Payment", self._ing2814_plan_payment(self.victim.name).name)
+        with self.set_user(self.attacker):
+            unknown = self._observe(payment_api.get_payment_status, UNKNOWN_ORDER)
+            forbidden = self._observe(payment_api.get_payment_status, order)
+        self.assertEqual(forbidden["outcome"][0], "raised", forbidden)
+        self.assertEqual(unknown, forbidden)
+
+    def test_plan_payment_order_owner_allowed_and_foreign_refused(self):
+        own = self._ing2814_order("PPPOWN", "Payment Plan Payment", self._ing2814_plan_payment(self.attacker_member.name).name)
+        foreign = self._ing2814_order("PPPFOR", "Payment Plan Payment", self._ing2814_plan_payment(self.victim.name).name)
+        with self.set_user(self.attacker):
+            self.assertTrue(payment_api.get_payment_status(own)["success"])
+            with self.assertRaises(frappe.PermissionError):
+                payment_api.get_payment_status(foreign)
+        self.fake_client.get_order.assert_called_once_with(own)
+
+    def test_recorded_limitation_members_sharing_a_customer_share_orders_2493(self):
+        """RECORDED LIMITATION (#2493), not endorsed behaviour.
+
+        The Sales Invoice owner rule is `invoice.customer == caller Member.customer`, the same
+        rule mandate.py uses. A second Member linked to the victim's Customer therefore reads the
+        victim's order status. #2493 owns the decision; if it changes the rule, update this test.
+        """
+        frappe.db.set_value("Member", self.attacker_member.name, "customer", self.victim_customer)
+        with self.set_user(self.attacker):
+            result = payment_api.get_payment_status(self.victim_order)
+        self.assertEqual(result["customer_iban"], PAYER_IBAN)
 
     def test_staff_may_read_another_members_order(self):
         staff = self._staff_user(role="Verenigingen Staff")
@@ -193,6 +252,15 @@ class TestCreateIdealPaymentOwnership(_Pay2814Base):
         self.assertEqual(result, {"success": True})
         self.create_order.assert_called_once_with("Sales Invoice", self.own_invoice.name, 42.0, "probe")
 
+    def test_plan_payment_reference_owner_allowed_and_foreign_refused(self):
+        own = self._ing2814_plan_payment(self.attacker_member.name)
+        foreign = self._ing2814_plan_payment(self.victim.name)
+        with self.set_user(self.attacker):
+            self.assertEqual(self._create("Payment Plan Payment", own.name), {"success": True})
+            with self.assertRaises(frappe.PermissionError):
+                self._create("Payment Plan Payment", foreign.name)
+        self.create_order.assert_called_once()
+
     def test_own_member_reference_allowed(self):
         with self.set_user(self.attacker):
             result = self._create("Member", self.attacker_member.name)
@@ -213,9 +281,7 @@ class TestPaymentEndpointsOverRealRequest(_Pay2814Base):
     def test_unknown_matches_forbidden_over_wsgi(self):
         from frappe.utils import get_bench_path
 
-        password = mandate_ownership.TestMandateEndpointsOverRealRequest._create_committed_login(
-            self, self.attacker
-        )
+        password = self._create_committed_login(self.attacker)
         site = frappe.local.site
         script = textwrap.dedent(
             f"""

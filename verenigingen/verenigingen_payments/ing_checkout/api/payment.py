@@ -43,6 +43,9 @@ def _caller_owns_reference(reference_doctype, reference_name) -> bool:
     if not isinstance(reference_doctype, str) or not isinstance(reference_name, str):
         return False
     current_member = get_current_user_member_name()
+    # Looked up for every doctype so a Member- or Payment Plan Payment-referenced order costs the
+    # same queries as an invoice-referenced (or unknown) one (#1328).
+    member_customer = frappe.db.get_value("Member", current_member, "customer") if current_member else None
     if reference_doctype == "Member":
         owner = frappe.db.get_value("Member", reference_name, "name")
         mine = current_member
@@ -50,8 +53,10 @@ def _caller_owns_reference(reference_doctype, reference_name) -> bool:
         owner = frappe.db.get_value("Payment Plan Payment", reference_name, "member")
         mine = current_member
     elif reference_doctype == "Sales Invoice":
+        # Same customer rule as mandate.py. Two Members linked to one Customer both pass it
+        # (recorded limitation, not settled here: #2493).
         owner = frappe.db.get_value("Sales Invoice", reference_name, "customer")
-        mine = frappe.db.get_value("Member", current_member, "customer") if current_member else None
+        mine = member_customer
     else:
         return False
     return bool(owner and mine and owner == mine)
