@@ -243,6 +243,9 @@ def handle_leadership_notifications(event_name, event_data, **kwargs):
 
         frappe.logger("events").info(f"Sent leadership notifications for {team_name}")
 
+    except frappe.QueryDeadlockError:
+        # #2996: 1213 rolled the transaction back; do not report success / carry on.
+        raise
     except Exception as e:
         frappe.log_error(
             f"Failed to send leadership notifications: {str(e)}", "Team Leadership Notification Error"
@@ -529,6 +532,9 @@ def _send_leadership_change_notification(team, old_lead, new_lead):
 
         frappe.logger("events").info(f"Sent leadership change notifications for {team.name}")
 
+    except frappe.QueryDeadlockError:
+        # #2996: 1213 rolled the transaction back; do not report success / carry on.
+        raise
     except Exception as e:
         frappe.logger("events").warning(f"Failed to send leadership notifications: {str(e)}")
 

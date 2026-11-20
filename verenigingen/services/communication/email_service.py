@@ -683,6 +683,8 @@ class EmailService(StatelessService):
                 self.logger.warning(f"Failed to create communication record: {'; '.join(result.errors)}")
                 return None
 
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             self.logger.error(f"Communication record creation failed: {str(e)}")
             return None
@@ -699,6 +701,8 @@ class EmailService(StatelessService):
             )
 
             return get_email_configuration_service()
+        except frappe.QueryDeadlockError:
+            raise
         except Exception:
             # Configuration service not available - continue without it
             return None
@@ -765,6 +769,8 @@ class EmailService(StatelessService):
             if config_service and notification_key:
                 for recipient in recipients:
                     config_service.record_send(notification_key, self._cooldown_id(recipient, cooldown_scope))
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             self.logger.debug(f"Cooldown recording failed: {e}")
 
@@ -877,6 +883,8 @@ class EmailService(StatelessService):
                 "default_sender": getattr(settings, "default_email_sender", "noreply@verenigingen.org"),
                 "contact_email": getattr(settings, "contact_email", ""),
             }
+        except frappe.QueryDeadlockError:
+            raise
         except Exception:
             return {
                 "organization_name": "",

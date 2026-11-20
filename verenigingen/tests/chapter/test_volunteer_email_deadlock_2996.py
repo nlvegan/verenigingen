@@ -35,17 +35,21 @@ ORDINARY = 1064  # a syntax error: resumable, must keep today's failure-result b
 
 
 @contextmanager
-def _driver_error_on_2996(fragment, code):
-    """Raise ``OperationalError(code)`` at the cursor for queries containing ``fragment``.
+def _driver_error_on_2996(fragment, code, skip=0):
+    """Raise ``OperationalError(code)`` at the cursor for queries (or their bound values)
+    containing ``fragment``. ``skip`` lets that many matches through first, to fail MID-loop.
 
     A fresh exception per raise. ``state["hits"]`` proves the injected query really ran, so a
     test cannot pass because the code never reached the query."""
     cursor = frappe.db._cursor
     real_execute = cursor.execute
-    state = {"hits": 0}
+    state = {"hits": 0, "seen": 0}
 
     def execute(query, *args, **kwargs):
-        if fragment in str(query).lower():
+        if fragment in (str(query) + " " + str(args)).lower():
+            state["seen"] += 1
+            if state["seen"] <= skip:
+                return real_execute(query, *args, **kwargs)
             state["hits"] += 1
             raise frappe.db.OperationalError(code, f"injected {code}")
         return real_execute(query, *args, **kwargs)
@@ -60,6 +64,13 @@ ACCOUNT_SELECT = "from `tabemail account`"
 VOLUNTEER_SELECT = "from `tabvolunteer`"
 SINGLES_SELECT = "from `tabsingles`"
 TODO_SELECT = "from `tabtodo`"
+CONFIG_READ = "verenigingen email configuration"
+SETTINGS_READ = "verenigingen settings"
+
+
+def _succeeded_2996(result):
+    """send_volunteer_email returns a dict on develop and an OperationResult after #2984/#2995."""
+    return result["success"] if isinstance(result, dict) else result.success
 
 
 class TestVolunteerEmailDeadlock2996(VereningingenTestCase):
@@ -178,12 +189,14 @@ class TestVolunteerEmailDeadlock2996(VereningingenTestCase):
         volunteer = self._volunteer_2996()
         self._assert_deadlock_2996(lambda: self._send_volunteer_2996(volunteer), VOLUNTEER_SELECT)
 
-    def test_lock_timeout_on_the_volunteer_lookup_escapes_the_helper(self):
+    def test_lock_timeout_on_the_volunteer_lookup_stays_a_failure_result_in_the_helper(self):
+        """1205 leaves the transaction intact; not worth aborting a Chapter Board Member insert."""
         volunteer = self._volunteer_2996()
-        with _driver_error_on_2996(VOLUNTEER_SELECT, LOCK_TIMEOUT) as state:
-            with self.assertRaises(frappe.QueryTimeoutError):
-                self._send_volunteer_2996(volunteer)
-        self.assertGreaterEqual(state["hits"], 1)
+        self.expectErrorLog("Volunteer Email Error")
+        result = self._assert_failure_result_2996(
+            lambda: self._send_volunteer_2996(volunteer), VOLUNTEER_SELECT, LOCK_TIMEOUT
+        )
+        self.assertFalse(_succeeded_2996(result))
 
     def test_deadlock_inside_the_email_service_escapes_the_helper(self):
         """Through the real stack: helper -> get_email_service -> send path -> queue INSERT."""
@@ -197,7 +210,7 @@ class TestVolunteerEmailDeadlock2996(VereningingenTestCase):
         result = self._assert_failure_result_2996(
             lambda: self._send_volunteer_2996(volunteer), VOLUNTEER_SELECT, ORDINARY
         )
-        self.assertFalse(result["success"])
+        self.assertFalse(_succeeded_2996(result))
 
     # ---------------------------------------- the ChapterBoardMember hooks, real doc insert
 
@@ -256,4 +269,136 @@ class TestVolunteerEmailDeadlock2996(VereningingenTestCase):
         with _driver_error_on_2996(QUEUE_INSERT, DEADLOCK) as state:
             with self.assertRaises(frappe.QueryDeadlockError):
                 frappe.delete_doc("Chapter Board Member", name, force=True)
+        self.assertGreaterEqual(state["hits"], 1)
+
+    # ------------------------------------------------ config reads on the send path (round 2)
+
+    def test_deadlock_on_a_config_read_escapes_instead_of_reporting_queued(self):
+        """Before: _get_config swallowed it into None, which reads as 'enabled', so the send
+        returned success/queued although the transaction was gone."""
+        self._account_stub.start()
+        self._assert_deadlock_2996(
+            lambda: self.service.send_simple_email(self.recipient, "subject", "body"), CONFIG_READ
+        )
+
+    def test_deadlock_on_the_cooldown_config_read_escapes_record_cooldown(self):
+        self._assert_deadlock_2996(
+            lambda: self.service._record_cooldown("chapter_board_added", [self.recipient]), CONFIG_READ
+        )
+
+    def test_deadlock_on_the_settings_read_escapes_the_constructor(self):
+        self._assert_deadlock_2996(EmailService, SETTINGS_READ)
+
+    def test_deadlock_on_the_communication_insert_escapes(self):
+        self._as_administrator_2996()  # the insert goes through a permission-checked wrapper
+        self._assert_deadlock_2996(
+            lambda: self.service._create_communication_record([self.recipient], "s", "c"),
+            "tabcommunication",
+        )
+
+    def test_an_ordinary_config_read_error_still_degrades(self):
+        """Control: an ordinary error on the config read keeps the fail-open behaviour."""
+        self._account_stub.start()
+        with _driver_error_on_2996(CONFIG_READ, ORDINARY) as state:
+            result = self.service.send_simple_email(self.recipient, "subject", "body")
+        self.assertGreaterEqual(state["hits"], 1)
+        self.assertTrue(result.success)
+
+    # ---------------------------------------------- callers with their own outer handler
+
+    def _as_administrator_2996(self):
+        """The batch API's security decorators and the permission-checked Communication insert
+        need a privileged session; restored on cleanup."""
+        self.addCleanup(frappe.set_user, frappe.session.user)
+        frappe.set_user("Administrator")
+
+    def _fake_team_2996(self, count=3):
+        members = []
+        for i in range(count):
+            member = self.create_test_member(
+                first_name=f"Tm{i}", last_name="Dead", email=f"t2996.{frappe.generate_hash(length=8)}@test.invalid"
+            )
+            members.append(
+                frappe._dict(is_active=1, volunteer=self.create_test_volunteer(member=member.name).name)
+            )
+        # Probe shortcut: a plain object, not a saved Team; the sends below are real.
+        return frappe._dict(name="T-2996", team_members=members, team_lead=None)
+
+    def test_a_mid_loop_deadlock_escapes_the_team_leadership_notification(self):
+        from verenigingen.events.subscribers import team_subscribers as ts
+
+        self._account_stub.start()
+        team = self._fake_team_2996()
+        with _driver_error_on_2996(QUEUE_INSERT, DEADLOCK, skip=1) as state:
+            with self.assertRaises(frappe.QueryDeadlockError):
+                ts._send_leadership_change_notification(team, None, None)
+        self.assertGreaterEqual(state["hits"], 1, "the loop never reached a second send")
+
+    def test_a_mid_loop_deadlock_escapes_the_team_leadership_event_handler(self):
+        from verenigingen.events.subscribers import team_subscribers as ts
+
+        self._account_stub.start()
+        team = self._fake_team_2996()
+        with mock.patch.object(ts, "get_doc_if_exists", return_value=team):
+            with _driver_error_on_2996(QUEUE_INSERT, DEADLOCK, skip=1) as state:
+                with self.assertRaises(frappe.QueryDeadlockError):
+                    ts.handle_leadership_notifications("e", {"team": "T-2996"})
+        self.assertGreaterEqual(state["hits"], 1)
+
+    def test_an_ordinary_mid_loop_error_is_still_swallowed_by_the_team_notification(self):
+        from verenigingen.events.subscribers import team_subscribers as ts
+
+        self._account_stub.start()
+        team = self._fake_team_2996()
+        with _driver_error_on_2996(QUEUE_INSERT, ORDINARY, skip=1) as state:
+            ts._send_leadership_change_notification(team, None, None)  # must not raise
+        self.assertGreaterEqual(state["hits"], 1)
+
+    def _batch_result_2996(self):
+        return {
+            "batches_created": 1,
+            "total_invoices": 1,
+            "optimization_report": {
+                "summary": {},
+                "batch_details": [
+                    {
+                        "name": f"B-{frappe.generate_hash(length=6)}",
+                        "invoice_count": 1,
+                        "total_amount": 1,
+                        "risk_level": "Low",
+                    }
+                ],
+            },
+        }
+
+    def _three_finance_emails_2996(self):
+        return [f"f2996.{frappe.generate_hash(length=8)}@test.invalid" for _ in range(3)]
+
+    def test_a_mid_loop_deadlock_escapes_the_batch_creation_notification(self):
+        from verenigingen.verenigingen_payments.api import dd_batch_scheduler as dd
+
+        self._account_stub.start()
+        with mock.patch.object(dd, "get_financial_admin_emails", return_value=self._three_finance_emails_2996()):
+            with _driver_error_on_2996(QUEUE_INSERT, DEADLOCK, skip=1) as state:
+                with self.assertRaises(frappe.QueryDeadlockError):
+                    dd.send_batch_creation_notification(self._batch_result_2996())
+        self.assertGreaterEqual(state["hits"], 1, "the loop never reached a second send")
+
+    def test_a_deadlock_escapes_the_whitelisted_run_batch_creation_now(self):
+        """Upstream stubs, stated: batch creation and the day/holiday gates are replaced so the
+        request reaches the notification; the notification and the mail send are real."""
+        from verenigingen.verenigingen_payments.api import dd_batch_scheduler as dd
+
+        self._account_stub.start()
+        self._as_administrator_2996()
+        with mock.patch.object(dd, "should_skip_batch_creation", return_value=False), mock.patch.object(
+            dd, "is_bank_holiday", return_value=False
+        ), mock.patch.object(
+            dd, "create_optimal_batches", return_value={"success": True, **self._batch_result_2996()}
+        ), mock.patch.object(
+            dd, "get_financial_admin_emails", return_value=self._three_finance_emails_2996()
+        ):
+            with _driver_error_on_2996(QUEUE_INSERT, DEADLOCK, skip=1) as state:
+                with self.assertRaises(frappe.QueryDeadlockError):
+                    dd.run_batch_creation_now()
         self.assertGreaterEqual(state["hits"], 1)

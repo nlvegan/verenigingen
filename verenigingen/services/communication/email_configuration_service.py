@@ -53,6 +53,8 @@ class EmailConfigurationService:
                 return None
 
             return frappe.get_single("Verenigingen Email Configuration")
+        except frappe.QueryDeadlockError:
+            raise
         except Exception:
             return None
 
@@ -127,6 +129,8 @@ class EmailConfigurationService:
         # empty config so the notification falls back to default behaviour.
         try:
             return config.get_notification_config(notification_key)
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             frappe.logger().warning(f"Failed to read notification config for '{notification_key}': {e}")
             return {}
@@ -263,6 +267,8 @@ class EmailConfigurationService:
         # Defensive: only delegate if the linked Notification still exists and is enabled
         try:
             enabled = frappe.db.get_value("Notification", notification_name, "enabled")
+        except frappe.QueryDeadlockError:
+            raise
         except Exception:
             return None
 
