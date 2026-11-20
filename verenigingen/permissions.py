@@ -1082,16 +1082,8 @@ def has_address_permission(doc, user=None, ptype=None):
         if member_primary_address == address_name:
             return True
 
-    # Fall back to standard Contact-based permissions. has_common_link needs the
-    # Address document (it reads doc.links); this function also accepts a bare
-    # address name as `doc`, so load the document in that case rather than handing
-    # a string to has_common_link (which would raise AttributeError).
-    contact_name = frappe.db.get_value("Contact", {"email_id": user}, "name")
-    if contact_name:
-        contact = frappe.get_doc("Contact", contact_name)
-        address_doc = doc if hasattr(doc, "links") else frappe.get_doc("Address", address_name)
-        return contact.has_common_link(address_doc)
-
+    # #2436: no Contact.email_id fallback. A login that merely equals the email of a
+    # Contact linked to the Address is not an owner; identity is Member.user only (#2205).
     return False
 
 
@@ -1159,25 +1151,10 @@ def get_address_permission_query(user):
             """
             )
 
-    # Also check Contact-based addresses (original ERPNext behavior)
-    contact_name = frappe.db.get_value("Contact", {"email_id": user}, "name")
-    if contact_name:
-        escaped_contact_name = frappe.db.escape(contact_name)
-        conditions.append(
-            f"""
-            `tabAddress`.name in (
-                SELECT parent FROM `tabDynamic Link`
-                WHERE parenttype = 'Address'
-                AND link_doctype = 'Contact'
-                AND link_name = {escaped_contact_name}
-            )
-        """
-        )
-
     if conditions:
         return f"({' OR '.join(conditions)})"
 
-    # No member or contact found - no access
+    # No Member.user link (and not a board member): no access
     return "1=0"
 
 
