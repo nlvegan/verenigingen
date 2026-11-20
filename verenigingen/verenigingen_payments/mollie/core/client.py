@@ -19,11 +19,15 @@ from verenigingen.verenigingen_payments.core.resilience import (
     with_circuit_breaker,
     with_retry,
 )
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 # Import configuration service for cached settings access
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 from ..exceptions import MolliePaymentError, MollieWebhookError
+
+# Account-level lists `list_resource_page` may read.
+_LISTABLE_RESOURCES = frozenset({"payments", "refunds", "chargebacks"})
 
 
 class MollieClient:
@@ -251,6 +255,81 @@ class MollieClient:
             error_msg = f"Failed to get subscription {subscription_id} for customer {customer_id}: {e}"
             frappe.log_error(error_msg, "Mollie Client")
             raise MolliePaymentError(error_msg, original_error=e)
+
+    def list_subscription_payments(self, customer_id: str, subscription_id: str, limit: int = 250) -> Any:
+        """
+        First page of a subscription's payments (newest first), with retry.
+
+        A pure read, so retrying cannot create or charge anything. Returns the
+        SDK's paginated list; advance it with `get_next_payments_page`, not
+        `page.get_next()`, so every page request is retried too (#929).
+
+        The retried part is `_read_subscription_payments`; the error is logged
+        and wrapped here, once, after the retries are exhausted, rather than
+        once per attempt.
+
+        Raises:
+            MolliePaymentError: When the page cannot be retrieved after retries
+        """
+        try:
+            return self._read_subscription_payments(customer_id, subscription_id, limit)
+        except Exception as e:
+            error_msg = (
+                f"Failed to list payments of subscription {subscription_id} for customer {customer_id}: {e}"
+            )
+            frappe.log_error(title="Mollie Client", message=error_msg)
+            raise MolliePaymentError(error_msg, original_error=e)
+
+    @with_retry(RetryConfig(max_attempts=3, base_delay=1.0, max_delay=30.0), "list_subscription_payments")
+    def _read_subscription_payments(self, customer_id: str, subscription_id: str, limit: int) -> Any:
+        client = self._get_mollie_client()
+        subscription = client.customers.get(customer_id).subscriptions.get(subscription_id)
+        return subscription.payments.list(limit=limit)
+
+    def get_next_payments_page(self, page: Any) -> Any:
+        """
+        The page after `page` from `list_subscription_payments`, with retry (a pure read).
+
+        Raises:
+            MolliePaymentError: When the page cannot be retrieved after retries
+        """
+        try:
+            return self._read_next_payments_page(page)
+        except Exception as e:
+            error_msg = f"Failed to fetch the next page of Mollie payments: {e}"
+            frappe.log_error(title="Mollie Client", message=error_msg)
+            raise MolliePaymentError(error_msg, original_error=e)
+
+    @with_retry(RetryConfig(max_attempts=3, base_delay=1.0, max_delay=30.0), "get_next_payments_page")
+    def _read_next_payments_page(self, page: Any) -> Any:
+        return page.get_next()
+
+    def list_resource_page(self, resource: str, **params: Any) -> Any:
+        """
+        First page of an account-level Mollie list (payments, refunds or chargebacks), with retry.
+
+        A pure read. Advance the returned page with `get_next_payments_page` (it only
+        calls `page.get_next()`, so it serves any list), or pass `from=<last id>` in a
+        new call, so every page request is retried (#2755). The error is logged and
+        wrapped once, after the retries are exhausted.
+
+        Raises:
+            ValueError: For a resource outside the allowlist (a programming error, not retried)
+            MolliePaymentError: When the page cannot be retrieved after retries
+        """
+        if resource not in _LISTABLE_RESOURCES:
+            raise ValueError(f"Cannot list Mollie resource {resource!r}")
+        try:
+            return self._read_resource_page(resource, params)
+        except Exception as e:
+            reraise_if_job_timeout(e)
+            error_msg = f"Failed to list Mollie {resource}: {e}"
+            frappe.log_error(title="Mollie Client", message=error_msg)
+            raise MolliePaymentError(error_msg, original_error=e)
+
+    @with_retry(RetryConfig(max_attempts=3, base_delay=1.0, max_delay=30.0), "list_resource_page")
+    def _read_resource_page(self, resource: str, params: Dict[str, Any]) -> Any:
+        return getattr(self._get_mollie_client(), resource).list(**params)
 
     def update_subscription(self, customer_id: str, subscription_id: str, update_data: Dict[str, Any]) -> Any:
         """

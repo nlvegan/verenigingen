@@ -844,7 +844,7 @@ async function retrieveCustomerPayments() {
         if (response.message.error) {
             frappe.msgprint({
                 title: __('Error'),
-                message: response.message.error,
+                message: escapeHtml(response.message.error),
                 indicator: 'red'
             });
             return;
@@ -879,7 +879,7 @@ async function retrieveCustomerPayments() {
         frappe.hide_progress();
         frappe.msgprint({
             title: __('Error'),
-            message: __('Failed to retrieve payments: {0}', [error.message]),
+            message: __('Failed to retrieve payments: {0}', [escapeHtml(error.message)]),
             indicator: 'red'
         });
     }
@@ -1030,7 +1030,7 @@ async function processSelectedPayments() {
         if (response.message.error) {
             frappe.msgprint({
                 title: __('Error'),
-                message: response.message.error,
+                message: escapeHtml(response.message.error),
                 indicator: 'red'
             });
             return;
@@ -1049,7 +1049,7 @@ async function processSelectedPayments() {
         frappe.hide_progress();
         frappe.msgprint({
             title: __('Error'),
-            message: __('Failed to process payments: {0}', [error.message]),
+            message: __('Failed to process payments: {0}', [escapeHtml(error.message)]),
             indicator: 'red'
         });
     }
@@ -1089,17 +1089,17 @@ function displayProcessingResults(result) {
 
             let recordDisplay = '-';
             if (item.payment_entry) {
-                recordDisplay = `${item.payment_entry} (PE)`;
+                recordDisplay = `${escapeHtml(item.payment_entry)} (PE)`;
             } else if (item.bank_transaction) {
-                recordDisplay = `${item.bank_transaction} (BT)`;
+                recordDisplay = `${escapeHtml(item.bank_transaction)} (BT)`;
             }
 
             html += `<tr style="border-bottom: 1px solid #000;">`;
-            html += `<td class="px-2 py-1 font-mono text-xs">${item.payment_id}</td>`;
-            html += `<td class="px-2 py-1 font-semibold" style="color: ${statusColor};">${item.status}</td>`;
-            html += `<td class="px-2 py-1 text-xs">${item.member || '-'}</td>`;
+            html += `<td class="px-2 py-1 font-mono text-xs">${escapeHtml(item.payment_id)}</td>`;
+            html += `<td class="px-2 py-1 font-semibold" style="color: ${statusColor};">${escapeHtml(item.status)}</td>`;
+            html += `<td class="px-2 py-1 text-xs">${escapeHtml(item.member || '-')}</td>`;
             html += `<td class="px-2 py-1 text-xs">${recordDisplay}</td>`;
-            html += `<td class="px-2 py-1 text-xs">${item.error || item.skipped_reason || '-'}</td>`;
+            html += `<td class="px-2 py-1 text-xs">${escapeHtml(item.error || item.skipped_reason || '-')}</td>`;
             html += `</tr>`;
         });
 

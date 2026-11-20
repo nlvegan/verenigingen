@@ -511,7 +511,7 @@ def find_or_create_group_account(
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def reorganize_account_hierarchy(dry_run=True):
+def reorganize_account_hierarchy(dry_run: bool = True):
     """Reorganize existing accounts into proper group hierarchy based on group_type_mappings.
 
     For each account:
@@ -703,7 +703,7 @@ def reorganize_account_hierarchy(dry_run=True):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def reclassify_accounts_by_group_mappings(dry_run=True):
+def reclassify_accounts_by_group_mappings(dry_run: bool = True):
     """Re-classify existing ERPNext accounts based on configured group type mappings.
 
     Uses keyword matching to find the appropriate group for each account,

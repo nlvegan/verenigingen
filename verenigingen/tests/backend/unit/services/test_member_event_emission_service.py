@@ -170,15 +170,19 @@ class TestMemberEventEmissionServiceEmitEvents(unittest.TestCase):
 
         with patch.object(self.service, "should_skip_event_emission", return_value=False):
             with patch("verenigingen.events.member_events.emit_member_lifecycle_changed"):
-                with patch(
-                    "verenigingen.services.member.lifecycle.member_status_notification_service.get_member_status_notification_service"
-                ) as mock_notif_svc:
-                    result = self.service.emit_status_change_events(mock_member)
+                result = self.service.emit_status_change_events(mock_member)
 
-                    self.assertTrue(result["notification_sent"])
-                    mock_notif_svc.return_value.send_status_change_notification.assert_called_once_with(
-                        mock_member, "Pending", "Active"
-                    )
+                self.assertTrue(result["notification_sent"])
+                # The mail is queued for after the commit (#2735), not sent inline.
+                mock_frappe.enqueue.assert_called_once_with(
+                    method="verenigingen.services.member.lifecycle.member_status_notification_service."
+                    "send_status_change_notification_job",
+                    queue="short",
+                    enqueue_after_commit=True,
+                    member_name="MEM-001",
+                    old_status="Pending",
+                    new_status="Active",
+                )
 
     @patch("verenigingen.services.member.lifecycle.member_event_emission_service.frappe")
     def test_no_events_when_no_status_changes(self, mock_frappe):

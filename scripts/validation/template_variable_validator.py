@@ -730,46 +730,14 @@ class ModernTemplateValidator:
                                      content: str, lines: List[str]) -> bool:
         """Check if variable is protected by broader template context"""
 
-        if self._is_inside_if_guard(var_name, line_num, lines):
-            return True
+        # Every guard (if arms and for loops) is judged by the open-block replay in
+        # _is_inside_if_guard. The substring checks on the previous/current line and the
+        # 50-line for-loop regexes that used to sit here accepted closed, commented-out
+        # and unrelated blocks (#2443).
+        return self._is_inside_if_guard(var_name, line_num, lines)
 
-        # Look for immediate protection on the same line or previous line
-        check_lines = []
-        if line_num > 1:
-            check_lines.append(lines[line_num - 2])  # Previous line
-        check_lines.append(lines[line_num - 1])  # Current line
-        
-        for check_line in check_lines:
-            # Direct conditional protection
-            if f'if {var_name}' in check_line and '%}' in check_line:
-                return True
-            # Conditional with additional checks
-            if f'if {var_name} and not {var_name}.error' in check_line:
-                return True
-            # Property conditional
-            if re.search(f'{var_name}\\.[a-zA-Z_][a-zA-Z0-9_]*', check_line) and 'if' in check_line:
-                return True
-        
-        # {% if %} guards at any distance are handled by _is_inside_if_guard above,
-        # which replaces the 50-line regex window that accepted closed and commented-out ifs.
-
-        search_start = max(0, line_num - 50)  # loop checks look back up to 50 lines
-        context_section = '\n'.join(lines[search_start:line_num])
-
-        # Check for loop context protection
-        for_pattern = f'{{% for [a-zA-Z_][a-zA-Z0-9_]* in {var_name} %}}'
-        if re.search(for_pattern.replace('{%', r'\{%').replace('%}', r'%\}'), context_section):
-            return True
-        
-        # Check if variable is defined in a loop (making it safe within the loop)
-        loop_var_pattern = f'{{% for {var_name} in [a-zA-Z_][a-zA-Z0-9_]* %}}'
-        if re.search(loop_var_pattern.replace('{%', r'\{%').replace('%}', r'%\}'), context_section):
-            return True
-        
-        return False
-    
     _JINJA_BLOCK_TAG = re.compile(
-        r'\{%-?\s*(if|elif|else|endif|set|with|macro)\b(.*?)-?%\}', re.DOTALL)
+        r'\{%-?\s*(if|elif|else|endif|for|endfor|set|with|macro)\b(.*?)-?%\}', re.DOTALL)
     _JINJA_INERT = re.compile(r'\{#.*?#\}|\{%-?\s*raw\s*-?%\}.*?\{%-?\s*endraw\s*-?%\}', re.DOTALL)
 
     def _is_inside_if_guard(self, var_name: str, line_num: int, lines: List[str]) -> bool:
@@ -783,7 +751,11 @@ class ModernTemplateValidator:
         e.g. ``a and a.b and a.b.n > 0``. A tag that rebinds the name
         (``set``/``with``/``macro``) ends every open guard on it.
         """
-        source = self._JINJA_INERT.sub('', '\n'.join(lines[:line_num - 1]))
+        current = lines[line_num - 1]
+        access = re.search(r'\{\{[^}]*\b' + re.escape(var_name) + r'\b', current)
+        # tags earlier on the same line count; the access itself and what follows do not
+        before = lines[:line_num - 1] + [current[:access.start()] if access else '']
+        source = self._JINJA_INERT.sub('', '\n'.join(before))
         arms: List[Optional[str]] = []
         for tag in self._JINJA_BLOCK_TAG.finditer(source):
             kind, condition = tag.group(1), tag.group(2).strip()
@@ -793,11 +765,22 @@ class ModernTemplateValidator:
                 arms[-1] = condition
             elif kind == 'else' and arms:
                 arms[-1] = None
-            elif kind == 'endif' and arms:
+            elif kind == 'for':
+                arms.append(self._for_guard(condition, var_name))
+            elif kind in ('endif', 'endfor') and arms:
                 arms.pop()
             elif kind in ('set', 'with', 'macro') and self._tag_rebinds(kind, condition, var_name):
                 arms = [None] * len(arms)
         return any(c is not None and self._condition_requires(c, var_name) for c in arms)
+
+    @staticmethod
+    def _for_guard(body: str, var_name: str) -> Optional[str]:
+        """Condition a ``{% for %}`` body implies: iterating ``var_name`` (or a path
+        below it) means it is truthy; binding the name as the loop variable makes it safe."""
+        target, _, iterable = body.partition(' in ')
+        if re.search(rf'(?:^|[\s,(]){re.escape(var_name)}\s*(?:,|\)|$)', target.strip()):
+            return var_name
+        return iterable.strip()
 
     @staticmethod
     def _tag_rebinds(kind: str, body: str, var_name: str) -> bool:
@@ -821,24 +804,6 @@ class ModernTemplateValidator:
                 return True
         return False
 
-    def _has_matching_endif_before_line(self, context_section: str, relative_line: int) -> bool:
-        """Check if there's a matching endif before the target line"""
-        lines = context_section.split('\n')
-        if relative_line >= len(lines):
-            return False
-            
-        # Simple check - count if/endif pairs
-        if_count = 0
-        for i in range(relative_line):
-            line = lines[i]
-            if re.search(r'\\{%\\s*if\\s+', line):
-                if_count += 1
-            elif re.search(r'\\{%\\s*endif\\s*%\\}', line):
-                if_count -= 1
-        
-        # If if_count is 0, all if blocks were closed
-        return if_count == 0
-    
     def check_security_issues(self, template_path: Path) -> List[TemplateIssue]:
         """Check for security issues in templates with context awareness"""
         issues = []

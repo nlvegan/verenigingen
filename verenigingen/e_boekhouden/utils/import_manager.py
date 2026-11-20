@@ -75,7 +75,7 @@ class EBoekhoudenImportManager:
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
-    def update_existing_imports(self, from_date=None, to_date=None, force_update=False):
+    def update_existing_imports(self, from_date=None, to_date=None, force_update: bool = False):
         """
         Update existing imports with latest data from E-Boekhouden
 
@@ -318,7 +318,7 @@ def clean_import_all(from_date=None, to_date=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def update_existing_imports(from_date=None, to_date=None, force_update=False):
+def update_existing_imports(from_date=None, to_date=None, force_update: bool = False):
     """Update existing E-Boekhouden imports"""
     manager = EBoekhoudenImportManager()
     return manager.update_existing_imports(from_date, to_date, force_update)

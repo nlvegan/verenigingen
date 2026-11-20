@@ -172,6 +172,125 @@ class TestAmendmentKeepsBillingFrequency(ScheduleFrequencyFixtureMixin, Verening
         amendment, _other = self._type_change(replacement_billing_frequency="Annual")
         self.assertEqual(self._mollie_interval(amendment), "12 months")
 
+    # ------------------------------------------------------------------ #2507: a Paused schedule is still the member's own
+
+    def _pause_live_schedule(self):
+        """Probe shortcut: status set directly on the live schedule (the in-place type-change
+        path leaves a Paused schedule Paused, #2507); the amendment itself runs the real flow."""
+        schedule = self._member_live_schedule()
+        schedule.status = "Paused"
+        schedule.save()
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", schedule.name, "status"), "Paused"
+        )
+        return schedule
+
+    def _paused_sync_service(self):
+        from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
+            MollieSubscriptionSyncService,
+        )
+
+        return MollieSubscriptionSyncService(client=object())
+
+    def test_paused_member_fee_change_keeps_the_schedule_interval_2507(self):
+        """Defensive coverage: the real flow cannot leave a Paused schedule at sync time for a
+        Fee Change (a non-pure one replaces it with an Active schedule; a pure one is refused)."""
+        # Annual, so the "1 month" fallback is visibly wrong.
+        self.old_schedule.billing_frequency = "Annual"
+        self.old_schedule.save()
+        amendment = self._amend()
+        self._pause_live_schedule()
+        self.assertEqual(self._mollie_interval(amendment), "12 months")
+
+    def test_paused_member_type_change_keeps_the_schedule_interval_2507(self):
+        """Real order: pause through DuesScheduleLifecycleService.pause_schedule FIRST, then
+        apply the real type change. The in-place path leaves the schedule Paused, with the new
+        rate and the member's own frequency (Monthly, not the target template's Quarterly)."""
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            DuesScheduleLifecycleService,
+        )
+
+        DuesScheduleLifecycleService().pause_schedule(self._member_live_schedule(), "test pause 2507")
+        amendment, other = self._type_change()
+        self.assertEqual(self._template_frequency(other.name), "Quarterly")
+        schedule = frappe.get_doc("Membership Dues Schedule", self.old_schedule.name)
+        self.assertEqual(schedule.status, "Paused", "fixture: real flow keeps the schedule Paused")
+        self.assertEqual(schedule.membership_type, other.name)
+        self.assertEqual(self._mollie_interval(amendment), "1 month")
+
+    def test_member_holding_active_and_paused_schedules_gets_the_active_one_2507(self):
+        """Wrong fix: returning get_active_or_paused_schedule alone picks the Paused row
+        (get_value orders creation DESC, so the Paused row is made the NEWER one).
+
+        Probe shortcut: the doctype refuses a second live schedule per member, so the pair is
+        built by pausing the original (real service), inserting a copy, then swapping the two
+        statuses with db.set_value."""
+        from verenigingen.services.billing.dues_schedule_lifecycle_service import (
+            DuesScheduleLifecycleService,
+        )
+
+        DuesScheduleLifecycleService().pause_schedule(self._member_live_schedule(), "test pause 2507")
+        other = frappe.copy_doc(self.old_schedule)
+        other.schedule_name = f"{self.old_schedule.schedule_name}-second-2507"
+        other.status = "Active"
+        other.billing_frequency = "Annual"
+        other.dues_rate = float(self.old_schedule.dues_rate) + 11
+        other.insert()
+        self.track_doc("Membership Dues Schedule", other.name)
+        frappe.db.set_value("Membership Dues Schedule", self.old_schedule.name, "status", "Active")
+        frappe.db.set_value("Membership Dues Schedule", other.name, "status", "Paused")
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", other.name, "billing_frequency"), "Annual"
+        )
+        found = self._paused_sync_service()._get_membership_dues_schedule(self.member.name)
+        self.assertEqual(found.name, self.old_schedule.name)
+        self.assertEqual(found.status, "Active")
+
+    def test_paused_member_interval_change_takes_the_amount_from_the_schedule_2507(self):
+        """Defensive coverage: Billing Interval Change is unimplemented/refused in the real flow."""
+        schedule = self._pause_live_schedule()
+        # Stand-in input doc: only the two fields the Billing Interval Change branch reads.
+        amendment = frappe._dict(amendment_type="Billing Interval Change", new_billing_interval="Annual")
+        amount, interval = self._paused_sync_service()._get_subscription_parameters(
+            amendment, frappe.get_doc("Membership", self.membership.name)
+        )
+        self.assertEqual(interval, "12 months")
+        self.assertEqual(float(amount), float(schedule.dues_rate))
+        self.assertGreater(float(amount), 0)
+
+    def test_paused_member_amount_verification_retry_uses_the_schedule_2507(self):
+        schedule = self._pause_live_schedule()
+        rate = float(schedule.dues_rate)
+
+        class _Sub:
+            id = "sub_x"
+            customer_id = "cst_x"
+            status = "active"
+            amount = {"value": f"{rate:.2f}", "currency": "EUR"}
+            interval = "1 month"
+            next_payment_date = None
+            description = ""
+            metadata = {}
+            webhook_url = None
+            mandate_id = None
+
+        class _Client:
+            def get_subscription(self, customer_id, subscription_id):
+                return _Sub()
+
+        from verenigingen.verenigingen_payments.mollie.services.mollie_subscription_sync_service import (
+            MollieSubscriptionSyncService,
+        )
+
+        service = MollieSubscriptionSyncService(client=_Client())
+        member = frappe.get_doc("Member", self.member.name)
+        member.mollie_customer_id = "cst_x"
+        # Stale expected amount forces the retry branch, which re-reads the schedule.
+        result = service._verify_subscription_amount(
+            member, frappe.get_doc("Membership", self.membership.name), "sub_x", rate + 5
+        )
+        self.assertTrue(result["verified"], result)
+
     # ------------------------------------------------------------------ explicit request
 
     def test_requested_frequency_is_used_on_a_replacement(self):

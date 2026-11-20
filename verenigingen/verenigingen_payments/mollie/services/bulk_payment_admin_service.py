@@ -153,7 +153,6 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
         start_date_str = str(add_days(today(), -days_back))
 
         # Get global payments list
-        client = mollie_client.sdk_client
         params = {"limit": min(250, max_payments)}
 
         all_payments = []
@@ -163,7 +162,7 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
 
         # Paginate through payments
         while total_fetched < max_payments:
-            payment_list = client.payments.list(**params)
+            payment_list = mollie_client.list_resource_page("payments", **params)
             batch = list(payment_list)
 
             if not batch:

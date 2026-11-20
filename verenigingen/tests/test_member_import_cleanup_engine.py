@@ -1088,6 +1088,7 @@ class TestCleanupAbortsOnALostTransaction(EnhancedTestCase):
                 raise LOCK_WAIT_TIMEOUT
             return real_sql(query, *args, **kwargs)
 
+        # Mock justified: fault injection: the Dynamic Link DELETE raises an injected lock wait, every other statement runs for real
         with patch.object(frappe.db, "sql", sql):
             result = cleanup.scan_and_clear_broken_links(target_doctypes=[self.TARGET], dry_run=False)
         return result, statements

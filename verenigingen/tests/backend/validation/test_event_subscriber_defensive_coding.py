@@ -28,7 +28,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.events.subscribers.member_subscribers import (
     handle_status_change_notifications,
     handle_chapter_assignment_updates,
-    handle_lifecycle_notifications,
     handle_cache_invalidation,
 )
 from verenigingen.events.subscribers.chapter_subscribers import (
@@ -109,24 +108,6 @@ class TestMemberSubscriberDefensiveCoding(EnhancedTestCase):
             self.assertTrue(True)
         except frappe.DoesNotExistError:
             self.fail("handle_chapter_assignment_updates raised DoesNotExistError for deleted member")
-
-    def test_lifecycle_notification_with_deleted_member(self):
-        """Test that lifecycle notifications handle deleted members gracefully"""
-        event_data = {
-            "member": self.member_name,
-            "old_status": "Active",
-            "new_status": "Suspended"
-        }
-
-        # Delete the member before processing event
-        frappe.delete_doc("Member", self.member_name, force=True)
-
-        # Should not raise DoesNotExistError
-        try:
-            handle_lifecycle_notifications("test_event", event_data)
-            self.assertTrue(True)
-        except frappe.DoesNotExistError:
-            self.fail("handle_lifecycle_notifications raised DoesNotExistError for deleted member")
 
     def test_cache_invalidation_with_deleted_member(self):
         """Test that cache invalidation handles deleted members gracefully"""

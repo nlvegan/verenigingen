@@ -104,7 +104,6 @@ def _get_member_event_subscribers(event_name):
             "verenigingen.events.subscribers.member_subscribers.handle_chapter_assignment_updates",
         ],
         "member_lifecycle_changed": [
-            "verenigingen.events.subscribers.member_subscribers.handle_lifecycle_notifications",
             "verenigingen.events.subscribers.member_subscribers.handle_cache_invalidation",
         ],
     }

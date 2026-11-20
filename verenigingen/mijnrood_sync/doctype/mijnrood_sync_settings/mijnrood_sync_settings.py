@@ -3,11 +3,24 @@ import json
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import cint
 
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     high_security_api,
     standard_api,
+)
+from verenigingen.utils.single_writer_fields import keep_stored_single_fields
+
+# Fields the poller writes with ``db_set(..., update_modified=False)``. ``modified`` does not
+# move, so Frappe's timestamp check cannot refuse a stale save, and a Single save rewrites
+# every tabSingles row from the in-memory doc (#2340).
+POLLER_OWNED_FIELDS = (
+    "last_division_contacts_hash",
+    "last_sync_time",
+    "last_sync_status",
+    "last_sync_message",
+    "total_events_pending",
 )
 
 
@@ -268,6 +281,9 @@ class MijnRoodSyncSettings(Document):
 
     def validate(self):
         """Validate settings before save."""
+        # Never write a stale copy of the poller's state back (#2340): a form loaded before
+        # a poll holds the old division-contacts hash and would re-announce its changes.
+        keep_stored_single_fields(self, POLLER_OWNED_FIELDS, coerce={"total_events_pending": cint})
         if self.tables_to_sync:
             try:
                 tables = json.loads(self.tables_to_sync)

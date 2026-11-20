@@ -334,6 +334,7 @@ class TestNotificationManagerConstructionAttemptsNoDDL(EnhancedTestCase):
         todo.insert()
         self.assertGreater(frappe.db.transaction_writes, 0, "expected a pending write")
 
+        # Mock justified: call-through spy: wraps=frappe.db.sql records the statements while the real queries still run
         with patch.object(frappe.db, "sql", wraps=frappe.db.sql) as mock_sql:
             SEPANotificationManager()
 

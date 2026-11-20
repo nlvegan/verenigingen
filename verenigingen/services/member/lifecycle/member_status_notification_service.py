@@ -161,6 +161,21 @@ class MemberStatusNotificationService(StatelessService):
         )
 
 
+def send_status_change_notification_job(member_name: str, old_status: str, new_status: str) -> None:
+    """After-commit job: mail the member, unless the status change it was queued for was undone (#2735).
+
+    A rollback to a savepoint undoes the status write but not a job queued for it, and a full
+    rollback drops the job. Checking the row here keeps a change that never happened from mailing
+    the member or using up the status mail's Redis cooldown.
+    """
+    if frappe.db.get_value("Member", member_name, "status") != new_status:
+        return
+
+    get_member_status_notification_service().send_status_change_notification(
+        frappe.get_doc("Member", member_name), old_status, new_status
+    )
+
+
 # Module-level singleton accessor
 _service_instance: Optional[MemberStatusNotificationService] = None
 

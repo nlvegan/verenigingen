@@ -799,6 +799,9 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         true_bt = failed["bts"][0]
         foreign_account = ensure_bank_account_record(self.company, self.settlement_account)
         self.assertNotEqual(foreign_account, frappe.db.get_value("Bank Transaction", true_bt.name, "bank_account"))
+        # The webhook handler no longer leaves its service user switched on (#2515); this insert
+        # used to run as that leftover user, i.e. the webhook user, so the importer is that user.
+        frappe.set_user(frappe.db.get_single_value("Verenigingen Payments Settings", "webhook_user"))
         foreign = frappe.get_doc(
             {
                 "doctype": "Bank Transaction",

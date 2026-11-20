@@ -583,6 +583,7 @@ class TestSEPABatchStatusRollbackOnFailure(FrappeTestCase):
                 raise RuntimeError("injected failure: upload log update failed")
             return original_set_value(doctype, *args, **kwargs)
 
+        # Mock justified: fault injection: the upload-log write raises, every other write runs for real
         with patch.object(frappe.db, "set_value", side_effect=_fail_on_upload_log_update):
             with self.assertRaises(Exception):
                 self.service.generate_sepa_xml_for_batch(batch)
@@ -662,6 +663,7 @@ class TestSEPABatchStatusRollbackOnFailure(FrappeTestCase):
                 raise Exception("SAVEPOINT sepa_batch_finalize does not exist")
             return original_rollback()
 
+        # Mock justified: fault injection: injected deadlock on the upload-log write, which cannot be staged on a live DB
         with patch.object(frappe.db, "set_value", side_effect=_deadlock_on_upload_log_update), patch.object(
             frappe.db, "rollback", side_effect=_savepoint_is_already_gone
         ):
@@ -732,6 +734,7 @@ class TestGenerateSepaXmlPreservesNonResumableErrors(FrappeTestCase):
             return original_set_value(doctype, *args, **kwargs)
 
         before = frappe.db.count("Error Log", {"method": self.LOG_TITLE})
+        # Mock justified: fault injection: the first upload-log write raises the injected error, later writes run for real
         with patch.object(frappe.db, "set_value", side_effect=_fail_first_upload_log_write):
             with self.assertRaises(Exception) as caught:
                 self.service.generate_sepa_xml_for_batch(batch)

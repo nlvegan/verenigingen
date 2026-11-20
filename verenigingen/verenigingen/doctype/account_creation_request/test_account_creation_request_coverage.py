@@ -239,11 +239,12 @@ class TestAccountCreationRequestCoverage(EnhancedTestCase):
             bulk_queue_requests("{not json")
 
     # ----------------------------------------------- safe_log_error helper
-    def test_safe_log_error_truncates(self):
+    def test_safe_log_error_keeps_the_full_message(self):
         """frappe.log_error is (title, message): title -> Error Log.method,
         message -> Error Log.error. This helper's own signature is
         ``safe_log_error(message, title=None)`` -- the 500-char message is
-        the MESSAGE, truncated to 100 chars + "..." (103), and the literal
+        the MESSAGE, recorded in full (#1138 removed the 100-char cut that only
+        protected the title slot), and the literal
         "ACR Safe Log Test Cov" is the TITLE.
 
         This test previously asserted the opposite: a prior version of this
@@ -271,9 +272,8 @@ class TestAccountCreationRequestCoverage(EnhancedTestCase):
         )
         self.assertTrue(row, "safe_log_error did not write an Error Log")
         # Control: title in the title slot (unchanged, not truncated) AND the
-        # truncated message in the message slot -- pins BOTH sides of the
+        # full message in the message slot -- pins BOTH sides of the
         # ordering the fix establishes, so a re-swap fails this test again
         # instead of just failing to find a row.
         self.assertEqual(row[0].method, "ACR Safe Log Test Cov")
-        self.assertLessEqual(len(row[0].error), 103)
-        self.assertTrue(row[0].error.endswith("..."))
+        self.assertEqual(row[0].error, "y" * 500)

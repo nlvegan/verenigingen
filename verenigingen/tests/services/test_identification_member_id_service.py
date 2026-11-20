@@ -191,6 +191,7 @@ class TestBulkAssignmentDatabaseLockError(EnhancedTestCase):
                     raise exc_class("injected below the per-member except")
             return real_sql(query, *args, **kwargs)
 
+        # Mock justified: fault injection: the nth counter read raises an injected lock error, every other statement runs for real
         with patch.object(frappe.db, "sql", side_effect=faulty_sql):
             result = get_member_id_service().assign_missing_member_ids()
         return result, len(counter_reads)

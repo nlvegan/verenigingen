@@ -725,8 +725,9 @@ class BackgroundJobScalabilityTest(VereningingenTestCase):
         
     def tearDown(self):
         """Clean up background job testing"""
-        self.factory.cleanup()
+        # super() first, then commit: cleanup(commit=True) is connection-wide (#842/#489)
         super().tearDown()
+        self.factory.cleanup(commit=True)
         
     @pytest.mark.integration
     def test_background_job_queue_processing_50_members(self):
@@ -852,8 +853,9 @@ class EdgeCaseScalabilityTest(VereningingenTestCase):
         
     def tearDown(self):
         """Clean up edge case testing"""
-        self.factory.cleanup()
+        # super() first, then commit: cleanup(commit=True) is connection-wide (#842/#489)
         super().tearDown()
+        self.factory.cleanup(commit=True)
         
     @pytest.mark.performance
     def test_payment_history_with_missing_customers(self):

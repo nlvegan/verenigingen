@@ -27,7 +27,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def create_member_user_account(member_name: str, send_welcome_email=True):
+def create_member_user_account(member_name: str, send_welcome_email: bool = True):
     """
     Create a user account for a member to access portal pages.
 

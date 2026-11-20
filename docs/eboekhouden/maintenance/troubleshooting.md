@@ -432,7 +432,7 @@ If database becomes inconsistent:
 # Weekly health check script
 def weekly_health_check():
     # Test API connection
-    connection_test = frappe.call('verenigingen.api.test_eboekhouden_connection.test_eboekhouden_connection')
+    connection_test = frappe.call('verenigingen.e_boekhouden.utils.eboekhouden_api.test_api_connection')
 
     # Check for orphaned records
     orphaned_gl = frappe.db.count('GL Entry', {'voucher_no': ['like', 'EBH-%'], 'is_cancelled': 0})
