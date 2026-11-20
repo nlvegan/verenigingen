@@ -491,6 +491,9 @@ def send_batch_creation_notification(result):
                 cooldown_scope=",".join(sorted(b["name"] for b in batch_details)) or None,
             )
 
+    except frappe.QueryDeadlockError:
+        # #2996: 1213 rolled the transaction back; do not report success / carry on.
+        raise
     except Exception as e:
         frappe.log_error(f"Error sending batch notification: {str(e)}", "Batch Notification Error")
 
@@ -647,7 +650,8 @@ def run_batch_creation_now():
             payments_settings.last_batch_creation_run = now_datetime()
             payments_settings.save()
 
-            # Send notification
+            # Send notification. The batches are already committed here; a 1213 in the
+            # notification now surfaces as an error rather than a quiet success (#2996).
             send_batch_creation_notification(result)
 
             return {
@@ -658,6 +662,9 @@ def run_batch_creation_now():
         else:
             return {"success": False, "message": result.get("error", "Unknown error"), "result": result}
 
+    except frappe.QueryDeadlockError:
+        # #2996: 1213 rolled the transaction back; do not report success / carry on.
+        raise
     except Exception as e:
         frappe.log_error(f"Error in manual batch creation: {str(e)}", "Manual Batch Creation Error")
         return {"success": False, "error": str(e)}
