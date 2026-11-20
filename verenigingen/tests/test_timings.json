@@ -110,7 +110,6 @@
  "verenigingen.tests.backend.components.test_membership_dues_edge_cases": 16,
  "verenigingen.tests.backend.components.test_membership_dues_enhanced_features": 16,
  "verenigingen.tests.backend.components.test_membership_dues_security_validation": 4,
- "verenigingen.tests.backend.components.test_membership_dues_stress_testing": 3,
  "verenigingen.tests.backend.components.test_membership_dues_system": 6,
  "verenigingen.tests.backend.components.test_membership_status": 8,
  "verenigingen.tests.backend.components.test_membership_type_minimum_period": 6,

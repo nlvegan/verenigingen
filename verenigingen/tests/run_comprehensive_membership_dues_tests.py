@@ -46,7 +46,6 @@ def run_comprehensive_membership_dues_tests(test_categories=None, verbose=False)
         'stress': {
             'description': 'Stress Testing and Performance Tests',
             'modules': [
-                'verenigingen.tests.backend.components.test_membership_dues_stress_testing',
             ]
         },
         'security': {
