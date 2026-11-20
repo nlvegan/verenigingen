@@ -23,6 +23,7 @@ from frappe.utils import getdate, today
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 # =============================================================================
 # Operational Metrics
@@ -259,6 +260,10 @@ class SEPAMandateLifecycleService:
             # unless they need to be auto-expired
             return mandate_doc.status
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="SEPA Mandate Lifecycle", message=f"Error in set_status_based_on_dates: {str(e)}"
@@ -279,6 +284,10 @@ class SEPAMandateLifecycleService:
             else:
                 mandate_doc.is_active = 0
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="SEPA Mandate Lifecycle", message=f"Error in sync_status_and_active_flag: {str(e)}"
@@ -330,6 +339,10 @@ class SEPAMandateLifecycleService:
 
             return transition_result
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="SEPA Mandate Lifecycle", message=f"Error in handle_status_transition: {str(e)}"
@@ -380,12 +393,20 @@ class SEPAMandateLifecycleService:
                 notification_manager = SEPAMandateNotificationManager()
                 notification_manager.send_mandate_status_notification(mandate_doc, old_status, "Cancelled")
                 cancellation_result["notifications_sent"].append("status_change")
+            except NON_RESUMABLE_DB_ERRORS:
+                # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+                # would let the caller claim success (#2869, rule from #2700).
+                raise
             except Exception as e:
                 cancellation_result["warnings"].append(f"Failed to send notification: {str(e)}")
 
             cancellation_result["warnings"].append(_("Mandate cancelled successfully"))
             return cancellation_result
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="SEPA Mandate Lifecycle", message=f"Error in process_mandate_cancellation: {str(e)}"
@@ -440,6 +461,10 @@ class SEPAMandateLifecycleService:
 
             result["warnings"].append(_("Mandate activated successfully"))
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             result["errors"].append(f"Activation error: {str(e)}")
             result["success"] = False
@@ -456,6 +481,10 @@ class SEPAMandateLifecycleService:
 
             result["warnings"].append(_("Mandate cancelled successfully"))
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             result["errors"].append(f"Cancellation error: {str(e)}")
             result["success"] = False
@@ -468,6 +497,10 @@ class SEPAMandateLifecycleService:
 
             result["warnings"].append(_("Mandate expired"))
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             result["errors"].append(f"Expiration error: {str(e)}")
             result["success"] = False
@@ -508,6 +541,10 @@ class SEPAMandateLifecycleService:
                 f"Mandate {mandate_doc.name} status changed to {status} for member {mandate_doc.member}"
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             metrics.record_error("member_mandate_update", str(e), mandate_doc.mandate_id)
             frappe.log_error(
@@ -548,11 +585,19 @@ class SEPAMandateLifecycleService:
                     notification_manager = SEPAMandateNotificationManager()
                     notification_manager.send_mandate_created_notification(mandate_doc)
                     event_result["notifications_sent"].append("mandate_created")
+                except NON_RESUMABLE_DB_ERRORS:
+                    # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+                    # would let the caller claim success (#2869, rule from #2700).
+                    raise
                 except Exception as e:
                     event_result["errors"].append(f"Notification failed: {str(e)}")
 
             return event_result
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="SEPA Mandate Lifecycle", message=f"Error handling mandate creation: {str(e)}"
@@ -603,6 +648,10 @@ class SEPAMandateLifecycleService:
                         reason = mandate_doc.cancellation_reason or "Cancelled by member request"
                         notification_manager.send_mandate_cancelled_notification(mandate_doc, reason)
                         event_result["notifications_sent"].append("mandate_cancelled")
+                except NON_RESUMABLE_DB_ERRORS:
+                    # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+                    # would let the caller claim success (#2869, rule from #2700).
+                    raise
                 except Exception as e:
                     event_result["errors"].append(f"Notification failed: {str(e)}")
 
@@ -620,6 +669,10 @@ class SEPAMandateLifecycleService:
 
             return event_result
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="SEPA Mandate Lifecycle", message=f"Error handling mandate update: {str(e)}"

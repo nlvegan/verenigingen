@@ -13,6 +13,7 @@ from frappe.utils import now
 
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.history_manager_utils import safe_child_table_update
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class SEPAMandateMemberIntegrationService:
@@ -54,6 +55,10 @@ class SEPAMandateMemberIntegrationService:
 
             return operation_result
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="SEPA Mandate Member Integration Error",
@@ -141,6 +146,10 @@ class SEPAMandateMemberIntegrationService:
                     frappe.ValidationError,
                 )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="SEPA Field Validation Error",
@@ -305,6 +314,10 @@ class SEPAMandateMemberIntegrationService:
                 f"SEPA mandate link {audit_data['action']} completed for member {mandate_doc.member}"
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             # Record failed operation
             audit_data["status"] = "failed"
@@ -397,6 +410,10 @@ class SEPAMandateMemberIntegrationService:
 
             frappe.logger().debug(f"SEPA audit log created: {audit_log.name}")
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
+            # would let the caller claim success (#2869, rule from #2700).
+            raise
         except Exception as e:
             # Log audit creation errors but don't fail the main operation
             # SECURITY: Don't log full audit_data as it may contain sensitive information

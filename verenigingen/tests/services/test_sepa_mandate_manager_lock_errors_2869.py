@@ -26,6 +26,7 @@ from verenigingen.utils.validation.iban_validator import generate_test_iban
 
 LOCK_ERRORS = (frappe.QueryDeadlockError, frappe.QueryTimeoutError)
 MANAGER_FILE = "sepa_mandate_manager.py"
+DRIVER_LOCK_ERRORS = ((1213, frappe.QueryDeadlockError), (1205, frappe.QueryTimeoutError))
 
 
 class TestSEPAMandateManagerLockErrors2869(EnhancedTestCase):
@@ -151,3 +152,63 @@ class TestSEPAMandateManagerLockErrors2869(EnhancedTestCase):
             self.assertFalse(
                 self.manager.deactivate_mandates_for_iban_change(self.member.name, self.iban).valid
             )
+
+    # -- F1: the lock error is raised at the DRIVER, so it passes through every layer of the
+    # real path: SEPA Mandate insert -> after_insert -> lifecycle service -> member integration
+    # service (whose own ``except Exception`` turned it into ``{"success": False}`` + an Error
+    # Log row, leaving create_mandate to report success with the Member link never written).
+
+    def _driver_raising_on(self, code, fragment):
+        """Cursor.execute raises a real driver OperationalError(code) on UPDATEs of *fragment*."""
+        cursor_cls = frappe.db._cursor.__class__
+        real_execute = cursor_cls.execute
+
+        def execute(cursor, query, *args, **kwargs):
+            if isinstance(query, str) and query.lstrip().upper().startswith("UPDATE") and fragment in query:
+                raise frappe.db.OperationalError(code, "injected at the driver")
+            return real_execute(cursor, query, *args, **kwargs)
+
+        # Mock justified: fault injection at the driver; calls through for every other statement
+        return patch.object(cursor_cls, "execute", execute)
+
+    def test_create_mandate_raises_when_the_member_link_write_hits_a_lock_error(self):
+        for code, error in DRIVER_LOCK_ERRORS:
+            with self.subTest(code=code):
+                with self._driver_raising_on(code, "`tabMember`"):
+                    self._assert_propagates_from_manager(error, lambda: self._create())
+
+    def test_a_real_database_error_that_is_not_a_lock_error_still_flows_to_a_failure_result(self):
+        """Control, real DB: a duplicate key is NOT a lock error and must keep the result contract."""
+        self.expectErrorLog("Secure Operation Failed")
+        first = self._create()
+        self.assertTrue(first.valid, first.message)
+        real_insert = frappe.model.document.Document.insert
+
+        def insert(doc, *args, **kwargs):
+            if doc.doctype == "SEPA Mandate":
+                raise frappe.DuplicateEntryError("SEPA Mandate", doc.mandate_id, Exception("1062"))
+            return real_insert(doc, *args, **kwargs)
+
+        with patch("frappe.model.document.Document.insert", insert):
+            result = self.manager.create_mandate(
+                member=self.member.name, iban=self.iban, allow_duplicate_iban=True
+            )
+        self.assertFalse(result.valid)
+
+    def test_refresh_sepa_mandates_endpoint_does_not_flatten_a_lock_error(self):
+        """The sync path's first caller (api/member/sepa_api.refresh_sepa_mandates) used to turn the
+        error the manager now propagates back into ``{"success": False}``."""
+        from verenigingen.api.member.sepa_api import refresh_sepa_mandates
+
+        for error in LOCK_ERRORS:
+            with self.subTest(error=error.__name__), self._get_all_raising(error):
+                with self.assertRaises(error):
+                    refresh_sepa_mandates(self.member.name)
+
+    def test_refresh_sepa_mandates_endpoint_still_flattens_an_ordinary_error(self):
+        from verenigingen.api.member.sepa_api import refresh_sepa_mandates
+
+        self.expectErrorLog("Error refreshing SEPA mandates")
+        with self._get_all_raising(frappe.ValidationError):
+            result = refresh_sepa_mandates(self.member.name)
+        self.assertFalse(result["success"])
