@@ -263,6 +263,7 @@ class TestRunTerminationDiagnostics(FrappeTestCase):
             return real_exists(doctype, name, *args, **kwargs)
 
         self.assertTrue(real_exists("DocType", "Expulsion Report Entry"))
+        # Mock justified: fault injection: one DocType reported absent, every other lookup reaches the real database
         with patch.object(frappe.db, "exists", side_effect=selective_exists):
             result = setup_mod.run_termination_diagnostics()
         self.assertTrue(result["success"])
