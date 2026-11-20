@@ -323,7 +323,6 @@
  "verenigingen.tests.backend.workflows.test_chapter_membership_workflow": 5,
  "verenigingen.tests.backend.workflows.test_contribution_amendment_conflicts": 3,
  "verenigingen.tests.backend.workflows.test_member_lifecycle": 1,
- "verenigingen.tests.backend.workflows.test_member_lifecycle_complete": 1,
  "verenigingen.tests.backend.workflows.test_payment_failure_recovery": 1,
  "verenigingen.tests.backend.workflows.test_periodic_donation_agreement": 5,
  "verenigingen.tests.backend.workflows.test_suspension_api": 7,

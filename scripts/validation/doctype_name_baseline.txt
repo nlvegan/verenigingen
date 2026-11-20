@@ -28,7 +28,6 @@ verenigingen/tests/backend/integration/test_erpnext_expense_integration_real.py:
 verenigingen/tests/backend/integration/test_volunteer_portal_integration.py::Volunteer Expense::1
 verenigingen/tests/backend/security/test_security_comprehensive.py::Volunteer Expense::3
 verenigingen/tests/backend/workflows/test_member_lifecycle.py::Volunteer Expense::3
-verenigingen/tests/backend/workflows/test_member_lifecycle_complete.py::Volunteer Expense::1
 verenigingen/tests/backend/workflows/test_volunteer_journey.py::Volunteer Expense::6
 verenigingen/tests/chapter/test_chapter_board_permissions_comprehensive.py::Volunteer Expense::2
 verenigingen/tests/e2e/test_workflow_validation.py::Dispute Case::1
