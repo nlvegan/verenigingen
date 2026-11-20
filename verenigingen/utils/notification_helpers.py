@@ -45,6 +45,7 @@ import frappe
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.staff_alert_events import begin_event, finish_event
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 def _get_email_config_service():
@@ -146,6 +147,13 @@ def send_volunteer_email(
 
         return result
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # The only callers are ChapterBoardMember.after_insert / on_trash, which discard the
+        # result. A returned failure would let the hook carry on after the server rolled the
+        # transaction back (1213) or half-applied it (1205), and the request would commit
+        # that (#2996, rule of #2700). The helper's own lookups raise it directly; a 1213
+        # inside EmailService reaches here via its own re-raise.
+        raise
     except frappe.DoesNotExistError as e:
         frappe.logger().warning(f"send_volunteer_email: Document not found - {str(e)}")
         return {"success": False, "reason": f"Document not found: {str(e)}"}

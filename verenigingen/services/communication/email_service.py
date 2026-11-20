@@ -207,6 +207,13 @@ class EmailService(StatelessService):
                     errors=result.errors,
                 )
 
+        # A deadlock (1213) has rolled the whole transaction back: returning a failure result lets
+        # the caller carry on and commit a partial unit of work (#2996). Deadlock ONLY, not
+        # NON_RESUMABLE_DB_ERRORS: a lock timeout (1205) undoes just the failed statement, the
+        # transaction is intact, and ~100 best-effort callers already handle a failure result.
+        # Every `except Exception` on the send path below carries the same clause.
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             handle_service_error(
                 e,
@@ -286,6 +293,8 @@ class EmailService(StatelessService):
                 **options,
             )
 
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             handle_service_error(
                 e,
@@ -351,6 +360,8 @@ class EmailService(StatelessService):
                             failed_count += 1
                         results.append(result)
 
+                    except frappe.QueryDeadlockError:
+                        raise
                     except Exception as e:
                         failed_count += 1
                         results.append({"success": False, "errors": [str(e)], "email_config": email_config})
@@ -369,6 +380,8 @@ class EmailService(StatelessService):
                 }
             )
 
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             handle_service_error(
                 e, "EmailService", "Send bulk emails", {"batch_size": len(email_batch)}, raise_error=False
@@ -423,6 +436,8 @@ class EmailService(StatelessService):
                 **options,
             )
 
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             handle_service_error(
                 e,
@@ -603,6 +618,8 @@ class EmailService(StatelessService):
                 }
             )
 
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             self.logger.error(
                 f"Email queueing failed: {str(e)}\n"
@@ -723,6 +740,8 @@ class EmailService(StatelessService):
                     "reference_name": reference_name,
                 }
             )
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             self.logger.error(f"Frappe Notification delegation failed ({notification_name}): {str(e)}")
             return OperationResult.fail(f"Frappe Notification delegation failed: {str(e)}")
@@ -797,6 +816,8 @@ class EmailService(StatelessService):
                 return template_data
             return None
 
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             self.logger.error(f"Template loading failed for {template_name}: {str(e)}")
             return None
@@ -837,6 +858,8 @@ class EmailService(StatelessService):
                 "brand_primary_color": getattr(brand, "primary_color", "#007bff"),
                 "brand_secondary_color": getattr(brand, "secondary_color", "#6c757d"),
             }
+        except frappe.QueryDeadlockError:
+            raise
         except Exception:
             return {
                 "organization_name": "",
@@ -868,6 +891,8 @@ class EmailService(StatelessService):
                 "Email Account", filters={"enable_outgoing": 1, "default_outgoing": 1}, limit=1
             )
             return len(active_accounts) > 0
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             self.logger.error(f"Error checking email accounts: {str(e)}")
             return False
