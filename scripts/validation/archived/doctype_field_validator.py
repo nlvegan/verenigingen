@@ -711,7 +711,7 @@ class AccurateFieldValidator:
         `Path.relative_to` raised ValueError on a repo-relative path, which was swallowed (#2960).
         """
         resolved = Path(file_path).resolve()
-        try:
+        try:  # outside the app root (unreachable via pre-commit): fall back to the path as passed
             return str(resolved.relative_to(self.app_path.resolve()))
         except ValueError:
             return str(file_path)
@@ -925,8 +925,9 @@ def main():
         print("🔍 Running comprehensive validation...")
         violations = validator.validate_app(pre_commit=pre_commit)
         
-    if (pre_commit or update_baseline) and ERPNEXT_SENTINEL_DOCTYPE not in validator.doctypes:
-        # A bench without erpnext loads none of its doctypes, so every reference to one would
+    if (pre_commit or update_baseline) and ERPNEXT_SENTINEL_DOCTYPE not in validator.doctype_loader.get_doctypes():
+        # Ask the LOADER, not validator.doctypes: custom_field.json fixtures synthesize an entry
+        # for Sales Invoice even where erpnext is absent. A bench without erpnext loads none of its doctypes, so every reference to one would
         # read as a NEW finding and block every commit (#2960 review F2). Do not guess.
         print(f"⚠️  {ERPNEXT_SENTINEL_DOCTYPE} not loaded: erpnext is not on this bench, so field "
               "references to its doctypes cannot be checked. Skipping the check (and the baseline).")

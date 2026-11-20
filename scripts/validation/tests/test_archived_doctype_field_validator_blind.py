@@ -42,6 +42,14 @@ def _build_app(root: Path, sources: dict, erpnext: bool = True) -> None:
         si_dir = root / "verenigingen" / "verenigingen" / "doctype" / "sales_invoice"
         si_dir.mkdir(parents=True)
         (si_dir / "sales_invoice.json").write_text(json.dumps(_SALES_INVOICE))
+    else:
+        # The real app ships Sales Invoice custom fields, which the validator turns into a
+        # synthetic "Sales Invoice" entry even where erpnext is absent (#2960 round 3).
+        fixtures = root / "verenigingen" / "fixtures"
+        fixtures.mkdir(parents=True)
+        (fixtures / "custom_field.json").write_text(
+            json.dumps([{"dt": "Sales Invoice", "fieldname": "custom_x", "fieldtype": "Data"}])
+        )
     for rel, src in sources.items():
         path = root / "verenigingen" / "services" / rel
         path.parent.mkdir(parents=True, exist_ok=True)
