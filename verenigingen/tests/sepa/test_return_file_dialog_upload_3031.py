@@ -37,7 +37,7 @@ PAIN002 = (
 
 SCRIPT = textwrap.dedent(
     """
-    import json, re
+    import json, os, re
     import frappe
 
     SITE = {site!r}
@@ -81,6 +81,9 @@ SCRIPT = textwrap.dedent(
         # private, owned by someone else, attached to nothing: the caller must not read it. Distinct
         # content: File.insert de-duplicates identical content onto the FIRST row's file_url.
         forbidden = make_file("return-3031-forbidden.xml", PAIN002 + "<!-- distinct hash -->", "Administrator")
+        # readable local row whose bytes are gone from disk: get_content() raises, and must refuse like unknown
+        gone_file = make_file("return-3031-gone.xml", PAIN002 + "<!-- gone hash -->", EMAIL)
+        os.remove(frappe.get_site_path(gone_file.lstrip("/")))
         remote = frappe.get_doc({{"doctype": "File", "file_name": "return-3031-remote.xml",
                                  "file_url": "http://example.org/return-3031-remote.xml", "is_private": 0}})
         remote.insert(ignore_permissions=True)
@@ -122,6 +125,7 @@ SCRIPT = textwrap.dedent(
         call("nothing")
         out["forbidden_url_is_real"] = forbidden
         call("url_remote", file_url="http://example.org/return-3031-remote.xml")
+        call("url_bytes_gone", file_url=gone_file)
 
         # query count of the lookup itself, as the same user, unknown vs forbidden
         frappe.init(site=SITE)
@@ -237,7 +241,11 @@ class TestReturnFileDialogUploadOverWsgi(EnhancedTestCase):
     def test_a_remote_url_file_is_refused_like_an_unknown_one(self):
         """A readable File row with an http file_url has no local content: refuse, do not 500 (review N3)."""
         self.assertEqual(self._resp("url_remote"), self._resp("url_unknown"))
-        self.assertEqual(self.out["queries_remote"] > 0, True)
+        self.assertGreater(self.out["queries_remote"], 0)
+
+    def test_a_readable_local_file_whose_bytes_are_gone_is_refused_like_an_unknown_one(self):
+        """The row passes the lookup, the local-URL guard and has_permission; only get_content() fails (F1)."""
+        self.assertEqual(self._resp("url_bytes_gone"), self._resp("url_unknown"))
 
     def test_a_filesystem_path_is_never_opened(self):
         resp = self._resp("url_traversal")
