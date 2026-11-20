@@ -28,6 +28,7 @@ from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.select_options import get_select_options
 from verenigingen.verenigingen_payments.services.sepa_batch_processor import SEPABatchProcessor
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class _ReturnsBase(EnhancedTestCase):
@@ -279,7 +280,7 @@ class TestScheduleHelpers(_ReturnsBase):
         # The coverage window and last_invoice_date are now populated.
         self.assertIsNotNone(schedule.last_invoice_coverage_start)
         self.assertIsNotNone(schedule.last_invoice_coverage_end)
-        self.assertEqual(str(schedule.last_invoice_date), today())
+        assert_written_today(self, schedule.last_invoice_date)
 
 
 class TestBatchStatusLiteralsAreDeclaredOptions(VereningingenTestCase):
