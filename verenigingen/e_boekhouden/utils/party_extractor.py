@@ -8,6 +8,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import frappe
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
 
 class EBoekhoudenPartyExtractor:
     """
@@ -201,6 +203,9 @@ class EBoekhoudenPartyExtractor:
 
             return None
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the migration batch back; returning None carries on without the party (#3029).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="EBoekhoudenPartyExtractor",
@@ -392,6 +397,9 @@ class EBoekhoudenPartyExtractor:
                 frappe.log_error("EBoekhoudenPartyResolver not available", "EBoekhoudenPartyExtractor")
                 return None
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the migration batch back; returning None carries on without the party (#3029).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="EBoekhoudenPartyExtractor",
@@ -442,6 +450,9 @@ class EBoekhoudenPartyExtractor:
 
             return resolved_party
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the migration batch back; returning None carries on without the party (#3029).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="EBoekhoudenPartyExtractor",
