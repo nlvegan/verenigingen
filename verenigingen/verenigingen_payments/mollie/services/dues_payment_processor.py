@@ -24,7 +24,7 @@ from verenigingen.services.billing.coverage_overlap_detector import check_covera
 from verenigingen.services.billing.invoice_matcher import find_matching_invoice
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
-from verenigingen.utils.transaction_errors import insert_and_submit_atomically
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, insert_and_submit_atomically
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.domain.payment_classification import PaymentClassifier
 from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
@@ -999,6 +999,10 @@ class DuesPaymentProcessor:
                     if sales_invoices:
                         result["sales_invoices"] = sales_invoices
 
+                except NON_RESUMABLE_DB_ERRORS:
+                    # Inside the outer try: swallowing it here reports success for a transaction the
+                    # server has already rolled back (#2983).
+                    raise
                 except Exception as si_error:
                     frappe.log_error(
                         title="Sales Invoice Fetch Error",
@@ -1020,6 +1024,11 @@ class DuesPaymentProcessor:
                 result["status"] = "error"
                 result["error"] = f"Failed to create {record_type}"
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A deadlock (1213) / lock timeout (1205) is not a payment failure to report: the server
+            # has already discarded the work, and execute_with_deadlock_retry (the caller in
+            # batch_process_customer_payments) can only retry what it sees raised (#2983, #2700).
+            raise
         except Exception as e:
             result["status"] = "error"
             result["error"] = str(e)
@@ -1103,6 +1112,9 @@ class DuesPaymentProcessor:
             bt_doc.save()
             frappe.logger().info(f"[Mollie] Reconciled BT {bt_name} with PE {pe_name}")
             return True
+        except NON_RESUMABLE_DB_ERRORS:
+            # Not "non-fatal": the Payment Entry written just before is gone with the transaction (#2983).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="Mollie dues: Bank Transaction not linked to Payment Entry",
