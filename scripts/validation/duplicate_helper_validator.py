@@ -67,7 +67,7 @@ import sys
 import warnings
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASELINE = Path(__file__).with_name("duplicate_helper_baseline.txt")
@@ -148,7 +148,7 @@ def _iter_python_files(root: str):
                 yield os.path.join(dirpath, name)
 
 
-def _private_helpers(path: str) -> List[Tuple[str, str]]:
+def _private_helpers(path: str, unscannable: Optional[List[str]] = None) -> List[Tuple[str, str]]:
     """(name, source) for each private helper in `path`, module-level OR method.
 
     Methods count. Restricting this to module-level functions is what let the
@@ -164,12 +164,19 @@ def _private_helpers(path: str) -> List[Tuple[str, str]]:
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
             source = handle.read()
-    except OSError:
+    except OSError as exc:
+        # #2815: an unreadable file must not count as having no helpers.
+        if unscannable is not None:
+            unscannable.append(f"{_rel(path)}: {type(exc).__name__}: {exc}")
         return []
-    return helpers_in_source(source)
+    errors: List[str] = []
+    found = helpers_in_source(source, errors)
+    if unscannable is not None:
+        unscannable.extend(f"{_rel(path)}: {msg}" for msg in errors)
+    return found
 
 
-def helpers_in_source(source: str) -> List[Tuple[str, str, str]]:
+def helpers_in_source(source: str, errors: Optional[List[str]] = None) -> List[Tuple[str, str, str]]:
     """The same walk, over source text rather than a path.
 
     Split out so the history replay that measures this gate's firing rate can feed
@@ -181,7 +188,9 @@ def helpers_in_source(source: str) -> List[Tuple[str, str, str]]:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tree = ast.parse(source)
-    except (SyntaxError, ValueError):
+    except (SyntaxError, ValueError) as exc:
+        if errors is not None:
+            errors.append(f"{type(exc).__name__}: {exc}")
         return []
 
     def _emit(node, out):
@@ -247,7 +256,7 @@ def _normalised(node) -> str:
     return ast.unparse(clone)
 
 
-def _by_name(root: str) -> Dict[str, List[Tuple[str, str]]]:
+def _by_name(root: str, unscannable: Optional[List[str]] = None) -> Dict[str, List[Tuple[str, str]]]:
     """helper name -> every private DEFINITION of it: (path, body, normalised).
 
     Every definition counts, even two on different classes in the SAME file (#990).
@@ -256,7 +265,7 @@ def _by_name(root: str) -> Dict[str, List[Tuple[str, str]]]:
     """
     found: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
     for path in _iter_python_files(root):
-        for name, body, norm in _private_helpers(path):
+        for name, body, norm in _private_helpers(path, unscannable):
             found[name].append((path, body, norm))
     return found
 
@@ -693,7 +702,18 @@ def main() -> int:
 
     # One scan, reused by the writer and by the blocking decision below. census()
     # would repeat it.
-    families = _by_name(scan_root)
+    unscannable: List[str] = []
+    families = _by_name(scan_root, unscannable)
+    if unscannable:
+        # #2815: fail closed. Clone counts from a tree with an unexamined file
+        # understate it, and --update-baseline would record that as the truth.
+        print(
+            "DUPLICATE-HELPER SCAN FAILED: could not examine "
+            f"{len(unscannable)} file(s), so the clone counts would understate the tree:\n  "
+            + "\n  ".join(sorted(unscannable)),
+            file=sys.stderr,
+        )
+        return 1
     counts = {name: len(v) for name, v in families.items() if len(v) > 1}
 
     if args.update_baseline:

@@ -587,7 +587,7 @@ def _suppressed(handler: ast.ExceptHandler, lines: list[str]) -> tuple[bool, str
     return False, None
 
 
-def scan_file(path: Path):
+def scan_file(path: Path, unscannable: list[str] | None = None):
     """Return (findings, bad_pragmas) for one file.
 
     findings: list of (qualified_function, lineno, outcome_class, sorted write names)
@@ -596,7 +596,11 @@ def scan_file(path: Path):
     try:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
-    except (OSError, SyntaxError):
+    except (OSError, SyntaxError) as exc:
+        # #2815: a file we could not examine must not count as clean. The tree-scan
+        # caller passes `unscannable` and fails the run naming it.
+        if unscannable is not None:
+            unscannable.append(f"{path}: {type(exc).__name__}: {exc}")
         return [], []
 
     lines = source.splitlines()
@@ -673,18 +677,23 @@ def _iter_py(paths: list[str]):
         yield path
 
 
+# #2815: a file the scan could not read or parse is reported, not treated as clean.
+UNSCANNABLE_PREFIX = "UNSCANNABLE (the count would understate the tree): "
+
+
 def _counts(paths: list[str]) -> tuple[Counter, Counter, dict[str, list], list[str]]:
     """Map 'path::qualname' -> number of sites, plus outcome totals and details."""
     counts: Counter = Counter()
     outcomes: Counter = Counter()
     details: dict[str, list] = {}
     problems: list[str] = []
+    unscannable: list[str] = []
     for path in _iter_py(paths):
         rel = _rel(path)
         # Tests may legitimately swallow while probing failure paths.
         if "/tests/" in "/" + rel or path.name.startswith("test_"):
             continue
-        findings, bad = scan_file(path)
+        findings, bad = scan_file(path, unscannable)
         for qualname, lineno, outcome, writes in findings:
             key = f"{rel}::{qualname}"
             counts[key] += 1
@@ -695,6 +704,7 @@ def _counts(paths: list[str]) -> tuple[Counter, Counter, dict[str, list], list[s
                 f"{rel}:{lineno}: invalid `failed-write-ok` reason {reason!r}; "
                 f"use one of {sorted(VALID_REASONS)}"
             )
+    problems.extend(f"{UNSCANNABLE_PREFIX}{msg}" for msg in unscannable)
     return counts, outcomes, details, problems
 
 
@@ -759,7 +769,12 @@ def main(argv: list[str]) -> int:
     paths = args.paths or list(SCAN_ROOTS)
 
     if args.update_baseline:
-        counts, outcomes, _, _ = _counts([str(REPO_ROOT / root) for root in SCAN_ROOTS])
+        counts, outcomes, _, regen_problems = _counts([str(REPO_ROOT / root) for root in SCAN_ROOTS])
+        skipped = [m for m in regen_problems if m.startswith(UNSCANNABLE_PREFIX)]
+        if skipped:
+            # Writing now would drop the unreadable file's entries from the baseline.
+            print("\n".join(skipped), file=sys.stderr)
+            return 1
         write_baseline(args.baseline, counts, outcomes)
         print(f"baseline written: {len(counts)} functions, {sum(counts.values())} sites")
         for k in OUTCOME_ORDER:
@@ -804,6 +819,10 @@ def main(argv: list[str]) -> int:
         "  reads. If the write genuinely does not matter, mark it:\n"
         "      except Exception:  # failed-write-ok: best-effort\n"
     )
+    # An unscannable file fails even in advisory mode (#2815): advisory only softens a
+    # FINDING, it must not let a file we never examined read as clean.
+    if any(m.startswith(UNSCANNABLE_PREFIX) for m in problems):
+        return 1
     return 1 if strict else 0
 
 
