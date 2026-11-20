@@ -263,6 +263,7 @@ class TestOwnEmployeeLink2802(_ExpenseFixtureMixin, EnhancedTestCase):
         frappe.local.message_log = []
         errors_before = frappe.db.count("Error Log")
         real_sql = frappe.db.sql
+        # Mock justified: call-through spy: wraps=frappe.db.sql counts the queries (an existence-oracle channel) while the real queries still run
         with mock.patch.object(frappe.db, "sql", wraps=real_sql) as sql_spy:
             result = get_expense_submission_service(volunteer_name).submit_expense(
                 {
