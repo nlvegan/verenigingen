@@ -147,14 +147,17 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
         
         # Test cancellation workflow (real business logic)
         mandate.status = "Cancelled"
-        mandate.cancellation_date = today()
+        mandate.cancelled_date = today()
         mandate.cancellation_reason = "Member terminated"
         mandate.save()
         
         # Validate real status change
         mandate.reload()
         self.assertEqual(mandate.status, "Cancelled")
-        self.assertEqual(mandate.cancellation_date, today())
+        # Read back from the database: reload() alone would not catch a field
+        # the doctype does not have, so check the stored column too.
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", mandate.name, "cancelled_date"), getdate(today()))
+        self.assertEqual(mandate.cancelled_date, getdate(today()))
         
         # Test database consistency (no mocks)
         cancelled_mandates = frappe.get_all(
@@ -334,7 +337,7 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
         
         # Cancel mandate - may trigger notifications (real business logic)
         mandate.status = "Cancelled"
-        mandate.cancellation_date = today()
+        mandate.cancelled_date = today()
         mandate.save()
         
         # External email service appropriately mocked
@@ -343,6 +346,7 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
         # Verify real mandate status changes
         mandate.reload()
         self.assertEqual(mandate.status, "Cancelled")
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", mandate.name, "cancelled_date"), getdate(today()))
     
     def test_sepa_mandate_types_real_logic(self):
         """Test SEPA mandate type handling with real business logic"""
