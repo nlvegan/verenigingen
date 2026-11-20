@@ -8,8 +8,10 @@ Maintainer ruling (2026-11-19): each holder is processed under its own savepoint
 save succeeds; every failure stays loud (an Error Log row per user, ONE registered staff alert
 listing the failed users).
 
-Probe shortcuts, stated: the ghost ``Has Role`` row is written with ``db_insert`` (a Role deleted
-after it was granted leaves exactly this), and each holder's board role is granted by a direct
+Probe shortcuts, stated: the ghost ``Has Role`` row is written with ``db_insert``. In stock Frappe
+``Role.remove_roles`` runs from ``disable_role``, not from delete, so the real triggers are a role from
+an uninstalled or removed app, or ``User.save`` validation failing for another reason
+(``permissions.py:1934`` cites "Could not find Row #7: Role: Bank Reconciliation User"), and each holder's board role is granted by a direct
 ``Has Role`` write, because an email-only holder (no ``Member.user``) is never granted it by the
 seat flow and the handler's job is to withdraw it.
 """
@@ -206,3 +208,94 @@ class TestChapterRoleHolderFailures2857(VereningingenTestCase):
         with mock.patch.object(chapter_role_events, "assign_chapter_board_role", side_effect=frappe.QueryTimeoutError):
             with self.assertRaises(frappe.QueryTimeoutError):
                 self._edit_level_2857("Admin")
+
+    # ------------------------------------------------------------------ any failure, not only the refusal
+
+    def test_a_non_refusal_failure_in_the_first_holder_does_not_skip_the_rest(self):
+        """A holder whose turn dies with something OTHER than BoardAccessWithdrawalError (here its
+        Member row is gone) must still be collected: otherwise the exception reaches the outer
+        handler, which skips every later holder and sends no alert."""
+        self.expectErrorLog("Chapter Role holder withdrawal failed")
+        staff = self._staff_2857()
+        bad = self._holder_2857("Gone")
+        good = self._holder_2857("Later")
+        order = [
+            frappe.db.get_value("Volunteer", d.volunteer, "member")
+            for d in frappe.get_all(
+                "Chapter Board Member",
+                filters={"chapter_role": self.role_name, "is_active": 1},
+                fields=["volunteer"],
+            )
+        ]
+        self.assertEqual(order[0], bad.member, "fixture: the failing holder must come first")
+
+        known = set(self._errors_2857_by_volunteer(bad.volunteer))  # Error Log is not rolled back
+        real_get_doc = frappe.get_doc
+
+        def get_doc(*args, **kwargs):
+            if args[:2] == ("Member", bad.member):
+                raise frappe.DoesNotExistError("Member gone")
+            return real_get_doc(*args, **kwargs)
+
+        # Mock justified: injects the failure at the lowest point (the Member lookup) of one holder.
+        with mock.patch.object(chapter_role_events.frappe, "get_doc", side_effect=get_doc):
+            self._edit_level_2857("Admin")  # must not raise
+
+        self.assertEqual(frappe.db.get_value("Chapter Role", self.role_name, "permissions_level"), "Admin")
+        self.assertNotIn(BOARD_ROLE, self._roles_2857(good.user), "the holder after the failure was skipped")
+        self.assertEqual(len(set(self._errors_2857_by_volunteer(bad.volunteer)) - known), 1)
+        alerts = self._alerts_2857(staff)
+        self.assertEqual(len(alerts), 1, "ONE alert for staff")
+        self.assertIn(bad.volunteer, alerts[0].email_content)
+
+    def test_a_savepoint_already_consumed_is_logged_not_silent(self):
+        """If a nested commit took the savepoint, rollback_to_savepoint returns False and the
+        failing holder's partial writes persist: that must leave an Error Log row."""
+        self.expectErrorLog("Chapter Role holder withdrawal failed")
+        self._holder_2857("Consumed", broken=True)
+        self.expectErrorLog("Board access withdrawal failed")
+        known = set(self._partial_rows_2857())  # Error Log is not rolled back
+
+        # Mock justified: a real nested commit would also commit the test's own fixtures.
+        with mock.patch.object(chapter_role_events, "rollback_to_savepoint", return_value=False):
+            with self.assertErrorLog("Chapter Role holder partial changes not rolled back"):
+                self._edit_level_2857("Admin")
+
+        self.assertEqual(len(set(self._partial_rows_2857()) - known), 1)
+
+    def test_a_rolled_back_holder_logs_no_partial_change_warning(self):
+        """Control: a normal rollback (returns True) writes no 'not rolled back' row."""
+        self.expectErrorLog("Board access withdrawal failed")
+        self.expectErrorLog("Chapter Role holder withdrawal failed")
+        broken = self._holder_2857("Normal", broken=True)
+
+        self._edit_level_2857("Admin")
+
+        self.assertEqual(len(self._errors_2857(broken.user)), 1)
+        self.assertEqual(
+            frappe.get_all(
+                "Error Log",
+                filters={
+                    "method": ["like", "Chapter Role holder partial changes not rolled back%"],
+                    "error": ["like", f"%{broken.user}%"],
+                },
+            ),
+            [],
+        )
+
+    def _partial_rows_2857(self):
+        return frappe.get_all(
+            "Error Log",
+            filters={"method": ["like", "Chapter Role holder partial changes not rolled back%"]},
+            pluck="name",
+        )
+
+    def _errors_2857_by_volunteer(self, volunteer):
+        return frappe.get_all(
+            "Error Log",
+            filters={
+                "method": ["like", "Chapter Role holder withdrawal failed%"],
+                "error": ["like", f"%{volunteer}%"],
+            },
+            pluck="name",
+        )

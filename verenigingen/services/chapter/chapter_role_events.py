@@ -141,9 +141,17 @@ def _reevaluate_holder(volunteer, failed):
         release_savepoint_if_present(savepoint)
     except NON_RESUMABLE_DB_ERRORS:
         raise
+    # Deliberately NOT only BoardAccessWithdrawalError: any failure in one holder's turn (a missing
+    # Volunteer/Member, a failed insert) must not skip the remaining holders or the alert (#2857).
     except Exception as e:
-        rollback_to_savepoint(savepoint)
         who = user_email or f"Volunteer {volunteer}"
+        if not rollback_to_savepoint(savepoint):
+            # A nested commit consumed the savepoint: the holder's partial writes now persist.
+            frappe.log_error(
+                title=f"Chapter Role holder partial changes not rolled back: {who}"[:140],
+                message=f"The savepoint of {who} was already gone, so the changes made before the failure "
+                "could not be rolled back and may be half-applied. Check this user's roles and role profile.",
+            )
         frappe.log_error(
             title=f"Chapter Role holder withdrawal failed: {who}"[:140],
             message=f"Re-evaluating the board role of {who} after a Chapter Role change failed: "
