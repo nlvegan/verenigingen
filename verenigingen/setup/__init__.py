@@ -862,7 +862,6 @@ def check_termination_system_status():
 
     status = {
         "settings_configured": False,
-        "workflows_exist": False,
         "roles_exist": False,
         "system_enabled": False,
     }
@@ -879,13 +878,8 @@ def check_termination_system_status():
                 status["settings_configured"] = True
                 status["system_enabled"] = bool(settings.enable_termination_system)
 
-        # Check workflows
-        workflows = ["Membership Termination Workflow", "Termination Appeals Workflow"]
-        workflow_count = 0
-        for workflow in workflows:
-            if frappe.db.exists("Workflow", workflow):
-                workflow_count += 1
-        status["workflows_exist"] = workflow_count > 0
+        # No termination Workflow is checked: none is built (#1640, #1611), the
+        # service layer owns termination status (#2790).
 
         # Check roles
         status["roles_exist"] = frappe.db.exists("Role", Roles.VERENIGINGEN_ADMIN)
@@ -929,17 +923,8 @@ def run_termination_diagnostics():
         print("   ❌ Verenigingen Administrator - MISSING")
         all_good = False
 
-    # 3. Check workflows
-    print("\n3. WORKFLOW CHECK")
-    print("-" * 15)
-
-    workflows = ["Membership Termination Workflow", "Termination Appeals Workflow"]
-    for workflow in workflows:
-        if frappe.db.exists("Workflow", workflow):
-            print(f"   ✅ {workflow}")
-        else:
-            print(f"   ❌ {workflow} - MISSING")
-            all_good = False
+    # No workflow check: no termination Workflow is built (#1640, #1611), so
+    # demanding one failed every healthy site (#2790).
 
     # Summary
     print("\n" + "=" * 40)
