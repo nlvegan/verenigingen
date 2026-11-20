@@ -67,6 +67,27 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
     #: bare AttributeError.
     settings_company = None
 
+    @property
+    def factory(self):
+        """The test's data factory. ``setUp`` installs a ``CoreTestDataFactory``."""
+        try:
+            return self.__dict__["_factory"]
+        except KeyError:
+            raise AttributeError("factory") from None
+
+    @factory.setter
+    def factory(self, value):
+        """#3020: a subclass that REPLACES the factory after ``super().setUp()`` must not drop the
+        ``on_track`` wiring, or ``_test_docs`` stays empty, ``_rollback_once_before_draining`` returns
+        early and the rows the factory builds outlive a test whose body committed. Wiring lives here so
+        no subclass has to remember it. Only the core factory family speaks ``on_track`` (SEPA/Mollie
+        factories do not), so anything else is stored untouched."""
+        from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
+
+        if isinstance(value, CoreTestDataFactory):
+            value.on_track = self.track_doc
+        self.__dict__["_factory"] = value
+
     @classmethod
     def setUpClass(cls):
         """Set up class-level test environment"""
