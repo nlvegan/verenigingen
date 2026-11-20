@@ -28,11 +28,11 @@ import time
 import unittest
 
 import frappe
-from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.exceptions import MollieIntegrationError
 from verenigingen.verenigingen_payments.mollie.services.subscription_service import SubscriptionService
+from verenigingen.verenigingen_payments.mollie.utils.common_helpers import mollie_signature_date
 from verenigingen.verenigingen_payments.utils.payment_gateways import PaymentGatewayFactory
 
 CI_ALWAYS_SKIPS = "real Mollie API tests; the class skips in setUpClass without a Mollie API key, which CI never has"
@@ -135,7 +135,7 @@ class TestMollieSubscriptionRealAPI(EnhancedTestCase):
                 "consumerName": f"{self.test_member.first_name} {self.test_member.last_name}",
                 "consumerAccount": "NL53INGB0654422370",  # Mollie test IBAN
                 "consumerBic": "INGBNL2A",
-                "signatureDate": today(),
+                "signatureDate": mollie_signature_date(),
                 "mandateReference": f"MANDATE-{self.test_member.name}",
             }
         )
@@ -389,7 +389,7 @@ class TestMollieSubscriptionRealAPI(EnhancedTestCase):
                 "consumerName": f"{self.test_member.first_name} {self.test_member.last_name}",
                 "consumerAccount": "NL53INGB0654422370",
                 "consumerBic": "INGBNL2A",
-                "signatureDate": today(),
+                "signatureDate": mollie_signature_date(),
                 "mandateReference": f"E2E-{self.test_member.name}",
             }
         )
