@@ -719,6 +719,8 @@ class TestRollbackResetsCollectedBatchRows3021(EnhancedTestCase):
         with unittest.mock.patch.object(PaymentEntry, "cancel", cancel_probe):
             res = self._rollback3021(batch, "full_batch", expect_success=False)
         self.assertIn(broken, str(res))
+        # the "PE stays live" half: the refused cancel left the Payment Entry submitted
+        self.assertEqual(frappe.db.get_value("Payment Entry", broken_pe, "docstatus"), 1)
         rows = self._rows3021(batch)
         self.assertEqual(rows[broken].status, "Successful")
         self.assertEqual(rows[fine].status, "Pending")
