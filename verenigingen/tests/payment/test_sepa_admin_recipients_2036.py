@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.tests.payment.test_sepa_literal_recipients import (
     _put_key_row,
     _restore_rows,
@@ -79,6 +80,7 @@ class TestPaymentRetryEscalationRecipients(_Base):
             member=member.name, invoice="SINV-2036", original_amount=10, retry_count=3, last_failure_reason="x"
         )
         email_service = MagicMock()
+        email_service.send_templated_email.return_value = OperationResult.ok({})
         # Mock justified: EmailService is the outgoing-mail boundary; the Mollie company lookup is not under test.
         with patch(
             "verenigingen.services.communication.email_service.get_email_service", return_value=email_service
