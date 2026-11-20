@@ -294,6 +294,8 @@ class SEPAAuthorizationManager:
 
             return list(permissions)
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # 1213/1205 are not a verdict: never read as a deny (#2409)
         except Exception as e:
             log_error(e, context={"user": user}, module="verenigingen.utils.security.authorization")
             return []
@@ -349,6 +351,8 @@ class SEPAAuthorizationManager:
 
             return True
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # 1213/1205 are not a verdict: never read as a deny (#2409)
         except Exception as e:
             log_error(
                 e,
@@ -408,6 +412,8 @@ class SEPAAuthorizationManager:
 
             return True
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # 1213/1205 are not a verdict: never read as a deny (#2409)
         except Exception as e:
             log_error(
                 e,
@@ -528,6 +534,8 @@ class SEPAAuthorizationManager:
 
             return False
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # 1213/1205 are not a verdict: never read as a deny (#2409)
         except Exception as e:
             log_error(
                 e,
@@ -610,6 +618,8 @@ class SEPAAuthorizationManager:
 
         except VerenigingenPermissionError:
             raise
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # 1213/1205 are not a verdict: never read as a deny (#2409)
         except Exception as e:
             log_error(
                 e,
@@ -685,6 +695,8 @@ def require_sepa_permission(
 
             except VerenigingenPermissionError as e:
                 frappe.throw(str(e), exc=frappe.PermissionError)
+            except NON_RESUMABLE_DB_ERRORS:
+                raise  # 1213/1205 are not a verdict: never read as a deny (#2409)
             except Exception as e:
                 log_error(
                     e,
@@ -769,6 +781,8 @@ def get_user_sepa_permissions(user: str = None):
             "available_operations": available_operations,
         }
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # 1213/1205 are not a verdict: never read as a deny (#2409)
     except Exception as e:
         log_error(e, context={"user": user}, module="verenigingen.utils.security.authorization")
 
@@ -816,6 +830,8 @@ def check_sepa_operation_permission(operation: str, context: str = None):
 
         return {"success": True, "operation": operation, "allowed": allowed, "user": frappe.session.user}
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # 1213/1205 are not a verdict: never read as a deny (#2409)
     except Exception as e:
         log_error(
             e,
