@@ -321,6 +321,12 @@ class SEPARollbackManager:
             if not step_result["success"]:
                 errors.extend(step_result.get("errors", []))
 
+            # Step 1b: the rows the rollback un-collects must stop claiming Successful (#3021)
+            step_result = self._rollback_batch_invoice_rows(operation)
+            rollback_steps.append({"step": "batch_invoice_rows_rollback", "result": step_result})
+            if not step_result["success"]:
+                errors.extend(step_result.get("errors", []))
+
             # Step 2: Handle invoice status updates
             step_result = self._rollback_invoice_statuses(operation.affected_invoices)
             rollback_steps.append({"step": "invoice_status_rollback", "result": step_result})
@@ -377,6 +383,37 @@ class SEPARollbackManager:
 
         except Exception as e:
             return {"success": False, "errors": [f"Failed to update batch status: {str(e)}"]}
+
+    def _rollback_batch_invoice_rows(self, operation: RollbackOperation) -> Dict[str, Any]:
+        """Reset the affected rows that were collected to Pending (#3021).
+
+        The rollback cancels their Payment Entries, so they are un-collected and
+        collectable again (a Pending row is what a freshly batched invoice has: no
+        result_code/result_message, the bank has not answered). Rows that are already
+        Pending/Failed are left alone. No commit here: the following steps commit this
+        write together with the invoice status change.
+        """
+        try:
+            rows = frappe.get_all(
+                "Direct Debit Batch Invoice",
+                filters={
+                    "parent": operation.batch_name,
+                    "invoice": ["in", operation.affected_invoices or [""]],
+                    "status": ["in", ["Successful", "Processed"]],
+                },
+                pluck="name",
+            )
+            for row_name in rows:
+                # set_value, not save(): the batch is submitted and the row fields are not allow_on_submit
+                frappe.db.set_value(
+                    "Direct Debit Batch Invoice",
+                    row_name,
+                    {"status": "Pending", "result_code": None, "result_message": None},
+                    update_modified=False,
+                )
+            return {"success": True, "processed_count": len(rows)}
+        except Exception as e:
+            return {"success": False, "errors": [f"Failed to update batch invoice rows: {str(e)}"]}
 
     def _rollback_invoice_statuses(self, invoice_names: List[str]) -> Dict[str, Any]:
         """Rollback invoice statuses to unpaid"""
