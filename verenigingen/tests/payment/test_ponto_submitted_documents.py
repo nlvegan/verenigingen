@@ -873,9 +873,10 @@ class TestSubmittedPontoPaymentLink(_PontoUsers, EnhancedTestCase):
 
         self.assertEqual(self._read_link(link, "total_payments_collected").total_payments_collected, 0)
 
-    def test_increment_payment_count_does_not_lose_a_concurrent_increment(self):
-        """Two webhook deliveries each loaded the row at the same count: both must land (read-modify-write
-        would write 1 twice)."""
+    def test_increment_payment_count_does_not_use_the_stale_in_memory_value(self):
+        """Two docs loaded at the same count: both increments must land. This proves the write does not
+        compute from the in-memory value; it does NOT prove atomicity under true concurrency (the SQL
+        increment's shape provides that, and no test here exercises two connections)."""
         name = self._submitted_legacy_periodic_link()
         first = frappe.get_doc("Ponto Payment Link", name)
         second = frappe.get_doc("Ponto Payment Link", name)
