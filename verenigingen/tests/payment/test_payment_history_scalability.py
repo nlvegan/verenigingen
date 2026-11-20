@@ -963,6 +963,9 @@ class ScalabilityEdgeCaseResidueTest(unittest.TestCase):
     durable state. Cause: these classes replaced the factory VereningingenTestCase wired
     to track_doc, so _test_docs stayed empty, base tearDown skipped its rollback and
     cleanup(commit=True) committed the whole test transaction.
+
+    NOT counted here, and NOT fixed by this: each method still leaves the #1342 per-class
+    Chapter plus its Cost Center and Department (+1 each), from VereningingenTestCase.
     """
 
     RESIDUE_DOCTYPES = ("Customer", "Contact", "Dynamic Link", "API Audit Log")
