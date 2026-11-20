@@ -397,3 +397,97 @@ class TestAssignBoardRoleWithdraw702(VereningingenTestCase):
                 assign_chapter_board_role(person.user)
             with self.assertRaises(frappe.QueryDeadlockError):
                 update_all_chapter_board_roles()
+
+    # ------------------------------------------------------------------ #2718: ordinary exceptions
+
+    ORDINARY_ERRORS_2718 = (frappe.ValidationError, ValueError, TypeError)
+
+    def test_an_ordinary_error_in_the_unlinked_strip_is_refused_not_swallowed(self):
+        """#2718: the catch-all turned any non-#702 exception into 'return False' (nothing to
+        remove) while the user kept the board role. Failure is injected where the strip writes."""
+        from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+        for error in self.ORDINARY_ERRORS_2718:
+            with self.subTest(error=error.__name__):
+                user = self._unlinked_holder([PROFILE_BOARD_MEMBER], [PROFILE_BOARD_MEMBER])
+                # Mock justified: injects an ordinary failure at the unlinked-user write.
+                with mock.patch.object(permissions, "_strip_board_profiles_and_role", side_effect=error("x")):
+                    with self.assertRaises(BoardAccessWithdrawalError) as raised:
+                        assign_chapter_board_role(user)
+                self.assertIn(user, str(raised.exception))
+                self.assertIsInstance(raised.exception.__cause__, error)
+                self.assertIn(BOARD_ROLE, self._roles(user), "fixture: the access is still held")
+
+    def test_an_ordinary_error_in_the_profile_sync_is_refused_not_swallowed(self):
+        from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+        for error in self.ORDINARY_ERRORS_2718:
+            with self.subTest(error=error.__name__):
+                person = self._person_702(f"Sync{error.__name__}")
+                self._seat_702(person)
+                self._vacate_behind_the_hooks(person)
+                # Mock justified: injects an ordinary failure at the profile-sync boundary.
+                with mock.patch.object(calculator, "sync_user_role_profile", side_effect=error("x")):
+                    with self.assertRaises(BoardAccessWithdrawalError):
+                        assign_chapter_board_role(person.user)
+                self.assertIn(BOARD_ROLE, self._roles(person.user))
+
+    def test_an_ordinary_error_in_the_post_condition_is_refused_not_swallowed(self):
+        from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+        person = self._person_702("Post")
+        self._seat_702(person)
+        self._vacate_behind_the_hooks(person)
+        # Mock justified: the post-condition itself errors, so it cannot vouch for the withdrawal.
+        with mock.patch.object(permissions, "_sync_owned_board_profiles_attached", side_effect=TypeError("x")):
+            with self.assertRaises(BoardAccessWithdrawalError):
+                assign_chapter_board_role(person.user)
+
+    def test_an_ordinary_error_for_one_user_does_not_stop_the_sweep_for_the_others(self):
+        from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+        bad, good = self._person_702("OrdBad"), self._person_702("OrdGood")
+        for person in (bad, good):
+            self._seat_702(person)
+            self._vacate_behind_the_hooks(person)
+        real_sync = sync_user_role_profile
+
+        def typeerror_for_bad(user, *args, **kwargs):
+            if user == bad.user:
+                raise TypeError("unexpected keyword argument")
+            return real_sync(user, *args, **kwargs)
+
+        # Mock justified: an ordinary failure for one user at the profile-sync boundary.
+        with mock.patch.object(calculator, "sync_user_role_profile", side_effect=typeerror_for_bad):
+            with self.assertRaises(BoardAccessWithdrawalError) as raised:
+                update_all_chapter_board_roles()
+
+        self.assertIn(bad.user, str(raised.exception))
+        self.assertNotIn(good.user, str(raised.exception))
+        self._assert_withdrawn_after_a_user_save(good.user)
+        self.assertIn(BOARD_ROLE, self._roles(bad.user), "the refused user is rolled back, not half-withdrawn")
+
+    def test_an_ordinary_error_on_the_grant_side_is_still_logged_and_false(self):
+        """Control: only the WITHDRAWAL is made loud. A failed grant fails safe (nobody gains)."""
+        person = self._person_702("Grant")
+        # Mock justified: an ordinary failure while reading the board positions.
+        with mock.patch.object(permissions, "get_user_chapter_board_positions", side_effect=ValueError("x")):
+            self.assertFalse(assign_chapter_board_role(person.user))
+
+    def test_an_ordinary_error_aborts_a_member_save_through_the_real_hook(self):
+        """#2718 through the doc event: the relink's old-user withdrawal fails ordinarily, and the
+        Member save must abort (the intended loud failure) instead of committing live access."""
+        from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+        old = self._person_702("HookO")
+        self._seat_702(old)
+        new_user = self.create_test_user(f"w702.hooko.{frappe.generate_hash(length=8)}@test.invalid")
+        self.track_doc("User", new_user.name)
+        member = frappe.get_doc("Member", old.member)
+        member.user = new_user.name
+        self._vacate_behind_the_hooks(old)
+
+        # Mock justified: an ordinary failure at the old (now unlinked) user's write.
+        with mock.patch.object(permissions, "_strip_board_profiles_and_role", side_effect=ValueError("x")):
+            with self.assertRaises(BoardAccessWithdrawalError):
+                member.save()

@@ -28,6 +28,7 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.mollie_bank_scope import pin_mollie_bank_account
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
     BATCH_PAYMENT_LIMIT,
@@ -181,6 +182,14 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
     so we substitute a recorded BT name and assert on the orchestration outcome.
     The BT-document construction itself is covered by the live batch test.
     """
+
+    def setUp(self):
+        super().setUp()
+        # The idempotency lookup counts a Bank Transaction only on Mollie's configured bank
+        # account (#2620). The raw Bank Transactions below sit on the plain test account, so
+        # point the Mollie config seam at THAT account: otherwise whether the row is found
+        # depends on whatever Mollie Settings the site happens to hold (#528).
+        pin_mollie_bank_account(self, self._ensure_plain_bank_account())
 
     def _matched_member(self, customer_id):
         member = self._member_with_customer()

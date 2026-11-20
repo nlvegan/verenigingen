@@ -1946,7 +1946,24 @@ def assign_chapter_board_role(user_email):
             if DocumentExistenceValidator.check_document_exists(
                 "Has Role", {"parent": user_email, "role": Roles.CHAPTER_BOARD_MEMBER}
             ):
-                _withdraw_chapter_board_access(user_email, user_member)
+                try:
+                    _withdraw_chapter_board_access(user_email, user_member)
+                except (BoardAccessWithdrawalError, *NON_RESUMABLE_DB_ERRORS):
+                    raise
+                except Exception as e:
+                    # #2718: ANY other failure here (a ValidationError from User.save, a TypeError)
+                    # leaves the board access attached. The catch-all below would log it and return
+                    # False ("nothing to remove"), so refuse in the type every caller already handles.
+                    frappe.log_error(
+                        title="Board access withdrawal failed",
+                        message=f"Withdrawing Chapter Board Member access of {user_email}: "
+                        f"{e.__class__.__name__}: {e}\n{frappe.get_traceback()}",
+                    )
+                    raise BoardAccessWithdrawalError(
+                        frappe._("Board access of User {0} could not be withdrawn: {1}").format(
+                            user_email, f"{e.__class__.__name__}: {e}"
+                        )
+                    ) from e
                 frappe.logger().info(f"Removed Chapter Board Member role from {user_email}")
                 return True
             else:
