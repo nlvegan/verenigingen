@@ -18,12 +18,20 @@ Security Features:
 """
 
 import frappe
+from frappe.utils import escape_html
 
 from verenigingen.permissions import assign_chapter_board_role, get_user_chapter_board_positions
+from verenigingen.utils.notification_helpers import notify_administrators
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.security_decorators import development_only
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+NOTIFICATION_KEY = "chapter_role_holder_withdrawal_failed"
 
 # REMOVED: on_chapter_board_member_after_insert, on_chapter_board_member_on_update,
 # on_chapter_board_member_on_trash. These child table doc_events never fire when
@@ -82,6 +90,10 @@ def on_chapter_role_on_update(doc, method):
     """
     Event handler for Chapter Role updates
     Re-evaluates board member roles if permissions_level changes
+
+    Each holder is processed under its own savepoint (#2857): one User whose board access cannot
+    be withdrawn must not roll back the edit for everyone else. The save succeeds; each failure
+    is logged and ONE staff alert lists the failed users, so it stays loud (#702, #1953).
     """
     try:
         # Check if permissions_level changed - this affects treasurer status
@@ -93,25 +105,89 @@ def on_chapter_role_on_update(doc, method):
                 fields=["volunteer"],
             )
 
+            failed = []
             for board_member in board_members:
                 if board_member.volunteer:
-                    volunteer_doc = frappe.get_doc("Volunteer", board_member.volunteer)
-                    if volunteer_doc.member:
-                        member_doc = frappe.get_doc("Member", volunteer_doc.member)
-                        user_email = member_doc.user or member_doc.email
+                    _reevaluate_holder(board_member.volunteer, failed)
+            _alert_failed_holders(doc.name, failed)
 
-                        if user_email:
-                            assign_chapter_board_role(user_email)
-                            frappe.logger().info(
-                                f"Re-evaluated board role for {user_email} due to chapter role changes"
-                            )
-
-    except (BoardAccessWithdrawalError, *NON_RESUMABLE_DB_ERRORS):
-        raise  # #702/#1953
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(f"Error in chapter role update handler: {str(e)}")
 
     _refresh_expense_approvers_for_role(doc)
+
+
+def _reevaluate_holder(volunteer, failed):
+    """Re-evaluate one holder's board role under a savepoint; a failure is collected in ``failed``.
+
+    The savepoint undoes the failing user's half-done writes (the strip may already have removed
+    the role when its post-condition refuses). A deadlock/lock-wait has destroyed the savepoint
+    and propagates, as it must.
+    """
+    savepoint = f"chapter_role_holder_{frappe.generate_hash(length=10)}"
+    frappe.db.savepoint(savepoint)
+    user_email = None
+    try:
+        volunteer_doc = frappe.get_doc("Volunteer", volunteer)
+        if volunteer_doc.member:
+            member_doc = frappe.get_doc("Member", volunteer_doc.member)
+            user_email = member_doc.user or member_doc.email
+
+            if user_email:
+                assign_chapter_board_role(user_email)
+                frappe.logger().info(f"Re-evaluated board role for {user_email} due to chapter role changes")
+        release_savepoint_if_present(savepoint)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    # Deliberately NOT only BoardAccessWithdrawalError: any failure in one holder's turn (a missing
+    # Volunteer/Member, a failed insert) must not skip the remaining holders or the alert (#2857).
+    except Exception as e:
+        who = user_email or f"Volunteer {volunteer}"
+        if not rollback_to_savepoint(savepoint):
+            # A nested commit consumed the savepoint: the holder's partial writes now persist.
+            frappe.log_error(
+                title=f"Chapter Role holder partial changes not rolled back: {who}"[:140],
+                message=f"The savepoint of {who} was already gone, so the changes made before the failure "
+                "could not be rolled back and may be half-applied. Check this user's roles and role profile.",
+            )
+        frappe.log_error(
+            title=f"Chapter Role holder withdrawal failed: {who}"[:140],
+            message=f"Re-evaluating the board role of {who} after a Chapter Role change failed: "
+            f"{e.__class__.__name__}: {e}\n\n{frappe.get_traceback()}",
+        )
+        failed.append((who, f"{e.__class__.__name__}: {e}"))
+
+
+def _alert_failed_holders(role_name, failed):
+    """ONE staff alert listing the holders whose re-evaluation failed (none: no alert).
+
+    Alert trouble must never undo the Chapter Role save, which has already succeeded.
+    """
+    if not failed:
+        return
+    try:
+        lines = "".join(
+            f"<li><b>{escape_html(who)}</b>: {escape_html(reason)}</li>" for who, reason in failed
+        )
+        notify_administrators(
+            subject=f"Board access was not withdrawn for {len(failed)} user(s) after a Chapter Role change",
+            message=(
+                f"<p>Chapter Role <b>{escape_html(role_name)}</b> was saved, but the board access of these "
+                "holders could not be re-evaluated. Fix the cause on each User, then save the role again.</p>"
+                f"<ul>{lines}</ul>"
+            ),
+            notification_key=NOTIFICATION_KEY,  # literal in the registry: key discovery greps for it
+            event_reference=NOTIFICATION_KEY,
+            # staff alerts never go to Administrator (the delivery layer also excludes it)
+            exclude_users=["Administrator"],
+            staff_alert=True,
+        )
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception:
+        frappe.log_error(title="Chapter Role holder alert failed", message=frappe.get_traceback())
 
 
 def _refresh_expense_approvers_for_role(doc):
