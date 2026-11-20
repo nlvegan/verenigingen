@@ -172,7 +172,7 @@ Found **20+ potential duplicate functions** across the payment module, with **10
 
 | Layer | File | Function | Purpose |
 |-------|------|----------|---------|
-| **Core** | `batch_processing_service.py:92` | `process_batch_submission()` | Core batch logic |
+| **Core** | ~~`batch_processing_service.py`~~ | ~~`process_batch_submission()`~~ | Removed in #1236 (dead; the live path is `DirectDebitBatch.process_batch`) |
 | **Orchestration** | `business_logic_orchestration_service.py:35` | `orchestrate_complete_batch_processing()` | Workflow orchestration |
 | **DocType** | `direct_debit_batch.py:298` | `process_batch()` | DocType method delegates to service |
 
