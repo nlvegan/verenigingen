@@ -115,6 +115,29 @@ class TestReviewerChosenChapterRowAtApproval(ApprovalCase):
         self.assertIn(member, failures[0].error)
         self.assertIn("refused-1797", failures[0].error)
 
+    def test_with_the_early_row_intact_the_post_core_manager_answers_already_exists_and_logs_nothing(self):
+        """Control for the test above (#2943): with the early write NOT failed, the post-core assignment finds
+        the row and answers already_exists, which is benign and must not reach the Error Log."""
+        from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+
+        chapter = self.create_test_chapter(published=1)
+        application = self._stage_without_chapter()
+        answers = []
+        real = ChapterMembershipManager.assign_member_to_chapter
+
+        def spy(*args, **kwargs):
+            answers.append(real(*args, **kwargs))
+            return answers[-1]
+
+        start = frappe.utils.now()
+        # Mock justified: pass-through spy on the manager; the real assignment still runs.
+        with patch(MANAGER_ASSIGN, side_effect=spy):
+            member = self._approve(application, chapter.name)
+
+        self.assertEqual(self._rows(member), {chapter.name: (1, "Active")})
+        self.assertEqual([a.get("action") for a in answers], ["already_exists"], answers)
+        self.assertEqual(self._assignment_failures_since(start), [])
+
     def test_an_assignment_that_raises_is_logged_and_the_approval_wrapper_survives(self):
         """The wrapper's except branch: the manager is the collaborator, so stubbing it to raise
         is a boundary fault, not mocked business logic (Mock justified: fault injection)."""

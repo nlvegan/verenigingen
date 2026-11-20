@@ -203,19 +203,37 @@ def _create_pending_row_for_reviewer_chapter(member, reviewer_chapter):
 def _finish_reviewer_chapter_row(member, chapter):
     """What assign_member_to_chapter does for a NEW row, for a row written before the core (#2943).
 
-    Once the row exists add_member answers already_exists and stops, which skips the tracking fields and the
-    member's welcome mail it writes for a new row. The Member is Active now, so a row whose early
-    activation failed (logged, swallowed) is activated here, as it was when add_member wrote it.
+    Once the row exists add_member answers already_exists and stops, which skips the tracking fields, the
+    audit comment (#2196) and the member's welcome mail it writes for a new row. The Member is Active now,
+    so a row whose early activation failed (logged, swallowed) is activated here, as it was when add_member
+    wrote it. As in add_member (#1842) the comment, tracking fields and mail follow only a row that really is
+    Active and enabled: if it is still not, the failure is logged with the member and chapter and none of the
+    three is written. add_member cannot be the fallback for it: the row exists, so it answers already_exists.
     Returns the chapters this call activated, for the board join mail.
     """
     from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 
     activated = _activate_pending_chapter_memberships(member, chapter)
+    row = frappe.db.get_value(
+        "Chapter Member", {"member": member.name, "parent": chapter}, ["status", "enabled"]
+    )
+    if not row or row[0] != "Active" or not row[1]:
+        frappe.log_error(
+            title="Approval Chapter Row Not Activated",
+            message=f"Member {member.name}: the reviewer-assigned row in chapter {chapter} is still "
+            f"{row and row[0]} (enabled={row and row[1]}) after approval, so no welcome mail, audit comment "
+            "or tracking fields were written. Activate it by hand.",
+        )
+        return activated
+    chapter_doc = frappe.get_doc("Chapter", chapter)
+    chapter_doc.member_manager.create_comment(  # ast-skip: @property not field
+        "Info", _("Added member {0} to chapter").format(member.full_name)
+    )
     ChapterMembershipManager._update_member_tracking_fields(
         member_id=member.name, reason="Membership application approval", assigned_by=frappe.session.user
     )
     if ChapterMembershipManager._assignment_notifications_wanted(None):
-        frappe.get_doc("Chapter", chapter).communication_manager.notify_member_added(member.name)
+        chapter_doc.communication_manager.notify_member_added(member.name)  # ast-skip: @property not field
     return activated
 
 

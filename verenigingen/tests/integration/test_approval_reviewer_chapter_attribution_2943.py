@@ -84,7 +84,9 @@ class TestReviewerChapterBeforeInvoice2943(ApprovalCase):
     def test_the_reviewer_chapter_row_is_already_active_when_the_core_runs(self):
         """Pins the ORDER (ruling): the outcome alone is also met by setting the invoice chapter after the
         core or by widening get_member_primary_chapter; the row's state at the core's entry is not."""
-        from verenigingen.services.member.approval.membership_creation_service import MembershipCreationService
+        from verenigingen.services.member.approval.membership_creation_service import (
+            MembershipCreationService,
+        )
 
         seen = []
         real = MembershipCreationService.create_membership_on_approval
@@ -154,7 +156,9 @@ class TestReviewerChapterBeforeInvoice2943(ApprovalCase):
         self.assertEqual([(r.status, r.enabled) for r in self._rows_2943(result["member"], self.chapter.name)], [("Active", 1)])
 
     def test_a_failed_core_leaves_no_row_in_the_reviewer_chapter(self):
-        from verenigingen.services.member.approval.membership_creation_service import MembershipCreationService
+        from verenigingen.services.member.approval.membership_creation_service import (
+            MembershipCreationService,
+        )
 
         application = self._stage_without_chapter()
         # Mock justified: failure injection at the core boundary; everything before it is real.
@@ -178,16 +182,24 @@ class TestReviewerChapterBeforeInvoice2943(ApprovalCase):
         before = self._rows_2943(member.name, self.chapter.name)
         self.assertEqual(len(before), 1, "premise: the earlier row exists")
         application = self._stage_without_chapter()
+        start = frappe.utils.now()
 
-        result = self._approve_into_2943(application, self.chapter.name)
+        with self._spy_on_reviewer_row_welcome_mail() as mails:
+            result = self._approve_into_2943(application, self.chapter.name)
 
         self.assertTrue(result["success"], result)
         after = self._rows_2943(member.name, self.chapter.name)
         self.assertEqual([(r.status, r.enabled) for r in after], [("Active", 1)], (before, after))
+        # The existing-row guard in _create_pending_row_for_reviewer_chapter: without it the early write
+        # logs a "Chapter Membership Error" and the rejoiner gets a second welcome mail.
+        self.assertEqual(self._logged_titled_rows_since_2943(start, "Chapter Membership Error"), [])
+        self.assertEqual(mails, [], "no mail for the rejoiner: its row was already there")
 
     def test_the_new_row_sends_the_welcome_mail_exactly_when_assign_member_to_chapter_did(self):
         """The setting-gated welcome mail add_member sent for a new row is not lost to the early row."""
-        from verenigingen.verenigingen.doctype.chapter.managers.communication_manager import CommunicationManager
+        from verenigingen.verenigingen.doctype.chapter.managers.communication_manager import (
+            CommunicationManager,
+        )
 
         setting = "send_chapter_assignment_notifications"
         original = frappe.db.get_single_value("Verenigingen Settings", setting)
@@ -209,6 +221,110 @@ class TestReviewerChapterBeforeInvoice2943(ApprovalCase):
                 result = self._approve_into_2943(application, self.chapter.name)
             sent[wanted] = [c for c in calls if c == (self.chapter.name, result["member"])]
         self.assertEqual([len(sent[1]), len(sent[0])], [1, 0], sent)
+
+    def _spy_on_reviewer_row_welcome_mail(self):
+        """Pass-through spy on the member's welcome mail; the real mail still goes out."""
+        from contextlib import contextmanager
+
+        from verenigingen.verenigingen.doctype.chapter.managers.communication_manager import (
+            CommunicationManager,
+        )
+
+        @contextmanager
+        def spy():
+            calls = []
+            real = CommunicationManager.notify_member_added
+            setting = "send_chapter_assignment_notifications"
+            self.addCleanup(
+                frappe.db.set_single_value, "Verenigingen Settings", setting,
+                frappe.db.get_single_value("Verenigingen Settings", setting),
+            )
+            frappe.flags.suppress_chapter_notifications = False
+            frappe.db.set_single_value("Verenigingen Settings", setting, 1)
+            # Mock justified: pass-through spy; the mail still goes through the real manager.
+            with patch.object(
+                CommunicationManager, "notify_member_added", autospec=True,
+                side_effect=lambda manager, member_id: (calls.append((manager.chapter_name, member_id)) or real(manager, member_id)),
+            ):
+                yield calls
+
+        return spy()
+
+    def _logged_titled_rows_since_2943(self, start, title):
+        # create_pending_chapter_membership calls log_error(message, title) (arguments swapped), which stores the
+        # title in `error`; the explicit-keyword callers store it in `method`. Match both.
+        return frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", start]},
+            or_filters={"method": title, "error": ["like", f"%{title}%"]},
+            fields=["name", "error"],
+        )
+
+    def _fail_activation_2943(self, failing_calls):
+        """Fault injection at the activation helper's boundary: the listed 1-based calls return None (its own
+        swallowed-failure shape); the others run the real helper."""
+        from verenigingen.utils import application_helpers
+
+        real = application_helpers.activate_pending_chapter_membership
+        count = {"n": 0}
+
+        def flaky(member, chapter):
+            count["n"] += 1
+            return None if count["n"] in failing_calls else real(member, chapter)
+
+        return patch("verenigingen.utils.application_helpers.activate_pending_chapter_membership", side_effect=flaky)
+
+    def test_activation_failing_on_both_calls_sends_no_welcome_and_logs(self):
+        """F1 (review): the row stays Pending; no mail, no audit comment, no tracking fields, one Error Log."""
+        title = "Approval Chapter Row Not Activated"
+        self.expectErrorLog(title)
+        application = self._stage_without_chapter()
+        start = frappe.utils.now()
+
+        with self.assertErrorLog(title), self._spy_on_reviewer_row_welcome_mail() as mails, self._fail_activation_2943({1, 2}):
+            result = self._approve_into_2943(application, self.chapter.name)
+
+        member = result["member"]
+        self.assertEqual([(r.status, r.enabled) for r in self._rows_2943(member, self.chapter.name)], [("Pending", 1)])
+        self.assertEqual([m for m in mails if m[1] == member], [])
+        logs = self._logged_titled_rows_since_2943(start, title)
+        self.assertEqual(len(logs), 1, logs)
+        self.assertIn(member, logs[0].error)
+        self.assertIn(self.chapter.name, logs[0].error)
+        self.assertEqual(self._added_comments_2943(self.chapter.name, member), [])
+        self.assertFalse(frappe.db.get_value("Member", member, "chapter_assigned_by"))
+
+    def test_activation_failing_once_is_retried_after_the_core_with_one_welcome_mail(self):
+        """F2a: the retry in the finish step makes the row Active and enabled; exactly one welcome mail."""
+        application = self._stage_without_chapter()
+
+        with self._spy_on_reviewer_row_welcome_mail() as mails, self._fail_activation_2943({1}):
+            result = self._approve_into_2943(application, self.chapter.name)
+
+        member = result["member"]
+        self.assertEqual([(r.status, r.enabled) for r in self._rows_2943(member, self.chapter.name)], [("Active", 1)])
+        self.assertEqual([m for m in mails if m[1] == member], [(self.chapter.name, member)])
+        self.assertEqual(len(self._added_comments_2943(self.chapter.name, member)), 1)
+
+    def _added_comments_2943(self, chapter, member):
+        full_name = frappe.db.get_value("Member", member, "full_name")
+        return frappe.get_all(
+            "Comment",
+            {
+                "reference_doctype": "Chapter",
+                "reference_name": chapter,
+                "content": f"Added member {full_name} to chapter",
+            },
+            pluck="name",
+        )
+
+    def test_the_audit_comment_is_written_for_the_reviewer_chapter(self):
+        """F3 (#2196): add_member wrote it for a new row; the early row must not lose it."""
+        application = self._stage_without_chapter()
+
+        result = self._approve_into_2943(application, self.chapter.name)
+
+        self.assertEqual(len(self._added_comments_2943(self.chapter.name, result["member"])), 1)
 
     def _chapter_manager_2943(self):
         from verenigingen.verenigingen.doctype.chapter.managers.member_manager import MemberManager
