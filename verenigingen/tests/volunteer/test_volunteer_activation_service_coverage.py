@@ -459,6 +459,9 @@ class TestVolunteerActivationOrphanLookup2784(EnhancedTestCase):
 
         linked.db_set("member", None, update_modified=False)
         self.assertEqual(get_orphan_volunteer_for_email(email2), linked.name)
+        # An empty-string member is an orphan too (frappe's ["in", (None, "")] covers both)
+        linked.db_set("member", "", update_modified=False)
+        self.assertEqual(get_orphan_volunteer_for_email(email2), linked.name)
         self.assertIsNone(get_orphan_volunteer_for_email(""))
 
     def test_a_real_orphan_with_the_matching_email_is_still_adopted(self):
