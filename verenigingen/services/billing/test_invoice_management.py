@@ -524,8 +524,8 @@ class TestInvoiceManagement(EnhancedTestCase):
         made by repointing `member` at a missing name (a shortcut, as in
         _make_orphaned_schedule -- deleting the Member would cascade-delete the
         schedule). Whole-call commit/rollback is site-wide, so the orphan's
-        removal is asserted only when the run committed cleanly; the control
-        must survive either way and must never be a processed item.
+        a clean run (no errors) is therefore a precondition of the removal
+        assertion; the control must never be a processed item.
         """
         mt = self._make_membership_type()
         control_member = self._make_member()
@@ -540,8 +540,10 @@ class TestInvoiceManagement(EnhancedTestCase):
         self.assertEqual(processed[("orphaned_schedule", orphan_name)]["action"], "deleted")
         self.assertNotIn(("orphaned_schedule", control.name), processed)
         self.assertNotIn(("invalid_membership", control_membership), processed)
-        if not data["errors"]:
-            self.assertFalse(frappe.db.exists("Membership Dues Schedule", orphan_name))
+        # A clean run is a precondition, not a branch: a run that reports an error
+        # rolls back site-wide, which would make the removal assertion vacuous.
+        self.assertEqual(data["errors"], [])
+        self.assertFalse(frappe.db.exists("Membership Dues Schedule", orphan_name))
         # Fresh reads: the valid schedule and its Membership are untouched.
         self.assertEqual(
             frappe.db.get_value("Membership Dues Schedule", control.name, ["member", "status"], as_dict=True),
