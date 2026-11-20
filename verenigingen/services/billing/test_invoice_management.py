@@ -513,6 +513,44 @@ class TestInvoiceManagement(EnhancedTestCase):
             # Clean run committed -> orphan really deleted.
             self.assertFalse(frappe.db.exists("Membership Dues Schedule", sched_name))
 
+    def test_cleanup_membership_data_real_run_leaves_valid_schedule_alone(self):
+        """#3072 hardening: control for the destructive path. A valid schedule
+        (its Member exists, its Membership Type is valid) sits next to a real
+        orphan; dry_run=False must remove ONLY the orphan. The existing
+        orphan-deleted tests have no non-orphan beside them, so a sweep that
+        also deleted live schedules (or lost its orphan predicate) passed them.
+
+        Control and orphan are built by the same fixture helpers; the orphan is
+        made by repointing `member` at a missing name (a shortcut, as in
+        _make_orphaned_schedule -- deleting the Member would cascade-delete the
+        schedule). Whole-call commit/rollback is site-wide, so the orphan's
+        a clean run (no errors) is therefore a precondition of the removal
+        assertion; the control must never be a processed item.
+        """
+        mt = self._make_membership_type()
+        control_member = self._make_member()
+        control = self._make_dues_schedule(control_member, mt, status="Active")
+        control_membership = control.membership
+        orphan_name = self._make_orphaned_schedule()  # commits; control is durable too
+        self.assertTrue(frappe.db.exists("Member", control_member.name))
+
+        data = im.cleanup_orphaned_membership_data(dry_run=False)["data"]
+
+        processed = {(it.get("type"), it.get("name")): it for it in data["processed_items"]}
+        self.assertEqual(processed[("orphaned_schedule", orphan_name)]["action"], "deleted")
+        self.assertNotIn(("orphaned_schedule", control.name), processed)
+        self.assertNotIn(("invalid_membership", control_membership), processed)
+        # A clean run is a precondition, not a branch: a run that reports an error
+        # rolls back site-wide, which would make the removal assertion vacuous.
+        self.assertEqual(data["errors"], [])
+        self.assertFalse(frappe.db.exists("Membership Dues Schedule", orphan_name))
+        # Fresh reads: the valid schedule and its Membership are untouched.
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", control.name, ["member", "status"], as_dict=True),
+            {"member": control_member.name, "status": "Active"},
+        )
+        self.assertTrue(frappe.db.exists("Membership", control_membership))
+
     def test_cleanup_membership_data_refuses_when_invoice_still_references_schedule(self):
         """#1264: same defect as test_cleanup_schedules_refuses_..., but for the
         second raw `frappe.db.delete` call in `cleanup_orphaned_membership_data`
