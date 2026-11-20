@@ -312,8 +312,9 @@ jobs:
         echo "Baseline did not grow."
 
     # The field-reference validator (#2323) was blind until child_table_patterns and
-    # property_patterns became reachable; the 170 findings it then reported are recorded in
-    # field_reference_baseline.txt so the REQUIRED fast-validation check fails only on NEW ones.
+    # property_patterns became reachable; the 170 false positives it then reported were
+    # removed at the source (#2925), so field_reference_baseline.txt is now empty and the
+    # REQUIRED fast-validation check fails on any finding on this app's own doctypes.
     # Its own run is the `--pre-commit` step in `validation` and `fast-validation`; the two
     # steps below are the same sync / did-not-grow pair as the ratchets above. The validator
     # records only this app's own doctypes, so the baseline is the same here (151 doctypes

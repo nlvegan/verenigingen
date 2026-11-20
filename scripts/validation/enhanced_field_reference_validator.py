@@ -368,16 +368,19 @@ class ContextAwareFieldValidator:
     def _child_doctype_of_iteration(self, iterable: ast.AST, binds: Dict[str, list]) -> Optional[str]:
         """Doctype of the rows of `for row in <iterable>` when that is a known Table field."""
         # `x.rows or []`, `sorted(x.rows, ...)`, `list(x.rows)`: look through the wrapper.
-        if isinstance(iterable, ast.BoolOp) and iterable.values:
-            iterable = iterable.values[0]
-        if (isinstance(iterable, ast.Call) and getattr(iterable.func, 'id', None) in
-                ('sorted', 'list', 'reversed') and iterable.args):
-            iterable = iterable.args[0]
+        while True:
+            if isinstance(iterable, ast.BoolOp) and iterable.values:
+                iterable = iterable.values[0]
+            elif (isinstance(iterable, ast.Call) and getattr(iterable.func, 'id', None) in
+                    ('sorted', 'list', 'reversed') and iterable.args):
+                iterable = iterable.args[0]
+            else:
+                break
         if not isinstance(iterable, ast.Attribute):
             return None
         if isinstance(iterable.value, ast.Name):
             parents = {self._doc_call_doctype(p) for k, p in binds.get(iterable.value.id, [])
-                       if k == 'assign'}
+                       if k == 'assign' and not isinstance(p, ast.Constant)}
             if len(parents) == 1 and None not in parents:
                 return self.child_table_mapping.get(f"{parents.pop()}.{iterable.attr}")
         # Parent not known from a get_doc: only a Table field of that name that always
@@ -404,7 +407,13 @@ class ContextAwareFieldValidator:
         seen = set()
         for kind, payload in binds:
             if kind == 'assign':
-                seen.add(self._doc_call_doctype(payload))
+                # `x = None` (try/except init) and `x = get_doc(..) if f else None` say
+                # nothing about the type: only the non-constant side counts.
+                if isinstance(payload, ast.IfExp):
+                    payload = next((b for b in (payload.body, payload.orelse)
+                                    if not isinstance(b, ast.Constant)), payload)
+                if not isinstance(payload, ast.Constant):
+                    seen.add(self._doc_call_doctype(payload))
             elif kind == 'for':
                 seen.add(self._child_doctype_of_iteration(payload, scope))
             else:
@@ -1021,10 +1030,10 @@ BASELINE_HEADER = """# Known field-reference findings (#2323) -- the ratchet bas
 # scripts/validation/enhanced_field_reference_validator.py. Format:
 #     <path>::<doctype>::<field>::<count>
 #
-# The validator was blind (see #2323) until child_table_patterns/property_patterns became
-# reachable; these are the findings it then reported. Triage of a sample found them to be
-# heuristic false positives (a `member`/`mandate` variable that is a child row, an SQL row,
-# a Mollie API object), so they are recorded, not asserted to be defects.
+# The validator was blind (see #2323); once it could see it reported 170 findings, every one
+# a false positive from guessing a variable's doctype by its NAME (#2925: child-table rows,
+# SQL rows, Mollie API objects, row parameters). A name bound in its function is no longer
+# guessed, so this baseline is EMPTY: any entry below is a new finding to fix, not to record.
 #
 # A run fails only if it introduces a NEW key here, or raises an existing key's count. This
 # file should only ever SHRINK: fix a site (or teach the validator it is a false positive)

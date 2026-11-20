@@ -206,6 +206,28 @@ class VariableNameGuessTests(_AppCase):
             "        pass\n" + _GAP +
             "    return member.zzz_real_row\n"
         ),
+        # `x = None` before/around the get_doc (try/except init, ternary) still names Member.
+        "none_init.py": (
+            "def f(n):\n    member = None\n    try:\n        member = frappe.get_doc('Member', n)\n"
+            "    except Exception:\n        pass\n    return member.zzz_none_init\n"
+        ),
+        "ternary.py": (
+            "def f(n, flag):\n    member = frappe.get_doc('Member', n) if flag else None\n"
+            "    return member.zzz_ternary\n"
+        ),
+        # One name bound to two doctypes: the access is attributed to neither.
+        "mixed_binding.py": (
+            "def f(n, flag):\n    member = frappe.get_doc('Member', n)\n"
+            "    if flag:\n        member = frappe.get_doc('Volunteer', n)\n"
+            "    return member.zzz_mixed_binding\n"
+        ),
+        # Parent KNOWN from a get_doc (the wrapper keeps the older child-table exclusions out):
+        # rows are Team Member, not Team.
+        "parent_known_loop.py": (
+            "def f(n):\n    team = frappe.get_doc('Team', n)\n"
+            "    for member in sorted(team.team_roster or [], key=len):\n        pass\n" + _GAP
+            + "    return member.role_in_team, member.zzz_parent_known\n"
+        ),
         # `member` is a child row in one function and a real Member in the next: scope matters.
         "two_scopes.py": (
             "def a(self):\n    for member in self.team_roster:\n        print(member.role_in_team)\n" + _GAP + "\n"
@@ -221,6 +243,7 @@ class VariableNameGuessTests(_AppCase):
         for needle in (
             "role_in_team not in", "role_in_sorted_team not in", "role_in_param_team not in", "overdue_amount not in", "signature_method not in",
             "original_mandate_id not in", "customer_name_x not in", "customer_name_y not in",
+            "zzz_mixed_binding not in",
         ):
             with self.subTest(needle=needle):
                 self.assertNotIn(needle, self.out)
@@ -229,12 +252,16 @@ class VariableNameGuessTests(_AppCase):
         self.assertIn("zzz_real_member not in Member", self.out)
         self.assertIn("zzz_real_stale not in SEPA Mandate", self.out)
         self.assertIn("zzz_two_scopes not in Member", self.out)
+        self.assertIn("zzz_none_init not in Member", self.out)
+        self.assertIn("zzz_ternary not in Member", self.out)
 
     def test_a_loop_over_a_known_child_table_is_checked_against_the_child_doctype(self):
         self.assertIn("zzz_real_row not in Team Member", self.out)
+        self.assertIn("zzz_parent_known not in Team Member", self.out)
+        self.assertNotIn("role_in_team not in", self.out.replace("role_in_team not in Team", ""))
 
-    def test_exactly_the_four_controls_are_reported(self):
-        self.assertIn("Found 4 field reference issues", self.out)
+    def test_exactly_the_seven_controls_are_reported(self):
+        self.assertIn("Found 7 field reference issues", self.out)
 
 
 if __name__ == "__main__":
