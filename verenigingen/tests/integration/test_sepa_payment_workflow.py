@@ -276,7 +276,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
         cancellation_reason = "Member termination"
         
         sepa_mandate.status = "Cancelled"
-        sepa_mandate.cancellation_date = cancellation_date
+        sepa_mandate.cancelled_date = cancellation_date
         sepa_mandate.cancellation_reason = cancellation_reason
         sepa_mandate.save()
         
@@ -287,7 +287,10 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
         # Verify final mandate state
         sepa_mandate.reload()
         self.assertEqual(sepa_mandate.status, "Cancelled")
-        self.assertEqual(sepa_mandate.cancellation_date, cancellation_date)
+        self.assertEqual(
+            frappe.db.get_value("SEPA Mandate", sepa_mandate.name, "cancelled_date"),
+            getdate(cancellation_date),
+        )
         self.assertEqual(sepa_mandate.cancellation_reason, cancellation_reason)
         self.assertEqual(sepa_mandate.total_collections, 2)
         self.assertEqual(sepa_mandate.total_amount_collected, 100.0)
