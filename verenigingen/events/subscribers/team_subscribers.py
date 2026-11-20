@@ -496,14 +496,18 @@ def _send_leadership_change_notification(team, old_lead, new_lead):
                             try:
                                 old_lead_doc = frappe.get_doc("User", old_lead)
                                 old_lead_name = old_lead_doc.full_name or old_lead
-                            except:
+                            except frappe.QueryDeadlockError:
+                                raise
+                            except Exception:
                                 pass
 
                         if new_lead:
                             try:
                                 new_lead_doc = frappe.get_doc("User", new_lead)
                                 new_lead_name = new_lead_doc.full_name or new_lead
-                            except:
+                            except frappe.QueryDeadlockError:
+                                raise
+                            except Exception:
                                 pass
 
                         # MIGRATED: Use unified EmailService with professional template

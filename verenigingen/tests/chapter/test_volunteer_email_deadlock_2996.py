@@ -402,3 +402,66 @@ class TestVolunteerEmailDeadlock2996(VereningingenTestCase):
                 with self.assertRaises(frappe.QueryDeadlockError):
                     dd.run_batch_creation_now()
         self.assertGreaterEqual(state["hits"], 1)
+
+    # ------------------------------------------------ round 3 (#2996): sibling swallowers
+
+    def test_a_deadlock_on_the_recipient_lookup_escapes_the_batch_notification(self):
+        """get_financial_admin_emails is REAL here (the tests above patch it). Before: its generic
+        handler turned a 1213 into [], send_batch_creation_notification then returned None quietly
+        and run_batch_creation_now reported success over a rolled-back transaction."""
+        from verenigingen.verenigingen_payments.api import dd_batch_scheduler as dd
+
+        with _driver_error_on_2996("from `tabhas role`", DEADLOCK) as state:
+            with self.assertRaises(frappe.QueryDeadlockError):
+                dd.send_batch_creation_notification(self._batch_result_2996())
+        self.assertGreaterEqual(state["hits"], 1, "the recipient lookup never ran its role read")
+
+    def test_an_ordinary_error_on_the_recipient_lookup_still_degrades_to_no_recipients(self):
+        """Control: the generic handler is intact for every other error."""
+        from verenigingen.verenigingen_payments.api import sepa_batch_notifications as sbn
+
+        self.expectErrorLog("sepa_batch_scheduler_alert")
+        with _driver_error_on_2996("from `tabhas role`", ORDINARY) as state:
+            self.assertEqual(sbn.get_financial_admin_emails("sepa_batch_scheduler_alert"), [])
+        self.assertGreaterEqual(state["hits"], 1)
+
+    def _delegating_config_service_2996(self):
+        from verenigingen.services.communication.email_configuration_service import (
+            EmailConfigurationService,
+        )
+
+        service = EmailConfigurationService()
+        # Probe shortcut: the two in-memory config reads are stubbed so the Notification read runs;
+        # that read itself is real.
+        service._get_config = lambda: frappe._dict(use_frappe_notifications=1)
+        service.get_notification_config = lambda key: {"frappe_notification": "N2996-missing"}
+        return service
+
+    def test_a_deadlock_on_the_linked_notification_read_escapes(self):
+        service = self._delegating_config_service_2996()
+        self._assert_deadlock_2996(lambda: service.get_frappe_notification_for("k"), "from `tabnotification`")
+
+    def test_an_ordinary_error_on_the_linked_notification_read_means_send_directly(self):
+        service = self._delegating_config_service_2996()
+        result = self._assert_failure_result_2996(
+            lambda: service.get_frappe_notification_for("k"), "from `tabnotification`", ORDINARY
+        )
+        self.assertIsNone(result)
+
+    def test_a_deadlock_on_the_leadership_user_read_escapes(self):
+        from verenigingen.events.subscribers import team_subscribers as ts
+
+        self._account_stub.start()
+        team = self._fake_team_2996(count=1)
+        old_lead = "t2996-old@test.invalid"
+        self._assert_deadlock_2996(
+            lambda: ts._send_leadership_change_notification(team, old_lead, None), old_lead
+        )
+
+    def test_a_missing_leadership_user_is_still_tolerated(self):
+        """Control: the user does not exist (DoesNotExistError), the notification still goes out."""
+        from verenigingen.events.subscribers import team_subscribers as ts
+
+        self._account_stub.start()
+        team = self._fake_team_2996(count=1)
+        ts._send_leadership_change_notification(team, "t2996-old@test.invalid", "t2996-new@test.invalid")

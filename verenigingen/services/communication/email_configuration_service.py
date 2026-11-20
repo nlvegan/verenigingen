@@ -129,8 +129,6 @@ class EmailConfigurationService:
         # empty config so the notification falls back to default behaviour.
         try:
             return config.get_notification_config(notification_key)
-        except frappe.QueryDeadlockError:
-            raise
         except Exception as e:
             frappe.logger().warning(f"Failed to read notification config for '{notification_key}': {e}")
             return {}

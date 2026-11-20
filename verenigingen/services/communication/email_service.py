@@ -701,8 +701,6 @@ class EmailService(StatelessService):
             )
 
             return get_email_configuration_service()
-        except frappe.QueryDeadlockError:
-            raise
         except Exception:
             # Configuration service not available - continue without it
             return None

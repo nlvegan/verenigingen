@@ -650,7 +650,8 @@ def run_batch_creation_now():
             payments_settings.last_batch_creation_run = now_datetime()
             payments_settings.save()
 
-            # Send notification
+            # Send notification. The batches are already committed here; a 1213 in the
+            # notification now surfaces as an error rather than a quiet success (#2996).
             send_batch_creation_notification(result)
 
             return {
