@@ -165,6 +165,12 @@ class TestHandParsedFlagsAreCoerced2952(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         frappe.set_user("Administrator")
+        # check_all_customers_for_new_payments takes a 60 s Redis cooldown that no rollback undoes.
+        self._clear_discovery_cooldown()
+        self.addCleanup(self._clear_discovery_cooldown)
+
+    def _clear_discovery_cooldown(self):
+        frappe.cache().delete(f"bulk_payment_discovery_limit:{frappe.session.user}")
 
     def test_on_reaches_the_gateway_helpers_as_true(self):
         from verenigingen.templates.pages import mollie_payments_debug as page
