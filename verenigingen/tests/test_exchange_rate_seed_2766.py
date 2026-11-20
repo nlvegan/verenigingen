@@ -8,6 +8,8 @@ PRs. These tests simulate the CI condition (the check forced False, the provider
 cache key empty) instead of waiting for it.
 """
 
+import ast
+import inspect
 import io
 from contextlib import redirect_stderr
 from datetime import timedelta
@@ -20,7 +22,14 @@ from frappe.utils import add_days, getdate
 from verenigingen.tests.fixtures import enhanced_test_factory as factory
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-PAIRS = (("INR", "EUR"), ("EUR", "INR"), ("USD", "EUR"), ("EUR", "USD"))
+PAIRS = (
+    ("INR", "EUR"),
+    ("EUR", "INR"),
+    ("USD", "EUR"),
+    ("EUR", "USD"),
+    ("INR", "USD"),
+    ("USD", "INR"),
+)
 
 
 def _live_fetch_refused():
@@ -33,10 +42,18 @@ def _live_fetch_refused():
 
 class TestExchangeRateSeed2766(EnhancedTestCase):
     def _delete_seeded_rows(self):
+        # Only the dates this seed writes (floor, today, and tomorrow for the midnight
+        # test). erpnext's own 2016 USD<->INR records share a pair with ours, and a
+        # delete that reached them was committed by a later drain (#2867).
+        seeded_dates = ["2000-01-01", str(getdate()), str(getdate() + timedelta(days=1))]
         for from_currency, to_currency in PAIRS:
             for name in frappe.get_all(
                 "Currency Exchange",
-                filters={"from_currency": from_currency, "to_currency": to_currency},
+                filters={
+                    "from_currency": from_currency,
+                    "to_currency": to_currency,
+                    "date": ["in", seeded_dates],
+                },
                 pluck="name",
             ):
                 frappe.delete_doc("Currency Exchange", name, force=True, ignore_permissions=True)
@@ -104,6 +121,44 @@ class TestExchangeRateSeed2766(EnhancedTestCase):
         self.assertGreater(frappe.db.count("Currency Exchange", {"from_currency": "INR"}), 0)
         claimed = [k for k in self._captured_inserts[captured_before:] if k[0] == "Currency Exchange"]
         self.assertEqual([], claimed, "the captured-insert drain would delete the shared rates")
+
+    def test_setup_reseeds_rows_a_previous_test_rolled_back(self):
+        """#2867: EnhancedTestCase.setUp itself restores the rates (the call there was untested)."""
+        self._delete_seeded_rows()
+        self.assertEqual(0, frappe.db.count("Currency Exchange", {"from_currency": "INR"}))
+        EnhancedTestCase.setUp(self)
+        for from_currency, to_currency in PAIRS:
+            self.assertTrue(
+                frappe.db.exists(
+                    "Currency Exchange",
+                    {"from_currency": from_currency, "to_currency": to_currency, "date": str(getdate())},
+                ),
+                (from_currency, to_currency),
+            )
+        with _live_fetch_refused():
+            self.assertGreater(get_exchange_rate("INR", "USD", getdate()), 0)
+
+    def test_every_seeded_pair_has_a_floor_row_and_a_row_dated_today(self):
+        self._seed_from_scratch()
+        for from_currency, to_currency in PAIRS:
+            dates = frappe.get_all(
+                "Currency Exchange",
+                filters={"from_currency": from_currency, "to_currency": to_currency},
+                pluck="date",
+            )
+            self.assertIn(getdate("2000-01-01"), dates, (from_currency, to_currency))
+            self.assertIn(getdate(), dates, (from_currency, to_currency))
+
+    def test_before_tests_calls_the_seed_builder(self):
+        """#2867: the bootstrap commit carries the seed for modules with no harness setUp."""
+        from verenigingen.tests import setup as setup_module
+
+        calls = [
+            node.func.id
+            for node in ast.walk(ast.parse(inspect.getsource(setup_module.before_tests)))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        ]
+        self.assertIn("_create_test_exchange_rates", calls)
 
     def test_the_seed_helper_is_declared_shared(self):
         self.assertTrue(hasattr(factory.ensure_test_exchange_rates, "__wrapped__"))

@@ -291,14 +291,21 @@ def shared_fixture(method):
 
 
 # Currencies the test companies and the default price lists use (measured on a test site:
-# company default_currency EUR/INR/USD; Price Lists EUR/INR/USD). Every pair names EUR
-# because that is the currency of the harness companies; the plain erpnext USD<->INR
-# records are deliberately left alone, since erpnext's own tests assert on them.
+# company default_currency EUR/INR/USD; Price Lists EUR/INR/USD), so all three pairs of
+# the three currencies, both directions (#2867: INR<->USD was missing, and an invoice for
+# the INR `_Test Company` on a USD price list only matched erpnext's 2016 rows, and only
+# with `allow_stale` on). A fixed list rather than one derived from the site's companies
+# and price lists: a derived set depends on what other suites created first, which is
+# the order-dependence this seed exists to remove. erpnext's own 2016 USD<->INR rows
+# stay; ours are dated 2000-01-01 and today, so they only answer postings those rows
+# do not cover.
 _TEST_RATE_PAIRS = (
     ("INR", "EUR", 0.011),
     ("EUR", "INR", 90.0),
     ("USD", "EUR", 0.92),
     ("EUR", "USD", 1.09),
+    ("INR", "USD", 0.012),
+    ("USD", "INR", 83.0),
 )
 # Dated far in the past so a stored row precedes ANY posting date a test uses when
 # `Accounts Settings.allow_stale` is on (erpnext only requires date <= posting date).
