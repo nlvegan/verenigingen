@@ -107,26 +107,48 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
         self.assertIsInstance(result, dict)
         self.assertIn("total_checked", result)
 
-    def test_sequence_type_batch_performance(self):
-        """Test batch sequence type determination performance"""
-        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
+    def test_sequence_type_batch_leaves_out_undeterminable_pairs(self):
+        """#3077: since #2716 a pair whose type cannot be determined has NO entry.
 
-        service = get_sepa_mandate_service()
+        This used to be a timing test over 20 pairs of non-existent mandates that expected 20
+        entries. Those pairs now take the error path (one Error Log row each), so a timing
+        bound over them measures nothing about the real path; it is a correctness test now.
+        The control mandate has a Collected usage, so its real type (RCUR) differs from the
+        FRST guess an undeterminable pair used to get.
+        """
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            create_mandate_usage_record,
+        )
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import SEPAMandateService
 
-        # Create test pairs
-        test_pairs = [(f"MANDATE-{i}", f"INV-{i}") for i in range(1, 21)]  # 20 pairs
+        service = SEPAMandateService()  # fresh instance: the singleton's cache is process-wide
 
-        try:
-            result, exec_time = self.measure_execution_time(
-                "sequence_type_batch", service.get_sequence_types_batch, test_pairs
-            )
+        missing_pairs = [(f"MANDATE-{i}", f"INV-{i}") for i in range(1, 21)]
+        self.expectErrorLog("Error determining sequence type")
+        self.assertEqual(service.get_sequence_types_batch(missing_pairs), {})
 
-            self.assertIsInstance(result, dict)
-            # Should return results for all pairs
-            self.assertEqual(len(result), len(test_pairs))
+        mandate = self.create_test_sepa_mandate(scenario="normal")
+        usage_name = create_mandate_usage_record(
+            mandate_name=mandate.name,
+            reference_doctype="Sales Invoice",
+            reference_name=f"PRIOR-{frappe.generate_hash(length=8)}",
+            amount=10,
+            sequence_type="FRST",
+        )
+        for row in frappe.get_doc("SEPA Mandate", mandate.name).usage_history:
+            if row.name == usage_name:
+                row.db_set("status", "Collected", update_modified=False)
+                row.db_set("processing_date", today(), update_modified=False)
+        real_key = f"{mandate.name}:INV-REAL-{frappe.generate_hash(length=6)}"
+        real_pair = (mandate.name, real_key.split(":", 1)[1])
 
-        except Exception as e:
-            self.skipTest(f"Sequence type test requires SEPA setup: {str(e)}")
+        result = service.get_sequence_types_batch(missing_pairs + [real_pair])
+
+        has_collected_usage = frappe.db.exists(
+            "SEPA Mandate Usage", {"parent": mandate.name, "status": "Collected"}
+        )
+        self.assertEqual(result, {real_key: "RCUR" if has_collected_usage else "FRST"})
+        self.assertEqual(result[real_key], "RCUR")
 
     def test_database_query_performance(self):
         """Test database query performance with indexes"""
