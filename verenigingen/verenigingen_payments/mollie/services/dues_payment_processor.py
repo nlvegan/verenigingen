@@ -999,9 +999,10 @@ class DuesPaymentProcessor:
                     if sales_invoices:
                         result["sales_invoices"] = sales_invoices
 
-                except NON_RESUMABLE_DB_ERRORS:
-                    # Inside the outer try: swallowing it here reports success for a transaction the
-                    # server has already rolled back (#2983).
+                except frappe.QueryDeadlockError:
+                    # 1213 only: the transaction (and the booking just written) is gone, so reporting
+                    # success would be false. A 1205 keeps the booking intact; the list is
+                    # informational and answering Mollie an error for a booked payment buys nothing.
                     raise
                 except Exception as si_error:
                     frappe.log_error(
@@ -1112,8 +1113,9 @@ class DuesPaymentProcessor:
             bt_doc.save()
             frappe.logger().info(f"[Mollie] Reconciled BT {bt_name} with PE {pe_name}")
             return True
-        except NON_RESUMABLE_DB_ERRORS:
-            # Not "non-fatal": the Payment Entry written just before is gone with the transaction (#2983).
+        except frappe.QueryDeadlockError:
+            # 1213 only: the Payment Entry written just before is gone with the transaction (#2983).
+            # A 1205 leaves it booked, so it keeps the logged reconciled=False answer below.
             raise
         except Exception as e:
             frappe.log_error(

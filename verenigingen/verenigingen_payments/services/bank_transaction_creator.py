@@ -1041,27 +1041,13 @@ class BankTransactionCreator:
                         )
                         return None
 
-            except frappe.QueryDeadlockError as e:
-                # Deadlock detected - retry with exponential backoff
-                retry_count += 1
-                if retry_count < max_retries:
-                    wait_time = 0.1 * (2 ** (retry_count - 1))  # 0.1s, 0.2s, 0.4s
-                    frappe.logger().warning(
-                        f"⚠️ Deadlock creating Bank Transaction (ref: {reference_number}), "
-                        f"retry {retry_count}/{max_retries} after {wait_time}s"
-                    )
-                    time.sleep(wait_time)
-                    continue  # Retry
-                else:
-                    # Max retries exceeded
-                    frappe.logger().error(
-                        f"❌ Failed to create Bank Transaction after {max_retries} retries due to deadlocks: {e}"
-                    )
-                    frappe.log_error(
-                        title="Bank Transaction Deadlock Error",
-                        message=f"Bank Transaction creation failed after {max_retries} deadlock retries for reference {reference_number}: {e}",
-                    )
-                    return None
+            except frappe.QueryDeadlockError:
+                # 1213: the server rolled back the WHOLE transaction, not just this insert. An
+                # in-place retry of the Bank Transaction alone would "succeed" and report a booking
+                # whose earlier writes (the caller's Member/Bank Account/Payment Entry) are gone, so
+                # this must reach whoever owns the transaction boundary (#2983, #2700). 1205 is not
+                # listed: it falls through to the generic handler below, as before.
+                raise
 
             except Exception as e:
                 reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result

@@ -50,10 +50,20 @@ class TestDuesProcessorLockErrors2983(DuesCreationTestBase):
             "verenigingen.verenigingen_payments.mollie.services.dues_payment_processor.MollieClient"
         ):
             self.processor = _AttemptCountingProcessor()
+        # Every handler under test writes an Error Log row; none of them is the thing asserted.
+        self.expectErrorLog(
+            "Mollie Bank Data Save Failed",
+            "Bank Account Creation Failed",
+            "Dues Payment Processing Error",
+            "Sales Invoice Fetch Error",
+            "Mollie dues: Bank Transaction not linked",
+            "Bank Transaction Creation Error",
+            "Bank Transaction Deadlock Error",
+            "Payment Router Error",
+        )
         self.member = self._member_with_customer()
         self.customer_id = f"cst_2983_{frappe.generate_hash()[:8]}"
         frappe.db.set_value("Member", self.member.name, "mollie_customer_id", self.customer_id)
-        frappe.db.commit()  # the matcher reads the customer id; mirrors the sibling batch test
         self.iban = generate_test_iban("RABO", str(frappe.generate_hash(length=10)).translate(
             {ord(c): "7" for c in "abcdef"}
         ))
@@ -135,6 +145,34 @@ class TestDuesProcessorLockErrors2983(DuesCreationTestBase):
         self.assertEqual(len(proc.attempts), 1)
         self.assertEqual(result["errors"], 1)
 
+    # -- the Bank Transaction write itself (rule 17) -----------------------------------------------
+
+    def test_a_deadlock_on_the_bank_transaction_insert_or_submit_is_raised_not_reported(self):
+        """1213 on the first INSERT / first UPDATE of the Bank Transaction, ONCE: the creator used to
+        retry in place, and the retry succeeded, reporting a booking inside a discarded transaction."""
+        for verb, writes in (("insert", ("INSERT",)), ("update", ("UPDATE",))):
+            with self.subTest(write=verb):
+                payment = self._paid_dues_payment_2983()
+                proc = self._processor_for(payment)
+                inject, hits = self._driver_raising(
+                    1213, "`tabBank Transaction`", times=1, startswith=writes
+                )
+                with inject, self.assertRaises(frappe.QueryDeadlockError):
+                    proc.process_dues_payment(payment.id, payment, creation_mode="Bank Transaction")
+                self.assertEqual(len(hits), 1, "the injection must have fired")
+
+    def test_control_a_lock_timeout_on_the_bank_transaction_write_is_an_error_result(self):
+        """1205 is not raised by the creator (it keeps its generic handler): error dict, as on develop."""
+        for verb, writes in (("insert", ("INSERT",)), ("update", ("UPDATE",))):
+            with self.subTest(write=verb):
+                payment = self._paid_dues_payment_2983()
+                proc = self._processor_for(payment)
+                inject, hits = self._driver_raising(1205, "`tabBank Transaction`", startswith=writes)
+                with inject:
+                    result = proc.process_dues_payment(payment.id, payment, creation_mode="Bank Transaction")
+                self.assertTrue(hits)
+                self.assertEqual(result["status"], "error", result)
+
     # -- other swallowing layers inside the same try (rule 17) ---------------------------------
 
     def test_a_deadlock_on_the_sales_invoice_read_after_booking_is_not_reported_as_success(self):
@@ -209,6 +247,66 @@ class TestDuesProcessorLockErrors2983(DuesCreationTestBase):
             1,
             "a redelivery must not book the payment twice",
         )
+
+    # -- the opposite harm: a 1205 AFTER the payment is fully booked keeps the booking's success ---
+
+    SI_LIST = ("`tabSales Invoice`", "`status`", "posting_date")
+
+    def _matched_invoice_covering(self, payment):
+        """An open dues invoice the matcher pairs with the payment (exact amount, paid_at in coverage)."""
+        return _make_eur_invoice(
+            self.company,
+            self.member.customer,
+            self.income_account,
+            22.5,
+            coverage_start="2025-01-01",
+            coverage_end="2025-12-31",
+            selling_price_list=self._ensure_selling_price_list("EUR"),
+        )
+
+    def _booked_counts(self, payment_id):
+        return (
+            frappe.db.count("Bank Transaction", {"reference_number": payment_id}),
+            frappe.db.count("Payment Entry", {"reference_no": payment_id}),
+        )
+
+    def test_a_lock_timeout_on_the_post_booking_invoice_list_keeps_the_success(self):
+        payment = self._paid_dues_payment_2983()
+        invoice = self._matched_invoice_covering(payment)
+        router = self._router_for(self._processor_for(payment))
+        inject, hits = self._driver_raising(1205, self.SI_LIST, startswith=("SELECT",))
+        with inject:
+            result = router.route_payment(payment.id, payment, alert_staff=True)
+        self.assertTrue(hits)
+        self.assertEqual(result["matched_invoice"], invoice.name, "the fixture must reach the PE path")
+        self.assertEqual(result["status"], "success", result)
+        self.assertEqual(self._booked_counts(payment.id), (1, 1))
+
+    def test_a_deadlock_on_the_post_booking_invoice_list_answers_error_and_a_redelivery_books_once(self):
+        payment = self._paid_dues_payment_2983()
+        invoice = self._matched_invoice_covering(payment)
+        router = self._router_for(self._processor_for(payment))
+        inject, hits = self._driver_raising(1213, self.SI_LIST, startswith=("SELECT",))
+        with inject:
+            failed = router.route_payment(payment.id, payment, alert_staff=True)
+        self.assertTrue(hits)
+        self.assertEqual(failed["status"], "error", failed)
+        self.assertEqual(failed["processor"], "none")
+        again = router.route_payment(payment.id, payment, alert_staff=True)
+        self.assertEqual(again["status"], "already_processed", again)
+        self.assertEqual(self._booked_counts(payment.id), (1, 1), "redelivery must not book twice")
+
+    def test_a_lock_timeout_linking_the_bank_transaction_keeps_the_booking(self):
+        payment = self._paid_dues_payment_2983()
+        invoice = self._matched_invoice_covering(payment)
+        proc = self._processor_for(payment)
+        inject, hits = self._driver_raising(1205, "`tabBank Transaction Payments`")
+        with inject:
+            result = proc.process_dues_payment(payment.id, payment, creation_mode="Bank Transaction")
+        self.assertTrue(hits)
+        self.assertEqual(result["status"], "success", result)
+        self.assertFalse(result["reconciled"])
+        self.assertEqual(self._booked_counts(payment.id), (1, 1))
 
     # -- the opposite harm: ordinary errors keep the error-dict contract ----------------------
 
