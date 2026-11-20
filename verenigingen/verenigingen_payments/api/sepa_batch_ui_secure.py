@@ -38,6 +38,7 @@ from verenigingen.utils.security.authorization import (
 from verenigingen.utils.security.csrf_protection import require_csrf_token
 from verenigingen.verenigingen_payments.api.sepa_batch_ui import (
     get_open_batch_invoice_names,
+    resolve_batch_row_bank_data,
     set_membership_or_reason,
 )
 from verenigingen.verenigingen_payments.utils.mandate_candidates import (
@@ -766,7 +767,13 @@ def create_sepa_batch_validated_secure(**params):
                 )
                 continue
 
+            bank_data, bank_error = resolve_batch_row_bank_data(member_name, invoice)
+            if bank_error:
+                invoice_validation_errors.append(bank_error)
+                continue
+
             enriched = dict(invoice)
+            enriched.update(bank_data)
             enriched["member"] = member_name
             enriched["membership"] = membership_name
             validated_invoices.append(enriched)
