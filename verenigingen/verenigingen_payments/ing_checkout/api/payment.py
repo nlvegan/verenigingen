@@ -219,7 +219,7 @@ def create_ideal_order(
 
         # After the ownership/permission checks, so a forbidden invoice's settled state is never
         # observable through this refusal (#2814, #1328).
-        amount = _amount_to_charge(ref_doc, amount)
+        amount = _ing_amount_to_charge(ref_doc, amount)
         if amount is None:
             return {"success": False, "message": _("There is nothing left to pay on this document.")}
 
@@ -349,7 +349,7 @@ def create_ideal_order(
         }
 
 
-def _amount_to_charge(ref_doc, caller_amount):
+def _ing_amount_to_charge(ref_doc, caller_amount):
     """What Pay.nl is asked to collect for ``ref_doc``; None means refuse (nothing to collect).
 
     A Sales Invoice charges its ``outstanding_amount`` (maintainer ruling #2225, as for Mollie):
