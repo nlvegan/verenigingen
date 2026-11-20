@@ -7,6 +7,8 @@ Three writers (MT940 import, Mollie dues, Mollie donation) each hand-built the s
 does today (create / raise / swallow) so the refactor cannot change it.
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -105,5 +107,81 @@ class TestPartyBankAccountCreation2923(EnhancedTestCase):
         self._made.append(("Bank Account", name))
         row = frappe.db.get_value("Bank Account", name, ["party", "iban", "is_company_account"], as_dict=True)
         self.assertEqual((row.party, row.iban, row.is_company_account), (customer, iban, 0))
+        # Exact name and bank: a mutant that drops the IBAN suffix or picks another Bank must redden.
+        self.assertEqual(name, f"{customer} - {iban[-4:]} - Unknown")
+        self.assertEqual(frappe.db.get_value("Bank Account", name, "bank"), "Unknown")
         with self.assertRaises(BankAccountCreationError):
             create_party_bank_account("Customer", self._missing_party(), self._iban(), source="test 2923")
+
+    def _failing_insert(self, error):
+        """Make only the Bank Account insert raise ``error``; every other insert is untouched."""
+        from frappe.model.document import Document
+
+        real_insert = Document.insert
+
+        def insert(doc, *args, **kwargs):
+            if doc.doctype == "Bank Account":
+                raise error
+            return real_insert(doc, *args, **kwargs)
+
+        return patch.object(Document, "insert", insert)
+
+    def test_deadlock_propagates_unwrapped_from_shared_creator_and_dues_path(self):
+        # execute_with_deadlock_retry only retries when is_deadlock_error(e): wrapping the
+        # deadlock in BankAccountCreationError would silently stop the dues retry.
+        from verenigingen.utils.bank_account_creation import create_party_bank_account
+        from verenigingen.utils.retry_utilities import is_deadlock_error
+
+        customer, iban = self._customer(), self._iban()
+        from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
+
+        get_or_create_unknown_bank()
+        self.expectErrorLog("Bank Account Creation Failed")  # the dues caller logs its own row
+        for call in (
+            lambda: create_party_bank_account("Customer", customer, iban),
+            lambda: DuesPaymentProcessor.__new__(DuesPaymentProcessor)._ensure_customer_bank_account(
+                customer, iban, "Holder"
+            ),
+        ):
+            with self._failing_insert(frappe.QueryDeadlockError()):
+                with self.assertRaises(frappe.QueryDeadlockError) as ctx:
+                    call()
+            self.assertTrue(is_deadlock_error(ctx.exception))
+
+    def test_timeout_propagates_unwrapped(self):
+        from verenigingen.utils.bank_account_creation import create_party_bank_account
+        from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
+
+        get_or_create_unknown_bank()
+        with self._failing_insert(frappe.QueryTimeoutError()):
+            with self.assertRaises(frappe.QueryTimeoutError):
+                create_party_bank_account("Customer", self._customer(), self._iban())
+
+    def test_duplicate_entry_keeps_its_type(self):
+        # Before the refactor all three writers let DuplicateEntryError through as itself.
+        from verenigingen.utils.bank_account_creation import create_party_bank_account
+        from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
+
+        get_or_create_unknown_bank()
+        with self._failing_insert(frappe.DuplicateEntryError("Bank Account", "x", Exception("dup"))):
+            with self.assertRaises(frappe.DuplicateEntryError):
+                create_party_bank_account("Customer", self._customer(), self._iban())
+
+    def test_creation_works_for_a_user_without_bank_account_permission(self):
+        # MT940 and Mollie writers run as users such as Sales User, who cannot insert a Bank
+        # Account themselves; migration_context is what lets the insert through.
+        from verenigingen.utils.bank_account_creation import create_party_bank_account
+
+        email = f"pba2923-{frappe.generate_hash()[:6]}@example.com"
+        user = frappe.get_doc(
+            {"doctype": "User", "email": email, "first_name": "PBA", "send_welcome_email": 0}
+        )
+        user.append("roles", {"role": "Sales User"})
+        user.insert()
+        self._made.append(("User", user.name))
+        customer, iban = self._customer(), self._iban()
+        with self.as_user(user.name):
+            self.assertFalse(frappe.has_permission("Bank Account", "create"))
+            name = create_party_bank_account("Customer", customer, iban)
+        self._made.append(("Bank Account", name))
+        self.assertEqual(frappe.db.get_value("Bank Account", name, "party"), customer)

@@ -17,6 +17,7 @@ from typing import Optional
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class BankAccountCreationError(frappe.ValidationError):
@@ -136,12 +137,15 @@ def create_party_bank_account(
             bank_account.party = party
             bank_account.is_default = 0
             bank_account.insert()
+    except (*NON_RESUMABLE_DB_ERRORS, frappe.DuplicateEntryError):
+        # Deadlock/timeout must reach execute_with_deadlock_retry as themselves, and the writers
+        # always let a duplicate through as itself. No Error Log row here: the caller that wants
+        # one (MT940, dues) writes its own, so a failure leaves exactly one.
+        raise
     except Exception as e:
-        _fail(
-            f"{source} Bank Account creation failed",
-            f"Error creating party Bank Account for {party_type} {party} (IBAN {iban}): {e}",
-            details,
-        )
+        raise BankAccountCreationError(
+            f"Error creating party Bank Account for {party_type} {party} (IBAN {iban}): {e}", details
+        ) from e
     return bank_account.name
 
 
