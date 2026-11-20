@@ -110,7 +110,7 @@ class TestVolunteerMemberRelinkBoardAccess2615(VereningingenTestCase):
         self.assertFalse(self._row_2615(user_name), f"{msg} (Has Role row)")
         self.assertNotIn(BOARD_PROFILE_2615, get_user_role_profiles(user_name), f"{msg} (role profile)")
 
-    def _snapshot_2615(self, user_name):
+    def _snapshot_relink_2615(self, user_name):
         """Roles, role profiles and Employee of a user: what a role-profile sync would change."""
         return (
             sorted(self._roles_2615(user_name)),
@@ -118,8 +118,8 @@ class TestVolunteerMemberRelinkBoardAccess2615(VereningingenTestCase):
             frappe.db.get_value("Employee", {"user_id": user_name}, "name"),
         )
 
-    def _assert_untouched_2615(self, user_name, before, msg):
-        self.assertEqual(self._snapshot_2615(user_name), before, msg)
+    def _assert_untouched_relink_2615(self, user_name, before, msg):
+        self.assertEqual(self._snapshot_relink_2615(user_name), before, msg)
 
     # ------------------------------------------------------------------- tests
 
@@ -141,33 +141,33 @@ class TestVolunteerMemberRelinkBoardAccess2615(VereningingenTestCase):
         old_user, _old_member, volunteer = self._person_2615("Unseated", with_volunteer=True)
         new_user, new_member, _none = self._person_2615("Bystander", with_volunteer=False)
         self._assert_no_access_2615(old_user.name, "fixture: unseated user holds no board access")
-        before = self._snapshot_2615(new_user.name)
+        before = self._snapshot_relink_2615(new_user.name)
 
         self._relink_as_staff_2615(volunteer, new_member)
 
         self._assert_no_access_2615(old_user.name, "an unseated re-link granted the old user access")
         self._assert_no_access_2615(new_user.name, "an unseated re-link granted the new user access")
-        self._assert_untouched_2615(new_user.name, before, "an unseated re-link provisioned the new user")
+        self._assert_untouched_relink_2615(new_user.name, before, "an unseated re-link provisioned the new user")
 
     def test_inserting_a_volunteer_with_a_member_does_not_provision_the_member_user(self):
         """Not a re-link: on insert `has_value_changed("member")` is True and `is_new()` is already
         False inside on_update, so a naive guard synced the new user's role profile (roles,
         profile and an Employee appeared)."""
         user, member, _none = self._person_2615("Fresh", with_volunteer=False)
-        before = self._snapshot_2615(user.name)
+        before = self._snapshot_relink_2615(user.name)
 
         self.create_test_volunteer(member=member.name)
 
-        self._assert_untouched_2615(user.name, before, "a Volunteer insert provisioned the member's user")
+        self._assert_untouched_relink_2615(user.name, before, "a Volunteer insert provisioned the member's user")
 
     def test_filling_an_empty_member_does_not_provision_the_member_user(self):
         """Empty -> filled is adoption of an orphan, not a re-link (#2615 asks only for re-link)."""
         _other_user, _other_member, volunteer = self._person_2615("Orphan", with_volunteer=True)
         frappe.db.set_value("Volunteer", volunteer.name, "member", None)  # probe shortcut: make an orphan
         user, member, _none = self._person_2615("Adopter", with_volunteer=False)
-        before = self._snapshot_2615(user.name)
+        before = self._snapshot_relink_2615(user.name)
 
         self._relink_as_staff_2615(volunteer, member)
 
         self.assertEqual(frappe.db.get_value("Volunteer", volunteer.name, "member"), member.name)
-        self._assert_untouched_2615(user.name, before, "filling an empty member provisioned the user")
+        self._assert_untouched_relink_2615(user.name, before, "filling an empty member provisioned the user")
