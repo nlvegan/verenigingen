@@ -68,6 +68,7 @@ const MEASURED_FORMAT_REFUSAL = {
  */
 function makeDomShim() {
 	const delegated = [];
+	const directFns = new Map();
 	const wrap = (nodes) => ({
 		length: nodes.length,
 		text(value) {
@@ -102,7 +103,10 @@ function makeDomShim() {
 				if (selector) {
 					delegated.push({ ev, selector, fn });
 				} else {
-					nodes.forEach((n) => n.addEventListener(ev, fn));
+					nodes.forEach((n) => {
+						n.addEventListener(ev, fn);
+						directFns.set(n, [...(directFns.get(n) || []), fn]);
+					});
 				}
 			});
 			return this;
@@ -113,6 +117,7 @@ function makeDomShim() {
 				const clone = n.cloneNode(true);
 				n.replaceWith(clone);
 				nodes[i] = clone;
+				directFns.delete(n);
 			});
 			return this;
 		},
@@ -132,16 +137,23 @@ function makeDomShim() {
 		}
 		return wrap(Array.from(document.querySelectorAll(arg)));
 	};
-	['blur', 'change', 'click'].forEach((ev) =>
-		document.addEventListener(
-			ev,
-			(e) =>
-				delegated
-					.filter((d) => d.ev === ev && e.target.matches && e.target.matches(d.selector))
-					.forEach((d) => d.fn(e)),
-			true
-		)
-	);
+	const listeners = ['blur', 'change', 'click'].map((ev) => {
+		const listener = (e) =>
+			delegated
+				.filter((d) => d.ev === ev && e.target.matches && e.target.matches(d.selector))
+				.forEach((d) => d.fn(e));
+		document.addEventListener(ev, listener, true);
+		return [ev, listener];
+	});
+	// Test probe: how many distinct handlers are bound for `selector`, direct or
+	// delegated. "change blur" registers one handler under two events, so count
+	// the functions, not the registrations.
+	$.handlerCount = (selector) => {
+		const fns = new Set(delegated.filter((d) => d.selector === selector).map((d) => d.fn));
+		document.querySelectorAll(selector).forEach((n) => (directFns.get(n) || []).forEach((fn) => fns.add(fn)));
+		return fns.size;
+	};
+	$.dispose = () => listeners.forEach(([ev, listener]) => document.removeEventListener(ev, listener, true));
 	return $;
 }
 
@@ -186,6 +198,7 @@ describe('chapter suggestion from the postal code', () => {
 	});
 
 	afterEach(() => {
+		global.$.dispose();
 		global.$ = realDollar;
 		document.body.innerHTML = '';
 	});
@@ -258,19 +271,55 @@ describe('chapter suggestion from the postal code', () => {
 		expect(call).not.toHaveBeenCalled();
 	});
 
-	it('exactly ONE handler reacts to #postal_code, through the real bindings', async () => {
+	it('exactly ONE handler is bound to #postal_code, with the steps initialised too', async () => {
 		const call = answerWith(MEASURED_OK);
 		const page = Object.create(proto);
 		page.validateEmail = jest.fn();
 		page.validateIBAN = jest.fn();
+		page.state = { get: () => null };
+		// The real step classes bind their own events; one used to listen on #postal_code.
+		proto.initializeSteps.call(page);
 		proto.bindCustomValidationEvents.call(page);
 		proto.bindChapterSuggestion.call(page);
+
+		expect(global.$.handlerCount('#postal_code')).toBe(1);
 
 		global.$('#postal_code').val('1015 CJ').trigger('blur');
 		await flush();
 
 		expect(call).toHaveBeenCalledTimes(1);
 		expect(call.mock.calls[0][0].args).toEqual({ postal_code: '1015CJ' });
+		expect(global.$('#suggested-chapter-name').text()).toBe('Test Amsterdam Chapter');
+	});
+
+	it('asks the server once when change and blur both fire for the same code', async () => {
+		const call = answerWith(MEASURED_OK);
+		const page = Object.create(proto);
+		proto.bindChapterSuggestion.call(page);
+
+		global.$('#postal_code').val('1015 CJ');
+		global.$('#postal_code').trigger('change');
+		await flush();
+		global.$('#postal_code').trigger('blur');
+		await flush();
+		expect(call).toHaveBeenCalledTimes(1);
+
+		// ...but a different code is a new question
+		global.$('#postal_code').val('1016 AB').trigger('blur');
+		await flush();
+		expect(call).toHaveBeenCalledTimes(2);
+		expect(call.mock.calls[1][0].args).toEqual({ postal_code: '1016AB' });
+	});
+
+	it('retries the same code after a failed call', async () => {
+		const page = Object.create(proto);
+		const call = answerWith(new Error('429'));
+		await page.suggestChapterFromPostalCode('1015CJ');
+		answerWith(MEASURED_OK);
+		await page.suggestChapterFromPostalCode('1015CJ');
+
+		expect(call).toHaveBeenCalledTimes(1);
+		expect(global.frappe.call).toHaveBeenCalledTimes(1);
 		expect(global.$('#suggested-chapter-name').text()).toBe('Test Amsterdam Chapter');
 	});
 });

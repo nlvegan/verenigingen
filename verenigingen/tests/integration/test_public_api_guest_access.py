@@ -166,12 +166,18 @@ class TestPublicAPIGuestAccess(EnhancedTestCase):
         endpoint a Guest may call. The JS reads ``data.suggestions`` and strips the
         space itself, because the server refuses "1015 CJ".
         """
-        region = frappe.get_all("Region", limit=1, pluck="name")
+        suffix = frappe.generate_hash(length=6)
+        # A published chapter needs a region; own one rather than borrow a shared row.
+        region = frappe.get_doc(
+            {"doctype": "Region", "region_name": f"Guest Postal Region {suffix}", "region_code": f"G{suffix[:4].upper()}"}
+        )
+        region.insert()
+        self.track_doc("Region", region.name)
         chapter = frappe.get_doc(
             {
                 "doctype": "Chapter",
-                "name": f"Guest Postal Chapter {frappe.generate_hash(length=6)}",
-                "region": region[0] if region else None,
+                "name": f"Guest Postal Chapter {suffix}",
+                "region": region.name,
                 "postal_codes": "1000-1999",
                 "published": 1,
                 "introduction": "Guest suggestion test chapter",
@@ -183,6 +189,9 @@ class TestPublicAPIGuestAccess(EnhancedTestCase):
         from verenigingen.api.membership_application import suggest_chapters_for_postal_code
 
         with _with_user("Guest"):
+            # Whitelisting is only consulted at dispatch, so a direct call proves
+            # nothing about it: ask the dispatch gate itself.
+            frappe.is_whitelisted(suggest_chapters_for_postal_code)
             result = suggest_chapters_for_postal_code("1500AB")
             spaced = suggest_chapters_for_postal_code("1500 AB")
 

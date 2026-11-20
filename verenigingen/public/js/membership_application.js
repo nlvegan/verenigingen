@@ -922,9 +922,16 @@ class _MembershipApplication {
 		const postalCode = (rawPostalCode || '').replace(/\s+/g, '').toUpperCase();
 
 		if (postalCode.length < 4) {
+			this._lastSuggestedPostalCode = null;
 			$('#suggested-chapter').hide();
 			return;
 		}
+
+		// change + blur both fire for one edit, and the endpoint rate-limits Guests
+		if (postalCode === this._lastSuggestedPostalCode) {
+			return;
+		}
+		this._lastSuggestedPostalCode = postalCode;
 
 		try {
 			// Guest-allowed endpoint: the application form is a public page.
@@ -947,6 +954,8 @@ class _MembershipApplication {
 			}
 		} catch (error) {
 			console.error('Error suggesting chapters:', error);
+			// Let the next edit retry instead of treating a failed call as answered
+			this._lastSuggestedPostalCode = null;
 			$('#suggested-chapter').hide();
 		}
 	}
