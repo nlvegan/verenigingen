@@ -58,9 +58,18 @@ class TestExpenseClaimEmployeeRoutes2703(MemberClaimBase):
 
     # route 1: a new claim under another person's Employee
     def test_a_peer_cannot_file_a_new_claim_under_another_employee(self):
-        for fields in ({}, {"custom_chapter": self.chapter.name}):
-            with self.subTest(fields=fields), self.assertRaises(PERMISSION):
-                self._insert_as(self.user, self.peer_emp, **fields)
+        """Chapterless, so the chapter gate does not run: only the two employee layers refuse."""
+        with self.assertRaises(PERMISSION):
+            self._insert_as(self.user, self.peer_emp)
+        self.assertEqual(self._claims_for(self.peer_emp), [])
+
+    def test_a_chapter_member_cannot_file_a_chapter_claim_under_another_employee(self):
+        """Even an active member of the chapter (#2528) files only their OWN claim: the chapter gate
+        (``_claim_is_the_users_own``) refuses a peer's employee, as a third layer on top of the two
+        employee layers, so this test survives their mutants and says so by name."""
+        self.join(self.member.name, self.chapter)
+        with self.assertRaises(PERMISSION):
+            self._insert_as(self.user, self.peer_emp, custom_chapter=self.chapter.name)
         self.assertEqual(self._claims_for(self.peer_emp), [])
 
     def test_control_the_member_files_their_own_new_claim(self):
@@ -79,10 +88,12 @@ class TestExpenseClaimEmployeeRoutes2703(MemberClaimBase):
         claim = self._insert_as(self.fin_user, self.peer_emp, custom_chapter=self.chapter.name)
         self.assertEqual(frappe.db.get_value("Expense Claim", claim.name, "employee"), self.peer_emp.name)
 
-    def test_an_expense_approver_without_the_chapter_cannot_file_for_another_employee(self):
+    def test_an_expense_approver_without_a_seat_cannot_file_for_another_employee(self):
+        """Chapterless (so the chapter gate does not run): the Expense Approver role alone, with no
+        board seat, does not let them file under a peer's employee."""
         other_user, _other_emp, _m, _v = self._person("apr2703", extra_roles=("Expense Approver",))
         with self.assertRaises(PERMISSION):
-            self._insert_as(other_user, self.peer_emp, custom_chapter=self.chapter.name)
+            self._insert_as(other_user, self.peer_emp)
         self.assertEqual(self._claims_for(self.peer_emp), [])
 
     # route 2: amend from a cancelled claim, changing employee
