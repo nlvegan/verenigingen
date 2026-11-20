@@ -311,6 +311,58 @@ jobs:
         fi
         echo "Baseline did not grow."
 
+    # The field-reference validator (#2323) was blind until child_table_patterns and
+    # property_patterns became reachable; the 170 false positives it then reported were
+    # removed at the source (#2925), so field_reference_baseline.txt is now empty and the
+    # REQUIRED fast-validation check fails on any finding on this app's own doctypes.
+    # Its own run is the `--pre-commit` step in `validation` and `fast-validation`; the two
+    # steps below are the same sync / did-not-grow pair as the ratchets above. The validator
+    # records only this app's own doctypes, so the baseline is the same here (151 doctypes
+    # loaded, no frappe/erpnext) as on a bench.
+    - name: Field-reference baseline is in sync with the tree
+      env:
+        # merge_group: push semantics ON PURPOSE (#2184), as the sibling steps.
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
+      run: |
+        python scripts/validation/enhanced_field_reference_validator.py --update-baseline
+        python scripts/validation/baseline_shrink_gate.py \
+          scripts/validation/field_reference_baseline.txt \
+          "python scripts/validation/enhanced_field_reference_validator.py --update-baseline" \
+          --already-regenerated \
+          $FAIL_ON_SHRINK \
+          $BASE_SHA_ARG
+
+    - name: Field-reference baseline did not grow
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      run: |
+        BASELINE=scripts/validation/field_reference_baseline.txt
+        VALIDATOR=scripts/validation/enhanced_field_reference_validator.py
+        total() { grep -v -e '^#' -e '^$' | awk -F'::' '{s+=$NF} END {print s+0}'; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Validator changed in this PR, so a larger baseline is expected."
+          echo "Review the added entries by hand — they are new DETECTIONS, not new code."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | total)
+        after=$(total < "$BASELINE")
+        echo "baseline findings: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Baseline grew from $before to $after without a validator change."
+          echo "A new field-reference finding was recorded into the baseline instead of fixed."
+          exit 1
+        fi
+        echo "Baseline did not grow."
+
     # The failed-write guard is the sibling rule (a broad except around a DATABASE
     # WRITE whose failure never reaches the caller). The validator itself is ADVISORY
     # (bare run exits 0), so the enforcement is the baseline: #1431 found that only

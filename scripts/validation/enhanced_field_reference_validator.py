@@ -17,7 +17,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import textwrap
 
 # Import comprehensive DocType loader
@@ -47,6 +47,9 @@ class CodeContext:
     child_table_vars: Dict[str, str]  # child_var -> parent_doctype
     current_function: Optional[str] = None
     current_class: Optional[str] = None
+    # #2925: (first line, last line, {variable: [(kind, payload)]}) per function, so a name
+    # is judged by how THIS function binds it, not by what the name looks like.
+    function_scopes: List[tuple] = field(default_factory=list)
 
 class ContextAwareFieldValidator:
     """Context-aware field validator with pattern detection"""
@@ -62,6 +65,11 @@ class ContextAwareFieldValidator:
         
         self.child_table_mapping = self._build_child_table_mapping()
         self.property_registry = self._build_property_registry()
+        # #2323: these two were once assigned after the `return` of
+        # _convert_doctypes_for_compatibility, so they never existed and every file
+        # that reached is_child_table_iteration died on AttributeError (swallowed).
+        self.child_table_patterns = self._build_enhanced_child_table_patterns()
+        self.property_patterns = self._build_property_patterns()
         self.issues = []
         
         # Enhanced exclusion patterns
@@ -94,9 +102,7 @@ class ContextAwareFieldValidator:
             }
             
         return legacy_format
-        self.child_table_patterns = self._build_enhanced_child_table_patterns()
-        self.property_patterns = self._build_property_patterns()
-        
+
     def _build_property_registry(self) -> Dict[str, Set[str]]:
         """Build registry of property methods from the codebase"""
         property_registry = {}
@@ -308,11 +314,112 @@ class ContextAwareFieldValidator:
                                 parent_doctype = context.variable_assignments[parent_var]
                                 context.child_table_vars[child_var] = parent_doctype
                                 
+            context.function_scopes = self._build_function_scopes(tree)
         except SyntaxError:
             pass
             
         return context
-    
+
+    @staticmethod
+    def _names_in(target: ast.AST) -> List[str]:
+        return [n.id for n in ast.walk(target) if isinstance(n, ast.Name)]
+
+    @staticmethod
+    def _doc_call_doctype(value: Optional[ast.AST]) -> Optional[str]:
+        if (isinstance(value, ast.Call) and getattr(value.func, 'attr', None) in
+                ('get_doc', 'new_doc', 'get_cached_doc')
+                and value.args and isinstance(value.args[0], ast.Constant)
+                and isinstance(value.args[0].value, str)):
+            return value.args[0].value
+        return None
+
+    def _build_function_scopes(self, tree: ast.AST) -> List[tuple]:
+        """How each function binds each local name: param, assign, for/comprehension, with."""
+        scopes = []
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            binds: Dict[str, list] = {}
+
+            def add(name, kind, payload):
+                binds.setdefault(name, []).append((kind, payload))
+
+            for a in fn.args.args + fn.args.kwonlyargs + fn.args.posonlyargs:
+                add(a.arg, 'param', a.annotation)
+            for n in ast.walk(fn):
+                if isinstance(n, ast.Assign):
+                    for t in n.targets:
+                        for name in self._names_in(t):
+                            add(name, 'assign', n.value)
+                elif isinstance(n, (ast.AnnAssign, ast.NamedExpr)) and n.value is not None:
+                    for name in self._names_in(n.target):
+                        add(name, 'assign', n.value)
+                elif isinstance(n, (ast.For, ast.AsyncFor, ast.comprehension)):
+                    for name in self._names_in(n.target):
+                        add(name, 'for', n.iter)
+                elif isinstance(n, ast.With):
+                    for item in n.items:
+                        if item.optional_vars is not None:
+                            for name in self._names_in(item.optional_vars):
+                                add(name, 'with', item.context_expr)
+            scopes.append((fn.lineno, fn.end_lineno or fn.lineno, binds))
+        return scopes
+
+    def _child_doctype_of_iteration(self, iterable: ast.AST, binds: Dict[str, list]) -> Optional[str]:
+        """Doctype of the rows of `for row in <iterable>` when that is a known Table field."""
+        # `x.rows or []`, `sorted(x.rows, ...)`, `list(x.rows)`: look through the wrapper.
+        while True:
+            if isinstance(iterable, ast.BoolOp) and iterable.values:
+                iterable = iterable.values[0]
+            elif (isinstance(iterable, ast.Call) and getattr(iterable.func, 'id', None) in
+                    ('sorted', 'list', 'reversed') and iterable.args):
+                iterable = iterable.args[0]
+            else:
+                break
+        if not isinstance(iterable, ast.Attribute):
+            return None
+        if isinstance(iterable.value, ast.Name):
+            parents = {self._doc_call_doctype(p) for k, p in binds.get(iterable.value.id, [])
+                       if k == 'assign' and not isinstance(p, ast.Constant)}
+            if len(parents) == 1 and None not in parents:
+                return self.child_table_mapping.get(f"{parents.pop()}.{iterable.attr}")
+        # Parent not known from a get_doc: only a Table field of that name that always
+        # leads to the same child doctype is evidence enough.
+        children = {child for key, child in self.child_table_mapping.items()
+                    if key.split('.', 1)[1] == iterable.attr}
+        return children.pop() if len(children) == 1 else None
+
+    def _scoped_doctype(self, obj_name: str, line_num: int, code_context: CodeContext):
+        """(decided, doctype): what the enclosing function says `obj_name` is (#2925).
+
+        decided is False when the name is not bound in a function (a global, a closure), and
+        the caller falls back to its older strategies. When it IS bound, the name says nothing:
+        a loop variable over a child table holds that table's rows, an SQL row or an API object
+        is not a document, and only a get_doc/new_doc of a literal doctype names one.
+        """
+        enclosing = [s for s in code_context.function_scopes if s[0] <= line_num <= s[1]]
+        if not enclosing:
+            return False, None
+        scope = min(enclosing, key=lambda s: s[1] - s[0])[2]
+        binds = scope.get(obj_name)
+        if not binds:
+            return False, None
+        seen = set()
+        for kind, payload in binds:
+            if kind == 'assign':
+                # `x = None` (try/except init) and `x = get_doc(..) if f else None` say
+                # nothing about the type: only the non-constant side counts.
+                if isinstance(payload, ast.IfExp):
+                    payload = next((b for b in (payload.body, payload.orelse)
+                                    if not isinstance(b, ast.Constant)), payload)
+                if not isinstance(payload, ast.Constant):
+                    seen.add(self._doc_call_doctype(payload))
+            elif kind == 'for':
+                seen.add(self._child_doctype_of_iteration(payload, scope))
+            else:
+                seen.add(None)
+        return True, (seen.pop() if len(seen) == 1 else None)
+
     def is_sql_result_access(self, obj_name: str, field_name: str, context: str, 
                            source_lines: List[str], line_num: int, code_context: CodeContext) -> bool:
         """Enhanced SQL result detection with context awareness"""
@@ -613,6 +720,17 @@ class ContextAwareFieldValidator:
         """Enhanced DocType detection with context awareness"""
         
         line_num = node.lineno
+
+        # Validation function context: an untyped `doc` parameter of a hook (evidence by
+        # the hook's name), before the scope check below, which would call it unknown.
+        if obj_name == 'doc':
+            validation_doctype = self._guess_doctype_from_validation_context(content, source_lines, line_num)
+            if validation_doctype:
+                return validation_doctype
+
+        decided, scoped = self._scoped_doctype(obj_name, line_num, code_context)
+        if decided:
+            return scoped
         
         # Check code context for explicit assignments
         if obj_name in code_context.variable_assignments:
@@ -639,7 +757,7 @@ class ContextAwareFieldValidator:
         assignment_patterns = [
             rf'\b{obj_name}\s*=\s*frappe\.get_doc\(\s*["\']([^"\']+)["\']',
             rf'\b{obj_name}\s*=\s*frappe\.new_doc\(\s*["\']([^"\']*)["\']',
-            rf'{obj_name}\s*=.*\.get_doc\(\s*["\']([^"\']+)["\']'
+            rf'\b{obj_name}\s*=.*\.get_doc\(\s*["\']([^"\']+)["\']'
         ]
         
         for pattern in assignment_patterns:
@@ -787,6 +905,30 @@ class ContextAwareFieldValidator:
                 
         return similar[:3]
         
+    def own_doctype_names(self) -> Set[str]:
+        """Names of the doctypes whose JSON lives in the app under validation."""
+        names: Set[str] = set()
+        for json_file in self.app_path.rglob("doctype/*/*.json"):
+            try:
+                data = json.loads(json_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict) and data.get("doctype") == "DocType" and data.get("name"):
+                names.add(data["name"])
+        return names
+
+    def is_own_app_finding(self, issue: ValidationIssue) -> bool:
+        """True when the finding is on a doctype defined by the app under validation.
+
+        The ratchet only covers these: a bench also loads frappe/erpnext doctypes that a CI
+        checkout does not have, and a baseline that differed between the two would either
+        fail locally or fail the CI shrink gate. Scoped by where the JSON lives, not by the
+        loader's `app` label, which on a bench can name a stray checkout under apps/.
+        """
+        if not hasattr(self, "_own_doctypes"):
+            self._own_doctypes = self.own_doctype_names()
+        return issue.doctype in self._own_doctypes
+
     def validate_file(self, file_path: Path) -> List[ValidationIssue]:
         """Validate a single file with enhanced analysis"""
         violations = []
@@ -883,20 +1025,82 @@ class ContextAwareFieldValidator:
         return '\n'.join(report)
 
 
+BASELINE_PATH = Path(__file__).resolve().parent / "field_reference_baseline.txt"
+BASELINE_HEADER = """# Known field-reference findings (#2323) -- the ratchet baseline for
+# scripts/validation/enhanced_field_reference_validator.py. Format:
+#     <path>::<doctype>::<field>::<count>
+#
+# The validator was blind (see #2323); once it could see it reported 170 findings, every one
+# a false positive from guessing a variable's doctype by its NAME (#2925: child-table rows,
+# SQL rows, Mollie API objects, row parameters). A name bound in its function is no longer
+# guessed, so this baseline is EMPTY: any entry below is a new finding to fix, not to record.
+#
+# A run fails only if it introduces a NEW key here, or raises an existing key's count. This
+# file should only ever SHRINK: fix a site (or teach the validator it is a false positive)
+# and regenerate with --update-baseline. Do not raise a count to silence a new finding.
+# Only findings on this app's own doctypes are recorded, so the baseline is the same on a
+# bench (which also loads frappe/erpnext) and in CI (which does not).
+"""
+
+
+def baseline_key(issue: ValidationIssue) -> str:
+    # No line number: a key must survive an unrelated edit above the site.
+    return f"{issue.file}::{issue.doctype}::{issue.field}"
+
+
+def load_baseline(path: Path = BASELINE_PATH) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    if not path.exists():
+        return counts
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, _, count = line.rpartition("::")
+        counts[key] = int(count)
+    return counts
+
+
+def write_baseline(issues: List[ValidationIssue], path: Path = BASELINE_PATH) -> int:
+    counts: Dict[str, int] = {}
+    for issue in issues:
+        counts[baseline_key(issue)] = counts.get(baseline_key(issue), 0) + 1
+    body = "".join(f"{key}::{counts[key]}\n" for key in sorted(counts))
+    path.write_text(BASELINE_HEADER + body, encoding="utf-8")
+    return sum(counts.values())
+
+
+def new_findings(issues: List[ValidationIssue], baseline: Dict[str, int]) -> List[ValidationIssue]:
+    """Findings beyond what the baseline allows for their key (a new key, or a higher count)."""
+    seen: Dict[str, int] = {}
+    new = []
+    for issue in issues:
+        key = baseline_key(issue)
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] > baseline.get(key, 0):
+            new.append(issue)
+    return new
+
+
 def main():
     """Main function with enhanced false positive reduction"""
     import sys
     
     app_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     
-    pre_commit = '--pre-commit' in sys.argv
+    update_baseline = '--update-baseline' in sys.argv
+    pre_commit = '--pre-commit' in sys.argv or update_baseline
     verbose = '--verbose' in sys.argv
+    use_baseline = '--no-baseline' not in sys.argv
     
     # Extract file paths (non-option arguments)
     file_paths = []
     for arg in sys.argv[1:]:
         if not arg.startswith('--') and arg.endswith('.py'):
-            file_paths.append(Path(arg))
+            # Absolute, because a finding's path is taken relative to the app root.
+            file_paths.append(Path(arg).resolve())
+    if update_baseline:
+        file_paths = []
     
     single_file = file_paths[0] if len(file_paths) == 1 else None
     
@@ -924,6 +1128,18 @@ def main():
         print("🔍 Running comprehensive validation...")
         violations = validator.validate_app(pre_commit=pre_commit)
         
+    if update_baseline:
+        total = write_baseline([v for v in violations if validator.is_own_app_finding(v)])
+        print(f"Wrote {BASELINE_PATH.name}: {total} findings")
+        return 0
+
+    if use_baseline:
+        own = [v for v in violations if validator.is_own_app_finding(v)]
+        other = len(violations) - len(own)
+        violations = new_findings(own, load_baseline())
+        print(f"Ratchet: {len(own) - len(violations)} baselined finding(s) suppressed "
+              f"({BASELINE_PATH.name}); {other} on other apps' doctypes not ratcheted.")
+
     print("\n" + "="*60)
     report = validator.generate_report(violations)
     print(report)

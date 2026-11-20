@@ -51,9 +51,12 @@ class FieldValidatorCanFailCITests(unittest.TestCase):
         self.steps = steps_running(_WORKFLOW.read_text(), _VALIDATOR)
 
     def test_the_scan_finds_both_runs(self):
-        # Control: a scan that finds nothing would pass every test below.
+        # Control: a scan that finds nothing would pass every test below. The two
+        # swallowed-exception-ratchet steps are the #2323 baseline sync / did-not-grow pair,
+        # which name the validator but are not runs of it that CI must be able to fail on.
         self.assertEqual(
-            sorted(job for job, _ in self.steps), sorted(["validation", "fast-validation"]),
+            sorted(job for job, _ in self.steps),
+            sorted(["validation", "fast-validation"] + ["swallowed-exception-ratchet"] * 2),
             self.steps,
         )
 

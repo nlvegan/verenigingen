@@ -1,0 +1,14 @@
+# Known field-reference findings (#2323) -- the ratchet baseline for
+# scripts/validation/enhanced_field_reference_validator.py. Format:
+#     <path>::<doctype>::<field>::<count>
+#
+# The validator was blind (see #2323); once it could see it reported 170 findings, every one
+# a false positive from guessing a variable's doctype by its NAME (#2925: child-table rows,
+# SQL rows, Mollie API objects, row parameters). A name bound in its function is no longer
+# guessed, so this baseline is EMPTY: any entry below is a new finding to fix, not to record.
+#
+# A run fails only if it introduces a NEW key here, or raises an existing key's count. This
+# file should only ever SHRINK: fix a site (or teach the validator it is a false positive)
+# and regenerate with --update-baseline. Do not raise a count to silence a new finding.
+# Only findings on this app's own doctypes are recorded, so the baseline is the same on a
+# bench (which also loads frappe/erpnext) and in CI (which does not).
