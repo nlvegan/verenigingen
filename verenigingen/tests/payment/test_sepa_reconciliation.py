@@ -33,6 +33,7 @@ PRODUCT BUGS exposed (xfailed / documented below and in the orchestrator report)
 
 import json
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import frappe
@@ -947,6 +948,41 @@ class TestSepaReturnParsing(ReconBase):
         with self.assertRaises(Exception):
             recon.parse_sepa_return_xml("<not-valid-pain002>")
 
+    def test_parse_xml_failures_log_a_static_title_and_the_cause_as_message(self):
+        """#2644: the three handlers passed (message, title) positionally, so the cause
+        landed in the 140-char `method` (title) column and the label in `error`.
+
+        The parser is patched ONLY to raise each exception class deterministically
+        (a probe shortcut: the real parser's messages carry no per-test token).
+        """
+        from verenigingen.utils.secure_xml import XMLSecurityError
+
+        parser = "verenigingen.verenigingen_payments.utils.sepa_return_parser.parse_sepa_return_file"
+        title = "SEPA Return Processing"
+        for label, exc_class, expected in (
+            ("security", XMLSecurityError, XMLSecurityError),
+            ("invalid", ValueError, ValueError),
+            ("generic", RuntimeError, ValueError),
+        ):
+            with self.subTest(label):
+                self.expectErrorLog(title)
+                token = f"2644-{label}-{frappe.generate_hash(length=8)}"
+                with patch(parser, side_effect=exc_class(token)):
+                    with self.assertRaises(expected):
+                        recon.parse_sepa_return_xml("<x/>")
+                assert_error_log(self, title, unique=token, must_contain=[token])
+
+    def test_a_malformed_return_file_is_reported_as_a_failure_not_as_nothing_processed(self):
+        """#2644 (swallow half): the parse error is re-raised and the endpoint turns it into
+        success False with the error, so a bank file that failed to parse is not
+        indistinguishable from an empty one."""
+        self.expectErrorLog("SEPA Return Processing")
+        self.expectErrorLog("SEPA Return File Processing Failed")
+        result = recon.process_sepa_return_file("<not-valid-pain002>", file_type="xml")
+        self.assertFalse(result["success"], msg=result)
+        self.assertTrue(result.get("error"), msg=result)
+        self.assertNotIn("total_processed", result)
+
 
 # =============================================================================
 # process_individual_return + reverse_failed_sepa_payment (full return flow)
@@ -1720,6 +1756,397 @@ class TestManualReconciliation(ReconBase):
             frappe.db.set_value("Company", self.company, "default_bank_account", original_default)
             frappe.clear_document_cache("Company", self.company)
 
+
+# =============================================================================
+# #681: the remaining broad handlers must not turn a 1213/1205 into a status dict
+# =============================================================================
+def _681_pe_insert_raising(error):
+    """Fail the Payment Entry INSERT: below _create_payment_entry_atomic, the idempotency
+    wrapper and every handler in sepa_reconciliation.py, on the real path."""
+
+    def _raise(self, *args, **kwargs):
+        raise error
+
+    return patch.object(PaymentEntry, "insert", _raise)
+
+
+def _681_sql_raising_on_for_update(error, needle="FOR UPDATE"):
+    """Fail only the statement containing `needle` (default: the batch-row FOR UPDATE, the
+    first statement inside the outer try)."""
+    real_sql = frappe.db.sql
+
+    def _sql(query, *args, **kwargs):
+        if isinstance(query, str) and needle in query:
+            raise error
+        return real_sql(query, *args, **kwargs)
+
+    # Mock justified: fault injection: raises the injected error for the FOR UPDATE statement only, every other statement runs for real
+    return patch.object(frappe.db, "sql", _sql)
+
+
+class TestNonResumableErrorsEscapeTheBatchReconciliation681(ReconBase):
+    """#681. A 1213/1205 raised at the DB call must reach the caller with its own class.
+
+    Decision on the `frappe.db.rollback()` the two reconcile_full_sepa_batch handlers
+    made: on a non-resumable error they do NOT roll back. On 1213 the server already
+    discarded the transaction (a further rollback can raise and mask the real error,
+    the #561 shape); on 1205 a rollback would discard a transaction the caller owns.
+    The error propagates to whoever owns the boundary. Ordinary errors keep their
+    rollback + status dict (controls below).
+    """
+
+    def _batch(self, name, grand_total=25.0, deposit_delta=0.0):
+        it = self._make_member_with_invoice(first_name=name, grand_total=grand_total)
+        batch = self._make_batch([it])
+        bt = self._make_bank_transaction(
+            deposit=batch.total_amount + deposit_delta, date=today(), description="SEPA DD"
+        )
+        return it, batch, bt
+
+    def _assert_escapes(self, call, error_factory, expected_cls):
+        with patch.object(frappe.db, "rollback") as rollback:
+            with self.assertRaises(expected_cls):
+                call(error_factory())
+        rollback.assert_not_called()
+
+    def test_a_deadlock_at_the_item_insert_escapes_reconcile_full_sepa_batch(self):
+        _, batch, bt = self._batch("R681ItemDead")
+
+        def call(err):
+            with _681_pe_insert_raising(err):
+                return recon.reconcile_full_sepa_batch(bt, batch)
+
+        self._assert_escapes(call, _deadlock, frappe.QueryDeadlockError)
+
+    def test_a_timeout_at_the_item_insert_escapes_reconcile_full_sepa_batch(self):
+        _, batch, bt = self._batch("R681ItemTimeout")
+
+        def call(err):
+            with _681_pe_insert_raising(err):
+                return recon.reconcile_full_sepa_batch(bt, batch)
+
+        self._assert_escapes(call, _timeout, frappe.QueryTimeoutError)
+
+    def test_a_deadlock_at_the_batch_lock_escapes_the_outer_handler(self):
+        _, batch, bt = self._batch("R681OuterDead")
+
+        def call(err):
+            with _681_sql_raising_on_for_update(err):
+                return recon.reconcile_full_sepa_batch(bt, batch)
+
+        self._assert_escapes(call, _deadlock, frappe.QueryDeadlockError)
+
+    def test_a_timeout_at_the_batch_lock_escapes_the_outer_handler(self):
+        _, batch, bt = self._batch("R681OuterTimeout")
+
+        def call(err):
+            with _681_sql_raising_on_for_update(err):
+                return recon.reconcile_full_sepa_batch(bt, batch)
+
+        self._assert_escapes(call, _timeout, frappe.QueryTimeoutError)
+
+    def test_a_deadlock_at_the_item_insert_escapes_the_conservative_internal(self):
+        """Full-match path: three handlers stack (inner, outer, _internal)."""
+        _, batch, bt = self._batch("R681IntDead")
+
+        def call(err):
+            with _681_pe_insert_raising(err):
+                return recon._process_sepa_transaction_conservative_internal(bt.name, batch.name)
+
+        self._assert_escapes(call, _deadlock, frappe.QueryDeadlockError)
+
+    def test_a_deadlock_saving_the_bank_transaction_escapes_the_conservative_internal(self):
+        """Partial path: the swallowing frame under test is _internal's own, with no
+        reconcile_full_sepa_batch above the failing call."""
+        _, batch, bt = self._batch("R681IntSave", grand_total=50.0, deposit_delta=-10.0)
+        real_save = frappe.model.document.Document.save
+
+        def save(doc, *args, **kwargs):
+            if doc.doctype == "Bank Transaction":
+                raise _deadlock()
+            return real_save(doc, *args, **kwargs)
+
+        with patch.object(frappe.model.document.Document, "save", save):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                recon._process_sepa_transaction_conservative_internal(bt.name, batch.name)
+
+    def test_a_timeout_saving_the_bank_transaction_escapes_the_conservative_internal(self):
+        _, batch, bt = self._batch("R681IntSaveTo", grand_total=50.0, deposit_delta=-10.0)
+        real_save = frappe.model.document.Document.save
+
+        def save(doc, *args, **kwargs):
+            if doc.doctype == "Bank Transaction":
+                raise _timeout()
+            return real_save(doc, *args, **kwargs)
+
+        with patch.object(frappe.model.document.Document, "save", save):
+            with self.assertRaises(frappe.QueryTimeoutError):
+                recon._process_sepa_transaction_conservative_internal(bt.name, batch.name)
+
+    def test_a_deadlock_in_the_phase_one_lookup_escapes_validation(self):
+        it, batch, bt = self._batch("R681ValDead")
+        items = frappe.get_all(
+            "Direct Debit Batch Invoice",
+            filters={"parent": batch.name},
+            fields=["name", "invoice", "amount", "member", "member_name", "idx"],
+        )
+        for factory, cls in ((_deadlock, frappe.QueryDeadlockError), (_timeout, frappe.QueryTimeoutError)):
+            # Mock justified: fault injection: injected deadlock / lock wait in the phase-one lookup, which cannot be staged on a live DB
+            with patch.object(frappe.db, "get_value", side_effect=factory()):
+                with self.assertRaises(cls):
+                    recon._validate_batch_reconciliation(items, bt)
+
+    def test_a_deadlock_in_the_phase_one_lookup_escapes_reconcile_full_sepa_batch(self):
+        _, batch, bt = self._batch("R681ValFull")
+        # Mock justified: fault injection: injected deadlock in the phase-one lookup, which cannot be staged on a live DB
+        with patch.object(frappe.db, "get_value", side_effect=_deadlock()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                recon.reconcile_full_sepa_batch(bt, batch)
+
+    # ---- controls: an ordinary (resumable) error keeps today's per-item handling ----
+    def test_control_an_ordinary_item_failure_still_rolls_back_and_returns_atomic_failure(self):
+        it, batch, bt = self._batch("R681CtlItem")
+        with patch.object(frappe.db, "rollback") as rollback:
+            with _681_pe_insert_raising(ValueError("ordinary item failure")):
+                result = recon.reconcile_full_sepa_batch(bt, batch)
+        self.assertEqual(result["type"], "atomic_failure", msg=result)
+        self.assertEqual(result["failed_at"], it["invoice"].name)
+        rollback.assert_called()
+
+    def test_control_an_ordinary_batch_lock_failure_still_returns_transaction_error(self):
+        _, batch, bt = self._batch("R681CtlOuter")
+        with patch.object(frappe.db, "rollback") as rollback:
+            with _681_sql_raising_on_for_update(ValueError("ordinary lock failure")):
+                result = recon.reconcile_full_sepa_batch(bt, batch)
+        self.assertEqual(result["type"], "transaction_error", msg=result)
+        rollback.assert_called()
+
+    # ---- #2644: the three batch-reconciliation Error Log rows carry a static title ----
+    def test_batch_reconciliation_failures_log_a_static_title_and_the_cause_as_message(self):
+        """#2644: the three handlers passed (message, title) positionally, so the cause
+        landed in the 140-char title column. Each branch is driven by raising a unique token
+        from the real call site (probe shortcut: the exceptions are injected, not organic)."""
+        title = "SEPA Batch Reconciliation"
+        self.expectErrorLog(title)
+
+        with self.subTest("concurrent_operation"):
+            token = f"2644-concurrent-{frappe.generate_hash(length=8)}"
+            _, batch, bt = self._batch("R2644Conc")
+            with patch.object(frappe.db, "rollback"):
+                with patch.object(
+                    recon, "_create_payment_entry_atomic", side_effect=recon.ConcurrentOperationError(token)
+                ):
+                    result = recon.reconcile_full_sepa_batch(bt, batch)
+            self.assertEqual(result["type"], "concurrent_operation", msg=result)
+            assert_error_log(self, title, unique=token, must_contain=[token])
+
+        with self.subTest("atomic_failure"):
+            token = f"2644-atomic-{frappe.generate_hash(length=8)}"
+            it, batch, bt = self._batch("R2644Atom")
+            with patch.object(frappe.db, "rollback"):
+                with _681_pe_insert_raising(ValueError(token)):
+                    result = recon.reconcile_full_sepa_batch(bt, batch)
+            self.assertEqual(result["type"], "atomic_failure", msg=result)
+            assert_error_log(self, title, unique=token, must_contain=[token, it["invoice"].name])
+
+        with self.subTest("transaction_error"):
+            token = f"2644-outer-{frappe.generate_hash(length=8)}"
+            _, batch, bt = self._batch("R2644Outer")
+            with patch.object(frappe.db, "rollback"):
+                with _681_sql_raising_on_for_update(ValueError(token)):
+                    result = recon.reconcile_full_sepa_batch(bt, batch)
+            self.assertEqual(result["type"], "transaction_error", msg=result)
+            assert_error_log(self, title, unique=token, must_contain=[token])
+
+    def test_control_an_ordinary_validation_failure_is_still_collected_per_item(self):
+        it, batch, bt = self._batch("R681CtlVal")
+        items = frappe.get_all(
+            "Direct Debit Batch Invoice",
+            filters={"parent": batch.name},
+            fields=["name", "invoice", "amount", "member", "member_name", "idx"],
+        )
+        # Mock justified: fault injection control: an ordinary lookup failure (ValueError), to prove it is still collected per item
+        with patch.object(frappe.db, "get_value", side_effect=ValueError("ordinary lookup failure")):
+            errors = recon._validate_batch_reconciliation(items, bt)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]["invoice"], it["invoice"].name)
+        self.assertIn("ordinary lookup failure", errors[0]["error"])
+
+    def test_control_an_ordinary_bank_transaction_save_failure_is_still_a_status_dict(self):
+        _, batch, bt = self._batch("R681CtlInt", grand_total=50.0, deposit_delta=-10.0)
+        real_save = frappe.model.document.Document.save
+
+        def save(doc, *args, **kwargs):
+            if doc.doctype == "Bank Transaction":
+                raise ValueError("ordinary save failure")
+            return real_save(doc, *args, **kwargs)
+
+        self.expectErrorLog("Error processing SEPA transaction")
+        with patch.object(frappe.model.document.Document, "save", save):
+            result = recon._process_sepa_transaction_conservative_internal(bt.name, batch.name)
+        self.assertFalse(result["success"])
+        self.assertIn("ordinary save failure", result["error"])
+
+
+class TestNonResumableErrorsEscapeTheOtherReconciliationEndpoints681(ReconBase):
+    def test_a_deadlock_reading_the_candidates_escapes_correlate_return_transactions(self):
+        for factory, cls in ((_deadlock, frappe.QueryDeadlockError), (_timeout, frappe.QueryTimeoutError)):
+            with _681_sql_raising_on_for_update(factory(), "tabBank Transaction"):
+                with self.assertRaises(cls):
+                    recon.correlate_return_transactions()
+
+    def test_control_an_ordinary_read_failure_still_returns_a_failure_dict(self):
+        self.expectErrorLog("Error correlating return transactions")
+        with _681_sql_raising_on_for_update(ValueError("ordinary read failure"), "tabBank Transaction"):
+            result = recon.correlate_return_transactions()
+        self.assertFalse(result["success"])
+        self.assertIn("ordinary read failure", result["error"])
+
+    def _manual_call(self, name):
+        it = self._make_member_with_invoice(first_name=name, grand_total=25.0)
+        batch = self._make_batch([it])
+        bt = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="SEPA DD")
+        items = json.dumps(
+            [
+                {
+                    "reconcile": True,
+                    "member": it["member"].name,
+                    "invoice": it["invoice"].name,
+                    "amount": flt(it["invoice"].grand_total),
+                }
+            ]
+        )
+        return bt, items
+
+    def test_a_deadlock_or_timeout_at_the_payment_insert_escapes_manual_reconciliation(self):
+        bt, items = self._manual_call("R681Manual")
+        for factory, cls in ((_deadlock, frappe.QueryDeadlockError), (_timeout, frappe.QueryTimeoutError)):
+            with _681_pe_insert_raising(factory()):
+                with self.assertRaises(cls):
+                    recon.manual_sepa_reconciliation(bt.name, items)
+
+    def test_control_an_ordinary_payment_insert_failure_is_still_a_failure_dict(self):
+        bt, items = self._manual_call("R681ManualCtl")
+        self.expectErrorLog("Error in manual SEPA reconciliation")
+        with _681_pe_insert_raising(ValueError("ordinary insert failure")):
+            result = recon.manual_sepa_reconciliation(bt.name, items)
+        self.assertFalse(result["success"])
+        self.assertIn("ordinary insert failure", result["error"])
+
+
+class TestNonResumableErrorsEscapeThePublicEntryPoints681(ReconBase):
+    def _real_batch_and_transaction(self, first_name):
+        it = self._make_member_with_invoice(first_name=first_name, grand_total=25.0)
+        batch = self._make_batch([it])
+        bt = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="SEPA DD")
+        return batch, bt
+
+    def test_a_deadlock_escapes_process_sepa_transaction_conservative_and_the_lock_is_released(self):
+        from verenigingen.api.sepa_duplicate_prevention import (
+            acquire_processing_lock,
+            release_processing_lock,
+        )
+
+        batch, bt = self._real_batch_and_transaction("R681Pub")
+
+        # The error is raised at the Payment Entry INSERT: the real path through the public
+        # wrapper, the internal processor and every handler between them.
+        with _681_pe_insert_raising(_deadlock()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                recon.process_sepa_transaction_conservative(bt.name, batch.name)
+        self.assertTrue(acquire_processing_lock("sepa_batch", batch.name), "lock was not released")
+        release_processing_lock("sepa_batch", batch.name)
+
+    def test_a_timeout_escapes_the_dev_step_by_step_workflow_helper(self):
+        """scripts/api_maintenance helper wrapping the processing call in a broad handler.
+        Only the identify step is stubbed (to offer this test's real batch and transaction);
+        the error is raised at the Payment Entry INSERT inside the real processing call.
+        The constructed QueryTimeoutError stands in for a server 1205."""
+        import importlib.util
+        import inspect
+        from pathlib import Path
+
+        path = Path(recon.__file__).parents[3] / "scripts" / "api_maintenance" / "sepa_integration_setup.py"
+        spec = importlib.util.spec_from_file_location("_681_sepa_integration_setup", path)
+        setup = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(setup)
+
+        batch, bt = self._real_batch_and_transaction("R681Dev")
+        offered = {
+            "success": True,
+            "potential_matches": [
+                {"bank_transaction": bt.name, "matching_batches": [{"batch_name": batch.name}]}
+            ],
+        }
+
+        with patch("verenigingen.api.sepa_reconciliation.identify_sepa_transactions", lambda: offered):
+            with _681_pe_insert_raising(_timeout()):
+                with self.assertRaises(frappe.QueryTimeoutError):
+                    # Unwrapped: @development_only refuses on a non-development site, and
+                    # the decorators are not what is under test.
+                    inspect.unwrap(setup.test_sepa_workflow_step_by_step)()
+
+
+class TestSepaIntegrationSetupReferencesOnlyRealModules2641(unittest.TestCase):
+    """#2641: complete_sepa_integration_setup used to import two modules that do not exist
+    (verenigingen.setup.sepa_custom_fields, verenigingen.api.sepa_test_data), so two of its
+    four steps always reported an ImportError string while the call still said success."""
+
+    SETUP_FILE = Path(recon.__file__).parents[3] / "scripts" / "api_maintenance" / "sepa_integration_setup.py"
+
+    def test_every_verenigingen_import_in_the_file_resolves_to_a_real_module(self):
+        """Static, so it also catches a swallowed ImportError (a handler that turns the failure
+        into `pass` leaves the runtime test below green)."""
+        import ast
+
+        root = self.SETUP_FILE.parents[2]
+        tree = ast.parse(self.SETUP_FILE.read_text())
+        modules = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules += [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                modules.append(node.module)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "import_module"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                modules.append(node.args[0].value)
+        ours = [m for m in modules if m == "verenigingen" or m.startswith("verenigingen.")]
+        self.assertTrue(ours, "control: the scan found no verenigingen import at all")
+
+        def resolves(dotted):
+            base = root.joinpath(*dotted.split("."))
+            return base.with_suffix(".py").is_file() or (base / "__init__.py").is_file()
+
+        self.assertEqual([m for m in ours if not resolves(m)], [])
+
+    def test_no_setup_step_reports_a_failure(self):
+        import importlib.util
+        import inspect
+
+        spec = importlib.util.spec_from_file_location("_2641_sepa_integration_setup", self.SETUP_FILE)
+        setup = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(setup)
+
+        previous_user = frappe.session.user
+        frappe.set_user("Administrator")
+        self.addCleanup(frappe.set_user, previous_user)
+
+        # Unwrapped: the security decorators are not what is under test.
+        result = inspect.unwrap(setup.complete_sepa_integration_setup)()
+
+        self.assertTrue(result["success"], result)
+        lines = result["setup_results"]
+        self.assertIn("SEPA reconciliation API functions working", lines)
+        self.assertTrue(
+            any(line.startswith("Transaction identification working") for line in lines), lines
+        )
+        self.assertEqual([line for line in lines if "error" in line.lower()], [])
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,7 @@ import frappe
 import requests
 from frappe import _
 
+from ..utils.timezone_utils import mollie_timestamp_to_local_date
 from .compliance.audit_trail import AuditEventType, AuditSeverity, get_audit_trail
 from .compliance.financial_validator import FinancialValidator
 from .error_handler import MollieErrorHandler
@@ -787,8 +788,6 @@ class MollieBaseClient:
 
         for item in items:
             # Extract date from item (handle both objects and dicts)
-            item_date = None
-
             if hasattr(item, date_field):
                 date_value = getattr(item, date_field)
             elif isinstance(item, dict) and date_field in item:
@@ -797,28 +796,16 @@ class MollieBaseClient:
                 # Item doesn't have the date field - skip it
                 continue
 
-            # Parse date value
-            if date_value:
-                if isinstance(date_value, str):
-                    try:
-                        # ISO format with timezone (e.g., "2025-01-15T10:30:00+00:00" or "...Z")
-                        item_date = datetime.fromisoformat(date_value.replace("Z", "+00:00"))
-                        # Convert to naive datetime for comparison
-                        item_date = item_date.replace(tzinfo=None)
-                    except (ValueError, TypeError):
-                        # Invalid date format - skip this item
-                        continue
-                elif isinstance(date_value, datetime):
-                    item_date = date_value
-                    # Strip timezone if present
-                    if item_date.tzinfo:
-                        item_date = item_date.replace(tzinfo=None)
+            # Mollie stamps in UTC while from_date/until_date are local days, so compare the
+            # item's SITE-local day; a naive datetime is taken as UTC (#2378). An item
+            # without a parseable date has no day and is excluded.
+            item_date = mollie_timestamp_to_local_date(date_value)
 
             # Apply date filter (compare dates only, ignore times)
             if item_date:
-                if from_date and item_date.date() < from_date.date():
+                if from_date and item_date < from_date.date():
                     continue
-                if until_date and item_date.date() > until_date.date():
+                if until_date and item_date > until_date.date():
                     continue
 
                 filtered_items.append(item)

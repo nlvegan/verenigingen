@@ -25,6 +25,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.transaction_errors import DATABASE_ERROR
 
 
 class ChapterManagementService(StatelessService):
@@ -74,7 +75,7 @@ class ChapterManagementService(StatelessService):
             self.logger.warning(f"Settings access error in chapter management check: {str(e)}")
             # Default to enabled for backward compatibility
             return True
-        except frappe.DatabaseError as e:
+        except DATABASE_ERROR as e:
             self.logger.error(f"Database error in chapter management check: {str(e)}")
             return True
 
@@ -234,7 +235,7 @@ class ChapterManagementService(StatelessService):
             # Member doesn't exist - propagate the error
             raise
 
-        except (frappe.DatabaseError, frappe.db.ProgrammingError) as e:
+        except DATABASE_ERROR as e:
             # Database-specific errors might benefit from fallback
             self.logger.warning(
                 f"Database error in optimized chapter query for {member_name}: {str(e)}. "

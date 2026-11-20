@@ -22,6 +22,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
+from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 
 # Default TTL values (in seconds)
 DEFAULT_LOCK_TTL = 300  # 5 minutes for processing locks
@@ -370,14 +371,14 @@ def create_payment_entry_with_duplicate_check(invoice_name: str, amount: float, 
 def _create_payment_entry(payment_data: Dict) -> Dict:
     """Internal function to create payment entry"""
     payment_entry = frappe.get_doc(payment_data)
-    payment_entry.insert()
+    # One unit (#2447): a failed submit must not leave a draft or a docstatus-1 row without GL
+    # behind -- the duplicate guard above counts DRAFT Payment Entry References.
     # reload() guards against #609 (whole-second creation/modified timestamp ->
     # TimestampMismatchError / CannotChangeConstantError on submit(), frappe#38219
     # precedent). Belt-and-braces alongside the doc_events["*"] on_change
     # normaliser -- see verenigingen/api/chapter_join.py's matching call for the
     # full rationale.
-    payment_entry.reload()
-    payment_entry.submit()
+    insert_and_submit_atomically(payment_entry, reload_before_submit=True)
 
     return {"success": True, "payment_entry": payment_entry.name, "amount": payment_entry.paid_amount}
 
@@ -980,6 +981,34 @@ def _set_cached_result(idempotency_key: str, result: Dict, ttl: int = None) -> N
         _operation_cache[idempotency_key] = (result, time.time(), ttl)
 
 
+def _clear_cached_result(idempotency_key: str) -> None:
+    """Remove the idempotency marker from both backends."""
+    with _cache_mutex:
+        _operation_cache.pop(idempotency_key, None)
+    try:
+        frappe.cache().delete(f"sepa_idempotency:{idempotency_key}")
+    except Exception as e:
+        frappe.log_error(
+            title="SEPA idempotency marker could not be cleared after rollback",
+            message=f"{idempotency_key[:16]}...: {e}",
+        )
+
+
+def _clear_cached_result_on_rollback(idempotency_key: str) -> None:
+    """
+    Undo the marker if the surrounding transaction is rolled back (#2642).
+
+    The marker lives in the cache, outside the DB transaction. It is written
+    immediately (not after commit) so a concurrent or repeated caller is still
+    refused while the operation is uncommitted; but if the transaction is then
+    rolled back (e.g. a 1213 deadlock victim) the operation did not happen, so
+    the marker must go or the retry would be skipped. Frappe drops these
+    callbacks on commit, so a committed operation stays marked. Note: a
+    ``rollback(save_point=...)`` does not fire rollback callbacks.
+    """
+    frappe.db.after_rollback.add(lambda: _clear_cached_result(idempotency_key))
+
+
 @standard_api(operation_type=OperationType.FINANCIAL)
 def generate_idempotency_key(bank_transaction: str, batch: str, operation: str) -> str:
     """
@@ -1069,6 +1098,7 @@ def execute_idempotent_operation(idempotency_key: str, operation_func, ttl: int 
         try:
             result = operation_func()
             _set_cached_result(idempotency_key, result, ttl)
+            _clear_cached_result_on_rollback(idempotency_key)
             return result
         except Exception as e:
             # Don't cache failures - allow retry

@@ -11,6 +11,7 @@ synchronously by doc_event hooks in team_role_profile_hooks.py — NOT here.
 import frappe
 
 from verenigingen.events.subscribers.subscriber_utils import get_doc_if_exists
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
 
@@ -33,6 +34,8 @@ def handle_assignment_history_updates(event_name, event_data, **kwargs):
         old_role = event_data.get("old_role")
         from_date = event_data.get("from_date")
         to_date = event_data.get("to_date")
+        # The Team Member row the change is about (#2265); absent in a job queued before it.
+        row_name = event_data.get("row_name")
 
         if not team_name or not volunteer:
             frappe.logger("events").warning("Missing team or volunteer in assignment history event")
@@ -46,17 +49,25 @@ def handle_assignment_history_updates(event_name, event_data, **kwargs):
         if not team:
             return
 
+        if not _team_membership_event_still_holds(team, event_data):
+            return
+
         # Handle different membership actions
         if action == "added":
-            team.add_team_assignment_history(volunteer, role, from_date)
+            team.add_team_assignment_history(volunteer, role, from_date, row_name=row_name)
         elif action == "removed":
             end_date = to_date or frappe.utils.today()
-            team.complete_team_assignment_history(volunteer, old_role, from_date, end_date)
+            team.complete_team_assignment_history(volunteer, old_role, from_date, end_date, row_name=row_name)
         elif action == "role_changed":
             # Complete old role and start new one
             change_date = frappe.utils.today()
-            team.complete_team_assignment_history(volunteer, old_role, from_date, change_date)
-            team.add_team_assignment_history(volunteer, role, change_date)
+            team.complete_team_assignment_history(
+                volunteer, old_role, from_date, change_date, row_name=row_name
+            )
+            # The row identifies it; the history itself starts today.
+            team.add_team_assignment_history(
+                volunteer, role, change_date, row_from_date=from_date, row_name=row_name
+            )
 
         frappe.logger("events").info(f"Updated assignment history for {volunteer} in {team_name}")
 
@@ -82,6 +93,9 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
         team = get_doc_if_exists("Team", team_name, "team membership notification")
         volunteer_doc = get_doc_if_exists("Volunteer", volunteer, "team membership notification")
         if not team or not volunteer_doc:
+            return
+
+        if not _team_membership_event_still_holds(team, event_data):
             return
 
         # Send notifications based on action
@@ -161,6 +175,8 @@ def handle_permissions_updates(event_name, event_data, **kwargs):
 
         frappe.logger("events").info(f"Updated permissions for team {team_name}")
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #1888: _update_team_permissions re-raises; do not absorb it here
     except Exception as e:
         frappe.log_error(f"Failed to update permissions: {str(e)}", "Team Permissions Update Error")
 
@@ -219,6 +235,9 @@ def handle_leadership_notifications(event_name, event_data, **kwargs):
         if not team:
             return
 
+        if not _team_lead_still_holds(team.team_lead, new_lead):
+            return
+
         # Send leadership transition notifications
         _send_leadership_change_notification(team, old_lead, new_lead)
 
@@ -248,6 +267,9 @@ def handle_team_lead_permissions(event_name, event_data, **kwargs):
         if not team_name or not new_lead:
             return
 
+        if not _team_lead_still_holds(frappe.db.get_value("Team", team_name, "team_lead"), new_lead):
+            return
+
         # Grant team lead specific permissions
         _update_team_lead_access(team_name, new_lead)
 
@@ -255,6 +277,43 @@ def handle_team_lead_permissions(event_name, event_data, **kwargs):
 
     except Exception as e:
         frappe.log_error(f"Failed to update team lead permissions: {str(e)}", "Team Lead Permission Error")
+
+
+def _team_membership_event_still_holds(team, event_data):
+    """Whether the join/leave/role change this job was queued for is still in the Team (#2144).
+
+    A rollback to a savepoint undoes the Team Member row but not a job queued for it, so the
+    job checks the row. A row is matched by its name (#2265); a job without one (queued before
+    that) by (volunteer, from_date). Either way by role. Since #2181 the
+    emitter keys on a normalised date, so a role change arrives as ``role_changed``; the role
+    match stays so that a ``removed`` for a role the volunteer no longer holds is still processed;
+    that covers jobs already in flight, queued before #2181 as removed + added. An unknown action is left to
+    the caller's own branches.
+    """
+    action = event_data.get("action")
+    from_date = event_data.get("from_date")
+    row_name = event_data.get("row_name")
+    active = [
+        m
+        for m in team.team_members or []
+        if m.is_active
+        and m.volunteer == event_data.get("volunteer")
+        and (m.name == row_name if row_name else (not from_date or str(m.from_date) == str(from_date)))
+    ]
+
+    def holds_role(role):
+        return any(not role or m.team_role == role for m in active)
+
+    if action in ("added", "role_changed"):
+        return holds_role(event_data.get("role"))
+    if action == "removed":
+        return not holds_role(event_data.get("old_role"))
+    return True
+
+
+def _team_lead_still_holds(current_lead, new_lead):
+    """Whether the lead this job was queued for is still the Team's lead (#2144)."""
+    return (current_lead or None) == (new_lead or None)
 
 
 # Helper functions for specific operations
@@ -407,6 +466,8 @@ def _update_team_permissions(team_name):
 
         frappe.logger("events").info(f"Updated team permissions for {team_name}")
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #1888
     except Exception as e:
         frappe.logger("events").warning(f"Failed to update team permissions: {str(e)}")
 

@@ -18,6 +18,7 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 
 class MembershipDuesItemManager:
@@ -248,6 +249,7 @@ class InvoiceGenerator(StatelessService):
         try:
             return self.execute_operation(_generate)
         except Exception as e:
+            reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
             error_msg = f"Invoice generation failed: {str(e)}"
             self.handle_error(
                 e,
@@ -959,6 +961,7 @@ class InvoiceGenerator(StatelessService):
                         return OperationResult.fail(error_msg, invoice=invoice, submitted=False)
 
                 except Exception as submit_error:
+                    reraise_if_job_timeout(submit_error)  # #2235: never turn an RQ job timeout into a result
                     # Non-deadlock submission failure is a critical error - don't retry
                     error_msg = f"Invoice created but submission failed: {str(submit_error)}"
                     self.logger.error(

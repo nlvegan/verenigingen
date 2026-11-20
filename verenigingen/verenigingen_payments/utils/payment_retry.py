@@ -201,17 +201,33 @@ class PaymentRetryManager:
         # Send notification to administrators
         self.send_escalation_notification(retry_record)
 
-        # Add comment to membership for audit trail
-        membership = frappe.get_doc("Membership", retry_record.membership)
-        membership.add_comment(
-            "Comment",
-            f"Payment retry failed after {retry_record.retry_count} attempts. Escalated for manual review.",
+        # Audit trail. The membership is nullable on the record (only an Active
+        # membership is stored), so a lapsed member's escalation is noted on the
+        # retry record itself instead of raising after the status was already set (#2590).
+        comment = (
+            f"Payment retry failed after {retry_record.retry_count} attempts. Escalated for manual review."
         )
-        membership.save()
+        if retry_record.membership:
+            membership = frappe.get_doc("Membership", retry_record.membership)
+            membership.add_comment("Comment", comment)
+            membership.save()
+        else:
+            retry_record.add_comment("Comment", comment)
 
     def send_escalation_notification(self, retry_record):
         """Send notification about escalated payment failure"""
-        member = frappe.get_doc("Member", retry_record.member)
+        # `member` is nullable on the record (a Customer without a linked Member), and
+        # escalation is the step that must still reach staff then (#2590).
+        member = frappe.get_doc("Member", retry_record.member) if retry_record.member else None
+        if member:
+            subject_name = member.full_name
+            reference_doctype, reference_name = "Member", member.name
+            who = f"Member: {member.full_name} (ID: {member.name})."
+        else:
+            customer = frappe.db.get_value("Sales Invoice", retry_record.invoice, "customer")
+            subject_name = customer or retry_record.invoice
+            reference_doctype, reference_name = "Sales Invoice", retry_record.invoice
+            who = f"No member is linked to this invoice (Customer: {customer}, Invoice: {retry_record.invoice})."
 
         # The payment_failure_final key's own recipients come first (Verenigingen Email
         # Configuration), then enabled Verenigingen Staff; Administrator is never one (#2036).
@@ -224,7 +240,7 @@ class PaymentRetryManager:
         if not recipients:
             frappe.log_error(
                 title="Payment retry escalation recipients",
-                message=f"Escalation for member {member.name} was not sent: no recipient is configured "
+                message=f"Escalation for {reference_doctype} {reference_name} was not sent: no recipient is configured "
                 "for payment_failure_final and no enabled user holds the Verenigingen Staff role.",
             )
 
@@ -236,12 +252,12 @@ class PaymentRetryManager:
 
             context = {
                 "member_name": Roles.VERENIGINGEN_STAFF,
-                "notification_message": f"Payment collection has failed after {retry_record.retry_count} attempts for member {member.full_name}.",
+                "notification_message": f"Payment collection has failed after {retry_record.retry_count} attempts for {subject_name}.",
                 "payment_reference": retry_record.invoice,
                 "amount": f"€{retry_record.original_amount}",
                 "payment_date": str(frappe.utils.today()),
                 "payment_method": "Failed Payment Retry",
-                "action_required": f"Member: {member.full_name} (ID: {member.name}). Last Failure Reason: {retry_record.last_failure_reason}. Total Attempts: {retry_record.retry_count}.",
+                "action_required": f"{who} Last Failure Reason: {retry_record.last_failure_reason}. Total Attempts: {retry_record.retry_count}.",
                 "next_steps": "Please review and take manual action to resolve the payment failure.",
                 "company": get_mollie_config().get_default_company(),
             }
@@ -250,9 +266,9 @@ class PaymentRetryManager:
                 template_name="payment_notification",
                 recipients=recipients,
                 context=context,
-                subject_override=f"Payment Failure Escalation - {member.full_name}",
-                reference_doctype="Member",
-                reference_name=member.name,
+                subject_override=f"Payment Failure Escalation - {subject_name}",
+                reference_doctype=reference_doctype,
+                reference_name=reference_name,
                 priority="high",
                 notification_key="payment_failure_final",
             )
@@ -312,6 +328,33 @@ def _invoice_in_open_batch(invoice_name):
 # Cap for one daily sweep. See the comment at the query for why an unbounded
 # get_all on a 300s queue is the wrong shape for a path that moves money.
 DAILY_RETRY_SWEEP_LIMIT = 200
+
+
+def _defer_retry_for_undeterminable_sequence_type(retry_doc, invoice_name, mandate_name):
+    """Skip this retry run without guessing a SeqTp, but do not give the retry up (#2716).
+
+    This is a failure on OUR side (the sequence-type lookup), not a failed collection
+    attempt by the member, so it is NOT charged to the member's retry budget: `retry_count`
+    is left alone and the record is never escalated for it (ruling, 2026-11-18). The record
+    stays Scheduled and is pushed out on the normal schedule via `calculate_next_retry_date`,
+    which is keyed on `retry_count`. Because the count is deliberately unchanged, a deferral
+    waits `retry_intervals[min(retry_count, last)]`, the same wait the schedule applies after
+    an attempt at this stage, so a persistent failure re-runs every few days, not daily.
+    `last_retry_date` = today keeps it from re-running (and re-logging) within today.
+    """
+    from verenigingen.verenigingen_payments.utils.sepa_utilities import BatchLoggingUtilities
+
+    BatchLoggingUtilities.record_undeterminable_sequence_type(None, invoice_name, mandate_name)
+    retry_doc.last_retry_date = today()
+    retry_doc.next_retry_date = PaymentRetryManager().calculate_next_retry_date(retry_doc)
+    retry_doc.add_comment(
+        "Comment",
+        f"The SEPA sequence type (FRST/RCUR) of mandate {mandate_name} could not be determined for "
+        f"invoice {invoice_name}; no batch was created. Not counted as a retry attempt; "
+        f"next try {retry_doc.next_retry_date}. See the Error Log.",
+    )
+    retry_doc.status = "Scheduled"
+    retry_doc.save()
 
 
 @frappe.whitelist()
@@ -399,6 +442,9 @@ def execute_payment_retry(retry_record=None):
         )
 
         sequence_info = get_mandate_sequence_type(mandate.name, invoice.name)
+        if sequence_info.get("error"):
+            _defer_retry_for_undeterminable_sequence_type(retry_doc, invoice.name, mandate.name)
+            return
         sequence_type = sequence_info["sequence_type"]
 
         # Create single invoice batch for retry

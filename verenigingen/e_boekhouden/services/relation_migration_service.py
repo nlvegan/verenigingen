@@ -428,7 +428,7 @@ class RelationMigrationService:
         ERPNext rejects a Group-type group (e.g. the root "All Customer Groups"
         node) on Customer/Supplier validation, so we must never assign one.
         Customers reuse the shared ``resolve_non_group_customer_group`` helper;
-        Suppliers mirror the same logic against Buying Settings.
+        Suppliers use ``resolve_non_group_supplier_group``.
 
         Args:
             party_type (str): "Customer" or "Supplier"
@@ -443,18 +443,9 @@ class RelationMigrationService:
 
             return resolve_non_group_customer_group()
 
-        configured = frappe.db.get_single_value("Buying Settings", "supplier_group")
-        if configured and not frappe.db.get_value("Supplier Group", configured, "is_group"):
-            return configured
+        from verenigingen.services.supplier_group_resolver import resolve_non_group_supplier_group
 
-        leaf = frappe.get_all(
-            "Supplier Group",
-            filters={"is_group": 0},
-            fields=["name"],
-            order_by="name",
-            limit=1,
-        )
-        return leaf[0].name if leaf else None
+        return resolve_non_group_supplier_group()
 
     def _get_proper_territory(self, party_data):
         """

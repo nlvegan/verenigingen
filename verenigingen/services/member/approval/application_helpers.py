@@ -15,16 +15,14 @@ from verenigingen.utils.select_options import coerce_select_option
 
 
 def safe_log_error(message, title=None):
-    """Helper to log errors with length protection"""
-    # Truncate message to prevent log title validation errors
-    safe_message = message[:100] + "..." if len(message) > 100 else message
+    """Helper to log errors; the message is kept in full (#1138), the title is never empty."""
     # frappe.log_error(title=None, message=<truthy>) raises TypeError inside
     # frappe's own swap-detection heuristic (`"\n" in title`) -- title must
     # never be None/empty here (#1121 follow-up). Fall back to the message's
     # own first line so the fallback itself can never look like a multi-line
     # traceback and re-trigger that same heuristic.
-    safe_title = title or safe_message.split("\n")[0][:140]
-    frappe.log_error(title=safe_title, message=safe_message)
+    safe_title = title or message.split("\n")[0][:140]
+    frappe.log_error(title=safe_title, message=message)
 
 
 # Import moved inside function to avoid circular imports
@@ -1503,6 +1501,11 @@ def activate_pending_chapter_membership(member, chapter_name):
         # Activate the pending record
         pending_member.status = "Active"
         pending_member.chapter_join_date = today()  # Update join date to approval date
+        # Chapter.handle_member_changes activates the history entry in this save (#2499); give it the
+        # reason the update_membership_status call below would write.
+        chapter_doc.flags.history_activation_reason = (
+            f"Membership application approved for {chapter_name} chapter"
+        )
 
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
         from verenigingen.utils.secure_operations import secure_document_operation

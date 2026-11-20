@@ -58,7 +58,7 @@ class _StubBankTxCreator:
     def __init__(self, already=None):
         self._already = already or {"payment_entry": None, "bank_transaction": None}
 
-    def check_already_processed(self, payment_id, check_payment_entry=True):
+    def check_mollie_payment_processed(self, payment_id, check_payment_entry=True):
         return self._already
 
 

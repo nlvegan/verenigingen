@@ -89,15 +89,36 @@ class TerminationMixin:
         """Suspend this member with given reason"""
         from verenigingen.utils.termination_integration import suspend_member_safe
 
-        return suspend_member_safe(
+        results = suspend_member_safe(
             member_name=self.name,
             suspension_reason=reason,
             suspend_user=suspend_user,
             suspend_teams=suspend_teams,
         )
+        return _flag_partial_result(results, _("Member suspended, but NOT everything was done"))
 
     def unsuspend_member(self, reason):
         """Unsuspend this member with given reason"""
         from verenigingen.utils.termination_integration import unsuspend_member_safe
 
-        return unsuspend_member_safe(member_name=self.name, unsuspension_reason=reason)
+        results = unsuspend_member_safe(member_name=self.name, unsuspension_reason=reason)
+        return _flag_partial_result(results, _("Member unsuspended, but NOT everything was done"))
+
+
+def _flag_partial_result(results, title):
+    """Mark a success that left steps undone and tell the desk user (#2597).
+
+    success stays True (the member did change); `partial` plus the warning name what a
+    staff user would otherwise only find in the Error Log, e.g. a team row still active.
+    """
+    from verenigingen.utils.termination_integration import partial_failure_errors
+
+    not_done = partial_failure_errors(results)
+    if not_done:
+        results["partial"] = True
+        frappe.msgprint(
+            "<br>".join([title] + [frappe.utils.escape_html(e) for e in not_done]),
+            indicator="orange",
+            title=_("Partial result"),
+        )
+    return results

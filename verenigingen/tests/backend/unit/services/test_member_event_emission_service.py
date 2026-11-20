@@ -111,7 +111,7 @@ class TestMemberEventEmissionServiceEmitEvents(unittest.TestCase):
         mock_member = MagicMock()
         mock_member.name = "MEM-001"
         mock_member.has_value_changed.side_effect = lambda x: x == "application_status"
-        mock_member.get_db_value.return_value = "Pending"
+        mock_member.get_doc_before_save.return_value = {"application_status": "Pending"}
         mock_member.application_status = "Approved"
 
         # Clear the skip flags
@@ -136,7 +136,7 @@ class TestMemberEventEmissionServiceEmitEvents(unittest.TestCase):
         mock_member = MagicMock()
         mock_member.name = "MEM-001"
         mock_member.has_value_changed.side_effect = lambda x: x == "status"
-        mock_member.get_db_value.return_value = "Pending"
+        mock_member.get_doc_before_save.return_value = {"status": "Pending"}
         mock_member.status = "Active"
 
         mock_frappe.flags = MagicMock()
@@ -160,7 +160,7 @@ class TestMemberEventEmissionServiceEmitEvents(unittest.TestCase):
         mock_member = MagicMock()
         mock_member.name = "MEM-001"
         mock_member.has_value_changed.side_effect = lambda x: x == "status"
-        mock_member.get_db_value.return_value = "Pending"
+        mock_member.get_doc_before_save.return_value = {"status": "Pending"}
         mock_member.status = "Active"
 
         mock_frappe.flags = MagicMock()
@@ -170,15 +170,19 @@ class TestMemberEventEmissionServiceEmitEvents(unittest.TestCase):
 
         with patch.object(self.service, "should_skip_event_emission", return_value=False):
             with patch("verenigingen.events.member_events.emit_member_lifecycle_changed"):
-                with patch(
-                    "verenigingen.services.member.lifecycle.member_status_notification_service.get_member_status_notification_service"
-                ) as mock_notif_svc:
-                    result = self.service.emit_status_change_events(mock_member)
+                result = self.service.emit_status_change_events(mock_member)
 
-                    self.assertTrue(result["notification_sent"])
-                    mock_notif_svc.return_value.send_status_change_notification.assert_called_once_with(
-                        mock_member, "Pending", "Active"
-                    )
+                self.assertTrue(result["notification_sent"])
+                # The mail is queued for after the commit (#2735), not sent inline.
+                mock_frappe.enqueue.assert_called_once_with(
+                    method="verenigingen.services.member.lifecycle.member_status_notification_service."
+                    "send_status_change_notification_job",
+                    queue="short",
+                    enqueue_after_commit=True,
+                    member_name="MEM-001",
+                    old_status="Pending",
+                    new_status="Active",
+                )
 
     @patch("verenigingen.services.member.lifecycle.member_event_emission_service.frappe")
     def test_no_events_when_no_status_changes(self, mock_frappe):
@@ -247,7 +251,7 @@ class TestMemberEventEmissionServiceApplicationStatus(unittest.TestCase):
         """Test that correct event data is emitted"""
         mock_member = MagicMock()
         mock_member.name = "MEM-001"
-        mock_member.get_db_value.return_value = "Pending"
+        mock_member.get_doc_before_save.return_value = {"application_status": "Pending"}
         mock_member.application_status = "Under Review"
 
         self.service._emit_application_status_event(mock_member)
@@ -274,7 +278,7 @@ class TestMemberEventEmissionServiceMembershipStatus(unittest.TestCase):
         """Test that correct event data is emitted"""
         mock_member = MagicMock()
         mock_member.name = "MEM-001"
-        mock_member.get_db_value.return_value = "Active"
+        mock_member.get_doc_before_save.return_value = {"status": "Active"}
         mock_member.status = "Suspended"
 
         self.service._emit_membership_status_event(mock_member)
@@ -282,6 +286,23 @@ class TestMemberEventEmissionServiceMembershipStatus(unittest.TestCase):
         mock_emit.assert_called_once_with(
             "MEM-001",
             {"old_status": "Active", "new_status": "Suspended", "status_type": "membership"},
+        )
+
+
+    @patch("verenigingen.services.member.lifecycle.member_event_emission_service.frappe")
+    @patch("verenigingen.events.member_events.emit_member_lifecycle_changed")
+    def test_insert_has_no_previous_status(self, mock_emit, mock_frappe):
+        """#2180: an insert has no document-before-save, so there is no old status."""
+        mock_member = MagicMock()
+        mock_member.name = "MEM-001"
+        mock_member.get_doc_before_save.return_value = None
+        mock_member.status = "Active"
+
+        self.service._emit_membership_status_event(mock_member)
+
+        mock_emit.assert_called_once_with(
+            "MEM-001",
+            {"old_status": None, "new_status": "Active", "status_type": "membership"},
         )
 
 

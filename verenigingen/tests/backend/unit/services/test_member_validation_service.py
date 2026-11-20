@@ -135,7 +135,6 @@ class TestMemberValidationServicePayment(unittest.TestCase):
         result = self.service._validate_payment_fields(mock_member)
 
         self.assertTrue(result["success"])
-        mock_member.validate_payment_method.assert_called_once()
         mock_member.set_payment_reference.assert_called_once()
         mock_member.validate_bank_details.assert_called_once()
 

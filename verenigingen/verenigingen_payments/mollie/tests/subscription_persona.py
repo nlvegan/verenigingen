@@ -409,7 +409,7 @@ def cleanup_emma_persona(member_name=None):
                     member.mollie_customer_id, member.mollie_subscription_id
                 )
                 if success:
-                    member.subscription_status = "cancelled"
+                    member.subscription_status = "canceled"
                     member.save()
                     print("✅ Subscription cancelled")
             except Exception as e:

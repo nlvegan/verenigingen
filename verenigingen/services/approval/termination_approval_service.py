@@ -258,6 +258,8 @@ class TerminationApprovalService(StatefulService):
                 reference_doctype="Membership Termination Request",
                 reference_name=self.request.name,
                 notification_key="termination_pending_approval",
+                # Per request: a second request within the hour is a different ask (#2310).
+                cooldown_scope=self.request.name,
             )
 
             if not result.success:

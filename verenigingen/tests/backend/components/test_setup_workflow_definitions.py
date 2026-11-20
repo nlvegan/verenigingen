@@ -200,19 +200,6 @@ class TestTerminationWorkflowContract(FrappeTestCase):
             self.assertTrue(frappe.db.exists("Role", role), f"Missing role: {role}")
 
 
-class TestAppealsWorkflow(FrappeTestCase):
-    def test_skipped_when_its_doctype_does_not_exist(self):
-        """create_appeals_workflow_corrected() returns True by SKIPPING when the
-        Termination Appeals Process DocType is absent -- which it is, app-wide.
-
-        That truthy skip is what lets setup_workflows_corrected() report overall
-        success even when the termination workflow failed to build.
-        """
-        self.assertFalse(frappe.db.exists("DocType", "Termination Appeals Process"))
-        self.assertTrue(wf.create_appeals_workflow_corrected())
-        self.assertFalse(frappe.db.exists("Workflow", "Termination Appeals Workflow"))
-
-
 class TestSetupWorkflowsCorrected(FrappeTestCase):
     """The orchestrator. NOTE: it calls frappe.db.commit() internally."""
 

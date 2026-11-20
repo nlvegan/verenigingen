@@ -143,6 +143,20 @@ const customBatchTests = {
 				}).not.toThrow();
 			});
 		});
+
+		it('should set the page status indicator with the status colour', () => {
+			// Ported from the dead test_direct_debit_batch_controller.js (#1475), strengthened
+			// from "was called" to the real status -> colour contract of refresh().
+			const expectedColours = { Generated: 'blue', Processed: 'green', Failed: 'red', Draft: 'gray' };
+
+			Object.entries(expectedColours).forEach(([status, colour]) => {
+				getControllerTest().mockForm.page.set_indicator.mockClear();
+				getControllerTest().mockForm.doc.status = status;
+				getControllerTest().testEvent('refresh');
+
+				expect(getControllerTest().mockForm.page.set_indicator).toHaveBeenCalledWith(status, colour);
+			});
+		});
 	},
 
 	'SEPA Compliance and Validation': (getControllerTest) => {

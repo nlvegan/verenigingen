@@ -12,8 +12,8 @@ Tests create real Members and Chapters via the test factory (no business-logic
 mocking) and run as Administrator. Notification helpers send through the unified
 EmailService and are wrapped in try/except in production, so they are exercised
 indirectly via approve/reject/join and asserted only on their observable side
-effects (status, history, comments) -- the email send itself is a no-op in the
-test environment.
+effects (status, history, comments). The join-request tests are the exception: they
+own an outgoing Email Account and the key row, and assert on the queued mail itself.
 """
 
 import json
@@ -22,6 +22,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 
 
 class TestMemberManager(VereningingenTestCase):
@@ -448,9 +449,7 @@ class TestMemberManager(VereningingenTestCase):
         )
         volunteer = self.create_test_volunteer(member_name=board_member.name)
         role_name = f"BoardNotify{frappe.generate_hash(length=6)}"
-        frappe.get_doc(
-            {"doctype": "Chapter Role", "role_name": role_name, "permissions_level": "Basic"}
-        ).insert()
+        self.create_test_chapter_role(role_name=role_name)
         self.add_board_member_to_chapter(
             self.chapter, volunteer, role_name, email=board_member.email
         )
@@ -473,10 +472,10 @@ class TestMemberManager(VereningingenTestCase):
             status="Active",
         )
         volunteer = self.create_test_volunteer(member_name=board_member.name)
+        # #2208: the seat must belong to the board member, not an auto-built second Member.
+        self.assertEqual(volunteer.member, board_member.name)
         role_name = f"BoardJoinMail{frappe.generate_hash(length=6)}"
-        frappe.get_doc(
-            {"doctype": "Chapter Role", "role_name": role_name, "permissions_level": "Basic"}
-        ).insert()
+        self.create_test_chapter_role(role_name=role_name)
         self.add_board_member_to_chapter(self.chapter, volunteer, role_name, email=board_member.email)
         self._reload_chapter()
         # The row's email is fetched from the Volunteer on save, so read it back rather than
@@ -488,37 +487,28 @@ class TestMemberManager(VereningingenTestCase):
 
         A key with no Verenigingen Email Configuration row counts as disabled (#1959), so the
         send is skipped unless a row exists. Seed only this key (not the whole registry, which
-        leaked 88 rows while singleton_backup skipped child tables, #2029; fixed in #2091) and restore the original rows afterwards.
+        leaked 88 rows before singleton_backup restored child tables, #2029 / #2091).
 
-        request_to_join commits mid-test, so the seeded row is COMMITTED; an uncommitted restore
-        would then be rolled back by the class rollback. The restore therefore commits too.
+        request_to_join commits mid-test, so the seeded row is COMMITTED and an uncommitted restore
+        would be rolled back by the class rollback. singleton_backup restores byte for byte and
+        commits, which is what is needed here (#2159).
         """
         from verenigingen.notification_registry import NOTIFICATION_KEYS
         from verenigingen.setup.notification_registry_setup import _registry_row
+        from verenigingen.tests.fixtures.singleton_backup import SingletonBackup
 
+        # EmailService refuses to queue without a default outgoing account, and a fresh CI site has
+        # none ("No active email account configured"), so the board got 0 mails (#2361).
+        ensure_outgoing_email_account(self)
         key = "chapter_join_request_submitted"
-        fields = [
-            f.fieldname
-            for f in frappe.get_meta("Email Notification Type").fields
-            if f.fieldtype != "Section Break"
-        ]
-        config = frappe.get_single("Verenigingen Email Configuration")
-        original = [{f: r.get(f) for f in fields} for r in config.notification_types]
-        self.addCleanup(self._cleanup_config_rows, original)
+        backup = SingletonBackup("Verenigingen Email Configuration")
+        backup.backup()
+        self.addCleanup(backup.restore)
 
-        rows = [r for r in original if r["notification_key"] != key]
-        rows.append({**_registry_row(key, NOTIFICATION_KEYS[key]), "enabled": enabled})
-        config.set("notification_types", rows)
-        config.save()
-
-    @staticmethod
-    def _cleanup_config_rows(rows):
         config = frappe.get_single("Verenigingen Email Configuration")
-        config.set("notification_types", rows)
+        config.set("notification_types", [r for r in config.notification_types if r.notification_key != key])
+        config.append("notification_types", {**_registry_row(key, NOTIFICATION_KEYS[key]), "enabled": enabled})
         config.save()
-        # request_to_join committed the seeded row, so only a committed restore leaves the site
-        # as we found it (#2029; singleton_backup would now do this too, #2159). Named _cleanup_* so the order-dependence scan records it as exempt.
-        frappe.db.commit()
 
     @staticmethod
     def _join_mails_to(address):
@@ -706,11 +696,9 @@ class TestMemberManager(VereningingenTestCase):
         self.assertIn("not pending", result["message"])
 
     def test_approve_member_request_promotes_row_to_active(self):
-        # The join request already wrote a Pending history row;
-        # ChapterMembershipHistoryManager deliberately refuses to add an "Active"
-        # row while a "Pending" one exists (it warns to use update_membership_status
-        # instead). So the observable, durable effect of approval is that the
-        # Chapter Member row flips to Active -- assert that rather than a new row.
+        # The join request wrote a Pending history row; approval moves that entry to Active
+        # (#2430). This test used to assert the Pending entry SURVIVED approval, which encoded the
+        # defect (add_membership_history refuses Active beside Pending and the caller ignored it).
         self.manager.request_to_join(self.member.name, notify=False)
         self._reload_chapter()
         result = self.manager.approve_member_request(self.member.name)
@@ -720,17 +708,16 @@ class TestMemberManager(VereningingenTestCase):
         row = self.manager._find_chapter_member(self.member.name)
         self.assertEqual(row.status, "Active")
 
-        # The originating Pending history row is still present (not lost on approve).
-        pending = frappe.get_all(
+        history = frappe.get_all(
             "Chapter Membership History",
             filters={
                 "parent": self.member.name,
                 "parenttype": "Member",
                 "chapter_name": self.chapter.name,
-                "status": "Pending",
             },
+            pluck="status",
         )
-        self.assertGreater(len(pending), 0)
+        self.assertEqual(history, ["Active"])
 
     # ------------------------------------------------------------------ reject_member_request
 

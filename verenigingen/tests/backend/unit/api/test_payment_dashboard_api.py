@@ -17,6 +17,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import add_days, add_months, getdate, today
 
+from verenigingen.services.billing.billing_period_calculator import calculate_next_invoice_date
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.api.payment_dashboard import (
@@ -263,22 +264,31 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
         for entry in schedule:
             self.assertGreaterEqual(getdate(entry["date"]), getdate(today()))
 
-    def test_get_payment_schedule_stops_at_last_invoice_date(self):
+    def test_get_payment_schedule_is_not_capped_by_last_invoice_date(self):
+        # #2613: last_invoice_date is the PREVIOUS invoice; it never bounds the projection.
+        # (This test used to assert the opposite, with last = next + 1 month, a state the
+        # invoice flow never produces.)
         self.create_test_membership(member_name=self.member.name)
         next_date = add_days(today(), 5)
         sched = self._active_schedule()
+        # Monthly so the projection holds several dates inside the 12-month horizon
+        # (the fixture's default frequency yields a single one).
+        sched.billing_frequency = "Monthly"
         sched.next_invoice_date = next_date
-        # last_invoice_date caps generation: no entry may exceed it.
-        last_allowed_date = add_months(next_date, 1)
-        sched.last_invoice_date = last_allowed_date
+        sched.last_invoice_date = getdate(add_days(today(), -1))
         sched.save()
 
         result = get_payment_schedule(self.member.name)
         self.assertTrue(result["success"], msg=result)
-        schedule = result["data"]
-        last_allowed = getdate(last_allowed_date)
-        for entry in schedule:
-            self.assertLessEqual(getdate(entry["date"]), last_allowed)
+        # expected list derived from the schedule's own frequency via the invoice chain
+        horizon = add_months(getdate(next_date), 12)
+        expected = [getdate(next_date)]
+        while True:
+            following = calculate_next_invoice_date(sched.billing_frequency, expected[-1])
+            if following >= horizon:
+                break
+            expected.append(following)
+        self.assertEqual([getdate(entry["date"]) for entry in result["data"]], expected)
 
     def test_get_next_payment_returns_first_schedule_entry(self):
         # Regression guard: get_next_payment calls get_payment_schedule (also a

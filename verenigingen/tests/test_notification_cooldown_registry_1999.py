@@ -38,6 +38,12 @@ RULED = {
     # #2127: dedupe is per door and per reason via a Redis claim (door_alerts docstring), so the key has no
     # per-recipient cooldown of its own.
     "door_unavailable": 0,
+    # Per-event staff alerts, not throttled (#2174): the default 60 mailed staff about one request an hour.
+    "contact_request_new": 0,
+    "contact_request_urgent": 0,
+    # Ponto hand-booking alerts: every unbookable executed payment must reach staff (#2248 re-ruling).
+    "ponto_executed_on_cancelled_row": 0,
+    "ponto_executed_unbookable": 0,
 }
 
 

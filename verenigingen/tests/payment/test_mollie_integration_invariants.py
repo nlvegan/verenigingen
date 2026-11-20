@@ -1220,10 +1220,45 @@ DONATE_JS = os.path.join(PACKAGE_ROOT, "public", "js", "donation_form.js")
 # get_public_donation_service().submit() (donation_api.py:44). Scanning only the
 # /donate pair reported every campaign-only key as an orphan.
 CAMPAIGN_TEMPLATE = os.path.join(PACKAGE_ROOT, "templates", "pages", "campaign.html")
-DONATION_READER_FILES = (
-    os.path.join(PACKAGE_ROOT, "services", "donation", "public_donation_service.py"),
-    os.path.join(PACKAGE_ROOT, "templates", "pages", "donate.py"),
-)
+
+
+def _956_reader_files():
+    """Every non-test module that reads ``form_data`` on the donation path.
+
+    #956: this used to be a hand-listed tuple that omitted api/donation_api.py
+    (the campaign form's entry point), so a newly invented key read there was
+    invisible to the orphan check. Derived instead: everything under
+    services/donation/ (donor_service reads form_data too) plus any non-test
+    module that names PublicDonationService / get_public_donation_service,
+    i.e. that hands a form_data dict to the service.
+
+    Known limits: the services/donation/ listing is NOT recursive (a subpackage
+    added there would need its own entry), and the name match is textual, so
+    verenigingen_payments/utils/reference_ownership.py is included through a
+    docstring mention. That is harmless: it has no form_data reads.
+    """
+    found = set()
+    donation_dir = os.path.join(PACKAGE_ROOT, "services", "donation")
+    for name in os.listdir(donation_dir):
+        if name.endswith(".py"):
+            found.add(os.path.join(donation_dir, name))
+    tests_dir = os.path.join(PACKAGE_ROOT, "tests")
+    for root, dirs, files in os.walk(PACKAGE_ROOT):
+        if root == tests_dir or root.startswith(tests_dir + os.sep) or "node_modules" in root:
+            dirs[:] = []
+            continue
+        for name in files:
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(root, name)
+            with open(path, "r", encoding="utf-8") as handle:
+                text = handle.read()
+            if "get_public_donation_service" in text or "PublicDonationService" in text:
+                found.add(path)
+    return tuple(sorted(found))
+
+
+DONATION_READER_FILES = _956_reader_files()
 
 # Keys the server reads from form_data that the browser is not expected to post:
 # the service synthesises them internally before handing form_data onward.
@@ -1241,8 +1276,6 @@ FORM_DATA_NOT_POSTED_BY_THE_BROWSER = frozenset(
         "method",
         "sequenceType",
         "subscription_interval",
-        "success_url",
-        "cancel_url",
     }
 )
 
@@ -1306,8 +1339,11 @@ def _donate_form_writers():
     return writers
 
 
+_DICT_METHOD_NAMES = frozenset(dir(dict))
+
+
 class _FormDataReadVisitor(_EnclosingFunctionVisitor):
-    """Collect ``form_data.get("key")`` / ``form_data["key"]`` reads."""
+    """Collect ``form_data.get("key")`` / ``form_data["key"]`` / ``form_data.key`` reads."""
 
     def __init__(self, rel):
         super().__init__(rel)
@@ -1336,6 +1372,62 @@ class _FormDataReadVisitor(_EnclosingFunctionVisitor):
             if key:
                 self._record(key, node.lineno)
         self.generic_visit(node)
+
+    def visit_Attribute(self, node):
+        # #2632: ``form_data.key`` is a read of ``key``. Dict methods
+        # (``.get``, ``.items``, ...) are not keys, whether called or not.
+        # A key named like a dict method would be a runtime bug on frappe._dict
+        # anyway, so skipping those names hides no real reader.
+        if (
+            isinstance(node.ctx, ast.Load)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "form_data"
+            and node.attr not in _DICT_METHOD_NAMES
+        ):
+            self._record(node.attr, node.lineno)
+        self.generic_visit(node)
+
+
+class TestFormDataReadVisitorSeesAttributeReads(unittest.TestCase):
+    """#2632: ``form_data.some_key`` is a read too; only ``.get`` / ``[...]``
+    used to be recorded, so an attribute read of a key no form posts was
+    invisible to the orphan check."""
+
+    @staticmethod
+    def _reads(source):
+        visitor = _FormDataReadVisitor("snippet.py")
+        visitor.visit(ast.parse(source))
+        return visitor.reads
+
+    def test_an_attribute_read_is_recorded(self):
+        self.assertIn("invented_key", self._reads("x = form_data.invented_key\n"))
+
+    def test_an_attribute_read_in_a_call_argument_is_recorded(self):
+        self.assertIn("donor_email", self._reads("f(form_data.donor_email)\n"))
+
+    def test_dict_method_calls_are_not_keys(self):
+        source = "a = form_data.get('k')\nb = form_data.items()\nc = form_data.keys()\nd = form_data.copy()\n"
+        reads = self._reads(source)
+        self.assertEqual(set(reads), {"k"})
+
+    def test_attribute_stores_and_deletes_are_not_reads(self):
+        self.assertEqual(self._reads("form_data.x = 1\ndel form_data.y\n"), {})
+
+    def test_attribute_reads_on_other_names_are_ignored(self):
+        self.assertEqual(self._reads("x = other.invented_key\ny = self.form_data.invented_key\n"), {})
+
+    def test_an_attribute_read_of_an_unposted_key_reddens_the_orphan_check(self):
+        """MUTANT. Feed the real orphan rule a reader that uses attribute
+        access for a key no form posts; it must be reported."""
+        reads = self._reads("x = form_data.zz_invented_unposted_key\n")
+        writers = _donate_form_writers()
+        orphans = {k for k in reads if k not in writers and k not in FORM_DATA_NOT_POSTED_BY_THE_BROWSER}
+        self.assertEqual(orphans, {"zz_invented_unposted_key"})
+
+    def test_an_attribute_read_of_a_posted_key_is_not_an_orphan(self):
+        reads = self._reads("x = form_data.subscription_interval\ny = form_data.anonymous\n")
+        self.assertEqual(set(reads), {"subscription_interval", "anonymous"})
+        self.assertTrue(set(reads) <= _donate_form_writers())
 
 
 class TestDonateFormKeysHaveWriters(unittest.TestCase):
@@ -1382,6 +1474,21 @@ class TestDonateFormKeysHaveWriters(unittest.TestCase):
             f"Scanner found no writer for anonymous in campaign.html; "
             f"writers={sorted(self.writers)[:40]}",
         )
+
+    def test_956_known_readers_are_in_the_scanned_set(self):
+        """CONTROL for #956. The campaign entry point (donation_api.py), the
+        service and donate.py must be scanned, and donation_api's own reads must
+        be seen; otherwise the orphan test below is blind to them again."""
+        rels = {os.path.relpath(p, PACKAGE_ROOT).replace(os.sep, "/") for p in DONATION_READER_FILES}
+        for expected in (
+            "api/donation_api.py",
+            "services/donation/public_donation_service.py",
+            "templates/pages/donate.py",
+            "services/donation/donor_service.py",
+        ):
+            self.assertIn(expected, rels, f"{expected} missing from the scanned set {sorted(rels)}")
+        self.assertIn("donation_campaign", self.reads)
+        self.assertTrue(any(s.startswith("api/donation_api.py") for s in self.reads["donation_campaign"]))
 
     def test_no_new_form_data_key_is_read_without_a_writer(self):
         orphans = {

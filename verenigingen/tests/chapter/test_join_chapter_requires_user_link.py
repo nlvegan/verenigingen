@@ -54,10 +54,12 @@ class TestSelfServiceChapterRequiresUserLink(EnhancedTestCase):
     def test_email_only_user_is_refused_with_clear_message(self):
         from verenigingen.api.chapter_join import join_chapter
 
+        # #1936: the self_service_api gate itself now refuses an email-only user, with the
+        # same message as a user with no Member at all (the in-body #1853 check stays as a backstop).
         with self.as_user(self.unlinked.user):
-            result = join_chapter(self.chapter.name, "I want to help")
-        self.assertFalse(result["success"])
-        self.assertIn("not linked to a member record", result["error"]["message"])
+            with self.assertRaises(frappe.PermissionError) as ctx:
+                join_chapter(self.chapter.name, "I want to help")
+        self.assertIn("No member record found", str(ctx.exception))
         self.assertEqual(self._requests_for(self.unlinked.member), [])
 
     def test_user_with_no_member_at_all_is_refused(self):
@@ -92,9 +94,8 @@ class TestSelfServiceChapterRequiresUserLink(EnhancedTestCase):
         from verenigingen.api.chapter_join import get_chapter_join_context
 
         with self.as_user(self.unlinked.user):
-            result = get_chapter_join_context(self.chapter.name)
-        self.assertTrue(result["success"], msg=result)
-        self.assertIsNone(result["data"]["member"])
+            with self.assertRaises(frappe.PermissionError):
+                get_chapter_join_context(self.chapter.name)
         with self.as_user(self.linked.user):
             result = get_chapter_join_context(self.chapter.name)
         self.assertEqual(result["data"]["member"], self.linked.member.name)

@@ -379,6 +379,7 @@ class Member(
         custom_rate_reason=None,
         is_csv_import=False,
         approval_fields=None,
+        system_follow_on=False,
     ):
         """
         Create membership record when application is approved.
@@ -398,6 +399,7 @@ class Member(
             custom_rate_reason=custom_rate_reason,
             is_csv_import=is_csv_import,
             approval_fields=approval_fields,
+            system_follow_on=system_follow_on,
         )
 
     # Member.reject_application removed in T4.1, same reasoning as
@@ -736,7 +738,7 @@ class Member(
         return result.get("duration_years", 0)
 
     @frappe.whitelist()
-    @standard_api(operation_type=OperationType.ADMIN)
+    @critical_api(operation_type=OperationType.ADMIN)
     def force_update_membership_duration(self):
         """Force update membership duration - delegates to MemberDurationService."""
         from verenigingen.services.member.utils.member_duration_service import (
@@ -777,7 +779,7 @@ class Member(
         return get_member_item_service().get_or_create_membership_item(self)
 
     @frappe.whitelist()
-    @standard_api(operation_type=OperationType.ADMIN)
+    @critical_api(operation_type=OperationType.ADMIN)
     def force_update_chapter_display(self):
         """Force update chapter display - delegates to MemberChapterDisplayService."""
         from verenigingen.services.member.display.member_chapter_display_service import (
@@ -936,7 +938,7 @@ def create_user(doc: str | dict = None):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def create_organization_user(
-    member: str, email: str, first_name: str, last_name: str = "", send_welcome_email=True
+    member: str, email: str, first_name: str, last_name: str = "", send_welcome_email: bool = True
 ):
     """Create an organization user account for a member.
 

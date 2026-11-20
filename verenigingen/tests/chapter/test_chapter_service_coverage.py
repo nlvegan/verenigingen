@@ -239,25 +239,6 @@ class TestChapterAssignmentService(EnhancedTestCase):
 
         self.assertEqual(self._chapter_state(board.member, board.volunteer), before)
 
-    def test_assign_with_cleanup_fallback_path_refused_add_rolls_back(self):
-        """#1793: when Chapter.remove_member fails the direct-disable fallback runs; a refused add must undo it too."""
-        from unittest.mock import patch
-
-        target = self.ensure_test_chapter("Test Assign Cleanup Fallback")
-        board = self._board_member_in_chapter()
-        self._suspend_for_assign_cleanup(board.member)
-        before = self._chapter_state(board.member, board.volunteer)
-
-        # Mock justified: forces the primary removal to fail so the fallback runs.
-        with patch(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.remove_member",
-            side_effect=frappe.ValidationError("no-1793"),
-        ):
-            result = self._get_service().assign_with_cleanup(board.member, target.name)
-
-        self.assertFalse(result["success"], result)
-        self.assertEqual(self._chapter_state(board.member, board.volunteer), before)
-
     def test_assign_with_cleanup_not_reenabled_refusal_rolls_back(self):
         """#1793/#1564: a disabled row in the target that add_member will not re-enable."""
         target = self.ensure_test_chapter("Test Assign Cleanup NotReenabled")

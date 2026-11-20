@@ -33,6 +33,8 @@ import frappe
 from frappe import _
 from frappe.utils import cstr, escape_html, flt
 
+from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move
+
 SYSTEM_UPDATE_FLAG = "ponto_system_update"
 
 REQUEST_GUARDED_FIELDS = ("status", "payment_entry")
@@ -79,6 +81,20 @@ def refuse_unless_system_update(doc, guarded_fields):
             ),
             frappe.PermissionError,
         )
+
+
+def persist_cancelled_status(doc):
+    """Write "Cancelled" to a row from its ``on_cancel`` (#1918).
+
+    Frappe has already written docstatus 2 by the time ``on_cancel`` runs, so assigning
+    ``doc.status`` there only changed the in-memory document and the table kept the open status
+    (the row then still read as payable/pending). ``db_set`` is the fix, as for DirectDebitBatch
+    (#1230); ``update_modified=False`` keeps ``modified`` as the cancel time, which the #1931 poll
+    window counts from. Executed is final (#1835): it stays Executed.
+    """
+    if is_refused_move(doc.status, "Cancelled"):
+        return
+    doc.db_set("status", "Cancelled", update_modified=False)
 
 
 @contextmanager
@@ -274,23 +290,233 @@ def mark_retried(comment):
     frappe.db.set_value("Comment", comment, "modified", frappe.utils.now_datetime(), update_modified=False)
 
 
-def _undelivered_logged(doc):
+def _undelivered_logged(doc, marker=ALERT_MARKER, title=UNDELIVERED_TITLE):
     # Frappe's scheduled Error Log clearing can prune this row; the next call then writes a new loud
     # one, exactly as for the ALERT_TITLE ``logged`` check above.
     return frappe.db.exists(
         "Error Log",
-        {"method": UNDELIVERED_TITLE, "error": ["like", f"{ALERT_MARKER}: {doc.doctype} {doc.name} %"]},
+        {"method": title, "error": ["like", f"{marker}: {doc.doctype} {doc.name} %"]},
     )
 
 
-def _log_undelivered(details, delivery):
+def _log_undelivered(details, delivery, key=ALERT_KEY, title=UNDELIVERED_TITLE):
     """Say loudly that the alert reached nobody (key not seeded, disabled, no recipient, delivery failed).
 
     Fresh installs do not run patches, so the key can have no row and then counts as disabled; the
     Error Log row above would be the only trace and nobody reads it for this. #1848 asks for a loud alert.
     """
     frappe.log_error(
-        title=UNDELIVERED_TITLE,
+        title=title,
         message=f"{details}\nNOBODY WAS NOTIFIED ({delivery}). Check Verenigingen Email Configuration "
-        f"for the notification type '{ALERT_KEY}': it must exist, be enabled and have recipients.",
+        f"for the notification type '{key}': it must exist, be enabled and have recipients.",
+    )
+
+
+# ---- Ponto says EXECUTED, but the request's account mapping is paused or disabled (#2125) ----
+UNBOOKABLE_KEY = "ponto_executed_unbookable"
+UNBOOKABLE_MARKER = "PONTO-EXECUTED-UNBOOKABLE"
+UNBOOKABLE_TITLE = "Ponto payment executed but cannot be booked"
+UNBOOKABLE_UNDELIVERED_TITLE = "Ponto executed-unbookable alert was NOT DELIVERED to anyone"
+UNBOOKABLE_DELIVERED_MARK = "PONTO-UNBOOKABLE-DELIVERED"
+UNBOOKABLE_BLOCKED_MARK = "PONTO-EXECUTED-BLOCKED"
+
+
+CONFLICT_MARKER = "PONTO-PAYMENT-ENTRY-CONFLICT"
+CONFLICT_TITLE = "Ponto payment executed but a Payment Entry conflicts"
+CONFLICT_UNDELIVERED_TITLE = "Ponto payment-entry-conflict alert was NOT DELIVERED to anyone"
+CONFLICT_DELIVERED_MARK = "PONTO-CONFLICT-DELIVERED"
+CONFLICT_BLOCKED_MARK = "PONTO-PAYMENT-ENTRY-CONFLICT-BLOCKED"
+
+_UNBOOKABLE_KIND = frappe._dict(
+    marker=UNBOOKABLE_MARKER,
+    title=UNBOOKABLE_TITLE,
+    undelivered_title=UNBOOKABLE_UNDELIVERED_TITLE,
+    delivered_mark=UNBOOKABLE_DELIVERED_MARK,
+    blocked_mark=UNBOOKABLE_BLOCKED_MARK,
+    subject="was paid at Ponto but cannot be booked",
+)
+_CONFLICT_KIND = frappe._dict(
+    marker=CONFLICT_MARKER,
+    title=CONFLICT_TITLE,
+    undelivered_title=CONFLICT_UNDELIVERED_TITLE,
+    delivered_mark=CONFLICT_DELIVERED_MARK,
+    blocked_mark=CONFLICT_BLOCKED_MARK,
+    subject="was paid at Ponto but a Payment Entry conflicts",
+)
+
+
+def alert_executed_unbookable(doc, reason):
+    """Tell staff, once, that Ponto executed a payment this row may not book (#2125).
+
+    Same machinery as ``alert_executed_on_cancelled_row``: the row is locked first, a Notification
+    Log and an Error Log row are the dedupe markers (read with locking reads), a DELIVERED comment
+    survives their pruning, and an alert nobody received is retried on every call but loudly logged
+    ONCE. The row itself is never changed; a Comment records why it is blocked.
+    """
+    details = (
+        f"{UNBOOKABLE_MARKER}: {doc.doctype} {doc.name} reported EXECUTED by Ponto "
+        f"(EUR {flt(doc.amount):,.2f}, Ponto id {doc.ponto_payment_id}), but its Ponto account "
+        f"{doc.ponto_account} cannot be used: {reason}. No Payment Entry was made and the request was "
+        "not changed. Action required: resolve the pause (re-check the Bank Account link in Ponto "
+        "Settings, then retrieve accounts again). The next status refresh then books the Payment Entry "
+        "itself. Do NOT also book the payment by hand; if you already did, enter the request name as "
+        "the Payment Entry's Reference No so it is linked instead of booked twice."
+    )
+    _alert_blocked_once(doc, _UNBOOKABLE_KIND, f"Ponto reports EXECUTED; blocked: {reason}", details)
+
+
+def alert_payment_entry_conflict(doc, reason, entries):
+    """Tell staff, once, that Ponto executed a payment whose Payment Entry situation is ambiguous
+    (#2125): a same-Reference entry that differs, a draft, or several. Nothing is booked and the
+    row is not changed, so the hourly poll does not write a new Error Log row each time."""
+    names = ", ".join(entries)
+    details = (
+        f"{CONFLICT_MARKER}: {doc.doctype} {doc.name} reported EXECUTED by Ponto "
+        f"(EUR {flt(doc.amount):,.2f}, Ponto id {doc.ponto_payment_id}), but it cannot be booked "
+        f"safely: {reason}. Conflicting Payment Entr{'y' if len(entries) == 1 else 'ies'}: {names}. "
+        "No Payment Entry was made and the request was not changed. Action required: open the "
+        "Payment Entry named above and either correct it (party, amount, company, currency, "
+        "submit a draft) or cancel it, so exactly one matching entry carries this request name as "
+        "its Reference No. The next status refresh then links it, or books one if none is left."
+    )
+    _alert_blocked_once(doc, _CONFLICT_KIND, f"Ponto reports EXECUTED; blocked: {reason}", details)
+
+
+def _alert_blocked_once(doc, kind, block_text, details):
+    frappe.db.get_value(doc.doctype, doc.name, "name", for_update=True)
+    if _alert_state_exists(doc, kind.delivered_mark):
+        return
+    notified = frappe.db.get_value(
+        "Notification Log",
+        {
+            "document_type": doc.doctype,
+            "document_name": doc.name,
+            "subject": ["like", f"{kind.marker}%"],
+        },
+        "name",
+        for_update=True,
+    )
+    logged = frappe.db.exists(
+        "Error Log",
+        {"method": kind.title, "error": ["like", f"{kind.marker}: {doc.doctype} {doc.name} %"]},
+    )
+    if notified:
+        _note_alert_state(doc, kind.delivered_mark, "a Notification Log exists for this alert")
+        if logged:
+            return
+    _note_alert_state(doc, kind.blocked_mark, block_text)
+
+    delivery = {"skipped": "already notified"}
+    if not notified:
+        from verenigingen.utils.notification_helpers import notify_administrators
+
+        delivery = notify_administrators(
+            subject=f"{kind.marker}: {doc.doctype} {doc.name} {kind.subject}",
+            message=f"<p>{escape_html(details)}</p>",
+            notification_key="ponto_executed_unbookable",  # literal: key discovery greps for it
+            document_type=doc.doctype,
+            document_name=doc.name,
+            exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
+            staff_alert=True,
+        )
+        if delivery.get("notifications_created"):
+            _note_alert_state(doc, kind.delivered_mark, "alert delivered")
+        elif not _undelivered_logged(doc, kind.marker, kind.undelivered_title):
+            _log_undelivered(details, delivery, UNBOOKABLE_KEY, kind.undelivered_title)
+    if not logged:
+        frappe.log_error(title=kind.title, message=f"{details}\nNotification: {delivery}")
+
+
+ORPHAN_TITLE = "Ponto payment ORPHANED by a failed submit"
+
+
+def submit_with_ponto_compensation(doc, submit, delete_at_ponto):
+    """Run ``submit`` (the base ``Document._submit``); if it fails after ``before_submit`` created
+    something at Ponto (``doc.flags.ponto_created_id``), delete that again and re-raise (#2294).
+
+    Shared by both controllers' ``_submit`` so the body is not duplicated.
+    """
+    doc.flags.ponto_created_id = None
+    try:
+        return submit()
+    except Exception:
+        if doc.flags.ponto_created_id:
+            compensate_failed_submit(doc, doc.flags.ponto_created_id, delete_at_ponto)
+        raise
+
+
+class PontoSubmitCompensation:
+    """Mixin for the Ponto submittable doctypes: a failed submit deletes what it created at Ponto.
+
+    The doctype names its raising Ponto delete method in ``PONTO_DELETE_METHOD``. It sits before
+    ``Document`` in the bases so this ``_submit`` wraps ``Document._submit``.
+    """
+
+    PONTO_DELETE_METHOD = ""
+
+    def _submit(self):
+        return submit_with_ponto_compensation(self, super()._submit, getattr(self, self.PONTO_DELETE_METHOD))
+
+
+def compensate_failed_submit(doc, ponto_id, delete_at_ponto):
+    """Undo the Ponto create after a submit failed LATER than ``before_submit`` (#2294).
+
+    ``before_submit`` calls Ponto first and Frappe writes the row afterwards, so a failure of
+    that write (or of ``on_submit``) leaves a real, unsigned payment at Ponto that no local row
+    points at. The caller re-raises the original error; this only cleans up after it.
+
+    ``delete_at_ponto`` is the doctype's own Ponto delete call (the one ``cancel_ponto_payment`` /
+    ``cancel_ponto_request`` make on cancel); it raises when Ponto refuses. Then the
+    orphan is still there: an Error Log row (MyISAM, so it survives the rollback that follows
+    the re-raised error) and the registered staff alert name its Ponto id so someone can delete
+    it by hand. No commit here: this runs in the failing request's own transaction.
+
+    The alert is a background job, not an inline ``notify_administrators``: the re-raised error
+    makes Frappe roll the request back, which would take an inline Notification Log with it while
+    the Staff Alert Event (MyISAM) survived claiming "Delivered" (measured on a real request).
+    The Redis push is not part of the database transaction (``enqueue_after_commit`` stays False),
+    and the job runs in a worker's own transaction. Same shape as
+    ``chapter_security.record_application_security_event``. PRODUCTION NEEDS A WORKER on the
+    "short" queue; ``now=frappe.in_test`` runs it inline under test (CI has no workers).
+
+    Never raises: a failure here must not replace the error the caller is about to re-raise.
+    """
+    try:
+        delete_at_ponto()
+        return
+    except Exception as delete_error:
+        reason = str(delete_error)
+    details = (
+        f"{ORPHAN_TITLE}: {doc.doctype} {doc.name}. Ponto created payment {ponto_id}, the submit then "
+        f"failed, and deleting it at Ponto failed too ({reason}). It is unsigned and no local row points at it. "
+        f"Action required: delete Ponto id {ponto_id} in Ponto by hand."
+    )
+    try:
+        frappe.log_error(title=ORPHAN_TITLE, message=details)
+        frappe.enqueue(
+            "verenigingen.verenigingen_payments.ponto.core.submitted_rows.send_ponto_orphan_alert",
+            queue="short",
+            now=frappe.in_test,
+            doctype=doc.doctype,
+            name=doc.name,
+            ponto_id=ponto_id,
+            amount=flt(doc.get("amount")),
+            details=details,
+        )
+    except Exception:
+        frappe.log_error(title=f"{ORPHAN_TITLE}: the staff alert itself failed", message=details)
+
+
+def send_ponto_orphan_alert(doctype, name, ponto_id, amount, details):
+    """The background job behind ``compensate_failed_submit``: tell staff which Ponto id to delete."""
+    from verenigingen.utils.notification_helpers import notify_administrators
+
+    notify_administrators(
+        subject=f"{ORPHAN_TITLE}: {doctype} {name} ({ponto_id})",
+        message=f"<p>{escape_html(details)} Amount: EUR {flt(amount):,.2f}.</p>",
+        notification_key="ponto_orphaned_payment",  # literal: key discovery greps for it
+        document_type=doctype,
+        document_name=name,
+        exclude_users=["Administrator"],  # ruling 2026-11-01: staff alerts never go to Administrator
+        staff_alert=True,
     )

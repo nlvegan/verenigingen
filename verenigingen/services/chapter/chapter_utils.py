@@ -32,7 +32,6 @@ from frappe import _
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import (
     get_member_name_for_board_access,
-    get_member_name_for_user,
     get_volunteer_for_member,
 )
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
@@ -294,8 +293,11 @@ def get_user_board_positions(
         return []
 
     try:
-        # Get user's member and volunteer records
-        member_name = get_member_name_for_user(user_email)
+        # Get user's member and volunteer records. #2206 ruling (2026-11-11): identity
+        # is Member.user only, no Member.email fallback (same resolver as
+        # get_user_accessible_chapters above), so a User who merely shares an email
+        # with a Member holds none of that Member's board seats.
+        member_name = get_member_name_for_board_access(user_email)
         if not member_name:
             return []
 

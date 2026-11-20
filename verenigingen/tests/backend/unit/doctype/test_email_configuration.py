@@ -18,6 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from verenigingen.tests.fixtures.singleton_backup import singleton_backup
+from verenigingen.utils.operation_result import OperationResult
 import unittest
 
 
@@ -361,7 +362,9 @@ class TestSendTestEmail(FrappeTestCase):
 
         with patch("verenigingen.services.communication.email_service.get_email_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.send_simple_email.return_value = {"success": True}
+            # EmailService returns an OperationResult, never a dict (#2177; real-service coverage is in
+            # test_operationresult_callers_2177)
+            mock_service.send_simple_email.return_value = OperationResult.ok({"queued": True})
             mock_get_service.return_value = mock_service
 
             result = send_test_email("test@example.com")
@@ -377,7 +380,7 @@ class TestSendTestEmail(FrappeTestCase):
 
         with patch("verenigingen.services.communication.email_service.get_email_service") as mock_get_service:
             mock_service = MagicMock()
-            mock_service.send_simple_email.return_value = {"success": False, "error": "SMTP failed"}
+            mock_service.send_simple_email.return_value = OperationResult.fail("SMTP failed")
             mock_get_service.return_value = mock_service
 
             result = send_test_email("test@example.com")

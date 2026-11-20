@@ -26,6 +26,31 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 
+def keep_modules_intact(test_case, module_paths):
+    """Put back the module objects these tests delete and re-import, when the test ends.
+
+    The tests below force a fresh import by deleting a module from sys.modules. Left that way, the
+    process holds a SECOND copy of the module (and of every class in it): code that imported the first
+    copy earlier, as a test module's top-level `from ... import Class`, then patches a class nothing
+    calls any more, while production code resolves the new copy. In one CI shard that made
+    test_application_record_approval's spy on MemberStatusNotificationService see no call (#2055).
+    """
+    saved = {path: sys.modules.get(path) for path in module_paths}
+
+    def restore():
+        for path, original in saved.items():
+            sys.modules.pop(path, None)
+            if original is None:
+                continue
+            sys.modules[path] = original
+            parent_path, _, leaf = path.rpartition(".")
+            parent = sys.modules.get(parent_path)
+            if parent is not None:
+                setattr(parent, leaf, original)
+
+    test_case.addCleanup(restore)
+
+
 class TestServiceImportSafety(unittest.TestCase):
     """Test that service modules don't perform DB/network operations at import time."""
 
@@ -64,6 +89,7 @@ class TestServiceImportSafety(unittest.TestCase):
 
     def setUp(self):
         """Clear module cache for fresh imports."""
+        keep_modules_intact(self, self.SERVICE_MODULES)
         # Remove modules from cache to force re-import
         for module in list(sys.modules.keys()):
             if module.startswith("verenigingen.services.member") or module.startswith(
@@ -194,6 +220,9 @@ class TestAPIModuleImportSafety(unittest.TestCase):
         "verenigingen.api.member.sepa_api",
     ]
 
+    def setUp(self):
+        keep_modules_intact(self, self.API_MODULES)
+
     def test_api_modules_import_cleanly(self):
         """Test that API modules import without side effects."""
         for module_path in self.API_MODULES:
@@ -208,6 +237,44 @@ class TestAPIModuleImportSafety(unittest.TestCase):
                 )
             except ImportError as e:
                 self.fail(f"Failed to import {module_path}: {e}")
+
+
+class TestImportSafetyLeavesModulesAlone(unittest.TestCase):
+    """The deleting tests above must not change which module object the process holds (#2055)."""
+
+    def test_the_module_objects_survive_the_import_tests(self):
+        paths = TestServiceImportSafety.SERVICE_MODULES + TestAPIModuleImportSafety.API_MODULES
+        before = {}
+        for path in paths:
+            try:
+                before[path] = importlib.import_module(path)
+            except ImportError:
+                continue
+        self.assertIn(
+            "verenigingen.services.member.lifecycle.member_status_notification_service",
+            before,
+            "control: the module a spy test binds a class from is one of those the import tests delete",
+        )
+
+        loader = unittest.TestLoader()
+        suite = unittest.TestSuite(
+            [
+                loader.loadTestsFromTestCase(TestServiceImportSafety),
+                loader.loadTestsFromTestCase(TestAPIModuleImportSafety),
+            ]
+        )
+        result = unittest.TestResult()
+        suite.run(result)
+        self.assertGreater(result.testsRun, 0, "control: the import tests ran")
+
+        replaced = [path for path, module in before.items() if sys.modules.get(path) is not module]
+        self.assertEqual(replaced, [], "the import tests left a second copy of these modules in sys.modules")
+        stale_parent_attr = [
+            path
+            for path, module in before.items()
+            if getattr(sys.modules[path.rpartition(".")[0]], path.rpartition(".")[2], None) is not module
+        ]
+        self.assertEqual(stale_parent_attr, [], "the import tests left a second copy on the parent package")
 
 
 if __name__ == "__main__":

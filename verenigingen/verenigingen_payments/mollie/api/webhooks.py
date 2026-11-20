@@ -8,8 +8,21 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
+from verenigingen.utils.security.client_ip import get_client_ip
 
+from ...utils.webhook_ack import log_error_once
 from ..exceptions import MollieSecurityError, MollieWebhookError
+
+
+def _log_wrapper_error_once(title: str, what: str, exc: Exception) -> None:
+    """One row per (title, caller IP, exception class) per hour; the endpoints are guest-reachable (#2187).
+
+    The exception text is cut before the traceback is appended so that a long caller-influenced
+    message cannot push the frames past the 4000-character cap. Passing a message makes frappe
+    skip its own traceback, hence ``get_traceback`` here.
+    """
+    message = f"{what}: {str(exc)[:500]}\n{frappe.get_traceback()}"
+    log_error_once(title, message, get_client_ip(), type(exc).__name__)
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -26,7 +39,7 @@ def handle_mollie_payment_webhook():
         return handle_payment_webhook()
 
     except Exception as e:
-        frappe.log_error(f"Webhook endpoint error: {e}", "Mollie Webhook API")
+        _log_wrapper_error_once("Mollie Webhook API", "Webhook endpoint error", e)
         frappe.response.http_status_code = 500
         return {"status": "error"}
 
@@ -63,7 +76,7 @@ def handle_unified_webhook():
         return {"status": "error"}
 
     except Exception as e:
-        frappe.log_error(f"Unexpected error in unified webhook: {e}", "Mollie Webhook Error")
+        _log_wrapper_error_once("Mollie Webhook Error", "Unexpected error in unified webhook", e)
         frappe.response.http_status_code = 500
         return {"status": "error"}
 

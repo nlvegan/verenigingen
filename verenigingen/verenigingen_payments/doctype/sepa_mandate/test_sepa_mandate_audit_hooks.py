@@ -12,6 +12,7 @@ import json
 
 import frappe
 
+from verenigingen.services.payment.sepa_mandate_consent import record_member_consent
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -48,7 +49,12 @@ class TestSEPAMandateAuditHooks(EnhancedTestCase):
             "sign_date": frappe.utils.today(),
         }
         payload.update(overrides)
-        mandate = frappe.get_doc(payload).insert(ignore_permissions=True)
+        mandate = frappe.get_doc(payload)
+        # #2464: a non-staff creator can only insert a mandate that carries the server-verified
+        # member-consent record (what setup_sepa_direct_debit stamps), so stamp it the same way.
+        # The test's subject (the audit write under an unprivileged session user) is unchanged.
+        record_member_consent(mandate, "Test mandate text")
+        mandate.insert(ignore_permissions=True)
         self.track_doc("SEPA Mandate", mandate.name)
         return mandate
 

@@ -20,7 +20,7 @@ from frappe import _
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
-from verenigingen.utils.service_error_handler import create_service_result, handle_service_error
+from verenigingen.utils.service_error_handler import create_service_result
 
 logger = logging.getLogger(__name__)
 
@@ -37,27 +37,15 @@ def generate_member_id():
     Returns:
         str: Unique member ID, or None for Guest users
 
-    Note:
-        Falls back to timestamp-based ID if atomic generation fails.
+    Raises:
+        Whatever MemberIDManager raises: there is no fallback ID (#2339).
     """
     if frappe.session.user == "Guest":
         return None
 
-    try:
-        from verenigingen.verenigingen.doctype.member.member_id_manager import MemberIDManager
+    from verenigingen.verenigingen.doctype.member.member_id_manager import MemberIDManager
 
-        return str(MemberIDManager.get_next_member_id())
-    except Exception as e:
-        # Log error and fallback to simple ID generation
-        handle_service_error(
-            e,
-            "MemberIdService",
-            "Generate Member ID",
-            {"fallback_used": True},
-            raise_error=False,
-            log_level="warning",
-        )
-        return str(int(time.time() * 1000))[-8:]
+    return str(MemberIDManager.get_next_member_id())
 
 
 def generate_application_id():

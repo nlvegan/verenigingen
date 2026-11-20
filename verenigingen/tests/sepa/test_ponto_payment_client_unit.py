@@ -108,9 +108,14 @@ class TestPontoPaymentClientUnit(FrappeTestCase):
         endpoint = inner.post.call_args.args[0]
         self.assertEqual(
             endpoint,
-            f"/accounts/{self.ACCOUNT_ID}/payment-initiation-requests",
+            f"/accounts/{self.ACCOUNT_ID}/payments",
         )
-        attrs = inner.post.call_args.kwargs["data"]["data"]["attributes"]
+        # Sandbox-measured 2026-11-08 (#2279): single payment initiation is POST
+        # /accounts/{id}/payments with JSON:API type "payment". The old
+        # payment-initiation-requests route answers 404 "route not found".
+        body = inner.post.call_args.kwargs["data"]["data"]
+        self.assertEqual(body["type"], "payment")
+        attrs = body["attributes"]
         self.assertEqual(attrs["amount"], 100.0)
         self.assertEqual(attrs["redirectUri"], "https://site/cb")
         self.assertEqual(attrs["creditorAgent"], "ABNANL2A")
@@ -205,7 +210,7 @@ class TestPontoPaymentClientUnit(FrappeTestCase):
             )
 
     # -------------------------------------------------------------------------
-    # get / list / delete
+    # get / delete
     # -------------------------------------------------------------------------
 
     def test_get_payment_builds_endpoint(self):
@@ -213,7 +218,7 @@ class TestPontoPaymentClientUnit(FrappeTestCase):
         inner.get.return_value = {"data": _payment_api_data(payment_id="p9")}
         result = client.get_payment(self.ACCOUNT_ID, "p9")
         inner.get.assert_called_once_with(
-            f"/accounts/{self.ACCOUNT_ID}/payment-initiation-requests/p9"
+            f"/accounts/{self.ACCOUNT_ID}/payments/p9"
         )
         self.assertEqual(result.id, "p9")
 
@@ -225,34 +230,12 @@ class TestPontoPaymentClientUnit(FrappeTestCase):
         with self.assertRaises(PontoAPIError):
             client.get_payment(self.ACCOUNT_ID, "p9")
 
-    def test_list_payments_parses_all(self):
-        client, inner = self._make_client()
-        inner.get_paginated.return_value = [
-            _payment_api_data(payment_id="a"),
-            _payment_api_data(payment_id="b"),
-        ]
-        result = client.list_payments(self.ACCOUNT_ID, limit=10, max_pages=2)
-        inner.get_paginated.assert_called_once_with(
-            f"/accounts/{self.ACCOUNT_ID}/payment-initiation-requests",
-            limit=10,
-            max_pages=2,
-        )
-        self.assertEqual([p.id for p in result], ["a", "b"])
-
-    def test_list_payments_wraps_error(self):
-        from verenigingen.verenigingen_payments.ponto.exceptions import PontoAPIError
-
-        client, inner = self._make_client()
-        inner.get_paginated.side_effect = RuntimeError("boom")
-        with self.assertRaises(PontoAPIError):
-            client.list_payments(self.ACCOUNT_ID)
-
     def test_delete_payment_builds_endpoint(self):
         client, inner = self._make_client()
         inner.delete.return_value = True
         result = client.delete_payment(self.ACCOUNT_ID, "p3")
         inner.delete.assert_called_once_with(
-            f"/accounts/{self.ACCOUNT_ID}/payment-initiation-requests/p3"
+            f"/accounts/{self.ACCOUNT_ID}/payments/p3"
         )
         self.assertTrue(result)
 

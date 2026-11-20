@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
-from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+from verenigingen.services.billing.billing_period_calculator import add_billing_periods, get_period_length
 from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.constants import Limits, Membership, PaymentStatus, Roles
 from verenigingen.utils.error_handling import cache_with_ttl
@@ -20,6 +20,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
 
 
 def validate_member_exists(member_id: str | None) -> str:
@@ -152,13 +153,12 @@ def get_dashboard_data(member: str = None) -> OperationResult[Dict[str, Any]]:
         # Check if mandate is expiring soon
         mandate_expiring_soon = False
         # Membership-scoped (#605): this dashboard is about the member's DUES, so a
-        # donation mandate's expiry is not the warning to show here.
-        active_mandates = get_sepa_mandate_manager().get_active_mandates(
-            member, purpose="used_for_memberships"
-        )
-        if active_mandates:
-            # Get the first active mandate
-            active_mandate = frappe.get_doc("SEPA Mandate", active_mandates[0].name)
+        # donation mandate's expiry is not the warning to show here. Several Active
+        # membership mandates are refused, not ordered (#2289): the newest row's expiry
+        # is not "the" mandate's, and collection debits neither.
+        mandate_choice = unambiguous_active_mandate(member, "Dashboard data: ambiguous mandate")
+        if mandate_choice:
+            active_mandate = frappe.get_doc("SEPA Mandate", mandate_choice.mandate["name"])
             if active_mandate.expiry_date:
                 days_to_expiry = (getdate(active_mandate.expiry_date) - getdate(today())).days
                 mandate_expiring_soon = 0 < days_to_expiry <= 30
@@ -169,6 +169,7 @@ def get_dashboard_data(member: str = None) -> OperationResult[Dict[str, Any]]:
             "has_failed_payments": has_failed_payments,
             "next_payment": next_payment,
             "mandate_expiring_soon": mandate_expiring_soon,
+            "mandate_ambiguous": mandate_choice.is_ambiguous,
         }
 
         return OperationResult.ok(data, message=_("Dashboard data retrieved successfully"))
@@ -195,13 +196,13 @@ def get_payment_method(member: str = None) -> OperationResult[Dict[str, Any]]:
         # are told their dues are collected from. Unscoped, a member who also
         # donates by direct debit was shown whichever account was registered most
         # recently -- and since #597 the collection would not have used it.
-        active_mandates = get_sepa_mandate_manager().get_active_mandates(
-            member, purpose="used_for_memberships"
-        )
+        # Several Active membership mandates are refused, not ordered (#2289): showing
+        # the newest one's IBAN told a member their dues come from an account that
+        # collection will not debit.
+        mandate_choice = unambiguous_active_mandate(member, "Dashboard payment method: ambiguous mandate")
 
-        if active_mandates:
-            # Get the first active mandate details
-            active_mandate = frappe.get_doc("SEPA Mandate", active_mandates[0].name)
+        if mandate_choice:
+            active_mandate = frappe.get_doc("SEPA Mandate", mandate_choice.mandate["name"])
             from verenigingen.utils.validation.iban_validator import format_iban
 
             data = {
@@ -215,9 +216,10 @@ def get_payment_method(member: str = None) -> OperationResult[Dict[str, Any]]:
                     "status": active_mandate.status,
                     "expiry_date": str(active_mandate.expiry_date) if active_mandate.expiry_date else None,
                 },
+                "mandate_ambiguous": False,
             }
         else:
-            data = {"has_active_mandate": False}
+            data = {"has_active_mandate": False, "mandate_ambiguous": mandate_choice.is_ambiguous}
 
         return OperationResult.ok(data, message=_("Payment method retrieved successfully"))
 
@@ -497,9 +499,10 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
                 "name",
                 "contribution_mode",
                 "billing_frequency",
+                "custom_frequency_number",
+                "custom_frequency_unit",
                 "dues_rate",
                 "next_invoice_date",
-                "last_invoice_date",
             ],
             limit=1,
         )
@@ -510,9 +513,13 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
         dues_schedule = active_dues_schedule[0]
         schedule = []
 
-        # Generate next 12 months of payments based on billing frequency - modernized with constants
+        # Generate the next 12 months of payments, stepping by the schedule's real period
+        # (7 days for Weekly, 1 day for Daily, ...), not by a months table (#1282).
         billing_frequency = dues_schedule.billing_frequency
-        months = Membership.BILLING_FREQUENCY_MONTHS.get(billing_frequency, 1)  # Default to monthly
+        custom_interval = (dues_schedule.custom_frequency_number, dues_schedule.custom_frequency_unit)
+        if get_period_length(billing_frequency, *custom_interval) is None:
+            # Custom without a usable interval: show nothing rather than guess a cadence.
+            return OperationResult.ok([], message=_("No active payment schedule found"))
 
         # dues_rate is already the amount per billing period (e.g., €45/quarter)
         payment_amount = flt(dues_schedule.dues_rate, 2)
@@ -523,16 +530,17 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
         )
 
         # Generate schedule starting from next_invoice_date
-        for i in range(0, 12, int(months)):
-            payment_date = add_months(start_date, i)
+        horizon = add_months(start_date, 12)
+        period_index = 0
+        while True:
+            payment_date = add_billing_periods(start_date, period_index, billing_frequency, *custom_interval)
+            period_index += 1
+            if payment_date >= horizon:
+                break
 
             # Skip if payment date is in the past
             if payment_date < getdate(today()):
                 continue
-
-            # Check if payment date is beyond last invoice date (if set)
-            if dues_schedule.last_invoice_date and payment_date > getdate(dues_schedule.last_invoice_date):
-                break
 
             # Build user-friendly description
             frequency_label = {

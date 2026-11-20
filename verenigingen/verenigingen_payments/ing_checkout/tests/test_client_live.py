@@ -37,6 +37,8 @@ from verenigingen.verenigingen_payments.ing_checkout.tests.fixtures.ing_checkout
 )
 from verenigingen.verenigingen_payments.ing_checkout.tests.test_client import MockSettings
 
+CI_ALWAYS_SKIPS = "live Pay.nl sandbox tests; skip without paynl_test_* credentials, which CI never has"
+
 _SKIP_MSG = "No Pay.nl sandbox credentials configured (paynl_test_* in site config)"
 
 

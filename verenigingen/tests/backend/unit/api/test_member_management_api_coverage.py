@@ -208,11 +208,22 @@ class TestMemberManagementChapterAssignment(PortalSelfServiceTestMixin, Enhanced
 
         target = self._make_member()
         actor = self._make_member()
+        # Link the Member FIRST, then attach the profile (#702). Member.user changing fires
+        # on_member_on_update -> assign_chapter_board_role, which now withdraws the
+        # board-conferring profile of a user with no board seat; attaching the profile
+        # before the link (the old order) had the link strip it, and the decorator then
+        # refused with rule_7_deny before the inner check was reached.
         user = self._link_member_to_user(
-            actor,
-            roles=("Verenigingen National Board Member",),
-            role_profile="Verenigingen National Board Member",
+            actor, roles=("Verenigingen National Board Member",), role_profile=None
         )
+        user.reload()
+        user.set("role_profiles", [{"role_profile": "Verenigingen National Board Member"}])
+        user.save()  # EnhancedTestCase runs as Administrator
+        # Control: the profile the decorator's Rule 4 reads is really attached, so a refusal
+        # below can only come from the inner can_assign_member_to_chapter branch.
+        from verenigingen.services.member.account.user_role_profile_calculator import get_user_role_profiles
+
+        self.assertIn("Verenigingen National Board Member", get_user_role_profiles(user.name))
         # Strip the profile-synced admin roles via direct SQL so User.save does not
         # re-sync them, leaving the profile assignment (hence CRITICAL) intact.
         frappe.db.delete(

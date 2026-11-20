@@ -345,6 +345,57 @@ class TestScheduleRetry(RetryBase):
         self.assertEqual(rec.status, "Scheduled")
 
 
+class TestScheduleRetryNotification(RetryBase):
+    """#2685 item 1: the real notification path of a NON-escalating schedule_retry.
+    Only enqueue and the outgoing-mail boundary (EmailService) are stubbed."""
+
+    def _schedule(self, invoice):
+        email_service = MagicMock()
+        with patch("frappe.enqueue", return_value=None), patch(
+            "verenigingen.services.communication.compatibility.get_email_service",
+            return_value=email_service,
+        ):
+            result = self.manager.schedule_retry(invoice.name, "AM04", "x")
+        return result, email_service
+
+    def test_customer_without_member_still_schedules_the_retry(self):
+        member = self._make_member_with_customer("SchedNoMember")
+        invoice = self._make_unpaid_invoice(member)
+        frappe.db.set_value("Member", member.name, "customer", None)
+        frappe.db.set_value("Customer", member.customer, "member", None)
+
+        result, email_service = self._schedule(invoice)
+
+        self.assertTrue(result["scheduled"])
+        rec = frappe.get_doc("SEPA Payment Retry", {"invoice": invoice.name})
+        self.assertIsNone(rec.member)
+        self.assertEqual(rec.status, "Scheduled")
+        self.assertEqual(rec.retry_count, 1)
+        # No member means no mandate to debit, so promising the payer a retry is wrong.
+        email_service.send_templated_email.assert_not_called()
+        comments = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "SEPA Payment Retry", "reference_name": rec.name},
+            pluck="content",
+        )
+        self.assertTrue(
+            any("No member linked to" in c and member.customer in c for c in comments), comments
+        )
+
+    def test_member_with_email_is_still_notified(self):
+        """Control: the guard must not silence the normal path."""
+        member = self._make_member_with_customer("SchedWithMember")
+        self.assertTrue(member.email, "fixture member must have an email")
+        invoice = self._make_unpaid_invoice(member)
+
+        result, email_service = self._schedule(invoice)
+
+        self.assertTrue(result["scheduled"])
+        email_service.send_templated_email.assert_called_once()
+        kwargs = email_service.send_templated_email.call_args.kwargs
+        self.assertEqual(kwargs["reference_name"], member.name)
+
+
 # =============================================================================
 # escalate_payment_failure
 # =============================================================================
@@ -374,6 +425,79 @@ class TestEscalation(RetryBase):
             pluck="content",
         )
         self.assertTrue(any("Escalated for manual review" in c for c in comments))
+
+    # --- #2590: a member with no Active membership must still be escalated ---
+
+    def _escalate_through_schedule_retry(self, member, invoice):
+        """Real flow: get_or_create_retry_record resolves the membership the production
+        way, the count is lifted to max, then schedule_retry escalates. Only the
+        outgoing-mail boundary (EmailService) is stubbed."""
+        self.manager.get_or_create_retry_record(invoice.name)
+        rec = frappe.get_doc("SEPA Payment Retry", {"invoice": invoice.name})
+        rec.db_set("retry_count", self.manager.retry_config["max_retries"])
+        email_service = MagicMock()
+        with patch(
+            "verenigingen.services.communication.email_service.get_email_service",
+            return_value=email_service,
+        ), patch.object(retry, "get_mollie_config", return_value=MagicMock()):
+            result = self.manager.schedule_retry(invoice.name, "AM04", "x")
+        rec.reload()
+        return rec, result, email_service
+
+    def test_escalation_without_active_membership_still_escalates_and_notifies(self):
+        for lapsed_status in ("Draft", "Cancelled", "Expired"):
+            with self.subTest(membership_status=lapsed_status):
+                member = self._make_member_with_customer(f"Esc{lapsed_status}")
+                membership = self.sepa.create_test_membership(member=member.name, status=lapsed_status)
+                # PROBE SHORTCUT: the factory/Membership controller derives status itself
+                # (the lapsed status passed above is ignored), so the lapsed state is set
+                # directly. The claim is only "a membership in this status is not found by
+                # the Active lookup", which is exactly what get_or_create_retry_record reads.
+                frappe.db.set_value("Membership", membership.name, "status", lapsed_status)
+                self.assertFalse(
+                    frappe.db.exists("Membership", {"member": member.name, "status": "Active"}),
+                    "fixture must leave the member without an Active membership",
+                )
+                invoice = self._make_unpaid_invoice(member)
+
+                rec, result, email_service = self._escalate_through_schedule_retry(member, invoice)
+
+                self.assertIsNone(rec.membership)
+                self.assertFalse(result["scheduled"])
+                self.assertEqual(rec.status, "Escalated")
+                self.assertIsNotNone(rec.escalated_on)
+                email_service.send_templated_email.assert_called_once()
+                kwargs = email_service.send_templated_email.call_args.kwargs
+                self.assertEqual(kwargs["reference_name"], member.name)
+                # The audit-trail comment lands on the retry record instead.
+                comments = frappe.get_all(
+                    "Comment",
+                    filters={"reference_doctype": "SEPA Payment Retry", "reference_name": rec.name},
+                    pluck="content",
+                )
+                self.assertTrue(any("Escalated for manual review" in c for c in comments))
+
+    def test_escalation_for_customer_without_member_still_notifies(self):
+        """send_escalation_notification must cope with a nullable retry_record.member.
+
+        This lifts retry_count with db_set to reach the escalation branch directly,
+        so it proves only that branch; the scheduling path is covered by
+        TestScheduleRetryNotification (#2685 item 1)."""
+        member = self._make_member_with_customer("EscNoMember")
+        invoice = self._make_unpaid_invoice(member)
+        frappe.db.set_value("Member", member.name, "customer", None)
+        frappe.db.set_value("Customer", member.customer, "member", None)
+
+        rec, _result, email_service = self._escalate_through_schedule_retry(member, invoice)
+
+        self.assertIsNone(rec.member)
+        self.assertEqual(rec.status, "Escalated")
+        email_service.send_templated_email.assert_called_once()
+        kwargs = email_service.send_templated_email.call_args.kwargs
+        self.assertEqual(kwargs["reference_doctype"], "Sales Invoice")
+        self.assertEqual(kwargs["reference_name"], invoice.name)
+        self.assertIn(member.customer, kwargs["subject_override"])
+        self.assertIn("No member is linked", kwargs["context"]["action_required"])
 
 
 # =============================================================================

@@ -45,12 +45,16 @@ class ChapterBoardMember(Document):
         """
         self._flush_board_access_for(self.volunteer, inserting=True)
 
-    def _flush_board_access_for(self, *volunteers, inserting=False):
+    def _flush_board_access_for(self, *volunteers, inserting=False, financial_before=()):
         """Recalculate board access for volunteers whose seat a standalone row write changed.
 
         Shared by after_insert, on_update and after_delete (#1922, #1953); all run only when
         the row is written OUTSIDE a Chapter save, which has its own flush. The database must
         already show the new state, hence ``after_delete`` rather than ``on_trash``.
+
+        ``financial_before``: the volunteers who held an active Financial seat through the row
+        before this write (#1682). The database already shows the new state here, so the
+        board manager cannot read it and must be told; only these can leave a stale approver.
         """
         volunteers = [v for v in dict.fromkeys(volunteers) if v]
         if not (self.parent and self.parenttype == "Chapter" and volunteers):
@@ -65,7 +69,9 @@ class ChapterBoardMember(Document):
             return
         board_manager = frappe.get_doc("Chapter", self.parent).board_manager
         for volunteer in volunteers:
-            board_manager._defer_board_access_recalculation(volunteer)
+            board_manager._defer_board_access_recalculation(
+                volunteer, held_financial_before=volunteer in financial_before
+            )
         board_manager.flush_pending_board_profile_syncs()
 
     def on_trash(self):
@@ -84,7 +90,11 @@ class ChapterBoardMember(Document):
         as a live seat, and the direct role removal it used to do is undone by the board
         role profile on the next User save (#211).
         """
-        self._flush_board_access_for(self.volunteer)
+        if self.is_active and self.volunteer:
+            self._complete_assignment_history(self, frappe.utils.today())
+        self._flush_board_access_for(
+            self.volunteer, financial_before=(self.volunteer,) if self._is_financial_seat(self) else ()
+        )
 
     def on_update(self):
         """Re-evaluate board access when a standalone row write changes the seat (#1953).
@@ -103,7 +113,93 @@ class ChapterBoardMember(Document):
         if self.flags.in_insert or not self._seat_changed():
             return
         before = self.get_doc_before_save()
-        self._flush_board_access_for(self.volunteer, before.volunteer if before else None)
+        financial_before = (before.volunteer,) if before and self._is_financial_seat(before) else ()
+        self._end_previous_holders_history(before)
+        self._flush_board_access_for(
+            self.volunteer, before.volunteer if before else None, financial_before=financial_before
+        )
+
+    def _end_previous_holders_history(self, before):
+        """Complete the Volunteer Assignment entry of a seat this standalone save ended (#2607).
+
+        A Chapter save does this in ``validate``; a standalone row write never reached it, so
+        the entry stayed Active and ``has_current_assignment`` kept the volunteer Active even
+        though the flush's status refresh ran. The seat ends when the row was active and is
+        now inactive, or is handed to another volunteer. A role change keeps the seat.
+        """
+        if not (before and before.is_active and before.volunteer):
+            return
+        if self.is_active and self.volunteer == before.volunteer:
+            return
+        self._complete_assignment_history(
+            before, (self.to_date if not self.is_active and self.to_date else None) or frappe.utils.today()
+        )
+
+    def _complete_assignment_history(self, row, end_date):
+        """Complete ``row``'s Board Position entry and re-derive the holder's status.
+
+        ``complete_assignment_history`` refreshes ``Volunteer.status`` itself, and this runs
+        in a row hook, so the database already shows the seat gone (``after_delete``, and
+        ``on_update`` after the row write), which is what the derivation reads.
+        """
+        from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
+
+        if not frappe.db.exists("Chapter", self.parent):
+            self._complete_orphan_assignment_history(row, end_date)
+            return
+        # The result is ignored on purpose: on failure the manager logs and returns, so a REST
+        # PUT/DELETE reports success while the volunteer stays Active. Same as the Chapter route.
+        AssignmentHistoryManager.complete_assignment_history(
+            volunteer_id=row.volunteer,
+            assignment_type="Board Position",
+            reference_doctype="Chapter",
+            reference_name=self.parent,
+            role=row.chapter_role,
+            start_date=row.from_date,
+            end_date=end_date,
+        )
+
+    def _complete_orphan_assignment_history(self, row, end_date):
+        """Complete the entry of a seat whose Chapter no longer exists (#2607).
+
+        The entry's Dynamic Link names a missing Chapter, so a Volunteer save (which the
+        normal completion and the status refresh both do) refuses it as a broken link. Close
+        the child rows directly, then re-derive the status with link validation off.
+        """
+        from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
+
+        for entry in frappe.get_all(
+            "Volunteer Assignment",
+            filters={
+                "parent": row.volunteer,
+                "parenttype": "Volunteer",
+                "reference_doctype": "Chapter",
+                "reference_name": self.parent,
+                "role": row.chapter_role,
+                "status": ["in", ["Active", "Paused", "On Hold"]],
+            },
+            pluck="name",
+        ):
+            frappe.db.set_value(
+                "Volunteer Assignment",
+                entry,
+                {"status": "Completed", "end_date": end_date},
+                update_modified=False,
+            )
+        AssignmentHistoryManager.refresh_volunteer_status(row.volunteer, ignore_links=True)
+
+    @staticmethod
+    def _is_financial_seat(row):
+        """Whether the row is an active seat in an active Financial Chapter Role (#1682)."""
+        if not (row.is_active and row.chapter_role):
+            return False
+        role = frappe.db.get_value(
+            "Chapter Role", row.chapter_role, ["permissions_level", "is_active"], as_dict=True
+        )
+        level, active = (
+            (role.permissions_level, role.is_active) if role else (None, 0)  # ast-skip: Chapter Role
+        )
+        return level == "Financial" and bool(active)
 
     def _seat_changed(self):
         return any(self.has_value_changed(f) for f in ("volunteer", "chapter_role", "is_active", "to_date"))

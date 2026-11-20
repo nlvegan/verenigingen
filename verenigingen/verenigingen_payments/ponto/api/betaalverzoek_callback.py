@@ -9,27 +9,68 @@ Handles redirects from Ponto after customer payment authorization.
 When a customer authorizes a payment in the Ponto payment portal,
 they are redirected back to this callback URL. This endpoint:
 1. Validates the payment link
-2. Refreshes the payment status from Ponto API
-3. Redirects to appropriate success/failure page
+2. Redirects to the payment_success page (status comes from the signed webhook)
 
 Usage:
-    Callback URL:
+    Return URL minted at signing start (build_return_url): the short guest route
+    https://your-site.com/ponto-return?l=<link>&c=<cancel_token>&p=<return_proof>
+    served by templates/pages/ponto-return, which runs payment_link_callback. Ponto rejects a
+    redirectUri over 255 characters, which the old /api/method/... path could not fit.
+
+    Links created before the short route still carry the long form, which keeps working:
     https://your-site.com/api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback?payment_link=PONTO-LINK-0001
 """
 
 import frappe
-from frappe import _
 from frappe.utils import get_url
 
 from verenigingen.templates.pages.payment_success import PONTO_RETURN_TOKEN_PURPOSE
 from verenigingen.utils.security.api_security_framework import public_api
-from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+from verenigingen.utils.security.guest_return_tokens import (
+    generate_guest_return_token,
+    verify_guest_return_token,
+)
 from verenigingen.utils.security.types import OperationType
-from verenigingen.utils.service_user import get_service_user
+from verenigingen.utils.service_user import acting_as_service_user, get_service_user
+from verenigingen.verenigingen_payments.ponto.core.submitted_rows import system_update
+
+# Scopes the signed `cancel_token` minted into the redirect_uri at signing start
+# (PontoPaymentLink.create_ponto_payment_request). Distinct from PONTO_RETURN_TOKEN_PURPOSE
+# (the #1055 payment_success proof), so neither verifies as the other.
+CANCEL_TOKEN_PURPOSE = "ponto_payment_link_cancel"
+
+# Scopes the signed `return_proof` minted into the same redirect_uri (#1833). It is the ONLY
+# thing that lets payment_link_callback hand out the payment_success token, so it must be a
+# third purpose: distinct from the cancel proof (which authorises a write, not a disclosure)
+# and from PONTO_RETURN_TOKEN_PURPOSE (the token it unlocks; if the two were the same string,
+# the token this callback hands out would itself pass as the proof for the next request).
+RETURN_PROOF_PURPOSE = "ponto_payment_link_return_proof"
+
+# Ponto rejects a payment-request redirectUri over 255 characters (HTTP 500, measured on the
+# sandbox 2026-11-08). The short guest route plus short parameter names keep the URL well
+# inside that for a long host; both tokens stay separate and full length.
+PONTO_RETURN_ROUTE = "/ponto-return"
+PONTO_REDIRECT_URI_MAX_LENGTH = 255
+
+# Query parameter -> short alias used on the PONTO_RETURN_ROUTE URL. The long names stay
+# accepted so links already stored at Ponto (and `error`, which Ponto appends) keep working.
+_SHORT_ARGS = {"payment_link": "l", "cancel_token": "c", "return_proof": "p", "payment_request": "r"}
+
+
+def build_return_url(payment_link_name, cancel_token, return_proof):
+    """The redirectUri for a Ponto Payment Link: our short guest return route plus the proofs."""
+    return get_url(f"{PONTO_RETURN_ROUTE}?l={payment_link_name}&c={cancel_token}&p={return_proof}")
+
+
+def _return_arg(name):
+    """A callback query argument by its long name, else its short alias."""
+    args = frappe.request.args
+    value = args.get(name)
+    return value if value is not None else args.get(_SHORT_ARGS[name])
 
 
 def _payment_success_redirect(payment_link_name):
-    """Build the /payment-success redirect URL for a Ponto Payment Link return.
+    """Build the payment_success redirect URL for a Ponto Payment Link return.
 
     Embeds an HMAC proof (#1055 finding 1) since Ponto Payment Link.autoname
     is a small sequential PONTO-LINK-{####} counter and payment_success.py's
@@ -37,7 +78,11 @@ def _payment_success_redirect(payment_link_name):
     one place we construct that URL, so it's the one place that can mint it.
     """
     token = generate_guest_return_token(PONTO_RETURN_TOKEN_PURPOSE, payment_link_name)
-    return get_url(f"/payment-success?payment_link={payment_link_name}&token={token}")
+    # INTERIM (#1878, #1875): our details page is routed at /payment_success (underscore).
+    # /payment-success (hyphen) is served by the payments app, which 500s for these args.
+    # Revert to the shared route once frappe/payments#192 lands. Mollie and ING still build
+    # the hyphen URL; deliberately not changed here.
+    return get_url(f"/payment_success?payment_link={payment_link_name}&token={token}")
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
@@ -48,8 +93,13 @@ def payment_link_callback():
 
     Query Parameters:
         payment_link: Name of the Ponto Payment Link document
-        error: Error message if authorization failed (optional)
-        error_description: Detailed error description (optional)
+        error: `access_denied` cancels a Pending Authorization link ONLY with a valid
+            `cancel_token` (minted into the redirect_uri at signing start); any other error,
+            or a missing or invalid token, is ignored (#1815)
+        error_description: ignored
+        cancel_token: signed proof that this browser was sent to Ponto for this link
+        return_proof: signed proof, minted into the redirect_uri at signing start, required
+            for the redirect to /payment_success; without it the answer is the unknown-name one
 
     Returns:
         Redirect to appropriate page based on result
@@ -58,18 +108,24 @@ def payment_link_callback():
         Rate limiting is handled by COR 'payment_link_callback'
         with per-IP scope: 30 requests per 5 minutes.
     """
-    # Set webhook user context for permission-based operations
+    # Set webhook user context for permission-based operations. No Administrator fallback
+    # (#1834): this is an anonymous GET, so with no usable webhook_user it runs as Guest and
+    # changes nothing (the token-proved cancel below is skipped).
     webhook_user = get_service_user(
         settings_doctype="Verenigingen Payments Settings",
         user_field="webhook_user",
         service_name="Ponto Betaalverzoek Callback",
+        fallback_user=None,
     )
-    if webhook_user:
-        frappe.set_user(webhook_user)
+    with acting_as_service_user(webhook_user):
+        _answer_link_return(webhook_user)
 
-    payment_link_name = frappe.request.args.get("payment_link")
-    error = frappe.request.args.get("error")
-    error_description = frappe.request.args.get("error_description")
+
+def _answer_link_return(webhook_user):
+    """The callback's work. Runs as ``webhook_user`` (None: as the visitor) and the caller puts
+    the session back afterwards, so a visitor's address is never recorded on the service
+    account by Session.update (#2275)."""
+    payment_link_name = _return_arg("payment_link")
 
     if not payment_link_name:
         frappe.logger().warning("Payment link callback received without payment_link")
@@ -78,57 +134,32 @@ def payment_link_callback():
         return
 
     try:
-        # Check if payment link exists
-        if not frappe.db.exists("Ponto Payment Link", payment_link_name):
-            frappe.logger().warning(f"Payment link callback for unknown link: {payment_link_name}")
+        exists = frappe.db.exists("Ponto Payment Link", payment_link_name)
+        if not exists:
+            frappe.logger().warning("Payment link callback for unknown link")
+
+        # No status comes from the query string (#1815), with ONE ruled exception:
+        # `error=access_denied` plus a valid `cancel_token` marks a Pending Authorization
+        # link Cancelled, and only as the configured webhook user. Nothing else changes here:
+        # the callback does not call Ponto (#1834), the signed webhook is the status writer.
+        # Messages raised by the cancel's save are dropped from the response, as in
+        # payment_callback, so a known name does not answer differently from an unknown one.
+        messages_before = len(frappe.local.message_log or [])
+        if exists and webhook_user:
+            _cancel_link_if_proved(payment_link_name)
+        del frappe.local.message_log[messages_before:]
+
+        # The payment_success token (#1055) is handed out ONLY against the signed
+        # `return_proof` minted into the redirect_uri at signing start (#1833). A known name
+        # without a valid proof takes the same branch as an unknown one, so nothing here tells
+        # an anonymous caller which names exist. Links created before the proof existed carry
+        # none and so get the unknown-name answer.
+        if exists and _has_return_proof(payment_link_name):
+            frappe.local.response["type"] = "redirect"
+            frappe.local.response["location"] = _payment_success_redirect(payment_link_name)
+        else:
             frappe.local.response["type"] = "redirect"
             frappe.local.response["location"] = get_url("/app/home")
-            return
-
-        doc = frappe.get_doc("Ponto Payment Link", payment_link_name)
-
-        # Handle error from Ponto
-        if error:
-            frappe.logger().warning(
-                f"Payment link authorization error for {payment_link_name}: {error} - {error_description}"
-            )
-
-            # If access_denied, customer cancelled the authorization
-            if error == "access_denied":
-                doc.status = "Cancelled"
-                # Webhook user has write permission on Ponto Payment Link (added 2026-01-10)
-                doc.save()
-                frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = _payment_success_redirect(payment_link_name)
-                return
-            else:
-                # Other errors - mark as rejected
-                doc.status = "Rejected"
-                # Webhook user has write permission on Ponto Payment Link (added 2026-01-10)
-                doc.save()
-                frappe.log_error(
-                    title=f"Ponto payment authorization failed: {payment_link_name}",
-                    message=f"Error: {error}\nDescription: {error_description}",
-                )
-                frappe.local.response["type"] = "redirect"
-                frappe.local.response["location"] = _payment_success_redirect(payment_link_name)
-                return
-
-        # No error - refresh status from Ponto API
-        frappe.logger().info(f"Payment link callback success for {payment_link_name}, refreshing status")
-
-        try:
-            result = doc.refresh_status()
-            new_status = result.get("status", doc.status)
-            frappe.logger().info(f"Payment link {payment_link_name} status: {new_status}")
-
-        except Exception as e:
-            frappe.logger().error(f"Failed to refresh payment link status: {payment_link_name}: {e}")
-            # Status will be updated by webhook
-
-        # Redirect to customer-friendly payment status page
-        frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = _payment_success_redirect(payment_link_name)
 
     except Exception as e:
         frappe.logger().error(f"Payment link callback error: {e}")
@@ -140,51 +171,30 @@ def payment_link_callback():
         frappe.local.response["location"] = get_url("/app/home")
 
 
-@frappe.whitelist(allow_guest=True, methods=["GET"])
-@public_api
-def payment_page():
-    """
-    Serve a customer-facing payment page for a Ponto Payment Link.
+def _has_return_proof(payment_link_name):
+    """True when the request carries the signed proof minted for THIS link at signing start."""
+    return verify_guest_return_token(RETURN_PROOF_PURPOSE, payment_link_name, _return_arg("return_proof"))
 
-    This is an alternative to sharing the direct Ponto redirect link.
-    Shows payment details and redirects customer to Ponto authorization.
 
-    Query Parameters:
-        link: Ponto Payment Link name
-
-    Returns:
-        HTML page with payment details and authorization button
-    """
-    payment_link_name = frappe.request.args.get("link")
-
-    if not payment_link_name:
-        frappe.throw(_("Payment link not specified"), frappe.exceptions.DoesNotExistError)
-
-    if not frappe.db.exists("Ponto Payment Link", payment_link_name):
-        frappe.throw(_("Payment link not found"), frappe.exceptions.DoesNotExistError)
-
+def _cancel_link_if_proved(payment_link_name):
+    """Cancel a Pending Authorization link on a token-proved access_denied. True when it did."""
+    args = frappe.request.args
+    if args.get("error") != "access_denied":
+        return False
+    if not verify_guest_return_token(CANCEL_TOKEN_PURPOSE, payment_link_name, _return_arg("cancel_token")):
+        return False
     doc = frappe.get_doc("Ponto Payment Link", payment_link_name)
-
-    # Check if payment link is still valid
-    if doc.status not in ["Draft", "Pending Authorization"]:
-        if doc.status == "Executed":
-            return {"status": "already_paid", "message": _("This payment has already been completed.")}
-        elif doc.status == "Cancelled":
-            return {"status": "cancelled", "message": _("This payment request has been cancelled.")}
-        elif doc.status == "Expired":
-            return {"status": "expired", "message": _("This payment request has expired.")}
-        else:
-            return {"status": doc.status.lower(), "message": _("This payment request is not available.")}
-
-    # Return payment details
-    return {
-        "status": "pending",
-        "payment_link": doc.name,
-        "amount": doc.amount,
-        "currency": doc.currency,
-        "description": doc.description,
-        "creditor_name": doc.creditor_name,
-        "payment_type": doc.payment_type,
-        "frequency": doc.frequency if doc.payment_type == "Periodic" else None,
-        "redirect_link": doc.redirect_link,
-    }
+    if doc.status != "Pending Authorization":
+        return False
+    # A submitted row: #1907 refuses a status change unless system code sets the flag, and the
+    # webhook user holds no `submit` right, which a docstatus 1 -> 1 save checks (#1920). Both
+    # halves are needed (see submitted_rows.py).
+    with system_update(doc):
+        doc.status = "Cancelled"
+        # Security: reached only with a valid signed cancel_token for THIS row; narrow skip (#1920).
+        doc.save(ignore_permissions=True)
+    # A GET is rolled back by frappe/app.py::sync_database unless flags.commit is set, so
+    # without this the cancel never persists on a real request (#1883). Only here, after a
+    # successful token-proved cancel; every other path is still rolled back.
+    frappe.local.flags.commit = True
+    return True

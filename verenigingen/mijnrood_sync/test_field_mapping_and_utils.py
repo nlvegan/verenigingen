@@ -103,6 +103,7 @@ class TestFieldMappingDefaults(EnhancedTestCase):
         # Force the empty-table / defaults branch.
         self.settings.set("status_mapping", [])
         self.settings.flags.ignore_validate = True
+        self.settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
         self.settings.save(ignore_permissions=True)
         frappe.db.commit()
         _clear_mapping_cache()
@@ -113,6 +114,7 @@ class TestFieldMappingDefaults(EnhancedTestCase):
         for row in self._snapshot:
             settings.append("status_mapping", row)
         settings.flags.ignore_validate = True
+        settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
         settings.save(ignore_permissions=True)
         frappe.db.commit()
         _clear_mapping_cache()
@@ -185,6 +187,7 @@ class TestFieldMappingConfigured(EnhancedTestCase):
             },
         )
         self.settings.flags.ignore_validate = True
+        self.settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
         self.settings.save(ignore_permissions=True)
         frappe.db.commit()
         _clear_mapping_cache()
@@ -195,6 +198,7 @@ class TestFieldMappingConfigured(EnhancedTestCase):
         for row in self._snapshot:
             settings.append("status_mapping", row)
         settings.flags.ignore_validate = True
+        settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
         settings.save(ignore_permissions=True)
         frappe.db.commit()
         _clear_mapping_cache()

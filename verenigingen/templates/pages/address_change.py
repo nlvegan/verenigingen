@@ -20,10 +20,10 @@ def get_context(context):
 
     # Get member document (may need ignore_permissions for portal users)
     # Security: Verify member belongs to current user before using ignore_permissions
-    member_user = frappe.db.get_value("Member", member_name, ["user", "email"], as_dict=True)
+    member_user = frappe.db.get_value("Member", member_name, ["user"], as_dict=True)
     current_user = frappe.session.user
 
-    if member_user.user != current_user and member_user.email != current_user:
+    if member_user.user != current_user:
         frappe.throw(_("Access denied: You can only access your own member record"), frappe.PermissionError)
 
     try:
@@ -147,16 +147,16 @@ def update_member_address(address_data):
     # Validate required fields
     required_fields = ["address_line1", "city", "country"]
     for field in required_fields:
-        if not address_data.get(field, "").strip():
+        if not (address_data.get(field) or "").strip():
             frappe.throw(_("Field {0} is required").format(_(field.replace("_", " ").title())))
 
     # Validate postal code if provided (basic validation)
-    pincode = address_data.get("pincode", "").strip()
+    pincode = (address_data.get("pincode") or "").strip()
     if pincode and not re.match(r"^[0-9A-Za-z\s-]{3,10}$", pincode):
         frappe.throw(_("Please enter a valid postal code"))
 
     # Validate email if provided
-    email = address_data.get("email_id", "").strip()
+    email = (address_data.get("email_id") or "").strip()
     if email:
         try:
             validate_email_address(email)
@@ -164,16 +164,14 @@ def update_member_address(address_data):
             frappe.throw(_("Please enter a valid email address"))
 
     # Validate phone if provided (basic validation)
-    phone = address_data.get("phone", "").strip()
+    phone = (address_data.get("phone") or "").strip()
     if phone and not re.match(r"^[\+]?[0-9\s\-\(\)]{6,20}$", phone):
         frappe.throw(_("Please enter a valid phone number"))
 
     # CORRECTED SECURE VERSION: Use proper permission validation for member access in address update
     # Verify member belongs to current user first
-    member_data = frappe.db.get_value("Member", member_name, ["user", "email"], as_dict=True)
-    if not member_data or (
-        member_data.user != frappe.session.user and member_data.email != frappe.session.user
-    ):
+    member_data = frappe.db.get_value("Member", member_name, ["user"], as_dict=True)
+    if not member_data or member_data.user != frappe.session.user:
         frappe.throw(_("Access denied: You can only access your own member record"), frappe.PermissionError)
 
     # Now safely get member document with proper security context
@@ -228,11 +226,11 @@ def update_member_address(address_data):
             # Update existing address
             address_doc.update(
                 {
-                    "address_line1": address_data.get("address_line1", "").strip(),
-                    "address_line2": address_data.get("address_line2", "").strip(),
-                    "city": address_data.get("city", "").strip(),
-                    "state": address_data.get("state", "").strip(),
-                    "country": address_data.get("country", "").strip(),
+                    "address_line1": (address_data.get("address_line1") or "").strip(),
+                    "address_line2": (address_data.get("address_line2") or "").strip(),
+                    "city": (address_data.get("city") or "").strip(),
+                    "state": (address_data.get("state") or "").strip(),
+                    "country": (address_data.get("country") or "").strip(),
                     "pincode": pincode,
                     "phone": phone,
                     "email_id": email,
@@ -261,11 +259,11 @@ def update_member_address(address_data):
                     "doctype": "Address",
                     "address_title": member_doc.full_name,
                     "address_type": "Personal",
-                    "address_line1": address_data.get("address_line1", "").strip(),
-                    "address_line2": address_data.get("address_line2", "").strip(),
-                    "city": address_data.get("city", "").strip(),
-                    "state": address_data.get("state", "").strip(),
-                    "country": address_data.get("country", "").strip(),
+                    "address_line1": (address_data.get("address_line1") or "").strip(),
+                    "address_line2": (address_data.get("address_line2") or "").strip(),
+                    "city": (address_data.get("city") or "").strip(),
+                    "state": (address_data.get("state") or "").strip(),
+                    "country": (address_data.get("country") or "").strip(),
                     "pincode": pincode,
                     "phone": phone,
                     "email_id": email,
@@ -336,10 +334,8 @@ def get_current_address():
 
     # CORRECTED SECURE VERSION: Use proper permission validation for member access in address retrieval
     # Verify member belongs to current user first
-    member_data = frappe.db.get_value("Member", member_name, ["user", "email"], as_dict=True)
-    if not member_data or (
-        member_data.user != frappe.session.user and member_data.email != frappe.session.user
-    ):
+    member_data = frappe.db.get_value("Member", member_name, ["user"], as_dict=True)
+    if not member_data or member_data.user != frappe.session.user:
         frappe.throw(_("Access denied: You can only access your own member record"), frappe.PermissionError)
 
     # Now safely get member document with proper security context

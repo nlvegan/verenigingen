@@ -359,10 +359,12 @@ class SEPAXMLAdapter:
                 return
 
             # Build details table
+            # invoice names, skip reasons and the batch name can carry typed text: escape them.
+            escape = frappe.utils.escape_html
             details_html = ""
             if summary.skipped_invoice_details:
                 rows = "".join(
-                    f"<tr><td>{d['invoice']}</td><td>{d['reason']}</td></tr>"
+                    f"<tr><td>{escape(d['invoice'])}</td><td>{escape(d['reason'])}</td></tr>"
                     for d in summary.skipped_invoice_details[:20]  # Limit to 20
                 )
                 if len(summary.skipped_invoice_details) > 20:
@@ -380,7 +382,7 @@ class SEPAXMLAdapter:
                 subject=f"SEPA Batch {batch_name}: Validation Issues",
                 message=f"""
                 <h3>SEPA XML Generation Alert</h3>
-                <p>Batch <strong>{batch_name}</strong> was generated with validation issues:</p>
+                <p>Batch <strong>{escape(batch_name)}</strong> was generated with validation issues:</p>
                 <ul>
                     <li>Total invoices: {summary.total_invoices}</li>
                     <li>Successful transactions: {summary.successful_transactions}</li>

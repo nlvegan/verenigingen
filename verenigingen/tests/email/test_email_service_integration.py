@@ -25,6 +25,7 @@ from frappe.utils import add_days, getdate, now_datetime, random_string
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 from verenigingen.services.communication.email_service import get_email_service, EmailService
 from verenigingen.services.communication.compatibility import (
     send_sepa_email,
@@ -529,6 +530,10 @@ class TestEventSubscriberIntegration(EnhancedTestCase):
         """Set up test environment"""
         super().setUp()
 
+        # EmailService refuses to queue without a default outgoing account, and a fresh CI site has
+        # none ("No active email account configured"), so the handler sent 0 mails (#1879).
+        ensure_outgoing_email_account(self)
+
         self.test_member = self.create_test_member(
             first_name="EventTest",
             last_name="Member",
@@ -541,6 +546,10 @@ class TestEventSubscriberIntegration(EnhancedTestCase):
         """Test complete member status change notification flow"""
         # A skipped send is invisible to the handler; own the key so the send is real (#2010).
         own_notification_keys(self, "member_application_approved")
+        # EmailService refuses to send without an outgoing Email Account; a fresh CI site has none.
+        ensure_outgoing_email_account(self)
+        # The job re-checks that the approval it was queued for still holds (#2144).
+        self.test_member.db_set("application_status", "Approved", update_modified=False)
         # Mock justified: External Service - SMTP delivery, not business logic
         with patch('frappe.sendmail') as mock_sendmail:
             # Import the event handler
@@ -560,26 +569,6 @@ class TestEventSubscriberIntegration(EnhancedTestCase):
         # The approval notification went out, to this member
         mock_sendmail.assert_called_once()
         self.assertIn(self.test_member.email, str(mock_sendmail.call_args))
-
-    def test_member_lifecycle_notification_flow(self):
-        """Test member lifecycle notification flow"""
-        # Mock justified: External Service - SMTP delivery, not business logic
-        with patch('frappe.sendmail') as mock_sendmail:
-            from verenigingen.events.subscribers.member_subscribers import handle_lifecycle_notifications
-
-            # Simulate member suspension event
-            event_data = {
-                "member": self.test_member.name,
-                "old_status": "Active",
-                "new_status": "Suspended"
-            }
-
-            # Call the event handler
-            handle_lifecycle_notifications("member_lifecycle_changed", event_data)
-
-            # Handler should complete without error
-            self.assertTrue(True)
-
 
 class TestPaymentNotificationIntegration(EnhancedTestCase):
     """Integration tests for payment notification system"""

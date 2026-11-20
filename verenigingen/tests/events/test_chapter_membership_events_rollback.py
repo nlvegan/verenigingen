@@ -13,6 +13,7 @@ then run directly, the way a worker would run them. Real flow: the chapter's own
 import frappe
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 
 JOB_PREFIX = "verenigingen.events.subscribers.chapter_subscribers."
 
@@ -20,6 +21,9 @@ JOB_PREFIX = "verenigingen.events.subscribers.chapter_subscribers."
 class TestChapterMembershipEventsRollback(VereningingenTestCase):
     def setUp(self):
         super().setUp()
+        # Without a default outgoing account a send is refused and every "a mail was queued"
+        # assertion below reads 0 (a fresh CI site has none; this bench has one, so it passed here).
+        ensure_outgoing_email_account(self)
         self.chapter = self.create_test_chapter(
             chapter_name=f"Rollback Chapter {frappe.generate_hash(length=6)}",
             postal_codes="1000-9999",
@@ -182,12 +186,15 @@ class TestChapterMembershipEventsRollback(VereningingenTestCase):
         self._run_jobs([j for j in jobs if j["method"].endswith("handle_member_role_updates")])
         self.assertTrue(self._has_role(user.name))
 
-    def test_disabled_row_still_counts_as_joined(self):
-        """Pins develop's behaviour for a member whose row is disabled (#1842 is undecided).
+    def test_disabled_row_still_counts_as_joined_but_is_not_welcomed(self):
+        """A member whose row is disabled still has a join job that runs, but no welcome (#1842).
 
         Real flow: add_member(enabled=False) writes a Chapter Member row with enabled=0.
-        Its join job was welcomed and granted the role before #2137, and still is: the
-        re-check is on row EXISTENCE, so an `enabled=1` re-check would redden this.
+        The job's re-check is on row EXISTENCE (#2137), so it still grants the role: an
+        `enabled=1` re-check would redden the role assertion. The welcome mail is #1842's
+        ruling: a disabled row is hidden from the roster, so nobody is welcomed (this test
+        used to pin the welcome as develop's undecided behaviour; the control that the
+        welcome still goes to an enabled row is test_chapter_member_welcome_mail).
         """
         if not frappe.db.exists("Role", "Chapter Member"):
             frappe.get_doc({"doctype": "Role", "role_name": "Chapter Member"}).insert()
@@ -213,5 +220,5 @@ class TestChapterMembershipEventsRollback(VereningingenTestCase):
 
         self._run_jobs(jobs)
 
-        self.assertEqual(len(self._welcome_mails()), 1)
+        self.assertEqual(len(self._welcome_mails()), 0)
         self.assertTrue(self._has_role(user.name))

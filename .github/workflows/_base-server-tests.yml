@@ -35,6 +35,18 @@ on:
         description: 'Enable coverage collection'
         type: boolean
         default: false
+      test-modules:
+        description: >-
+          Space-separated dotted test modules. Empty (default): the whole suite via
+          run-parallel-tests, gated against the known-failure and known-leak baselines.
+          Non-empty (the PR-side census job): ONLY these modules, one `run-tests` each,
+          and the job fails on the first non-OK module. Use with parallel-runs 1.
+        type: string
+        default: ''
+      test-timeout-minutes:
+        description: 'Timeout of each test shard'
+        type: number
+        default: 60
 
 jobs:
   # Generate test indices for parallel execution
@@ -49,15 +61,89 @@ jobs:
           indices=$(seq -s ',' 1 ${{ inputs.parallel-runs }})
           echo "indices=[${indices}]" >> $GITHUB_OUTPUT
 
+  # Builds the bench ONCE and hands it to every shard (#2184). Setup used to run in each of the
+  # 12 shards (~7 min each: pip and JS installs, asset build, site + app installs); the shards
+  # now download this job's snapshot and import its database instead. Same services as the
+  # shards, so the site is built against the same MariaDB/Redis it is restored into.
+  prepare:
+    name: Prepare Bench Snapshot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      python-version: ${{ steps.setup.outputs.python-version }}
+
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MYSQL_ROOT_PASSWORD: db_root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      # Host ports match frappe-bench's generated redis URLs
+      # (redis_cache/redis_socketio=13000, redis_queue=11000). Service
+      # containers stay up for the whole job, so the site setup steps
+      # (reinstall / install-app) reach redis reliably — unlike a backgrounded
+      # `bench start` honcho, which tears its redis down when a sibling process
+      # exits, intermittently refusing connections at install-app time.
+      redis-cache:
+        image: redis:alpine
+        ports:
+          - 13000:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+
+      redis-queue:
+        image: redis:alpine
+        ports:
+          - 11000:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+
+      smtp:
+        image: rnwood/smtp4dev:v3
+        ports:
+          - 2525:25
+          - 3000:80
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build bench and snapshot it
+        id: setup
+        uses: ./.github/actions/setup
+        with:
+          python-version: ${{ inputs.python-version }}
+          node-version: ${{ inputs.node-version }}
+          frappe-user: ${{ inputs.frappe-user }}
+          frappe-branch: ${{ inputs.frappe-branch }}
+          erpnext-user: ${{ inputs.erpnext-user }}
+          erpnext-branch: ${{ inputs.erpnext-branch }}
+          enable-coverage: ${{ inputs.enable-coverage }}
+          snapshot: 'true'
+          # Per run, so a shard can only ever restore the snapshot built for its own run.
+          snapshot-name: bench-snapshot-${{ github.run_id }}
+
   # Main integration tests
   integration-tests:
     name: Tests (${{ matrix.index }}/${{ inputs.parallel-runs }})
-    needs: generate-matrix
+    needs: [generate-matrix, prepare]
     # Pinned: ubuntu-latest became 26.04, whose mariadb-client requires TLS and the
     # mariadb:10.6 service container offers none ("SSL is required, but the server
     # does not support it"). Move back to ubuntu-latest only with client TLS handled (#1706).
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.test-timeout-minutes }}
 
     strategy:
       fail-fast: false
@@ -115,7 +201,10 @@ jobs:
       - name: Setup Environment
         uses: ./.github/actions/setup
         with:
-          python-version: ${{ inputs.python-version }}
+          mode: restore
+          snapshot-name: bench-snapshot-${{ github.run_id }}
+          # The exact interpreter the snapshot's venv was built with (see the action's output).
+          python-version: ${{ needs.prepare.outputs.python-version }}
           node-version: ${{ inputs.node-version }}
           frappe-user: ${{ inputs.frappe-user }}
           frappe-branch: ${{ inputs.frappe-branch }}
@@ -124,6 +213,7 @@ jobs:
           enable-coverage: ${{ inputs.enable-coverage }}
 
       - name: Run Tests
+        if: ${{ inputs.test-modules == '' }}
         run: |
           source ${GITHUB_WORKSPACE}/env/bin/activate
           # We do NOT fail the job on the suite's own exit code here; the next
@@ -142,7 +232,72 @@ jobs:
             ${{ inputs.enable-coverage && '--with-coverage' || '' }} \
             2>&1 | tee "${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt" || true
 
+      # Module mode (inputs.test-modules, the PR-side census job). Each module is its own
+      # `run-tests` process, judged on the WHOLE output: green = exit 0 plus a unittest `OK`
+      # line plus no `FAILED` line. The OK-line requirement matters: a module that collects
+      # nothing exits 0 having run nothing, and must not read as a pass. Names arrive through
+      # an env var and are re-validated here, so the list is never interpolated into the
+      # script text. All modules run even after a failure, so one PR run reports every red.
+      - name: Run selected test modules
+        if: ${{ inputs.test-modules != '' }}
+        env:
+          MODULES: ${{ inputs.test-modules }}
+        run: |
+          source ${GITHUB_WORKSPACE}/env/bin/activate
+          # Seed ONCE, before the first module (#2361). Frappe's runner runs the `before_tests` hooks
+          # only for integration-category tests, so a module it files as "unspecified" ran on this
+          # fresh site with none of the app's seeds (Mode of Payment "Manual", MijnRood dummy
+          # credentials, ...). A whole-suite shard gets them from an earlier integration module; one
+          # `run-tests` per module does not. Not guarded: a failed seed must fail the job here, not
+          # surface as an unrelated red in whichever module needed the row.
+          bench --site test_site execute ${{ github.event.repository.name }}.tests.setup.seed_for_standalone_module_runs
+          fail=0
+          count=0
+          for m in $MODULES; do
+            count=$((count + 1))
+            if ! [[ "$m" =~ ^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$ ]]; then
+              echo "::error::refusing module name that is not a dotted identifier"
+              fail=1
+              continue
+            fi
+            echo "::group::$m"
+            start=$(date +%s)
+            set +e
+            out=$(bench --site test_site run-tests --app ${{ github.event.repository.name }} --module "$m" 2>&1)
+            rc=$?
+            set -e
+            echo "$out"
+            echo "::endgroup::"
+            echo "$m: exit $rc in $(( $(date +%s) - start ))s"
+            if [ "$rc" -ne 0 ] || ! grep -qE '^OK( \(.*\))?$' <<<"$out" || grep -qE '^FAILED \(' <<<"$out"; then
+              echo "::error::$m is RED (exit $rc)"
+              fail=1
+              continue
+            fi
+            # A module whose tests ALL skip (or that ran none) exits 0 with an OK line yet
+            # checked nothing. Sum every summary in the output (one module can print several).
+            # `|| true`: grep exits 1 on no match and this shell runs with -e.
+            ran=$(grep -oE '^Ran [0-9]+' <<<"$out" | awk '{s += $2} END {print s + 0}' || true)
+            skipped=$(grep -E '^(OK|FAILED) \(' <<<"$out" | grep -oE 'skipped=[0-9]+' | cut -d= -f2 | awk '{s += $1} END {print s + 0}' || true)
+            # Accepted only for a module that declares `CI_ALWAYS_SKIPS = "<reason>"` (a live-gateway
+            # test no runner can run; the set is pinned by test_ci_always_skips_census, #2364).
+            if [ "$ran" -eq 0 ] || [ "$skipped" -ge "$ran" ]; then
+              if ! python3 "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/scripts/testing/check_ci_always_skips.py" \
+                --module "$m" --ran "$ran" --skipped "$skipped" \
+                --app-root "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}"; then
+                fail=1
+              fi
+            fi
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "::error::test-modules was set but held no module; refusing to pass having run nothing"
+            exit 1
+          fi
+          echo "ran $count module(s)"
+          exit $fail
+
       - name: Gate on new test failures
+        if: ${{ inputs.test-modules == '' }}
         run: |
           python3 "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/scripts/testing/check_new_test_failures.py" \
             --results "${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt" \
@@ -158,7 +313,7 @@ jobs:
         # regression arriving alongside a test failure would surface a whole CI cycle
         # later. The two gates answer different questions. `!cancelled()` rather than
         # `always()`, so a cancelled job does not run it and report a missing log.
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && inputs.test-modules == '' }}
         run: |
           python3 "${GITHUB_WORKSPACE}/apps/${{ github.event.repository.name }}/scripts/testing/check_test_leaks.py" \
             --results "${GITHUB_WORKSPACE}/test_output_${{ matrix.index }}.txt" \

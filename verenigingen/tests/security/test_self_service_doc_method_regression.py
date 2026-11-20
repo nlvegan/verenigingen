@@ -77,10 +77,10 @@ class TestSelfServiceDocMethodRegression(PortalSelfServiceTestMixin, EnhancedTes
     """Verify self_service_only=True works for Document instance methods."""
 
     def _link_member_to_user(self, member, roles):
-        """Email-only link (the field SelfServiceAccessController looks up) with the
-        given roles and no Member role profile. Delegates the body to
+        """Member.user link (the field SelfServiceAccessController looks up, #1936) with
+        the given roles and no Member role profile. Delegates the body to
         PortalSelfServiceTestMixin."""
-        return super()._link_member_to_user(member, roles=roles, role_profile=None, link_user=False)
+        return super()._link_member_to_user(member, roles=roles, role_profile=None, link_user=True)
 
     # --- @standard_api (MEDIUM) doc-method extraction -----------------------
 

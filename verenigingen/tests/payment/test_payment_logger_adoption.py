@@ -148,7 +148,6 @@ class TestPaymentInitiatedLogging(VereningingenTestCase):
                 reference_doctype="Member",
                 reference_name=member.name,
                 payer_info={"email": "payinit@example.com"},
-                redirect_urls={"success": "/ok", "cancel": "/no"},
             )
 
         self.assertTrue(result.get("success"))

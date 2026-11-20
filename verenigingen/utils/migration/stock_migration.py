@@ -67,7 +67,7 @@ class StockTransactionMigrator:
 
             print(f"Starting stock transaction migration from {date_from} to {date_to}")
             print(
-                "Found {len(stock_accounts)} stock accounts: {', '.join([acc['account_number'] for acc in stock_accounts])}"
+                f"Found {len(stock_accounts)} stock accounts: {', '.join([acc['account_number'] for acc in stock_accounts])}"
             )
 
             # Process month by month to avoid large data sets
@@ -101,7 +101,7 @@ class StockTransactionMigrator:
 
                     if stock_transactions:
                         print(
-                            "Found {len(stock_transactions)} stock transactions in {current_date.strftime('%Y-%m')}"
+                            f"Found {len(stock_transactions)} stock transactions in {current_date.strftime('%Y-%m')}"
                         )
 
                         # Process stock transactions
@@ -128,25 +128,27 @@ class StockTransactionMigrator:
             summary_parts = []
             dry_run_mode = getattr(self.migration_doc, "dry_run", True)  # Default to dry run
             if dry_run_mode:
-                summary_parts.append("Dry Run: Found {total_processed} stock transactions to migrate")
+                summary_parts.append(f"Dry Run: Found {total_processed} stock transactions to migrate")
             else:
-                summary_parts.append("Created {self.stock_transactions_created} stock entries")
+                summary_parts.append(f"Created {self.stock_transactions_created} stock entries")
                 if self.stock_transactions_failed > 0:
-                    summary_parts.append("Failed: {self.stock_transactions_failed}")
+                    summary_parts.append(f"Failed: {self.stock_transactions_failed}")
                 if self.stock_transactions_skipped > 0:
-                    summary_parts.append("Skipped: {self.stock_transactions_skipped}")
+                    summary_parts.append(f"Skipped: {self.stock_transactions_skipped}")
 
             return " | ".join(summary_parts)
 
         except Exception as e:
             # Use safe error logging to prevent cascading
-            from verenigingen.utils.error_log_fix import log_error_safely
+            from verenigingen.utils.safe_error_logging import safe_log_error
 
-            log_error_safely(
+            safe_log_error(
                 message=f"Stock migration error:\n{str(e)}\n\n{frappe.get_traceback()}",
                 title="Stock Migration Failed",
             )
-            return f"Error migrating stock transactions: {str(e)[:100]}..."
+            # Re-raise: returning an "Error ..." string made the standalone wrapper report
+            # success True for a failed run.
+            raise
 
     def get_stock_accounts(self):
         """Get all stock accounts with their account numbers"""
@@ -278,13 +280,13 @@ class StockTransactionMigrator:
                 self.log_error(f"Failed to create stock entry for account {account_code}")
                 return False
 
-        except Exception as e:
+        except Exception as e:  # swallow-ok: caller-checks (counted as failed)
             # Use safe error logging
-            from verenigingen.utils.error_log_fix import log_error_safely
+            from verenigingen.utils.safe_error_logging import safe_log_error
 
-            log_error_safely(
+            safe_log_error(
                 message=f"Error processing stock transaction for {account_code}:\n{str(e)}",
-                title="Stock Transaction: {account_code}",
+                title=f"Stock Transaction: {account_code}",
             )
             return False
 
@@ -377,23 +379,23 @@ class StockTransactionMigrator:
 
             return stock_entry
 
-        except Exception as e:
+        except Exception as e:  # swallow-ok: caller-checks (None is reported)
             # Extract clean error message
             error_msg = str(e)
             if "cannot be a fraction" in error_msg:
                 # This is expected for monetary values
-                from verenigingen.utils.error_log_fix import log_error_safely
+                from verenigingen.utils.safe_error_logging import safe_log_error
 
-                log_error_safely(
+                safe_log_error(
                     message=f"Stock entry requires whole number quantity, but got {qty_change}. "
                     "This is because E-Boekhouden stores monetary values, not physical quantities.\n"
-                    "Account: {account_code} - {account_name}",
+                    f"Account: {account_code} - {account_name}",
                     title="Stock Entry: Fractional Quantity",
                 )
             else:
-                from verenigingen.utils.error_log_fix import log_error_safely
+                from verenigingen.utils.safe_error_logging import safe_log_error
 
-                log_error_safely(
+                safe_log_error(
                     message=f"Error creating stock entry:\n{error_msg}", title="Stock Entry Creation Failed"
                 )
             return None
@@ -464,19 +466,19 @@ class StockTransactionMigrator:
             if any_warehouse:
                 return any_warehouse[0][0]
 
-            # Use error_log_fix for clean logging
-            from verenigingen.utils.error_log_fix import log_error_safely
+            # Use safe_error_logging for clean logging
+            from verenigingen.utils.safe_error_logging import safe_log_error
 
-            log_error_safely(
+            safe_log_error(
                 message=f"Duplicate warehouse error: {str(e)}\n{frappe.get_traceback()}",
                 title="Migration Warehouse: Duplicate",
             )
             return None
 
-        except Exception as e:
-            from verenigingen.utils.error_log_fix import log_error_safely
+        except Exception as e:  # swallow-ok: caller-checks (None is reported)
+            from verenigingen.utils.safe_error_logging import safe_log_error
 
-            log_error_safely(
+            safe_log_error(
                 message=f"Error creating warehouse: {str(e)}\n{frappe.get_traceback()}",
                 title="Migration Warehouse: Creation Failed",
             )
@@ -633,7 +635,9 @@ def test_eboekhouden_product_data():
 
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
-def migrate_stock_transactions_standalone(migration_name: str, date_from=None, date_to=None, dry_run=True):
+def migrate_stock_transactions_standalone(
+    migration_name: str, date_from=None, date_to=None, dry_run: bool = True
+):
     """Standalone function to migrate stock transactions"""
     try:
         # Get migration document or create a temporary one

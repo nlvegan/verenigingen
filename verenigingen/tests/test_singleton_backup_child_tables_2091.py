@@ -165,9 +165,11 @@ class TestSingletonBackupSingleWithSeveralTables(FrappeTestCase):
             self.assertEqual(_settings_rows(fieldname), self._snapshot[fieldname], fieldname)
 
     def test_the_cached_document_reflects_the_restored_rows(self):
-        """Pins the outcome, not the `clear_document_cache` call: `restore()` commits afterwards, and
-        `clear_document_cache` registers the same redis delete as an after-commit hook, so removing the
-        explicit call does not change this result (measured: that mutant stays green)."""
+        """Pins the outcome, not the `clear_document_cache` call: `Database.set_single_value`, which
+        `restore()` runs for the scalar fields, already clears the document cache, so removing the
+        explicit call does not change this result (measured: that mutant stays green). The explicit call
+        matters only for a Single with no scalar field, where that write is skipped; this class does
+        not pin that case."""
         names = [r.name for r in self._snapshot["board_document_categories"]]
         with singleton_backup(SETTINGS):
             self._change_two_tables()

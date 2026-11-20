@@ -32,6 +32,7 @@ from verenigingen.mijnrood_sync.ssh_auth import (
     verify_host_key,
 )
 from verenigingen.utils.service_logger import get_service_logger
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="client")
 
@@ -98,6 +99,7 @@ class MijnRoodDatabaseClient:
                 self.disconnect()
                 raise ConnectionError(f"SSH authentication failed: {exc}") from exc
             except Exception as exc:
+                reraise_if_job_timeout(exc)  # #2112: RQ raises it once; retrying runs past the timeout
                 last_error = exc
                 self.disconnect()
                 if attempt < max_retries:

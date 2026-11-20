@@ -194,6 +194,8 @@ class AnalyticsAlertRule(Document):
                 reference_doctype="Analytics Alert Rule",
                 reference_name=self.name,
                 notification_key="analytics_alert",
+                # Per rule: one rule firing must not silence another rule's alert for an hour (#2310).
+                cooldown_scope=self.name,
             )
 
     def format_message(self, alert_data):

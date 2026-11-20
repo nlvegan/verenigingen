@@ -269,6 +269,11 @@ class TestTeamEventsCoverage(EnhancedTestCase):
             )
         self.assertEqual(len(self._active_team_assignments(volunteer.name, team.name)), 1)
 
+        # The job re-checks that the removal it was queued for still holds (#2144).
+        team_doc = frappe.get_doc("Team", team.name)
+        team_doc.team_members[0].is_active = 0
+        team_doc.save()
+
         # Now remove it -> the Active row becomes Completed with an end_date.
         end_date = frappe.utils.today()
         with self.assertNoErrorLog():
@@ -346,42 +351,43 @@ class TestTeamEventsCoverage(EnhancedTestCase):
         self.assertIn(coord_label, completed_roles, "prior role should be completed")
         self.assertIn(new_label, active_roles, f"new role should be Active; saw active={active_roles}")
 
-    def test_assignment_history_role_arg_is_ignored(self):
-        """Characterization: the event_data ``role`` does NOT determine the stored
-        role for an 'added' action.
+    def test_assignment_history_added_for_a_role_the_row_does_not_hold_is_skipped(self):
+        """#2144 changed this test's premise (it used to be ``role_arg_is_ignored``).
 
-        ``Team.add_team_assignment_history(volunteer_id, team_role, start_date)``
-        ignores its ``team_role`` argument — ``TeamService.add_assignment_history``
-        looks the team member up by (volunteer, from_date) and derives the role
-        description from the Team Member row's ``team_role`` field. So passing a
-        bogus ``role`` in the event still records the team-row role, not the
-        event role. Documents a real (latent) semantic foot-gun, not a crash.
+        ``Team.add_team_assignment_history`` ignores its role argument and records the
+        Team Member row's own ``team_role``, so an 'added' job naming a DIFFERENT role
+        than the row holds used to record the row's role anyway. That mismatch is exactly
+        what a rolled-back role change leaves behind (the row has the old role, the job
+        names the new one), so the job now skips it. The control keeps the original point:
+        for the role the row holds, the stored role is the row's.
         """
         member, _ = self._make_member_with_email("hist-ignore")
         volunteer = self._make_volunteer(member)
         team, from_date = self._make_team_with_member(volunteer, team_role_name="Team Member")
-        team_label = frappe.db.get_value(
-            "Team Role", frappe.get_doc("Team", team.name).team_members[0].team_role, "role_name"
-        )
+        row_role = frappe.get_doc("Team", team.name).team_members[0].team_role
+        team_label = frappe.db.get_value("Team Role", row_role, "role_name")
 
-        with self.assertNoErrorLog():
+        def added(role):
             ts.handle_assignment_history_updates(
                 "team_membership_changed",
                 {
                     "team": team.name,
                     "volunteer": volunteer.name,
                     "action": "added",
-                    "role": "TOTALLY-BOGUS-ROLE",  # ignored by the product
+                    "role": role,
                     "from_date": from_date,
                 },
             )
+
+        with self.assertNoErrorLog():
+            added("TOTALLY-BOGUS-ROLE")
+        self.assertEqual(self._active_team_assignments(volunteer.name, team.name), [])
+
+        with self.assertNoErrorLog():
+            added(row_role)
         active = self._active_team_assignments(volunteer.name, team.name)
         self.assertEqual(len(active), 1)
-        self.assertEqual(
-            active[0].role,
-            team_label,
-            "stored role is derived from the Team Member row, not the event 'role'",
-        )
+        self.assertEqual(active[0].role, team_label)
 
     def test_assignment_history_missing_keys_noops_without_error(self):
         """Missing team/volunteer must warn-and-return, not log an Error Log row."""
@@ -439,6 +445,10 @@ class TestTeamEventsCoverage(EnhancedTestCase):
         member, email = self._make_member_with_email("notify-rm")
         volunteer = self._make_volunteer(member)
         team, _ = self._make_team_with_member(volunteer)
+        # The job re-checks that the removal it was queued for still holds (#2144).
+        team_doc = frappe.get_doc("Team", team.name)
+        team_doc.team_members[0].is_active = 0
+        team_doc.save()
 
         with self._patch_email_service() as svc:
             with self.assertNoErrorLog():
@@ -458,6 +468,8 @@ class TestTeamEventsCoverage(EnhancedTestCase):
         member, email = self._make_member_with_email("notify-role")
         volunteer = self._make_volunteer(member)
         team, _ = self._make_team_with_member(volunteer)
+        # The job re-checks the role it was queued for is the row's current role (#2144).
+        current_role = team.team_members[0].team_role
 
         with self._patch_email_service() as svc:
             with self.assertNoErrorLog():
@@ -467,7 +479,7 @@ class TestTeamEventsCoverage(EnhancedTestCase):
                         "team": team.name,
                         "volunteer": volunteer.name,
                         "action": "role_changed",
-                        "role": "Coordinator",
+                        "role": current_role,
                         "old_role": "Team Member",
                     },
                 )
@@ -475,7 +487,7 @@ class TestTeamEventsCoverage(EnhancedTestCase):
             kwargs = self._send_kwargs(svc)
             self.assertEqual(kwargs.get("notification_key"), "team_role_changed")
             self.assertIn("Team Member", kwargs.get("context", {}).get("additional_message", ""))
-            self.assertIn("Coordinator", kwargs.get("context", {}).get("additional_message", ""))
+            self.assertIn(current_role, kwargs.get("context", {}).get("additional_message", ""))
 
     def test_membership_notification_missing_keys_noops(self):
         with self._patch_email_service() as svc:
@@ -590,6 +602,9 @@ class TestTeamEventsCoverage(EnhancedTestCase):
         member, _ = self._make_member_with_email("teamlead")
         user = self._make_user("teamlead")
         team = self.create_test_team()
+        # Probe shortcut: team_lead is derived from a leader-role member row on save; it is
+        # set directly because the job re-checks that this user is still the lead (#2144).
+        team.db_set("team_lead", user.name, update_modified=False)
 
         self.assertFalse(
             frappe.db.exists("User Permission", {"user": user.name, "allow": "Team", "for_value": team.name})

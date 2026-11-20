@@ -23,7 +23,7 @@ from frappe.utils import today
 from verenigingen.services.volunteer.status_derivation_service import CURRENT_ASSIGNMENT_STATUSES
 from verenigingen.utils import append_to_text_field
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 # Machine-readable marker written into a Team Member row's `notes` when a
 # membership is soft-disabled by suspension. Restoration (unsuspension) only
@@ -562,7 +562,24 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
         return False
 
 
-def end_board_positions_safe(member_name, end_date, reason):
+def _record_termination_failure(failures, title, message, user_message):
+    """Leave a durable trace of a termination step that was not done (#832, #2517).
+
+    frappe.logger() writes only to a rotating file nobody reads, so the failure also
+    goes to the Error Log, and `user_message` is handed to the caller's `failures` list
+    so the termination's own audit trail can name what is still in its old state.
+    """
+    frappe.log_error(title=title, message=message)
+    if failures is not None:
+        failures.append(user_message)
+
+
+def _record_board_position_failure(failures, title, message, user_message):
+    """Board-seat spelling of `_record_termination_failure` (#832)."""
+    _record_termination_failure(failures, title, message, user_message)
+
+
+def end_board_positions_safe(member_name, end_date, reason, failures=None):
     """
     End board positions safely by updating through parent Chapter document
     Child table records must be saved through their parent, not directly
@@ -572,6 +589,11 @@ def end_board_positions_safe(member_name, end_date, reason):
     saved successfully, never at mark time. A chapter whose save fails
     contributes nothing, and other chapters are unaffected -- each chapter
     save is independent, not all-or-nothing.
+
+    `failures` (#832): an optional list the caller passes in. Every seat that could
+    NOT be ended appends one operator-readable line to it (and an Error Log row is
+    written), so the caller can record the shortfall instead of reading a bare count.
+    A non-resumable DB error still propagates and never reaches `failures`.
     """
     try:
         # Get volunteer records for this member
@@ -620,22 +642,50 @@ def end_board_positions_safe(member_name, end_date, reason):
                     raise
                 except Exception as e:
                     frappe.logger().error(f"Failed to end board position {position.name}: {str(e)}")
+                    _record_board_position_failure(
+                        failures,
+                        "Termination: board position not ended",
+                        f"Board position {position.name} at {position.parent} for member "
+                        f"{member_name}: {e}\n{frappe.get_traceback()}",
+                        f"Failed to end board position {position.chapter_role} at {position.parent}",
+                    )
 
         # Save all modified chapters. Only count positions belonging to a chapter that
         # actually persisted -- a position marked in memory but never saved must not be
         # reported to the caller as ended (#476).
         positions_ended = 0
         for chapter_name, chapter_doc in chapters_to_save.items():
+            # Per-chapter savepoint (#832): a save that fails AFTER the board rows were
+            # written (e.g. in on_update) must not leave them half-ended in the transaction
+            # the termination commits, while the failure message says they were not ended.
+            savepoint_name = "end_board_positions_chapter"
+            frappe.db.savepoint(savepoint_name)
             try:
                 chapter_doc.save()
+                frappe.db.release_savepoint(savepoint_name)
                 frappe.logger().info(f"Saved Chapter {chapter_name} with ended board positions")
                 positions_ended += positions_marked_by_chapter.get(chapter_name, 0)
             except frappe.PermissionError as pe:
+                rollback_to_savepoint(savepoint_name)
                 frappe.logger().error(f"Permission denied saving Chapter {chapter_name}: {str(pe)}")
+                _record_board_position_failure(
+                    failures,
+                    "Termination: board positions not saved (permission)",
+                    f"Chapter {chapter_name} for member {member_name}: {pe}\n{frappe.get_traceback()}",
+                    f"Board position(s) at {chapter_name} were NOT ended: permission denied saving the chapter",
+                )
             except NON_RESUMABLE_DB_ERRORS:
+                # Ahead of the rollback: a 1213 has already destroyed the savepoint.
                 raise
             except Exception as e:
+                rollback_to_savepoint(savepoint_name)
                 frappe.logger().error(f"Failed to save Chapter {chapter_name}: {str(e)}")
+                _record_board_position_failure(
+                    failures,
+                    "Termination: board positions not saved",
+                    f"Chapter {chapter_name} for member {member_name}: {e}\n{frappe.get_traceback()}",
+                    f"Board position(s) at {chapter_name} were NOT ended: the chapter could not be saved",
+                )
 
         return positions_ended
 
@@ -643,10 +693,16 @@ def end_board_positions_safe(member_name, end_date, reason):
         raise
     except Exception as e:
         frappe.logger().error(f"Failed to end board positions for {member_name}: {str(e)}")
+        _record_board_position_failure(
+            failures,
+            "Termination: board positions not ended",
+            f"Member {member_name}: {e}\n{frappe.get_traceback()}",
+            "Board positions could not be ended: unexpected error (see Error Log)",
+        )
         return 0
 
 
-def disable_chapter_memberships_safe(member_name, leave_date, reason):
+def disable_chapter_memberships_safe(member_name, leave_date, reason, failures=None):
     """
     Disable all chapter memberships for terminated member.
 
@@ -657,10 +713,19 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
     Note: Chapter Member doesn't have a chapter_leave_date field - leave tracking is handled
     via Member.chapter_membership_history.end_date instead.
 
-    Transaction Safety:
-    - Uses savepoint for atomicity - if any chapter save fails, all changes are rolled back
-    - History updates happen after chapter saves succeed, but Chapter.handle_member_changes()
-      hook also updates history during save, providing redundant protection
+    Transaction Safety (#2517):
+    - Each chapter is saved under its OWN savepoint, so a save that fails after the row was
+      written (e.g. in on_update) is rolled back instead of leaving the membership
+      half-disabled while the failure says it was not done. Chapters are independent: one
+      failing chapter does not undo or block the others.
+    - History updates run only for chapters that actually saved, and
+      Chapter.handle_member_changes() hook also updates history during save, providing
+      redundant protection
+
+    `failures` (#2517): an optional list the caller passes in. Everything that was NOT done
+    appends one operator-readable line to it (and an Error Log row is written), so the
+    caller can record the shortfall instead of reading a bare count. A non-resumable DB
+    error still propagates and never reaches `failures`.
 
     Idempotency:
     - Safe to call multiple times - both Chapter Member and history updates are idempotent
@@ -679,7 +744,7 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
             frappe.logger().info(f"No active chapter memberships found for {member_name}")
             return 0
 
-        memberships_disabled = 0
+        marked_by_chapter = {}  # memberships marked per chapter; counted only once it saves
         chapters_to_save = {}  # Track chapters that need saving
         history_updates = []  # Track history updates for explicit backup call
 
@@ -716,7 +781,7 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
                             }
                         )
 
-                        memberships_disabled += 1
+                        marked_by_chapter[chapter_name] = marked_by_chapter.get(chapter_name, 0) + 1
                         frappe.logger().info(
                             f"Marked chapter membership at {chapter_name} for {member_name} as disabled (status=Inactive)"
                         )
@@ -726,37 +791,62 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
                 raise
             except Exception as e:
                 frappe.logger().error(f"Failed to disable chapter membership {membership.name}: {str(e)}")
+                _record_termination_failure(
+                    failures,
+                    "Termination: chapter membership not disabled",
+                    f"Chapter Member {membership.name} at {membership.parent} for member "
+                    f"{member_name}: {e}\n{frappe.get_traceback()}",
+                    f"Failed to disable chapter membership at {membership.parent}: unexpected error "
+                    "(see Error Log)",
+                )
 
-        # Use savepoint for transaction safety - rollback all on failure
-        try:
-            frappe.db.savepoint("disable_chapter_memberships")
-
-            # Save all modified chapters within savepoint
-            for chapter_name, chapter_doc in chapters_to_save.items():
+        memberships_disabled = 0
+        saved_chapters = set()
+        for chapter_name, chapter_doc in chapters_to_save.items():
+            # Per-chapter savepoint (#2517), as #832's board seats: a save that fails AFTER
+            # the Chapter Member rows were written must not leave them disabled in the
+            # transaction the termination commits.
+            savepoint_name = "disable_chapter_memberships_chapter"
+            frappe.db.savepoint(savepoint_name)
+            try:
                 chapter_doc.save()
+                frappe.db.release_savepoint(savepoint_name)
                 frappe.logger().info(f"Saved Chapter {chapter_name} with disabled memberships")
-
-            frappe.db.release_savepoint("disable_chapter_memberships")
-
-        except frappe.PermissionError as pe:
-            frappe.db.rollback_to_savepoint("disable_chapter_memberships")
-            frappe.logger().error(f"Permission denied saving chapters, rolled back: {str(pe)}")
-            return 0
-        except NON_RESUMABLE_DB_ERRORS:
-            # Ahead of the rollback, not just ahead of the return: a 1213 has already
-            # discarded this savepoint along with the rest of the transaction, so
-            # rollback_to_savepoint raises 1305 on top of the real error -- and the outer
-            # catch-all then swallows THAT, losing both. There is nothing left to undo.
-            raise
-        except Exception as e:
-            frappe.db.rollback_to_savepoint("disable_chapter_memberships")
-            frappe.logger().error(f"Failed to save chapters, rolled back: {str(e)}")
-            return 0
+                memberships_disabled += marked_by_chapter.get(chapter_name, 0)
+                saved_chapters.add(chapter_name)
+            except frappe.PermissionError as pe:
+                rollback_to_savepoint(savepoint_name)
+                frappe.logger().error(f"Permission denied saving Chapter {chapter_name}: {str(pe)}")
+                _record_termination_failure(
+                    failures,
+                    "Termination: chapter memberships not disabled (permission)",
+                    f"Chapter {chapter_name} for member {member_name}: {pe}\n{frappe.get_traceback()}",
+                    f"Chapter membership at {chapter_name} was NOT disabled: permission denied saving "
+                    "the chapter",
+                )
+            except NON_RESUMABLE_DB_ERRORS:
+                # Ahead of the rollback, not just ahead of the return: a 1213 has already
+                # discarded this savepoint along with the rest of the transaction, so
+                # rollback_to_savepoint raises 1305 on top of the real error -- and the outer
+                # catch-all then swallows THAT, losing both. There is nothing left to undo.
+                raise
+            except Exception as e:  # failed-write-ok: reported-elsewhere
+                rollback_to_savepoint(savepoint_name)
+                frappe.logger().error(f"Failed to save Chapter {chapter_name}: {str(e)}")
+                _record_termination_failure(
+                    failures,
+                    "Termination: chapter memberships not disabled",
+                    f"Chapter {chapter_name} for member {member_name}: {e}\n{frappe.get_traceback()}",
+                    f"Chapter membership at {chapter_name} was NOT disabled: the chapter could not be saved",
+                )
 
         # Explicit history update as backup - Chapter.handle_member_changes() hook should have
         # already updated history during save, but this call is idempotent and provides redundancy
-        # in case the hook was bypassed or failed silently
+        # in case the hook was bypassed or failed silently. Only for chapters that saved: for
+        # the others the membership is still enabled, so its history must stay open.
         for update in history_updates:
+            if update["chapter_name"] not in saved_chapters:
+                continue
             try:
                 success = ChapterMembershipHistoryManager.terminate_chapter_membership(
                     member_id=member_name,
@@ -776,6 +866,13 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
                 frappe.logger().error(
                     f"Failed to update chapter membership history for {member_name} in {update['chapter_name']}: {str(e)}"
                 )
+                _record_termination_failure(
+                    failures,
+                    "Termination: chapter membership history not updated",
+                    f"Member {member_name}, chapter {update['chapter_name']}: {e}\n{frappe.get_traceback()}",
+                    f"Chapter membership at {update['chapter_name']} was disabled, but its membership "
+                    "history was NOT updated (see Error Log)",
+                )
 
         return memberships_disabled
 
@@ -783,16 +880,28 @@ def disable_chapter_memberships_safe(member_name, leave_date, reason):
         raise
     except Exception as e:
         frappe.logger().error(f"Failed to disable chapter memberships for {member_name}: {str(e)}")
+        _record_termination_failure(
+            failures,
+            "Termination: chapter memberships not disabled",
+            f"Member {member_name}: {e}\n{frappe.get_traceback()}",
+            "Chapter memberships could not be disabled: unexpected error (see Error Log)",
+        )
         return 0
 
 
-def suspend_team_memberships_safe(member_name, termination_date, reason):
+def suspend_team_memberships_safe(member_name, termination_date, reason, failures=None):
     """
     Soft-disable all active team memberships for a suspended/terminated member.
 
     Rows are marked inactive (and stamped with a suspension marker in `notes`)
     rather than deleted, so `restore_team_memberships_safe` can re-enable them on
     unsuspension. Returns the number of memberships affected.
+
+    `failures` (#2517): an optional list the caller passes in. Every membership that was
+    NOT suspended, and every team lead that was NOT removed, appends one operator-readable
+    line to it (and an Error Log row is written). A non-resumable DB error still
+    propagates and never reaches `failures`. The Team Member write is one UPDATE, so a
+    failure leaves the row untouched; the Team save (lead removal) runs under a savepoint.
     """
     try:
         if not termination_date:
@@ -848,12 +957,26 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
                     frappe.logger().error(
                         f"Permission denied for team membership suspension {team_membership.name}: {str(pe)}"
                     )
+                    _record_termination_failure(
+                        failures,
+                        "Termination: team membership not suspended (permission)",
+                        f"Team Member {team_membership.name} in {team_membership.parent} for member "
+                        f"{member_name}: {pe}\n{frappe.get_traceback()}",
+                        f"Team membership in {team_membership.parent} was NOT suspended: permission denied",
+                    )
                     continue
 
             except NON_RESUMABLE_DB_ERRORS:
                 raise
             except Exception as e:
                 frappe.logger().error(f"Failed to suspend team membership {team_membership.name}: {str(e)}")
+                _record_termination_failure(
+                    failures,
+                    "Termination: team membership not suspended",
+                    f"Team Member {team_membership.name} in {team_membership.parent} for member "
+                    f"{member_name}: {e}\n{frappe.get_traceback()}",
+                    f"Team membership in {team_membership.parent} was NOT suspended (see Error Log)",
+                )
 
         # Also check if member has any team leadership roles and remove those
         user_email = frappe.db.get_value("Member", member_name, "user")
@@ -875,20 +998,41 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
                         else:
                             team_doc.description = termination_note
 
+                    # Savepoint (#2517): a save that fails AFTER team_lead was written (e.g. in
+                    # on_update) must not leave the lead removed while the failure says it was not.
+                    savepoint_name = "suspend_team_lead_removal"
+                    frappe.db.savepoint(savepoint_name)
                     try:
                         team_doc.save()
-                    except frappe.PermissionError as pe:
-                        frappe.logger().error(
-                            f"Permission denied for team leadership update {team_doc.name}: {str(pe)}"
-                        )
-                        continue
+                        frappe.db.release_savepoint(savepoint_name)
+                    except NON_RESUMABLE_DB_ERRORS:
+                        raise
+                    except Exception:
+                        rollback_to_savepoint(savepoint_name)
+                        raise
 
                     frappe.logger().info(f"Removed team leadership from team {team.name}")
 
                 except NON_RESUMABLE_DB_ERRORS:
                     raise
+                except frappe.PermissionError as pe:
+                    frappe.logger().error(
+                        f"Permission denied for team leadership update {team.name}: {str(pe)}"
+                    )
+                    _record_termination_failure(
+                        failures,
+                        "Termination: team lead not removed (permission)",
+                        f"Team {team.name} for member {member_name}: {pe}\n{frappe.get_traceback()}",
+                        f"Team lead was NOT removed from {team.name}: permission denied",
+                    )
                 except Exception as e:
                     frappe.logger().error(f"Failed to remove team leadership from {team.name}: {str(e)}")
+                    _record_termination_failure(
+                        failures,
+                        "Termination: team lead not removed",
+                        f"Team {team.name} for member {member_name}: {e}\n{frappe.get_traceback()}",
+                        f"Team lead was NOT removed from {team.name} (see Error Log)",
+                    )
 
         return teams_affected
 
@@ -896,10 +1040,16 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
         raise
     except Exception as e:
         frappe.logger().error(f"Failed to suspend team memberships for {member_name}: {str(e)}")
+        _record_termination_failure(
+            failures,
+            "Termination: team memberships not suspended",
+            f"Member {member_name}: {e}\n{frappe.get_traceback()}",
+            "Team memberships could not be suspended: unexpected error (see Error Log)",
+        )
         return 0
 
 
-def restore_team_memberships_safe(member_name, restoration_reason):
+def restore_team_memberships_safe(member_name, restoration_reason, failures=None):
     """
     Restore team memberships that were soft-disabled by a prior suspension.
 
@@ -907,6 +1057,9 @@ def restore_team_memberships_safe(member_name, restoration_reason):
     carry the suspension marker in their `notes` (written when suspended), so
     team rows that were already inactive before suspension are left untouched.
     Returns the number of memberships restored.
+
+    `failures` (#2517): as for `suspend_team_memberships_safe`; a membership that stays
+    suspended appends one line to it. The row write is one UPDATE, so a failed row is untouched.
     """
     try:
         volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
@@ -951,11 +1104,25 @@ def restore_team_memberships_safe(member_name, restoration_reason):
                 frappe.logger().error(
                     f"Permission denied for team membership restoration {membership.name}: {str(pe)}"
                 )
+                _record_termination_failure(
+                    failures,
+                    "Termination: team membership not restored (permission)",
+                    f"Team Member {membership.name} in {membership.parent} for member "
+                    f"{member_name}: {pe}\n{frappe.get_traceback()}",
+                    f"Team membership in {membership.parent} was NOT restored: permission denied",
+                )
                 continue
             except NON_RESUMABLE_DB_ERRORS:
                 raise
             except Exception as e:
                 frappe.logger().error(f"Failed to restore team membership {membership.name}: {str(e)}")
+                _record_termination_failure(
+                    failures,
+                    "Termination: team membership not restored",
+                    f"Team Member {membership.name} in {membership.parent} for member "
+                    f"{member_name}: {e}\n{frappe.get_traceback()}",
+                    f"Team membership in {membership.parent} was NOT restored (see Error Log)",
+                )
 
         return teams_restored
 
@@ -963,6 +1130,12 @@ def restore_team_memberships_safe(member_name, restoration_reason):
         raise
     except Exception as e:
         frappe.logger().error(f"Failed to restore team memberships for {member_name}: {str(e)}")
+        _record_termination_failure(
+            failures,
+            "Termination: team memberships not restored",
+            f"Member {member_name}: {e}\n{frappe.get_traceback()}",
+            "Team memberships could not be restored: unexpected error (see Error Log)",
+        )
         return 0
 
 
@@ -1187,7 +1360,10 @@ def suspend_member_safe(
         # 3. Suspend team memberships if requested
         if suspend_teams:
             teams_suspended = suspend_team_memberships_safe(
-                member_name, suspension_date, f"Member suspended - {suspension_reason}"
+                member_name,
+                suspension_date,
+                f"Member suspended - {suspension_reason}",
+                failures=results["errors"],
             )
             results["teams_suspended"] = teams_suspended
             if teams_suspended > 0:
@@ -1201,6 +1377,19 @@ def suspend_member_safe(
     except Exception as e:
         frappe.logger().error(f"Failed to suspend member {member_name}: {str(e)}")
         return {"success": False, "error": str(e), "actions_taken": [], "errors": [str(e)]}
+
+
+def partial_failure_errors(results):
+    """The lines naming steps NOT done, when `results` is a success that is not the whole job.
+
+    suspend_member_safe / unsuspend_member_safe return success=True with a non-empty
+    `errors` when the member changed but a team row (or the user account) did not (#2517).
+    Callers must not answer a plain "success" then (#2597). A failed result has its own
+    `error`, so it yields [].
+    """
+    if not results.get("success"):
+        return []
+    return [str(e) for e in results.get("errors") or []]
 
 
 def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
@@ -1296,7 +1485,9 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
         # re-enables rows that suspension itself disabled (not ones that were
         # already inactive beforehand).
         if restore_teams:
-            teams_restored = restore_team_memberships_safe(member_name, unsuspension_reason)
+            teams_restored = restore_team_memberships_safe(
+                member_name, unsuspension_reason, failures=results["errors"]
+            )
             results["teams_restored"] = teams_restored
             if teams_restored > 0:
                 results["actions_taken"].append(f"Restored {teams_restored} team membership(s)")
@@ -1390,11 +1581,36 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                 else:
                     volunteer_doc.note = termination_note
 
+                # Savepoint (#2517): a save that fails AFTER the status row was written (e.g. in
+                # on_update) must not leave the volunteer Inactive while the error says it was not.
+                savepoint_name = "terminate_volunteer_record"
+                frappe.db.savepoint(savepoint_name)
                 try:
                     volunteer_doc.save()
+                    frappe.db.release_savepoint(savepoint_name)
                 except frappe.PermissionError as pe:
+                    rollback_to_savepoint(savepoint_name)
                     frappe.logger().error(
                         f"Permission denied for volunteer record termination {volunteer_doc.name}: {str(pe)}"
+                    )
+                    _record_termination_failure(
+                        results["errors"],
+                        "Termination: volunteer record not terminated (permission)",
+                        f"Volunteer {volunteer_doc.name} for member {member_name}: {pe}\n"
+                        f"{frappe.get_traceback()}",
+                        f"Volunteer record {volunteer_doc.name} was NOT terminated: permission denied",
+                    )
+                    continue
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
+                except Exception as save_error:  # failed-write-ok: reported-elsewhere
+                    rollback_to_savepoint(savepoint_name)
+                    _record_termination_failure(
+                        results["errors"],
+                        "Termination: volunteer record not terminated",
+                        f"Volunteer {volunteer_doc.name} for member {member_name}: {save_error}\n"
+                        f"{frappe.get_traceback()}",
+                        f"Volunteer record {volunteer_doc.name} was NOT terminated: {save_error}",
                     )
                     continue
 
@@ -1404,6 +1620,9 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                 # Handle pending expense claims via HRMS Expense Claim (linked through employee_id)
                 # Note: Volunteer Expense DocType was deprecated in favor of HRMS Expense Claim
                 if volunteer_doc.employee_id:
+                    # get_all on purpose (#1819): a termination pipeline step that flags the
+                    # TERMINATED volunteer's drafts for HR review; the acting staff member's own
+                    # claim visibility must not decide which drafts get flagged.
                     pending_claims = frappe.get_all(
                         "Expense Claim",
                         filters={
@@ -1473,7 +1692,15 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                     sync_user_role_profile,
                 )
 
-                sync_result = sync_user_role_profile(user_email, allow_disabled=True)
+                # #2597: a RAISE here used to reach the outer handler, which discards `results`
+                # and returns volunteers_terminated=0 although the volunteers above were already
+                # saved Inactive. Report it like a success=False return and keep the count.
+                try:
+                    sync_result = sync_user_role_profile(user_email, allow_disabled=True)
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
+                except Exception as sync_error:
+                    sync_result = {"success": False, "error": str(sync_error)}
                 if sync_result.get("changed"):
                     results["actions_taken"].append(
                         f"Updated role profile for {user_email}: "

@@ -24,6 +24,7 @@ from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_e
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
 
 
@@ -254,6 +255,7 @@ class SEPADistributedLock:
                 time.sleep(wait_time)
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2112
                 frappe.db.rollback()
                 frappe.logger().error(f"Lock acquisition error on attempt {attempt}: {str(e)}")
 
@@ -292,6 +294,7 @@ class SEPADistributedLock:
             frappe.db.commit()
 
         except Exception as e:
+            reraise_if_job_timeout(e)  # #2112
             frappe.logger().error(f"Error releasing lock {lock_id}: {str(e)}")
 
     def _generate_lock_id(self, resource: str, lock_type: str) -> str:
@@ -326,6 +329,7 @@ class SEPADistributedLock:
             )
 
         except Exception as e:
+            reraise_if_job_timeout(e)  # #2112: the acquire loop calls this each attempt
             frappe.logger().warning(f"Lock cleanup error: {str(e)}")
 
     def _get_current_lock_info(self, resource: str) -> Dict[str, Any]:
@@ -919,6 +923,7 @@ class SEPABatchRaceConditionManager:
                 return operation_func(*args, **kwargs)
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2112
                 last_exception = e
 
                 if attempt < self.retry_config["max_attempts"] - 1:

@@ -17,6 +17,8 @@ import frappe
 from frappe.model import child_table_fields, default_fields, optional_fields
 from frappe.utils import now
 
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
+
 # Frappe's own list of the columns every row has outside the doctype's `fields`.
 # Taken from the framework rather than hand-written: a hand-written set was
 # asymmetric -- it allowed `parent` but refused `creation`/`modified`/`doctype`,
@@ -108,6 +110,7 @@ class MemberFinancialHistoryManager:
                 try:
                     entry_data = entry_builder()
                 except Exception as e:
+                    reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                     frappe.log_error(
                         f"Entry builder failed for {entry_id}: {str(e)}",
                         "Financial History Entry Builder Error",
@@ -178,6 +181,7 @@ class MemberFinancialHistoryManager:
                     )
                     return False
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 frappe.log_error(
                     f"Error updating {self.history_field} for {self.doc.name}: {str(e)}",
                     "Financial History Update Error",
@@ -231,6 +235,7 @@ class MemberFinancialHistoryManager:
             return True  # Entry wasn't found, consider it successful
 
         except Exception as e:
+            reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
             frappe.log_error(
                 f"Error removing {entry_id} from {self.history_field}: {str(e)}",
                 "Financial History Removal Error",
@@ -282,6 +287,7 @@ class MemberFinancialHistoryManager:
             return False  # Entry not found
 
         except Exception as e:
+            reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
             frappe.log_error(
                 f"Error updating {entry_id} fields in {self.history_field}: {str(e)}",
                 "Financial History Field Update Error",
@@ -434,6 +440,7 @@ class MemberFinancialHistoryManager:
                 return True
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 # Check for chapter validation errors specifically
                 error_str = str(e)
                 if "Could not find Row" in error_str and "Chapter:" in error_str:

@@ -36,6 +36,7 @@ Usage:
 # Impersonation Stack - Prevents nested impersonation attacks
 # =============================================================================
 # Thread-local storage for tracking active impersonations
+import math
 import threading
 import time
 from contextlib import contextmanager
@@ -51,6 +52,7 @@ from verenigingen.utils.error_handling import (
     sanitize_audit_details,
 )
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 _impersonation_stack = threading.local()
 
@@ -230,6 +232,26 @@ def validate_justification(justification: str, operation: str) -> str:
     return justification
 
 
+class PermissionCheckError(frappe.PermissionError):
+    """The permission check itself broke; this is NOT a denial (#857).
+
+    Raised by validate_permissions() so secure_document_operation() records
+    "could not determine" (Error Log, success=False, no escalation attempt)
+    instead of treating the failure as an ordinary "user lacks permission",
+    which would route into the system-user escalation branch.
+    """
+
+
+def _permission_check_error_message(check: str, user: str, error: Exception) -> str:
+    """Body of the Error Log row for a permission CHECK that errored (#857).
+
+    frappe.logger() output is not read anywhere (file handler only), so a
+    transient DB error looked identical to a legitimate "no". The handlers call
+    frappe.log_error themselves (keyword form) and still fail closed.
+    """
+    return f"Check: {check}\nUser: {user}\nError: {error!r}\n\n{frappe.get_traceback()}"
+
+
 def can_request_system_escalation(user: str = None) -> bool:
     """
     Check if the specified user is allowed to request system user escalation.
@@ -253,8 +275,14 @@ def can_request_system_escalation(user: str = None) -> bool:
     try:
         user_roles = set(frappe.get_roles(user))
         return bool(user_roles & ESCALATION_ALLOWED_ROLES)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
-        frappe.logger().warning(f"Could not check escalation permissions for user {user}: {e}")
+        # Fail closed (never grants), but record that the check broke (#857).
+        frappe.log_error(
+            title="Permission check errored: can_request_system_escalation",
+            message=_permission_check_error_message("can_request_system_escalation", user, e),
+        )
         return False
 
 
@@ -270,7 +298,11 @@ def can_use_bypass_validations(user: str = None) -> bool:
         user: Username to check (defaults to current session user)
 
     Returns:
-        True if user can use bypass_validations, False otherwise
+        True if user can use bypass_validations, False otherwise. A check that
+        itself errors also returns False (fail closed) and is recorded in the
+        Error Log (#857); secure_document_operation() calls this outside its
+        try block, so there an errored check surfaces as the ordinary "no
+        permission to bypass" refusal.
     """
     if user is None:
         user = frappe.session.user
@@ -282,8 +314,14 @@ def can_use_bypass_validations(user: str = None) -> bool:
     try:
         user_roles = set(frappe.get_roles(user))
         return bool(user_roles & BYPASS_VALIDATION_ALLOWED_ROLES)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
-        frappe.logger().warning(f"Could not check bypass_validations permissions for user {user}: {e}")
+        # Fail closed (never grants), but record that the check broke (#857).
+        frappe.log_error(
+            title="Permission check errored: can_use_bypass_validations",
+            message=_permission_check_error_message("can_use_bypass_validations", user, e),
+        )
         return False
 
 
@@ -358,7 +396,7 @@ class SecureOperationResult:
 
         The canonical attribute is `.document`. Several callers historically
         wrote `.doc`, which silently raised AttributeError that broad
-        except-blocks swallowed (notably in web_form/donation_form and the
+        except-blocks swallowed (notably in the former web_form/donation_form and the
         Mollie chargeback webhook handler). Surfaces the typo at the call
         site so future regressions can't hide.
         """
@@ -591,7 +629,10 @@ def validate_permissions(doc, operation: str, required_permissions: List[str] = 
         required_permissions: List of specific permissions to check
 
     Returns:
-        bool: True if permissions are sufficient
+        bool: True if permissions are sufficient, False if denied
+
+    Raises:
+        PermissionCheckError: the check itself errored (not a denial)
     """
     try:
         # Standard Frappe permission check for the operation
@@ -642,9 +683,14 @@ def validate_permissions(doc, operation: str, required_permissions: List[str] = 
 
         return True
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
-        frappe.logger().error(f"Permission validation error: {str(e)}")
-        return False
+        # NOT a denial: raise so the caller cannot mistake "unknown" for "no"
+        # and fall into the escalation branch. Still fail closed (#857).
+        raise PermissionCheckError(
+            _("Permission check for {0} on {1} could not be completed").format(operation, doc.doctype)
+        ) from e
 
 
 def get_system_user_for_operation(operation_context: str) -> str:
@@ -825,6 +871,41 @@ def secure_user_context_with_validation(target_user: str, operation_description:
                 frappe.session.sid = original_session_data["sid"]
 
 
+_FOLLOW_ON_FLAG = "authorised_follow_on_steps"
+
+
+@contextmanager
+def authorised_follow_on_steps():
+    """Run the enclosed steps with permission checks bypassed, still AS the acting user (#1930).
+
+    For the follow-on steps of an approval whose approver the caller has ALREADY authorised (dues schedule,
+    membership invoice and its lazily created Item, account creation request): a chapter board approver may
+    start them, but their own DocPerms refuse the individual writes. Maintainer ruling 2026-11-12: bypass the
+    checks for exactly those steps; do NOT impersonate the configured Creation User (it holds no rights on
+    these records). The session user, and so `owner`, stay the approver.
+
+    This authorises nothing: the caller checks the approver BEFORE entering. The write sites that belong to
+    those steps read `follow_on_ignore_permissions()`; `secure_document_operation` treats a call made inside
+    the scope as a system_operation. The flag lives on the request's local flags and is restored in
+    `finally`, so it never outlives the block (nested scopes restore the outer value).
+    """
+    flags = frappe.local.flags
+    previous = flags.get(_FOLLOW_ON_FLAG)
+    flags[_FOLLOW_ON_FLAG] = True
+    try:
+        yield
+    finally:
+        if previous is None:
+            flags.pop(_FOLLOW_ON_FLAG, None)
+        else:
+            flags[_FOLLOW_ON_FLAG] = previous
+
+
+def follow_on_ignore_permissions():
+    """True inside `authorised_follow_on_steps`, else None (insert/save then keep their normal check)."""
+    return True if frappe.local.flags.get(_FOLLOW_ON_FLAG) else None
+
+
 def _read_persisted_docstatus_best_effort(doctype, name):
     """Best-effort read of a document's current DB docstatus, for the #385
     partial-write comparison. MUST NOT raise: this is a diagnostic signal,
@@ -910,6 +991,8 @@ def secure_document_operation(
         frappe.PermissionError: If user cannot request escalation or bypass_validations
         ConfigurationError: If system user is not properly configured
     """
+    # Inside authorised_follow_on_steps (#1930) the caller was already authorised: a system_operation.
+    system_operation = system_operation or bool(follow_on_ignore_permissions())
     operation_id = f"{operation}_{doc.doctype}_{int(time.time() * 1000)}"
     start_time = time.time()
     original_user = frappe.session.user
@@ -1087,6 +1170,9 @@ def secure_document_operation(
         raise
 
     except Exception as e:
+        # #2235: an RQ job timeout is raised once; do not turn it into success=False
+        reraise_if_job_timeout(e)
+
         # Capture full traceback for debugging
         error_traceback = frappe.get_traceback()
 
@@ -1174,32 +1260,35 @@ class CriticalOperationsRegistry:
         self._load_configs()
 
     def _load_configs(self):
-        """Load operation configurations from DocType (cached)"""
-        try:
-            # Import here to avoid circular dependencies
+        """Load operation configurations from DocType (cached)
+
+        A load error propagates (#2295). It used to become an empty rule set, which the
+        gate reads as "nothing is critical", and the singleton then kept that answer for
+        the life of the process. Letting it raise leaves the singleton unset, so the next
+        request retries the load.
+        """
+        # Import here to avoid circular dependencies
+        from verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule import (
+            CriticalOperationRule,
+        )
+
+        self.operation_configs = CriticalOperationRule.get_all_rules()
+
+    def get_operation_config(self, operation_name: str) -> dict:
+        """Get configuration for a specific operation
+
+        Returns None only when the operation has no rule. A failed lookup raises (#2295):
+        None means "no rule", and the caller must not be able to confuse the two.
+        """
+        if operation_name not in self.operation_configs:
+            # Try to load fresh config for this operation
             from verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule import (
                 CriticalOperationRule,
             )
 
-            self.operation_configs = CriticalOperationRule.get_all_rules()
-        except Exception as e:
-            frappe.logger().warning(f"Failed to load critical operation rules: {str(e)}")
-            self.operation_configs = {}
-
-    def get_operation_config(self, operation_name: str) -> dict:
-        """Get configuration for a specific operation"""
-        if operation_name not in self.operation_configs:
-            # Try to load fresh config for this operation
-            try:
-                from verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule import (
-                    CriticalOperationRule,
-                )
-
-                config = CriticalOperationRule.get_rule_config(operation_name)
-                if config:
-                    self.operation_configs[operation_name] = config
-            except Exception as e:
-                frappe.logger().warning(f"Failed to load config for operation {operation_name}: {str(e)}")
+            config = CriticalOperationRule.get_rule_config(operation_name)
+            if config:
+                self.operation_configs[operation_name] = config
 
         return self.operation_configs.get(operation_name)
 
@@ -1225,7 +1314,12 @@ class CriticalOperationsRegistry:
         if amount_threshold:
             # Check for amount in various possible kwargs
             amount = kwargs.get("amount") or kwargs.get("total_amount") or kwargs.get("grand_total")
-            if amount and float(amount) > amount_threshold:
+            amount_value = float(amount) if amount else 0.0
+            if not math.isfinite(amount_value):
+                # nan/inf compare False against any threshold and would slip past it (#2282).
+                # An evaluation error, so a critical rule refuses it.
+                raise ValueError("non-finite amount")
+            if amount and amount_value > amount_threshold:
                 violations.append(
                     f"Amount {amount} exceeds threshold {amount_threshold} for operation {operation_name}"
                 )

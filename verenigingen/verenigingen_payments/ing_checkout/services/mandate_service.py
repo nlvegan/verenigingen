@@ -326,7 +326,7 @@ class MandateService:
         try:
             result = self.client.get_mandate(mandate.mandate_id)
 
-            status = result.get("status", "").lower()
+            status = (result.get("status") or "").lower()
             from verenigingen.verenigingen_payments.doctype.ing_checkout_mandate.ing_checkout_mandate import (
                 MANDATE_STATUS_MAP,
             )

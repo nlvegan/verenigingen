@@ -1,14 +1,11 @@
 """Shared builder for minimal, valid public-donation-form payloads.
 
-Both test_guest_donation_flow.py (templates/pages/donate.py's submit_donation,
-via the donor/public-donation services) and test_donation_web_form.py
-(web_form/donation_form/donation_form.py's process_donation_form) need the
-same minimal valid donation-form dict. The two entry points differ only in
-which key they read the payment method from ("payment_method" vs
-"mode_of_payment") and in what donor-name prefix is useful for telling their
-Error Log / DB rows apart while debugging. Consolidated here after the
-duplicate-helper ratchet flagged _make_form_data as a new two-file clone
-family (#755 review).
+test_guest_donation_flow.py (templates/pages/donate.py's submit_donation, via the
+donor/public-donation services) and test_donation_api.py need the same minimal
+valid donation-form dict. The entry points differ in which key they read the
+payment method from ("payment_method" vs "mode_of_payment") and in the donor-name
+prefix that tells their Error Log / DB rows apart. (The removed web_form
+donation_form, #813, was a third consumer.)
 """
 
 from frappe.utils import now_datetime

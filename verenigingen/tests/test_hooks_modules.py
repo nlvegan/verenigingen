@@ -637,12 +637,30 @@ class TestHooksPackageImport(unittest.TestCase):
         self.assertTrue(hasattr(hooks, "app_name"))
         self.assertEqual(hooks.app_name, "verenigingen")
 
+    def _keep_hooks_modules_intact(self):
+        saved = {k: v for k, v in sys.modules.items() if k.startswith("verenigingen.hooks")}
+        package = sys.modules.get("verenigingen")
+        saved_attribute = getattr(package, "hooks", None)
+
+        def restore():
+            for key in [k for k in sys.modules if k.startswith("verenigingen.hooks")]:
+                del sys.modules[key]
+            sys.modules.update(saved)
+            if package is not None and saved_attribute is not None:
+                package.hooks = saved_attribute
+
+        self.addCleanup(restore)
+
     def test_hooks_package_import_succeeds(self):
         """Hooks package should import without errors.
 
         Note: Timing assertion removed - side-effect guards in
         TestImportSideEffectGuards provide more reliable protection.
         """
+        # The fresh import below leaves a second copy of every hooks module in the process;
+        # put the originals back when the test ends (#2239).
+        self._keep_hooks_modules_intact()
+
         # Clear from cache to get fresh import
         modules_to_clear = [k for k in sys.modules.keys() if k.startswith("verenigingen.hooks")]
         for mod in modules_to_clear:

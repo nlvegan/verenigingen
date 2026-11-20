@@ -35,7 +35,7 @@ Usage:
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import frappe
 from frappe import _
@@ -212,14 +212,14 @@ class PontoPaymentClient:
 
         payload = {
             "data": {
-                "type": "paymentInitiationRequest",
+                "type": "payment",
                 "attributes": attributes,
             }
         }
 
         try:
             response = self._client.post(
-                f"/accounts/{account_id}/payment-initiation-requests",
+                f"/accounts/{account_id}/payments",
                 data=payload,
             )
 
@@ -263,7 +263,7 @@ class PontoPaymentClient:
             PontoAPIError: If request fails
         """
         try:
-            response = self._client.get(f"/accounts/{account_id}/payment-initiation-requests/{payment_id}")
+            response = self._client.get(f"/accounts/{account_id}/payments/{payment_id}")
 
             data = response.get("data", {})
             return PaymentRequest.from_api_response(data)
@@ -277,52 +277,6 @@ class PontoPaymentClient:
             raise PontoAPIError(
                 message=f"Failed to get payment status: {e}",
                 details={"payment_id": payment_id},
-            ) from e
-
-    def list_payments(
-        self,
-        account_id: str,
-        limit: int = 25,
-        max_pages: Optional[int] = None,
-    ) -> List[PaymentRequest]:
-        """
-        List payment requests for an account.
-
-        Uses cursor-based pagination to fetch all payments across multiple pages.
-
-        Args:
-            account_id: Ponto account UUID
-            limit: Items per page (default 25)
-            max_pages: Maximum pages to fetch (None for unlimited)
-
-        Returns:
-            List of PaymentRequest objects
-
-        Raises:
-            PontoAPIError: If request fails
-        """
-        try:
-            data = self._client.get_paginated(
-                f"/accounts/{account_id}/payment-initiation-requests",
-                limit=limit,
-                max_pages=max_pages,
-            )
-
-            payments = []
-            for item in data:
-                payments.append(PaymentRequest.from_api_response(item))
-
-            return payments
-
-        except PontoIntegrationError:
-            # A typed Ponto error (an HTTP status, 401, 429, configuration) already says what
-            # failed; re-wrapping it would drop its status_code and its subclass (#1924).
-            raise
-        except Exception as e:
-            frappe.logger().error(f"Failed to list Ponto payments: {e}")
-            raise PontoAPIError(
-                message=f"Failed to list payments: {e}",
-                details={"account_id": account_id},
             ) from e
 
     def delete_payment(self, account_id: str, payment_id: str) -> bool:
@@ -342,7 +296,7 @@ class PontoPaymentClient:
             PontoAPIError: If deletion fails
         """
         try:
-            self._client.delete(f"/accounts/{account_id}/payment-initiation-requests/{payment_id}")
+            self._client.delete(f"/accounts/{account_id}/payments/{payment_id}")
 
             frappe.logger().info(f"Deleted Ponto payment request {payment_id}")
             return True

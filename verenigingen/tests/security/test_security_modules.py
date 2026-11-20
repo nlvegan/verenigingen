@@ -178,7 +178,7 @@ class TestSelfServiceAccessController(FrappeTestCase):
     def setUpClass(cls):
         super().setUpClass()
         # SelfServiceAccessController.get_user_member() resolves a user's member
-        # by matching Member.email to the user, so we need a real member whose
+        # by the Member.user link (#1936), so we need a real member whose
         # email is known and unique. Create one deterministically rather than
         # depending on pre-existing data (which is absent on a fresh test site).
         cls.test_user_email = f"selfservice.module.{frappe.generate_hash(length=8)}@example.com"
@@ -191,6 +191,8 @@ class TestSelfServiceAccessController(FrappeTestCase):
             "birth_date": "1990-01-01",
         })
         member.insert(ignore_permissions=True)
+        # get_user_member resolves by Member.user only (#1936); the email alone no longer matches.
+        member.db_set("user", cls.test_user_email)
         frappe.db.commit()
         cls.test_member_name = member.name
 

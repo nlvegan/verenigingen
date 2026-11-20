@@ -138,6 +138,9 @@ def _daily_batch_optimization_impl():
                 f"Blocked: {validation_summary['blocked']}"
             )
 
+        if result.get("undeterminable_skipped"):
+            report_undeterminable_sequence_types(result, target_date)
+
         if not result.get("success"):
             report_failed_batch_creation(result, target_date)
         elif not result.get("batches_created"):
@@ -155,6 +158,25 @@ def _daily_batch_optimization_impl():
         )
 
         send_system_error_notification(str(e))
+
+
+def report_undeterminable_sequence_types(result, target_date):
+    """Say how many invoices were left out because their FRST/RCUR type is unknown (#2716).
+
+    The per-invoice reasons are already on the batch (`batch_log`) and in the Error Log;
+    this is the run-level count. Without it an all-skipped run falls into the
+    "no eligible invoices" `frappe.logger().info` branch below, which nobody reads (#627).
+    """
+    skipped = result["undeterminable_skipped"]
+    shown = ", ".join(skipped[:20]) + (" ..." if len(skipped) > 20 else "")
+    frappe.log_error(
+        title="SEPA Batch Scheduler - Invoices Skipped (Sequence Type Undeterminable)",
+        message=(
+            f"Batch run for {target_date}: {len(skipped)} of {result.get('total_invoices', 0)} eligible "
+            f"invoice(s) were left out because their FRST/RCUR sequence type could not be determined; "
+            f"{result.get('invoices_batched', 0)} were batched. Not collected this run: {shown}"
+        ),
+    )
 
 
 def report_failed_batch_creation(result, target_date):
@@ -464,8 +486,9 @@ def send_batch_creation_notification(result):
                 recipients=[email],
                 subject=subject,
                 message=message,
-                delayed=False,
                 notification_key="sepa_batch_scheduler_alert",
+                # Per set of created batches: a second run within the hour is a different incident (#2310).
+                cooldown_scope=",".join(sorted(b["name"] for b in batch_details)) or None,
             )
 
     except Exception as e:

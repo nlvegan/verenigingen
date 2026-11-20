@@ -723,6 +723,28 @@ def drain_member_payment_history(member, customer):
     FinancialHistoryBatchProcessor.force_process_all()
 
 
+def retry_missing_invoice_payment_history(member, invoice, attempts=0):
+    """Worker job (#2527): retry a payment-history update whose invoice was not yet visible.
+
+    Enqueued after commit by Member._get_invoice_with_retry, so this runs in a
+    fresh transaction and process. A further miss enqueues the next attempt
+    itself, or logs the give-up once the cap is reached.
+    """
+    from verenigingen.utils.financial_history_batch_processor import (
+        FinancialHistoryBatchProcessor,
+        queue_payment_update,
+    )
+
+    # The retry is detached from the batch dict, so a later queue_payment_removal
+    # (invoice cancelled) can no longer supersede it. Re-adding a cancelled
+    # invoice's row would undo that removal, so skip it quietly.
+    if frappe.db.get_value("Sales Invoice", invoice, "docstatus") == 2:
+        return
+
+    queue_payment_update(member, invoice, attempts=attempts)
+    FinancialHistoryBatchProcessor.force_process_all()
+
+
 def queue_expense_event_processing_handler(doc, method=None):
     """
     Event handler for expense events - queues background job

@@ -8,6 +8,7 @@ Updated: December 2024 - Reflects ERPNext-only integration and legacy system pha
 from unittest.mock import patch
 
 import frappe
+from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 import unittest
@@ -142,32 +143,52 @@ class TestChapterExpenseReport(VereningingenTestCase):
         # file/run. The docs were also never tracked for cleanup, so they leaked.
         # Uniquify the identity per-run and track everything for teardown.
         unique = frappe.generate_hash(length=8)
-        member_last = f"Volunteer{unique}"
         volunteer_label = f"John Volunteer {unique}"
-        mock_volunteer_record = {"name": "VOL-001", "volunteer_name": volunteer_label}
+        decoy_label = f"Decoy Volunteer {unique}"
 
-        # Create a test volunteer using direct Frappe document creation
-        test_member = frappe.get_doc({
-            "doctype": "Member",
-            "first_name": "John",
-            "last_name": member_last,
-            "email": f"john.volunteer.{unique}@test.com",
-            "status": "Active"
-        })
-        test_member.insert()
-        self.track_doc("Member", test_member.name)
+        # The report looks a Volunteer up by Volunteer.employee_id == claim.employee
+        # (a Link to Employee), so real Employees are needed. Per identity the order
+        # is Member, Employee, Volunteer, so the Volunteer, which links to both, is
+        # drained first. The decoy is created AFTER the target and linked to a
+        # DIFFERENT Employee: a lookup that drops or loosens the employee_id filter
+        # (``{}``, ``["is", "set"]``) resolves the newest Volunteer, which is the
+        # decoy, so only the exact filter yields the target's name (#690 review).
+        company = get_eur_test_company()
+        employees = {}
+        for key, label in (("target", volunteer_label), ("decoy", decoy_label)):
+            member = frappe.get_doc({
+                "doctype": "Member",
+                "first_name": "John" if key == "target" else "Decoy",
+                "last_name": f"Volunteer{unique}",
+                "email": f"{key}.volunteer.{unique}@test.com",
+                "status": "Active"
+            })
+            member.insert()
+            self.track_doc("Member", member.name)
 
-        test_volunteer = frappe.get_doc({
-            "doctype": "Volunteer",
-            "volunteer_name": volunteer_label,
-            "member": test_member.name,
-            "status": "Active"
-        })
-        test_volunteer.insert()
-        self.track_doc("Volunteer", test_volunteer.name)
+            employee = frappe.get_doc({
+                "doctype": "Employee",
+                "first_name": f"Exp{key}{unique}",
+                "gender": "Other",
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": "2020-01-01",
+                "status": "Active",
+                "company": company,
+            }).insert()
+            self.track_doc("Employee", employee.name)
+            employees[key] = employee
 
-        # Modify mock to use the actual test volunteer name for lookup
-        mock_expense_claims[0]["employee"] = test_volunteer.name
+            volunteer = frappe.get_doc({
+                "doctype": "Volunteer",
+                "volunteer_name": label,
+                "member": member.name,
+                "employee_id": employee.name,
+                "status": "Active"
+            })
+            volunteer.insert()
+            self.track_doc("Volunteer", volunteer.name)
+
+        mock_expense_claims[0]["employee"] = employees["target"].name
 
         # Mock justified: ERPNext external service - expense data with volunteer lookup
         with patch("frappe.get_list", return_value=mock_expense_claims), patch(
@@ -176,8 +197,15 @@ class TestChapterExpenseReport(VereningingenTestCase):
             result = get_erpnext_expense_data(self.test_filters)
 
             self.assertEqual(len(result), 1)
-            # Volunteer name comes from the volunteer record or falls back to employee_name
-            self.assertIn(result[0]["volunteer_name"], [volunteer_label, "Employee Name"])
+            # Single expected value: the linked Volunteer's name, not the fallback.
+            self.assertEqual(result[0]["volunteer_name"], volunteer_label)
+            self.assertNotEqual(result[0]["volunteer_name"], decoy_label)
+            self.assertNotEqual(
+                result[0]["volunteer_name"],
+                mock_expense_claims[0]["employee_name"],
+                "control: the Employee fallback and the Volunteer name must be distinguishable, "
+                "or this test cannot tell the lookup from its fallback",
+            )
             self.assertEqual(result[0]["status"], "Reimbursed")  # Paid -> Reimbursed
 
     def test_get_user_accessible_chapters_admin_user(self):

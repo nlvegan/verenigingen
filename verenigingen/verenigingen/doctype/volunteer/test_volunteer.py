@@ -17,6 +17,31 @@ class TestVolunteer(EnhancedTestCase):
         self.create_test_interest_categories()
         self.test_member = self.create_test_member()
 
+    def _link_test_member_to_login(self):
+        """Give ``self.test_member`` a real login and return that user's name.
+
+        #2205: identity is ``Member.user`` only; the member's contact email is not an
+        identity. PROBE SHORTCUT: ``Member.user`` is written with ``db.set_value`` (what
+        staff do through the form field) rather than through the account-creation flow.
+        """
+        user = self.create_test_user(
+            f"vol-login-{frappe.generate_hash(length=8)}@test.invalid", roles=["Verenigingen Member"]
+        )
+        frappe.db.set_value("Member", self.test_member.name, "user", user.name, update_modified=False)
+        return user.name
+
+    def _assert_email_match_without_member_user_is_refused(self, query_fn):
+        """Control (#2205/#2206): a User whose EMAIL equals the member's, but who is not
+        ``Member.user``, gets no scope at all. The member row exists and is linked to a
+        different login, so the old email fallback would have found it."""
+        self._link_test_member_to_login()
+        # Non-admin roles: the default System Manager would get "" for any user.
+        email_only_user = self.create_test_user(self.test_member.email, roles=["Verenigingen Member"])
+        self.assertNotEqual(
+            frappe.db.get_value("Member", self.test_member.name, "user"), email_only_user.name
+        )
+        self.assertEqual(query_fn(email_only_user.name).strip(), "1=0")
+
     def tearDown(self):
         # EnhancedTestCase handles cleanup automatically via database rollback
         super().tearDown()
@@ -480,7 +505,7 @@ class TestVolunteer(EnhancedTestCase):
         self.assertIsInstance(admin_query, str, "Should return query string for admin")
 
         # "test.member@example.com" has no real User/Member record, so
-        # get_member_name_for_user() resolves to None and the query is
+        # get_member_name_for_board_access() resolves to None and the query is
         # deterministically restrictive - assert that concretely.
         member_query = get_volunteer_permission_query("test.member@example.com")
         self.assertEqual(
@@ -489,12 +514,13 @@ class TestVolunteer(EnhancedTestCase):
 
         # A user resolving to a real member gets scoped to their own volunteer
         # record via the volunteer.member condition (unconditional, no role needed).
-        own_query = get_volunteer_permission_query(self.test_member.email)
+        own_query = get_volunteer_permission_query(self._link_test_member_to_login())
         self.assertIn(
             f"`tabVolunteer`.member = {frappe.db.escape(self.test_member.name)}",
             own_query,
             "Query should scope to the requesting user's own member record",
         )
+        self._assert_email_match_without_member_user_is_refused(get_volunteer_permission_query)
 
     def test_volunteer_member_integration(self):
         """Test volunteer integration with member system"""
@@ -784,8 +810,9 @@ class TestVolunteer(EnhancedTestCase):
             )
 
         # A real member-linked user is scoped to their own volunteer record.
-        own_query = get_volunteer_permission_query(self.test_member.email)
+        own_query = get_volunteer_permission_query(self._link_test_member_to_login())
         self.assertIn(f"`tabVolunteer`.member = {frappe.db.escape(self.test_member.name)}", own_query)
+        self._assert_email_match_without_member_user_is_refused(get_volunteer_permission_query)
 
     def test_volunteer_assignment_lifecycle(self):
         """Test complete volunteer assignment lifecycle management"""

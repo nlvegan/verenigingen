@@ -36,6 +36,7 @@ from verenigingen.hooks.lifecycle import (
     after_migrate,
     after_sync,
     auth_hooks,
+    before_install,
     before_job,
     before_migrate,
     before_tests,
@@ -45,7 +46,7 @@ from verenigingen.hooks.lifecycle import (
     on_startup,
 )
 from verenigingen.hooks.permissions import has_permission, permission_query_conditions
-from verenigingen.hooks.portal import update_website_context, website_route_rules
+from verenigingen.hooks.portal import page_renderer, update_website_context, website_route_rules
 from verenigingen.hooks.scheduler import scheduler_events
 from verenigingen.hooks.whitelisted_methods import override_whitelisted_methods
 

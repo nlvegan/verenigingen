@@ -24,9 +24,6 @@ class MemberPerformanceAnalyzer:
         if not test_data:
             test_data = self._get_test_member_data()
         
-        # Start query logging
-        frappe.db.sql("SET SESSION query_cache_type = OFF")  # Disable query cache
-        
         start_time = time.time()
         
         with frappe.query_log_context():

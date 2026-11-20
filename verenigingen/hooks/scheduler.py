@@ -29,7 +29,6 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.membership.scheduler.process_expired_memberships",
         "verenigingen.verenigingen.doctype.membership.scheduler.send_renewal_reminders",
         "verenigingen.verenigingen.doctype.membership.scheduler.notify_about_orphaned_records",
-        "verenigingen.api.overdue_application_notifications.send_overdue_notifications",
         # Dues schedule system
         "verenigingen.services.billing.dues_schedule_auto_creator.auto_create_missing_dues_schedules_scheduled",
         "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.generate_dues_invoices",
@@ -74,6 +73,11 @@ scheduler_events = {
         # subscription's payments at Mollie directly and books any with no
         # Donation yet.
         "verenigingen.verenigingen_payments.mollie.services.recurring_donation_charge_sweep.sweep_recurring_donation_charges",
+        # Mollie refund/chargeback rediscovery (#2140): discovery only ran inside a
+        # payment-webhook delivery, so a lost "refunded" delivery was never retried.
+        # Lists the account's reversals at Mollie and books any not yet booked
+        # through the same discovery + reversal keys the webhook uses.
+        "verenigingen.verenigingen_payments.mollie.services.reversal_rediscovery_sweep.sweep_missed_reversals",
         # Security and monitoring
         "verenigingen.utils.security.audit_logging.cleanup_old_audit_logs",
         "verenigingen.utils.alert_manager.run_daily_checks",

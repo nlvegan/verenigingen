@@ -416,7 +416,9 @@ class BulkPaymentChecker:
                     )
                     break
 
-                idempotency_check = creator.check_already_processed(payment.id, check_payment_entry=True)
+                idempotency_check = creator.check_mollie_payment_processed(
+                    payment.id, check_payment_entry=True
+                )
                 payment_type = self.dues_processor.identify_payment_type(payment)
                 amount_value = extract_amount_value(payment.amount)
                 currency = extract_amount_currency(payment.amount)
@@ -950,15 +952,12 @@ class BulkPaymentChecker:
         )
         existing_pe = {pe["reference_no"] for pe in pe_results}
 
-        bt_results = frappe.db.sql(
-            f"""
-            SELECT reference_number FROM `tabBank Transaction`
-            WHERE reference_number IN ({placeholders}) AND docstatus != 2
-            """,
-            params,
-            as_dict=True,
+        # Mollie bank account only (#2620): another account's row is not this payment's booking.
+        from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+            get_bank_transaction_creator,
         )
-        existing_bt = {bt["reference_number"] for bt in bt_results}
+
+        existing_bt = set(get_bank_transaction_creator().find_mollie_bank_transactions(payment_ids_list))
 
         frappe.logger().info(
             f"Batch check found {len(existing_pe)} Payment Entries, {len(existing_bt)} Bank Transactions"

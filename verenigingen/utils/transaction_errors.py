@@ -46,8 +46,26 @@ import re
 from contextlib import contextmanager
 
 import frappe
+import pymysql
 
 NON_RESUMABLE_DB_ERRORS = (frappe.QueryDeadlockError, frappe.QueryTimeoutError)
+
+# Base class(es) of every SQL error the driver raises. frappe picks the driver at runtime
+# (mysqlclient by default, and in CI; PyMySQL otherwise) and ``frappe.db.OperationalError`` /
+# ``ProgrammingError`` ... are the ACTIVE driver's classes. The two drivers' hierarchies are
+# unrelated (measured: a MySQLdb error is not a ``pymysql.err.DatabaseError``), so both bases
+# are listed. ``frappe.db`` and ``frappe`` expose NO ``DatabaseError`` of their own, so
+# ``except frappe.db.DatabaseError`` raises AttributeError (#2700). The tuple does NOT cover
+# ``NON_RESUMABLE_DB_ERRORS``: frappe's dispatch converts 1213/1205 into those, and both derive
+# from plain ``Exception`` (measured), so a handler that wants them to escape must still not
+# sit behind a broader ``except Exception``.
+DATABASE_ERROR = (pymysql.err.DatabaseError,)
+try:
+    import MySQLdb
+
+    DATABASE_ERROR = (MySQLdb.DatabaseError, *DATABASE_ERROR)
+except ImportError:  # PyMySQL-only install
+    pass
 
 # MariaDB "SAVEPOINT <name> does not exist". Canonical home: financial_history_batch_processor
 # had the only correct copy and now imports these from here.
@@ -156,7 +174,7 @@ def rollback_to_savepoint(save_point):
         return False
 
 
-def insert_and_submit_atomically(doc):
+def insert_and_submit_atomically(doc, reload_before_submit=False):
     """Insert and submit as one unit: a failed submit must leave no draft behind.
 
     A submit precondition can only answer "may this user submit this DOCTYPE?", which
@@ -178,11 +196,18 @@ def insert_and_submit_atomically(doc):
     because it swallows what it catches, which would let a caller report success naming
     a document that no longer exists.
 
+    ``reload_before_submit`` keeps the ``insert(); reload(); submit()`` shape of callers that
+    reload to dodge #609 (whole-second ``modified`` -> TimestampMismatchError on submit); the
+    reload runs inside the same savepoint.
+
     Extracted from BankTransactionReconciliationManager._insert_and_submit, which was
     the only correct implementation in the codebase while every gateway path went
     without one.
     """
-    _atomically(doc.insert, doc.submit)
+    if reload_before_submit:
+        _atomically(doc.insert, doc.reload, doc.submit)
+    else:
+        _atomically(doc.insert, doc.submit)
 
 
 def submit_atomically(doc):

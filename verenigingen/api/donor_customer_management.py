@@ -11,6 +11,7 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.operation_result import OperationResult
 
 # Import security framework
@@ -20,7 +21,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 
 @frappe.whitelist()
@@ -134,6 +135,9 @@ def force_donor_customer_sync(donor_name: str) -> OperationResult[Dict[str, Any]
         return OperationResult.fail(message=error_msg, error_code="DONOR_CUSTOMER_SYNC_ERROR")
 
 
+_UNLINK_SAVEPOINT = "unlink_donor_customer"
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def unlink_donor_customer(donor_name: str, remove_customer=False) -> OperationResult[Dict[str, Any]]:
@@ -147,7 +151,14 @@ def unlink_donor_customer(donor_name: str, remove_customer=False) -> OperationRe
     Returns:
         OperationResult: Result of unlink operation
     """
+    # The Donor is saved and Customer.donor cleared before Customer.delete(), which a caller
+    # without Customer delete is refused. The failure is returned (HTTP 200), so frappe/app.py
+    # COMMITS the request: without this savepoint the half-unlink is kept (#2304, class of #2281).
+    frappe.db.savepoint(_UNLINK_SAVEPOINT)
     try:
+        # Over HTTP the flag is a string and "0" is truthy, which attempted the delete (#2327).
+        remove_customer = cbool(remove_customer)
+
         if not frappe.db.exists("Donor", donor_name):
             return OperationResult.fail(message=_("Donor not found"), error_code="DONOR_NOT_FOUND")
 
@@ -198,8 +209,13 @@ def unlink_donor_customer(donor_name: str, remove_customer=False) -> OperationRe
         data = {"customer_unlinked": True, "customer_name": customer_name}
         return OperationResult.ok(data=data, message=_("Donor unlinked from customer successfully"))
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # A deadlock has already discarded the transaction and its savepoints.
+        raise
     except Exception as e:
-        error_msg = _("Error unlinking donor-customer: {0}").format(str(e))
+        rollback_to_savepoint(_UNLINK_SAVEPOINT)
+        # A bare PermissionError has no text, so name the class when str(e) is empty.
+        error_msg = _("Error unlinking donor-customer: {0}").format(str(e) or type(e).__name__)
         frappe.log_error(
             title=_("Donor Customer Unlink Error"), message=f"{error_msg}\n\n{traceback.format_exc()}"
         )

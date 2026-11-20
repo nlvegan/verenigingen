@@ -20,8 +20,8 @@ from frappe.utils import flt, getdate, nowdate
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
     discard_unposted_journal_entry,
-    find_journal_entry_by_reference,
     reconcile_bank_transaction_with_journal_entry,
+    resolve_journal_entry_by_reference,
 )
 
 
@@ -103,7 +103,7 @@ class DonationRefundJournalEntryCreator:
         reference_number = build_reversal_key(original_payment_id, reversal_type, refund_id)
 
         # Idempotency check - avoid duplicate Journal Entries
-        existing_je = find_journal_entry_by_reference(reference_number)
+        existing_je = resolve_journal_entry_by_reference(reference_number, flt(refund_amount))
         if existing_je:
             frappe.logger().info(f"Refund Journal Entry already exists for {refund_id}: {existing_je}")
             # Still attempt reconciliation in case it wasn't done previously
@@ -128,12 +128,10 @@ class DonationRefundJournalEntryCreator:
         posting_date = None
         if refund_date:
             try:
-                if isinstance(refund_date, str):
-                    from dateutil import parser
+                # Site-local day of a Mollie UTC timestamp (#2162)
+                from ..utils.timezone_utils import mollie_timestamp_to_local_date
 
-                    posting_date = parser.parse(refund_date).date()
-                else:
-                    posting_date = getdate(refund_date)
+                posting_date = mollie_timestamp_to_local_date(refund_date)
             except (ValueError, TypeError, ImportError):
                 pass
         if not posting_date:

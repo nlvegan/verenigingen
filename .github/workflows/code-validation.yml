@@ -62,27 +62,36 @@ jobs:
         pip install pathlib
         # template_escaping_validator (#1890) and its unit test parse Jinja
         pip install jinja2
+        # test_workflow_ci_syntax_gates (#2399) runs flake8 against a scratch tree; without it
+        # that test skips
+        pip install flake8
 
+    # #2190: no `|| echo`. continue-on-error keeps this job green (the other validators here
+    # are advisory too) but, unlike the `|| echo`, leaves the step's `outcome` real, so the
+    # Validation Summary below no longer prints PASSED over a finding. The blocking run is
+    # the required `fast-validation` job.
     - name: Run Database Field Validation
       id: field-validation
       run: |
         cd scripts/validation
-        python enhanced_field_reference_validator.py --pre-commit || echo "Field validation completed with issues"
+        python enhanced_field_reference_validator.py --pre-commit
       continue-on-error: true
 
+    # #2329: same shape as the field step above (#2190): exit code not swallowed, advisory via
+    # continue-on-error, so each step's `outcome` is real.
     - name: Run Template Variable Validation
       id: template-validation
       if: success() || failure()
       run: |
         cd scripts/validation
-        python template_variable_validator.py || echo "Template validation completed with issues"
+        python template_variable_validator.py
       continue-on-error: true
 
     - name: Run Child Table Validation
       if: success() || failure()
       run: |
         cd scripts/validation
-        python child_table_creation_validator.py || echo "Child table validation completed with issues"
+        python child_table_creation_validator.py
       continue-on-error: true
 
     # Catch-all for scripts/validation/tests (#1068): every step below this one in
@@ -303,11 +312,65 @@ jobs:
         echo "Baseline did not grow."
 
     # The failed-write guard is the sibling rule (a broad except around a DATABASE
-    # WRITE whose failure never reaches the caller). It is ADVISORY for now, so it
-    # gets no ratchet/growth gate here — only its unit tests, which are stdlib-only
-    # and include a check that the tree is still at or below its baseline.
+    # WRITE whose failure never reaches the caller). The validator itself is ADVISORY
+    # (bare run exits 0), so the enforcement is the baseline: #1431 found that only
+    # its unit tests ran here, so nothing regenerated or diffed the baseline against
+    # the tree and a new site could land with no CI signal. The two steps after the
+    # unit tests are the same shape as the submittability-drift pair above: the shrink
+    # gate hard-fails a NEW key or a higher count (growth), and "did not grow" catches
+    # a regenerated-and-committed baseline that recorded a new site instead of fixing it.
     - name: Unit-test the failed-write guard
       run: python -m unittest discover -s scripts/validation/tests -p 'test_failed_write_validator.py' -v
+
+    - name: Run the failed-write guard over the tree
+      run: python scripts/validation/failed_write_validator.py
+
+    - name: Baseline is in sync with the tree
+      env:
+        # merge_group: push semantics ON PURPOSE (#2184), as the sibling steps.
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
+      run: |
+        python scripts/validation/failed_write_validator.py --update-baseline
+        python scripts/validation/baseline_shrink_gate.py \
+          scripts/validation/failed_write_baseline.txt \
+          "python scripts/validation/failed_write_validator.py --update-baseline" \
+          --already-regenerated \
+          $FAIL_ON_SHRINK \
+          $BASE_SHA_ARG
+
+    # Regenerating the baseline so a NEW site is recorded rather than fixed leaves
+    # baseline and tree in sync; the only signal is that the baseline GREW, which is
+    # legitimate solely when the validator's own detection rules changed in the PR.
+    - name: Baseline did not grow
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      run: |
+        BASELINE=scripts/validation/failed_write_baseline.txt
+        VALIDATOR=scripts/validation/failed_write_validator.py
+        total() { grep -v -e '^#' -e '^$' | awk -F'::' '{s+=$NF} END {print s+0}'; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Validator changed in this PR, so a larger baseline is expected."
+          echo "Review the added entries by hand — they are new DETECTIONS, not new code."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | total)
+        after=$(total < "$BASELINE")
+        echo "baseline sites: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Baseline grew from $before to $after without a validator change."
+          echo "A new failed-write site was recorded into the baseline instead of fixed."
+          exit 1
+        fi
+        echo "Baseline did not grow."
 
     # The class-teardown harness-logger census. verenigingen/tests/harness_logger.py
     # justifies its `>= ERROR` mirror gate with a count of which teardown routes log
@@ -685,8 +748,12 @@ jobs:
           exit 0
         fi
         git show "$BASE_SHA:$BASELINE" > "$RUNNER_TEMP/base_log_error_baseline.txt"
+        # The base TREE too (#1858): from the head tree alone, code that MOVED (under tests/,
+        # outside SCAN_ROOTS, a renamed function) is indistinguishable from code that was deleted.
+        git worktree add --detach "$RUNNER_TEMP/base_tree_log_error" "$BASE_SHA" >/dev/null
         python scripts/validation/log_error_arg_order_validator.py \
-          --check-shrink "$RUNNER_TEMP/base_log_error_baseline.txt"
+          --check-shrink "$RUNNER_TEMP/base_log_error_baseline.txt" \
+          --base-tree "$RUNNER_TEMP/base_tree_log_error"
 
   # #1042: this ratchet was `stages: [pre-commit]` ONLY -- no workflow ran
   # `pre-commit` at all, so it was enforced nowhere except a developer's own
@@ -799,8 +866,12 @@ jobs:
           exit 0
         fi
         git show "$BASE_SHA:$BASELINE" > "$RUNNER_TEMP/base_db_clock_baseline.txt"
+        # The base TREE too (#1858): from the head tree alone, code that MOVED (under tests/,
+        # outside SCAN_ROOTS, a renamed function) is indistinguishable from code that was deleted.
+        git worktree add --detach "$RUNNER_TEMP/base_tree_db_clock" "$BASE_SHA" >/dev/null
         python scripts/validation/db_clock_date_window_validator.py \
-          --check-shrink "$RUNNER_TEMP/base_db_clock_baseline.txt"
+          --check-shrink "$RUNNER_TEMP/base_db_clock_baseline.txt" \
+          --base-tree "$RUNNER_TEMP/base_tree_db_clock"
 
   # #1042: this ratchet was ALSO `stages: [pre-commit]` ONLY, so it never ran
   # in CI either -- and being at ZERO known entries makes that worse, not
@@ -1543,8 +1614,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # merge_group: skipped ON PURPOSE (a job skipped by `if:` reports success). Its validator
-    # ends in `|| echo`, so this job cannot fail; its only effect is a PR comment, and a queue
-    # run has no PR to comment on. Revisit if #2190 makes the validator able to fail.
+    # used to end in `|| echo` (#2190); it now fails the job on a finding. A queue
+    # run has no PR to comment on. #2190 made the validator able to fail, so a queue run
+    # now relies on the PR-time run of this job (a PR run compares one PR at a time).
+    # NB #2323: the validator is currently blind (swallowed AttributeError), so this still finds nothing.
+    # Fixing #2323 makes this REQUIRED job fail on every PR until the findings are baselined or
+    # fixed; measure the count in CI, not on a bench (CI loads ~151 doctypes, a bench ~1168,
+    # so the counts differ).
     if: github.event_name == 'pull_request'
 
     steps:
@@ -1565,7 +1641,7 @@ jobs:
       id: validation
       run: |
         cd scripts/validation
-        python enhanced_field_reference_validator.py --pre-commit || echo "Field validation completed with issues"
+        python enhanced_field_reference_validator.py --pre-commit
 
     - name: Comment PR Results
       # merge_group: never reached - the fast-validation job above is pull_request only.

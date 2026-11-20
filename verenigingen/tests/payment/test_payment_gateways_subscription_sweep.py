@@ -279,8 +279,12 @@ class TestSubscriptionWebhookEntry(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self._committed_pes = []
+        self._committed_users = []
 
     def tearDown(self):
+        for user in self._committed_users:  # created before a commit in the test body, so committed
+            frappe.db.delete("Notification Log", {"for_user": user})
+            frappe.delete_doc("User", user, force=True, ignore_permissions=True)
         # Newest first: a later PE allocated against the same invoice must come
         # off before the earlier one.
         for pe_name in reversed(self._committed_pes):
@@ -334,6 +338,96 @@ class TestSubscriptionWebhookEntry(EnhancedTestCase):
                 result = pg.mollie_subscription_webhook()
         self.assertEqual(result["status"], "ignored")
         self.assertIn("No member found", result["reason"])
+
+    def _create_flush(self):
+        """Commit the fixture: _process_subscription_payment opens its own transaction (begin())."""
+        frappe.db.commit()
+
+    def _subscription_delivery_2406(self, tag):
+        """A member with a subscription, one invoice, and a real signed-webhook delivery callable."""
+        company = get_eur_test_company()
+        member = self._make_member_with_customer(f"Cancel{tag}", subscription_id=f"sub_{tag}", customer_id=f"cst_{tag}")
+        self.create_test_sales_invoice(customer=member.name, grand_total=10.0, company=company)
+        self._create_flush()
+        ref_no = f"tr_{tag}_{frappe.generate_hash(length=8)}"
+        payment = _StubPayment(
+            id=ref_no, paid=True, amount=_StubAmount(value="10.00"), sequence_type="recurring"
+        )
+        gw = _make_gateway(payment=payment, subscription={"id": f"sub_{tag}", "status": "active"})
+        body = _json_event(payment_id=ref_no, subscription_id=f"sub_{tag}")
+        orig_get_user_default = frappe.defaults.get_user_default
+
+        def _company_default(key):
+            return company if key == "Company" else orig_get_user_default(key)
+
+        def deliver():
+            with _mollie_auth_config(test_mode=False):
+                self._create_flush()
+                with install_fake_request(body, signature=sign_payload(body, WEBHOOK_SECRET)):
+                    with patch.object(pg.PaymentGatewayFactory, "get_gateway", return_value=gw):
+                        with patch.object(frappe.defaults, "get_user_default", side_effect=_company_default):
+                            return pg.mollie_subscription_webhook()
+
+        return member, ref_no, gw, _company_default, deliver
+
+    def test_redelivery_after_staff_cancel_is_refused_not_rebooked_2406(self):
+        """#2406 ruling: a staff-cancelled subscription PE is not booked again, on EITHER entry:
+        the whitelisted webhook (its parse stage used to acknowledge a cancelled row silently) and
+        _process_subscription_payment called directly. One Error Log row and one alert per payment."""
+        from verenigingen.tests.support import forward_refusal as refusal
+
+        self.expectErrorLog("Payment Notification Error")
+        member, ref_no, gw, _company_default, deliver = self._subscription_delivery_2406("2406")
+        first = deliver()["payment_processed"]["payment_entry"]
+        self._committed_pes.append(first)
+        refusal.assert_no_refusal(self, ref_no)
+        frappe.get_doc("Payment Entry", first).cancel()
+        self._committed_users.append(refusal.prepare_refusal_fixture(self, ref_no))
+        self._create_flush()
+
+        def rows():
+            return frappe.get_all(
+                "Payment Entry", filters={"reference_no": ref_no}, fields=["name", "docstatus"]
+            )
+
+        for _ in range(2):  # entry point; the second redelivery must not alert again
+            result = deliver()
+            self.assertNotEqual(result.get("status"), "error")  # acknowledged, not retried
+            self.assertEqual([(r.name, r.docstatus) for r in rows()], [(first, 2)])
+            refusal.assert_refused_once(self, ref_no, "10.00")
+
+        with patch.object(frappe.defaults, "get_user_default", side_effect=_company_default):
+            direct = pg._process_subscription_payment(gw, member.name, member.customer, ref_no, "sub_2406")
+        self.assertEqual(direct["status"], "refused")
+        self.assertEqual([(r.name, r.docstatus) for r in rows()], [(first, 2)])
+        refusal.assert_refused_once(self, ref_no, "10.00")
+
+    def test_cancelled_row_beside_a_live_one_is_not_refused_at_the_parse_stage_2406(self):
+        """Control for the parse-stage pre-check, which fires on ANY Payment Entry row for the
+        payment: a LIVE row plus a cancelled one is a booked payment, acknowledged silently.
+        Probe shortcut: the cancelled row is a copy (no invoice reference, other party) of the
+        real booked entry, not produced by a staff action on a second delivery."""
+        from verenigingen.tests.support import forward_refusal as refusal
+
+        self.expectErrorLog("Payment Notification Error")
+        member, ref_no, _gw, _default, deliver = self._subscription_delivery_2406("2406c")
+        live = deliver()["payment_processed"]["payment_entry"]
+        self._committed_pes.append(live)
+        other = frappe.get_doc("Donor", self.create_test_donor().name).get_or_create_customer()
+        copy = frappe.copy_doc(frappe.get_doc("Payment Entry", live))
+        copy.party = other
+        copy.set("references", [])
+        copy.insert()
+        copy.submit()
+        copy.cancel()
+        self._committed_pes.append(copy.name)
+        self.assertEqual(frappe.db.get_value("Payment Entry", copy.name, "docstatus"), 2)
+        self.assertEqual(frappe.db.get_value("Payment Entry", live, "docstatus"), 1)
+        self._committed_users.append(refusal.prepare_refusal_fixture(self, ref_no))
+        self._create_flush()
+
+        self.assertEqual(deliver().get("status"), "already_processed")
+        refusal.assert_no_refusal(self, ref_no)
 
     def test_success_creates_payment_entry_and_updates_status(self):
         from verenigingen.tests.support.sepa_test_company import get_eur_test_company

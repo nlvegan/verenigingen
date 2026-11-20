@@ -155,7 +155,8 @@ class VerenigingenEmailConfiguration(Document):
         # Get emails for enabled users
         return frappe.get_all(
             "User",
-            filters={"enabled": 1, "name": ["in", users_with_role]},
+            # Never the Administrator user (#1960), by name so a shared email does not hide a staff user.
+            filters={"enabled": 1, "name": ["in", [u for u in users_with_role if u != "Administrator"]]},
             pluck="email",
         )
 
@@ -214,13 +215,18 @@ def send_test_email(recipient: str) -> dict:
             notification_key=None,  # Bypass notification checks for test
         )
 
-        if result.get("success"):
+        # An OperationResult, not a dict. A skip (e.g. the master switch is off) queued nothing,
+        # so the button must not say it did (#2044).
+        if result.skip_reason:
+            return {"success": False, "error": f"Test email not sent: {result.skip_reason}"}
+        if result.success:
             return {"success": True, "message": f"Test email queued for {recipient}"}
-        else:
-            return {"success": False, "error": result.get("error", "Unknown error")}
+        return {"success": False, "error": result.error_message or "Unknown error"}
 
     except Exception as e:
-        frappe.log_error(f"Test email failed: {str(e)}", "Verenigingen Email Configuration Test")
+        frappe.log_error(
+            title="Verenigingen Email Configuration Test", message=f"Test email failed: {str(e)}"
+        )
         return {"success": False, "error": str(e)}
 
 

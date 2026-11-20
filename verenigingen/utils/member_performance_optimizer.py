@@ -21,7 +21,6 @@ Performance Targets:
 
 import json
 import time
-from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 import frappe
@@ -43,9 +42,9 @@ class MemberPerformanceOptimizer:
         self.cache_timeout = 300  # 5 minutes
 
     @staticmethod
-    @lru_cache(maxsize=32)
     def get_doctype_meta_cached(doctype: str) -> Dict[str, Any]:
-        """Cache DocType metadata to avoid repeated loading
+        """DocType metadata summary (not memoised: a process-wide lru_cache had no site in its key, #1935;
+        frappe.get_meta is already cached per site)
 
         Args:
             doctype: DocType name to cache metadata for
@@ -398,9 +397,6 @@ class MemberPerformanceOptimizer:
 
     def clear_all_member_caches(self):
         """Clear all member-related caches"""
-        # Clear function caches
-        self.get_doctype_meta_cached.cache_clear()
-
         # Clear Redis caches with member pattern.
         #
         # Use delete_keys(pattern), NOT a get_keys(pattern) + delete_value(key) loop.
@@ -411,9 +407,12 @@ class MemberPerformanceOptimizer:
         frappe.cache().delete_keys("member_dashboard:")
 
 
-@frappe.whitelist()
 def process_member_post_creation(member_name: str):
     """Background processing for non-critical member setup tasks
+
+    Deliberately NOT whitelisted (#2232): the only caller is the enqueue in
+    create_member_optimized, and background jobs are not whitelist-gated. A whitelist
+    let any logged-in user mail a welcome message to any member.
 
     This function handles tasks that can be delayed without affecting
     the user experience, reducing the synchronous processing time.
@@ -431,7 +430,7 @@ def process_member_post_creation(member_name: str):
                 from verenigingen.services.communication.email_service import get_email_service
 
                 email_service = get_email_service()
-                company = frappe.db.get_single_value("System Settings", "company") or "Our Organization"
+                company = frappe.defaults.get_global_default("company") or "Our Organization"
 
                 result = email_service.send_simple_email(
                     recipients=[member.email],
@@ -447,7 +446,12 @@ def process_member_post_creation(member_name: str):
                     notification_key="member_activated",
                 )
 
-                if result.success:
+                if result.success and isinstance(result.data, dict) and result.data.get("skipped"):
+                    # EmailService reports a disabled key / cooldown as a successful skip (#2096).
+                    frappe.logger().info(
+                        f"Welcome email NOT sent to {member.email}: {result.data.get('reason')}"
+                    )
+                elif result.success:
                     frappe.logger().info(f"Welcome email sent to {member.email}")
                 else:
                     frappe.log_error(

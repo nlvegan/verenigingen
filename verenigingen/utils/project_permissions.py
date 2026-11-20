@@ -30,6 +30,7 @@ from frappe import _
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.transaction_errors import DATABASE_ERROR, NON_RESUMABLE_DB_ERRORS
 
 
 # Custom Exceptions
@@ -203,7 +204,10 @@ def _query_volunteer_for_user(user):
             return result[0].member_name, result[0].volunteer_name
         return None, None
 
-    except frappe.db.DatabaseError as e:
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213/1205: not a permission answer; must reach the transaction owner as-is
+        raise
+    except DATABASE_ERROR as e:
         frappe.log_error(f"Database error getting volunteer for user {user}: {str(e)}")
         raise PermissionSystemError("Database error during volunteer lookup") from e
     except Exception as e:
@@ -288,7 +292,10 @@ def user_has_any_team_projects(user):
         return False  # Expected case - no permission
     except PermissionSystemError:
         return False  # Already logged
-    except frappe.db.DatabaseError as e:
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213/1205: not a permission answer; must reach the transaction owner as-is
+        raise
+    except DATABASE_ERROR as e:
         frappe.log_error(f"Database error checking team projects for {user}: {str(e)}")
         raise PermissionSystemError("Database error during team project check") from e
     except Exception as e:
@@ -351,7 +358,10 @@ def user_has_project_team_access(user, project_name, permission_type):
         return False  # Expected case - no permission
     except PermissionSystemError:
         return False  # Already logged
-    except frappe.db.DatabaseError as e:
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213/1205: not a permission answer; must reach the transaction owner as-is
+        raise
+    except DATABASE_ERROR as e:
         frappe.log_error(f"Database error checking team access for {user}, project {project_name}: {str(e)}")
         raise PermissionSystemError("Database error during team access check") from e
     except Exception as e:
@@ -408,7 +418,10 @@ def user_has_any_chapter_projects(user):
         return False  # Expected case - no permission
     except PermissionSystemError:
         return False  # Already logged
-    except frappe.db.DatabaseError as e:
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213/1205: not a permission answer; must reach the transaction owner as-is
+        raise
+    except DATABASE_ERROR as e:
         frappe.log_error(f"Database error checking chapter projects for {user}: {str(e)}")
         raise PermissionSystemError("Database error during chapter project check") from e
     except Exception as e:
@@ -474,7 +487,10 @@ def user_has_project_chapter_access(user, project_name, permission_type):
         return False  # Expected case - no permission
     except PermissionSystemError:
         return False  # Already logged
-    except frappe.db.DatabaseError as e:
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213/1205: not a permission answer; must reach the transaction owner as-is
+        raise
+    except DATABASE_ERROR as e:
         frappe.log_error(
             f"Database error checking chapter access for {user}, project {project_name}: {str(e)}"
         )
@@ -535,7 +551,10 @@ def get_chapter_permission_level(chapter_name, volunteer, permission_type):
         allowed_permissions = ChapterPermissionLevel.get_permissions(permissions_level, is_chair)
         return permission_type.lower() in allowed_permissions
 
-    except frappe.db.DatabaseError as e:
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213/1205: not a permission answer; must reach the transaction owner as-is
+        raise
+    except DATABASE_ERROR as e:
         frappe.log_error(
             f"Database error getting chapter permission level for chapter {chapter_name}, volunteer {volunteer}: {str(e)}"
         )
@@ -585,7 +604,10 @@ def get_team_permission_level(team_name, volunteer, permission_type):
         allowed_permissions = TeamPermissionLevel.get_permissions(role_name)
         return permission_type.lower() in allowed_permissions
 
-    except frappe.db.DatabaseError as e:
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213/1205: not a permission answer; must reach the transaction owner as-is
+        raise
+    except DATABASE_ERROR as e:
         frappe.log_error(
             f"Database error getting team permission level for team {team_name}, volunteer {volunteer}: {str(e)}"
         )
@@ -865,7 +887,10 @@ def get_project_permission_query_conditions(user):
     except PermissionSystemError:
         # Already logged by get_volunteer_for_user
         return "1=0"
-    except frappe.db.DatabaseError as e:
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213/1205: not a permission answer; must reach the transaction owner as-is
+        raise
+    except DATABASE_ERROR as e:
         frappe.log_error(f"Database error generating project query conditions for {user}: {str(e)}")
         return "1=0"
     except Exception as e:

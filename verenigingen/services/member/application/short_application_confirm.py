@@ -66,6 +66,31 @@ def submitted_template_still_valid(source, payload) -> bool:
     )
 
 
+def plan_removed_refusal() -> dict:
+    """Only reachable once the token has validated, so it names the reason (#2131 ruling)."""
+    return {
+        "success": False,
+        "message": _("The membership option you chose is no longer offered. Please apply again."),
+    }
+
+
+def chosen_plan_still_on_door(source, payload, door) -> bool:
+    """The plan row the applicant chose must still be on the door (#2131: a removed option is refused;
+    an edited one keeps the price the applicant saw). A payload without a plan (staged before #2127,
+    Housemate, full form) has none to check. Existence only, not whether the plan is offerable now."""
+    plan = payload.get("plan")
+    if source == "Full Form" or not plan:
+        return True
+    return bool(
+        isinstance(plan, str)
+        and door
+        and frappe.db.exists(
+            "Membership Application Door Plan",
+            {"name": plan, "parent": door, "parenttype": "Membership Application Door"},
+        )
+    )
+
+
 def _type_is_active(name) -> bool:
     """One lookup for "exists and is_active": a missing or non-string name reads as not active."""
     return isinstance(name, str) and bool(frappe.db.get_value("Membership Type", name, "is_active"))

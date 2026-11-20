@@ -26,6 +26,7 @@ import frappe
 from frappe.utils import flt, getdate, nowdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.system_timezone import system_timezone
 from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
     DonationRefundJournalEntryCreator,
 )
@@ -201,6 +202,21 @@ class TestDonationRefundJournalEntryCreator(_RefundFixtureMixin, EnhancedTestCas
             sum(flt(a.debit_in_account_currency) for a in je.accounts),
             sum(flt(a.credit_in_account_currency) for a in je.accounts),
         )
+
+    def test_a_late_evening_utc_refund_date_posts_on_the_site_local_day_2162(self):
+        """23:30 UTC on 3 March is 4 March in Amsterdam; the zone is pinned, not the host's."""
+        amount = 12.00
+        donation = self._make_donation(self._make_donor(), amount)
+        with system_timezone("Europe/Amsterdam"):
+            je_name = self.creator.create_refund_journal_entry(
+                refund_id=f"re_{frappe.generate_hash(length=10)}",
+                refund_amount=amount,
+                refund_date="2026-03-03T23:30:00+00:00",
+                donation_doc=donation,
+                original_payment_id=f"tr_{frappe.generate_hash(length=10)}",
+            )
+        self.assertTrue(je_name)
+        self.assertEqual(getdate(frappe.db.get_value("Journal Entry", je_name, "posting_date")), getdate("2026-03-04"))
 
     def test_refund_date_none_falls_back_to_today(self):
         amount = 10.00

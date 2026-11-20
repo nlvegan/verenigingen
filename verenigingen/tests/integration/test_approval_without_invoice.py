@@ -20,6 +20,7 @@ from frappe.utils import add_days, add_months, getdate, now_datetime, today
 
 from verenigingen.services.communication.email_service import EmailService
 from verenigingen.tests.integration.test_application_record_approval import SUBMISSION, ApprovalCase
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 
 NOTIFICATION_KEY = "member_application_approved"
 APPROVAL_ERRORS = ["Approval Email Exception", "Approval Email Failed", "Approval Notification Failed"]
@@ -28,7 +29,12 @@ APPROVAL_ERRORS = ["Approval Email Exception", "Approval Email Failed", "Approva
 class TestApprovalWithoutInvoice(ApprovalCase):
     def setUp(self):
         super().setUp()
+        # CI's fresh site has no outgoing Email Account, so every approval mail was refused and
+        # 12 tests went red in the PR census job (#1879 class).
+        ensure_outgoing_email_account(self)
         self._require_approval_notification_enabled()
+        # EmailService refuses without a default outgoing Email Account; a fresh CI site has none.
+        ensure_outgoing_email_account(self)
 
     def _require_approval_notification_enabled(self):
         """Precondition, stated rather than seeded: with no `notification_types` row the key counts as
@@ -312,6 +318,26 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         self.assertEqual(len(self._invoices_of(member)), 1)
         self.assertEqual(len(mails), 1)
 
+    def test_board_member_retry_creates_the_membership_item_the_approval_never_got_to_make(self):
+        """#1930/#2538: the retry creates the invoice as the CALLER, and the first invoice of a membership
+        type creates its Item, which a board member cannot. After the retry's own authorisation the invoice
+        step runs with permission checks bypassed, as the approver. The Item is removed after the failed
+        approval (the approval's own attempt got as far as making it before the invoice insert failed)."""
+        board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        application, member = self._approved_with_failed_invoice()
+        item_code = f"MEM-{self.membership_type.membership_type_name}".upper().replace(" ", "-")
+        frappe.delete_doc("Item", item_code, force=True, ignore_permissions=True)
+        self.assertFalse(frappe.db.exists("Item", item_code), "precondition: the membership Item is absent")
+        self._fix_invoicing()
+
+        response, mails = self._retry(application, user=board.user)
+
+        self.assertTrue(response["success"], response)
+        self.assertFalse(response["invoice_failed"], response)
+        self.assertTrue(frappe.db.exists("Item", item_code))
+        self.assertEqual(len(self._invoices_of(member)), 1)
+        self.assertEqual(len(mails), 1)
+
     def test_a_board_member_of_another_chapter_is_refused_like_an_unknown_application(self):
         other = self.factory.ensure_test_chapter(
             f"Test Other {frappe.generate_hash(length=6)}", {"short_name": "OTH", "country": "Netherlands"}
@@ -371,6 +397,103 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         self._fix_invoicing()
         self._retry(application)
         self.assertFalse(self._marker(application), "a successful retry clears the marker")
+
+    def _give_the_applicant_a_user(self):
+        """An existing User makes the core's account step link it and COMMIT (the commit under test)."""
+        user_doc = frappe.get_doc(
+            {"doctype": "User", "email": self.email, "first_name": "Marker", "send_welcome_email": 0}
+        ).insert()  # as the suite's Administrator
+        self.track_doc("User", user_doc.name)
+
+    def _approve_failing_after_the_core_commit(self, application, user=None, with_user=True):
+        """Approve (invoice broken) and fail AFTER the core's own commit, then drop everything uncommitted.
+
+        The core's account step really commits (member_user_account_service links an EXISTING User and
+        commits, Pattern 1), so the applicant gets a User first. The later failure stands in for a crash or a
+        worker kill: `_build_approval_response` runs after that commit. Then `frappe.db.rollback()` discards
+        what a dying request would lose, so the reads that follow see only what was COMMITTED."""
+        from verenigingen.api import membership_application_review as review
+
+        if with_user:
+            self._give_the_applicant_a_user()
+        self._make_invoicing_fail()
+        # Mock justified: execution-context fault injection standing in for a crash after the core's commit
+        with patch.object(review, "_build_approval_response", side_effect=RuntimeError("crash after commit")):
+            with self.assertRaises(RuntimeError):
+                self._approve_as(
+                    application,
+                    user=user,
+                    create_invoice=True,
+                    membership_type=self.membership_type.name,
+                    chapter=self.chapter.name,
+                )
+        frappe.db.rollback()
+
+    def _assert_committed_approved_and_marked(self, application):
+        self.assertEqual(
+            frappe.db.get_value(SUBMISSION, application, "status"),
+            "Approved",
+            "control: the core's commit really persisted the approval, so the crash fell AFTER it",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Member", frappe.db.get_value(SUBMISSION, application, "member"), "user"),
+            self.email,
+            "control: the account step's own commit is the one that ran",
+        )
+        self.assertTrue(
+            self._marker(application),
+            "an Approved application with a failed invoice must carry its retry marker in the DATABASE",
+        )
+
+    def test_the_marker_is_committed_with_the_approval_even_if_the_request_dies_after_the_core_commit(self):
+        """#2055: the marker used to be written after the core returned, i.e. after the core's mid-operation
+        commit, so a failure in between left Approved + failed invoice + NO marker (never in the retry list)."""
+        application = self._stage_and_confirm()
+        self._approve_failing_after_the_core_commit(application)
+        self._assert_committed_approved_and_marked(application)
+
+    def test_the_marker_survives_the_same_crash_for_the_least_privileged_approver(self):
+        board = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        application = self._stage_and_confirm()
+        self._approve_failing_after_the_core_commit(application, user=board.user)
+        self._assert_committed_approved_and_marked(application)
+
+    def test_without_a_user_the_core_never_commits_so_a_crash_rolls_approval_and_marker_back_together(self):
+        """No existing User: the account step QUEUES a job and does not commit, so nothing is persisted
+        before the crash. The rollback also discards the test's own uncommitted staging, so the row may be
+        gone entirely; what must NOT survive is an Approved application (with or without a marker): approval
+        and marker go together or not at all. (A marker written WITH a commit would leave Approved behind.)"""
+        application = self._stage_and_confirm()
+        self._approve_failing_after_the_core_commit(application, with_user=False)
+        self.assertNotEqual(frappe.db.get_value(SUBMISSION, application, "status"), "Approved")
+        self.assertFalse(self._marker(application))
+
+    def test_without_a_user_a_failed_invoice_approval_is_marked(self):
+        """The no-User branch of the real flow: the marker is set by the same write."""
+        application, _member = self._approved_with_failed_invoice()
+        self.assertFalse(frappe.db.get_value("User", self.email), "control: the applicant had no User")
+        self.assertEqual(frappe.db.get_value(SUBMISSION, application, "status"), "Approved")
+        self.assertTrue(self._marker(application))
+
+    def test_a_crash_after_the_core_commit_does_not_mark_an_approval_without_a_requested_invoice(self):
+        """Control: the early marker is only for a REQUESTED invoice that failed (create_invoice=False is
+        never marked), so the fix cannot be 'always mark'."""
+        from verenigingen.api import membership_application_review as review
+
+        application = self._stage_and_confirm()
+        self._give_the_applicant_a_user()
+        # Mock justified: execution-context fault injection standing in for a crash after the core's commit
+        with patch.object(review, "_build_approval_response", side_effect=RuntimeError("crash after commit")):
+            with self.assertRaises(RuntimeError):
+                self._approve_as(
+                    application,
+                    create_invoice=False,
+                    membership_type=self.membership_type.name,
+                    chapter=self.chapter.name,
+                )
+        frappe.db.rollback()
+        self.assertEqual(frappe.db.get_value(SUBMISSION, application, "status"), "Approved")
+        self.assertFalse(self._marker(application))
 
     def test_a_failed_retry_keeps_the_marker(self):
         application, _member = self._approved_with_failed_invoice()  # invoicing stays broken
@@ -446,7 +569,9 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
 
         def fail_submit(*args, **kwargs):
             if kwargs.get("operation") == "submit":
-                return SimpleNamespace(success=False, errors=["forced submit failure"], doc_name=None)
+                return SimpleNamespace(
+                    success=False, errors=["forced submit failure"], doc_name=None, partial_write=False
+                )
             return real(*args, **kwargs)
 
         self.expectErrorLog("Membership Invoice Creation Failed", "Membership Invoice Security")
@@ -456,6 +581,7 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
 
     def test_a_draft_left_by_a_failed_submit_is_refused_and_no_second_invoice_is_created(self):
         application = self._stage_and_confirm()
+        still_submitted_before = frappe.db.count("Error Log", {"method": "Membership Invoice Still Submitted"})
         response, mails, _outcomes, _errors = self._approve_with_failing_submit(application)
         member = response["member"]
         self.assertTrue(response["invoice_failed"], response)
@@ -467,6 +593,11 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
             pluck="name",
         )
         self.assertEqual(len(drafts), 1, "control: the failed submit left a draft membership invoice")
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "Membership Invoice Still Submitted"}),
+            still_submitted_before,
+            "a clean failure (nothing written) is not compensated: no cancel was attempted",
+        )
 
         with self.assertRaises(frappe.ValidationError) as refused:
             self._retry(application)
@@ -474,6 +605,179 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
         self.assertIn("draft membership invoice exists", str(refused.exception))
         self.assertEqual(self._invoices_of(member), drafts, "no second invoice")
         self.assertTrue(self._marker(application), "the marker is kept")
+
+    def _approve_with_on_submit_failing_after_the_write(self, application, break_cancel=None):
+        """Approve with a REAL submit whose ``on_submit`` raises AFTER the real one ran (#938): ``save()``
+        has by then written docstatus=1 and the GL rows, so the invoice is submitted and posted, and the
+        submit still reports failure. The fault is injected on the doctype class, below
+        ``secure_document_operation`` and every other layer that could swallow it."""
+        from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
+
+        real_on_submit = SalesInvoice.on_submit
+
+        def on_submit_then_fail(doc, *args, **kwargs):
+            real_on_submit(doc, *args, **kwargs)
+            raise frappe.ValidationError("forced on_submit failure after the ledger posting")
+
+        self.expectErrorLog(
+            "Membership Invoice Creation Failed",
+            "Membership Invoice Security",
+            "Secure Operation Failed",
+        )
+        # Mock justified: fault injection on the doctype's own hook; the real on_submit still runs first
+        with patch.object(SalesInvoice, "on_submit", on_submit_then_fail), self._cancel_broken(break_cancel):
+            return self._approve_capturing_mail(application, create_invoice=True)
+
+    def _cancel_broken(self, how):
+        """The compensating cancel, made to fail. "after_write": the doctype's ``on_cancel`` raises, below
+        every wrapper, AFTER ``save()`` wrote docstatus=2 (#926's shape: cancelled, ledger still live).
+        "refused": ``secure_document_operation`` reports a clean cancel refusal and writes nothing."""
+        from contextlib import nullcontext
+        from types import SimpleNamespace
+
+        from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
+
+        from verenigingen.services.member.approval import application_payments
+
+        if how == "after_write":
+
+            def on_cancel_fails(doc, *args, **kwargs):
+                raise frappe.ValidationError("forced on_cancel failure")
+
+            # Mock justified: fault injection on the doctype's own hook
+            return patch.object(SalesInvoice, "on_cancel", on_cancel_fails)
+        if how == "refused":
+            real = application_payments.secure_document_operation
+
+            def refuse_cancel(*args, **kwargs):
+                if kwargs.get("operation") == "cancel":
+                    return SimpleNamespace(
+                        success=False, errors=["forced cancel refusal"], doc_name=None, partial_write=False
+                    )
+                return real(*args, **kwargs)
+
+            # Mock justified: External Service boundary - only the cancel step is refused
+            return patch.object(application_payments, "secure_document_operation", refuse_cancel)
+        return nullcontext()
+
+    def _membership_invoices(self, member):
+        return frappe.get_all(
+            "Sales Invoice",
+            {"customer": frappe.db.get_value("Member", member, "customer"), "is_membership_invoice": 1},
+            ["name", "docstatus"],
+        )
+
+    def _live_gl_rows(self, invoice):
+        return frappe.db.count("GL Entry", {"voucher_no": invoice, "is_cancelled": 0})
+
+    def test_a_submit_that_fails_after_its_write_leaves_no_submitted_invoice_and_the_retry_creates_a_fresh_one(
+        self,
+    ):
+        application = self._stage_and_confirm()
+        response, mails, _outcomes, _errors = self._approve_with_on_submit_failing_after_the_write(application)
+        member = response["member"]
+
+        self.assertTrue(response["invoice_failed"], response)
+        self.assertEqual(mails, [], "the held approval mail is not sent")
+        self.assertTrue(self._marker(application), "the #1900 retry marker is set")
+        stranded = self._membership_invoices(member)
+        self.assertEqual(len(stranded), 1, "the failed submit left its invoice row behind")
+        self.assertEqual(
+            stranded[0].docstatus, 2, "the invoice is cancelled, not left submitted with a posted ledger"
+        )
+        self.assertEqual(self._live_gl_rows(stranded[0].name), 0, "no live GL row of the failed invoice")
+        self.assertEqual(self._invoices_of(member), [], "no live invoice: the member is un-invoiced")
+
+        response, mails = self._retry(application)
+
+        self.assertTrue(response["success"], response)
+        self.assertNotEqual(response["invoice"], stranded[0].name, "a FRESH invoice, not the stranded one")
+        self.assertEqual(self._invoices_of(member), [response["invoice"]])
+        self.assertEqual(frappe.db.get_value("Sales Invoice", response["invoice"], "docstatus"), 1)
+        self.assertEqual(len(mails), 1, "the held mail goes out once, with the fresh invoice's link")
+        self.assertIn(f"/payment/membership/{member}/{response['invoice']}", mails[0]["content"])
+        self.assertFalse(self._marker(application), "success clears the marker")
+
+    def test_a_cancel_that_fails_after_its_write_leaves_a_live_ledger_and_the_retry_refuses(self):
+        """F1: on_cancel raises after docstatus=2 was written, so the invoice is cancelled with its GL rows
+        still live. A fresh invoice would put a second live ledger beside it, so the retry refuses."""
+        application = self._stage_and_confirm()
+        before = frappe.db.count("Error Log", {"method": "Membership Invoice Still Submitted"})
+        self.expectErrorLog("Membership Invoice Still Submitted", "Secure Operation Failed")
+        response, mails, _outcomes, _errors = self._approve_with_on_submit_failing_after_the_write(
+            application, break_cancel="after_write"
+        )
+        member = response["member"]
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "Membership Invoice Still Submitted"}),
+            before + 1,
+            "a failed cancel is reported even though docstatus reads 2",
+        )
+        self.assertTrue(response["invoice_failed"], response)
+        stranded = self._membership_invoices(member)
+        self.assertEqual([r.docstatus for r in stranded], [2], "control: cancelled by the failed cancel")
+        self.assertGreater(self._live_gl_rows(stranded[0].name), 0, "control: the ledger is still live")
+
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self._retry(application)
+        _response, mails = self._retry_mails_after_refusal(application)
+
+        self.assertIn(stranded[0].name, str(refused.exception))
+        self.assertIn("live ledger", str(refused.exception))
+        self.assertEqual(self._membership_invoices(member), stranded, "no second invoice")
+        self.assertEqual(mails, [], "no mail")
+        self.assertTrue(self._marker(application), "the marker is kept")
+
+    def test_a_cleanly_refused_cancel_leaves_a_submitted_invoice_that_the_retry_reuses(self):
+        """F2, accepted behaviour: the cancel was refused and wrote nothing, so the invoice is submitted with
+        its on_submit fully run (here the fault fired after it). It is a valid invoice, indistinguishable from
+        a normal one, so the retry mails it. Residual risk: an invoice half-posted by a partial on_submit
+        would be mailed too. The Error Log row is what tells staff."""
+        application = self._stage_and_confirm()
+        before = frappe.db.count("Error Log", {"method": "Membership Invoice Still Submitted"})
+        self.expectErrorLog("Membership Invoice Still Submitted", "Secure Operation Failed")
+        response, _mails, _outcomes, _errors = self._approve_with_on_submit_failing_after_the_write(
+            application, break_cancel="refused"
+        )
+        member = response["member"]
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "Membership Invoice Still Submitted"}), before + 1
+        )
+        stranded = self._membership_invoices(member)
+        self.assertEqual([r.docstatus for r in stranded], [1])
+
+        response, mails = self._retry(application)
+
+        self.assertEqual(response["invoice"], stranded[0].name, "the retry reuses it")
+        self.assertEqual(len(mails), 1)
+        self.assertFalse(self._marker(application))
+
+    def _retry_mails_after_refusal(self, application):
+        """The mails a refused retry sent (none expected): the same spy as _retry, around a refusing call."""
+        mails = []
+        real = EmailService._send_email_internal
+
+        def spy(service, *args, **kw):
+            mails.append(kw)
+            return real(service, *args, **kw)
+
+        # Mock justified: spy on the mail boundary
+        with patch.object(EmailService, "_send_email_internal", spy):
+            try:
+                self._retry(application)
+            except frappe.ValidationError:
+                pass  # the refusal is asserted by the caller; only the mails matter here
+        return None, [m for m in mails if self.email in (m.get("recipients") or [])]
+
+    def test_control_a_submit_that_succeeds_stays_submitted_and_posted(self):
+        application = self._stage_and_confirm()
+        response, mails, _outcomes, _errors = self._approve_capturing_mail(application, create_invoice=True)
+
+        self.assertFalse(response["invoice_failed"], response)
+        rows = self._membership_invoices(response["member"])
+        self.assertEqual([(r.name, r.docstatus) for r in rows], [(response["invoice"], 1)])
+        self.assertGreater(self._live_gl_rows(response["invoice"]), 0, "control: a posted ledger")
+        self.assertFalse(self._marker(application))
 
     def test_a_submitted_invoice_created_another_way_is_mailed_not_duplicated(self):
         """PROBE SHORTCUT, stated: the 'other route' (scheduler or manual) is stood in for by calling the
@@ -561,7 +865,9 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
 
         def fail_submit(*args, **kwargs):
             if kwargs.get("operation") == "submit":
-                return SimpleNamespace(success=False, errors=["forced submit failure"], doc_name=None)
+                return SimpleNamespace(
+                    success=False, errors=["forced submit failure"], doc_name=None, partial_write=False
+                )
             return real(*args, **kwargs)
 
         service = MembershipCreationService()
@@ -696,8 +1002,8 @@ class TestRetryApplicationInvoice(TestApprovalWithoutInvoice):
 
         application, member = self._approved_with_failed_invoice()
         self._fix_invoicing()
-        # The master switch is a scalar field, which singleton_backup restores; a notification_types ROW
-        # would not be restored (it skips child tables).
+        # The master switch is a scalar field, which singleton_backup restores (so do the
+        # notification_types rows, since #2091).
         with singleton_backup("Verenigingen Email Configuration"):
             frappe.db.set_single_value("Verenigingen Email Configuration", "master_email_enabled", 0)
             response, mails = self._retry(application)

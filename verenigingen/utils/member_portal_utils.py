@@ -240,15 +240,22 @@ def setup_portal_context(context, page_title):
 
     member = get_current_user_member_name()
     if not member:
-        context.no_member_record = True
-        context.error_title = _("Member Record Not Found")
-        context.error_message = _("No member record found for your account. Please contact support.")
-        try:
-            context.support_email = frappe.db.get_single_value("Verenigingen Settings", "support_email")
-        except Exception:
-            frappe.log_error("Failed to fetch support_email from Verenigingen Settings")
-            context.support_email = None
+        set_no_member_context(context)
         return None
 
     context.no_member_record = False
     return member
+
+
+def set_no_member_context(context):
+    """Fill the context for templates/includes/portal_no_member_error.html (unlinked account, #2207)."""
+    from verenigingen.utils.member_utils import get_not_linked_message
+
+    context.no_member_record = True
+    context.error_title = _("Account not linked to a membership")
+    context.error_message = get_not_linked_message()
+    try:
+        context.support_email = frappe.db.get_single_value("Verenigingen Settings", "support_email")
+    except Exception:
+        frappe.log_error("Failed to fetch support_email from Verenigingen Settings")
+        context.support_email = None

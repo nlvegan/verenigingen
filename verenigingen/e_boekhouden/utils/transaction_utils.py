@@ -11,6 +11,7 @@ import frappe
 from frappe.utils import flt, getdate
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.services.supplier_group_resolver import resolve_non_group_supplier_group
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
@@ -100,9 +101,7 @@ def create_supplier_impl(migration_doc, supplier_data):
         supplier = frappe.new_doc("Supplier")
         supplier.supplier_name = supplier_name
         supplier.supplier_type = "Company" if company_name else "Individual"
-        supplier.supplier_group = (
-            frappe.db.get_single_value("Buying Settings", "supplier_group") or "All Supplier Groups"
-        )
+        supplier.supplier_group = resolve_non_group_supplier_group()
         supplier.company = migration_doc.company
 
         # Save supplier

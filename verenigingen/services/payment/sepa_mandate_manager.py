@@ -39,7 +39,7 @@ Author: Verenigingen Development Team
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import frappe
 from frappe import _
@@ -52,6 +52,11 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
+from verenigingen.utils.transaction_errors import DATABASE_ERROR, NON_RESUMABLE_DB_ERRORS
+
+if TYPE_CHECKING:
+    # Quoted in annotations only; imported at call time to avoid a module-load cycle.
+    from verenigingen.verenigingen_payments.utils.mandate_candidates import MandateChoice
 
 
 @dataclass
@@ -91,7 +96,6 @@ class SEPAMandateManager(StatelessService):
     # Configuration constants
     MAX_MANDATES_PER_MEMBER_PER_DAY = 999  # Maximum sequence number
     MANDATE_SEQUENCE_DIGITS = 3  # Zero-padding for sequence (supports 001-999)
-    MANDATE_REFERENCE_RETRIES = 5  # Max retries for deadlock handling
 
     def __init__(self):
         """Initialize the SEPA Mandate Manager"""
@@ -151,11 +155,12 @@ class SEPAMandateManager(StatelessService):
             >>> mandates[0].mandate_id
             'M-001-20251014-001'
         """
-        # Resolved OUTSIDE the try below, which returns [] on any exception.
+        # No try/except: a query that cannot run is not the same fact as a member
+        # without a mandate (#581, #607). Callers read [] as "no mandate" and go on to
+        # create or allow one, and `get_default_mandate` builds on this.
+        #
         # `resolve_purpose_flag` raises on an unknown purpose precisely so a typo
-        # cannot silently degrade to purpose-blind resolution; swallowed into an
-        # empty list it would do worse than that, since callers read [] as "no
-        # mandate" and go on to create or allow one.
+        # cannot silently degrade to purpose-blind resolution.
         #
         # `purpose` is opt-in: this method's job is "every Active mandate of this
         # member", which the discrepancy check and the payment dashboard
@@ -165,46 +170,40 @@ class SEPAMandateManager(StatelessService):
 
         purpose_flag = resolve_purpose_flag(purpose)
 
-        try:
-            filters = {"member": member, "status": "Active", "is_active": 1}
+        filters = {"member": member, "status": "Active", "is_active": 1}
 
-            if purpose_flag is not None:
-                filters[purpose_flag] = 1
+        if purpose_flag is not None:
+            filters[purpose_flag] = 1
 
-            if iban:
-                # Format IBAN to match database storage (IBANs are stored formatted with spaces)
-                from verenigingen.utils.validation.iban_validator import format_iban
+        if iban:
+            # Format IBAN to match database storage (IBANs are stored formatted with spaces)
+            from verenigingen.utils.validation.iban_validator import format_iban
 
-                filters["iban"] = format_iban(iban) or iban
+            filters["iban"] = format_iban(iban) or iban
 
-            mandate_records = frappe.get_all(
-                "SEPA Mandate",
-                filters=filters,
-                fields=[
-                    "name",
-                    "mandate_id",
-                    "status",
-                    "iban",
-                    "bic",
-                    "account_holder_name",
-                    "member",
-                    "sign_date",
-                    "expiry_date",
-                    "is_active",
-                    "used_for_memberships",
-                    "used_for_donations",
-                    "used_for_other",
-                    "mandate_type",
-                ],
-                order_by="creation desc",
-            )
+        mandate_records = frappe.get_all(
+            "SEPA Mandate",
+            filters=filters,
+            fields=[
+                "name",
+                "mandate_id",
+                "status",
+                "iban",
+                "bic",
+                "account_holder_name",
+                "member",
+                "sign_date",
+                "expiry_date",
+                "is_active",
+                "used_for_memberships",
+                "used_for_donations",
+                "used_for_other",
+                "mandate_type",
+            ],
+            order_by="creation desc",
+        )
 
-            return [MandateInfo(**mandate) for mandate in mandate_records]
-
-        except Exception as e:
-            # Retrieval failures don't need Error Log documents - use logger
-            self.logger.error(f"Error getting active mandates for member {member}: {e}")
-            return []
+        return [MandateInfo(**mandate) for mandate in mandate_records]
 
     def get_default_mandate(
         self, member: str, purpose: str = "used_for_memberships"
@@ -303,17 +302,13 @@ class SEPAMandateManager(StatelessService):
         # ask. `resolve_purpose_flag` accepts both spellings (#597).
         purpose_flag = resolve_purpose_flag(purpose)
 
-        try:
-            filters = {"member": member, "status": "Active", "is_active": 1}
-            if purpose_flag is not None:
-                filters[purpose_flag] = 1
+        # No try/except (#607): False here means "no mandate", and a failed query is
+        # not that fact.
+        filters = {"member": member, "status": "Active", "is_active": 1}
+        if purpose_flag is not None:
+            filters[purpose_flag] = 1
 
-            return bool(frappe.db.exists("SEPA Mandate", filters))
-
-        except Exception as e:
-            # Retrieval failures don't need Error Log documents - use logger
-            self.logger.error(f"Error checking mandate existence for member {member}: {e}")
-            return False
+        return bool(frappe.db.exists("SEPA Mandate", filters))
 
     # ========== Mandate Validation Methods ==========
 
@@ -429,7 +424,8 @@ class SEPAMandateManager(StatelessService):
             Generated mandate reference string
 
         Raises:
-            frappe.ValidationError: If unable to generate unique reference after retries
+            frappe.ValidationError: If the reference cannot be generated
+            frappe.QueryDeadlockError / frappe.QueryTimeoutError: propagated, never retried in place
 
         Examples:
             >>> manager = SEPAMandateManager()
@@ -465,76 +461,64 @@ class SEPAMandateManager(StatelessService):
         date_str = now.strftime("%Y%m%d")
         base_pattern = f"M-{member_id_safe}-{date_str}"
 
-        # Atomic sequence allocation with deadlock retry
-        for retry in range(self.MANDATE_REFERENCE_RETRIES):
-            try:
-                # Use FOR UPDATE to lock rows and prevent concurrent reads
-                # This prevents race conditions where two threads get the same sequence
-                result = frappe.db.sql(
-                    """
-                    SELECT mandate_id
-                    FROM `tabSEPA Mandate`
-                    WHERE mandate_id LIKE %s
-                    ORDER BY mandate_id DESC
-                    LIMIT 1
-                    FOR UPDATE
-                    """,
-                    (f"{base_pattern}-%",),
-                    as_dict=1,
+        # Atomic sequence allocation. No in-place deadlock retry: see the NON_RESUMABLE_DB_ERRORS clause.
+        try:
+            # Use FOR UPDATE to lock rows and prevent concurrent reads
+            # This prevents race conditions where two threads get the same sequence
+            result = frappe.db.sql(
+                """
+                SELECT mandate_id
+                FROM `tabSEPA Mandate`
+                WHERE mandate_id LIKE %s
+                ORDER BY mandate_id DESC
+                LIMIT 1
+                FOR UPDATE
+                """,
+                (f"{base_pattern}-%",),
+                as_dict=1,
+            )
+
+            # Calculate next sequence number
+            if result and result[0].mandate_id:
+                try:
+                    last_seq = int(result[0].mandate_id.split("-")[-1])
+                    sequence = last_seq + 1
+                except (ValueError, IndexError):
+                    # Malformed mandate_id, start from 1
+                    sequence = 1
+            else:
+                # No existing mandates for this member today
+                sequence = 1
+
+            # Check sequence limit
+            if sequence > self.MAX_MANDATES_PER_MEMBER_PER_DAY:
+                raise frappe.ValidationError(
+                    _(
+                        "Maximum mandate limit ({0}) exceeded for member {1} on {2}. "
+                        "Please contact support."
+                    ).format(self.MAX_MANDATES_PER_MEMBER_PER_DAY, member_id, date_str)
                 )
 
-                # Calculate next sequence number
-                if result and result[0].mandate_id:
-                    try:
-                        last_seq = int(result[0].mandate_id.split("-")[-1])
-                        sequence = last_seq + 1
-                    except (ValueError, IndexError):
-                        # Malformed mandate_id, start from 1
-                        sequence = 1
-                else:
-                    # No existing mandates for this member today
-                    sequence = 1
+            # Format with zero-padding
+            sequence_str = str(sequence).zfill(self.MANDATE_SEQUENCE_DIGITS)
+            return f"M-{member_id}-{date_str}-{sequence_str}"
 
-                # Check sequence limit
-                if sequence > self.MAX_MANDATES_PER_MEMBER_PER_DAY:
-                    raise frappe.ValidationError(
-                        _(
-                            "Maximum mandate limit ({0}) exceeded for member {1} on {2}. "
-                            "Please contact support."
-                        ).format(self.MAX_MANDATES_PER_MEMBER_PER_DAY, member_id, date_str)
-                    )
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 rolls the WHOLE transaction back (savepoints included) and 1205 leaves a
+            # half-applied unit of work, so neither may be retried in place: a second lookup
+            # would run on a fresh transaction and the caller would carry on without the writes
+            # it made earlier in the request. This function re-raises it as itself; whether it then reaches
+            # the transaction owner depends on the caller (create_mandate's own `except Exception`
+            # still turns it into a failure result, see #2869).
+            raise
 
-                # Format with zero-padding
-                sequence_str = str(sequence).zfill(self.MANDATE_SEQUENCE_DIGITS)
-                return f"M-{member_id}-{date_str}-{sequence_str}"
+        except DATABASE_ERROR as e:
+            self.logger.error(f"Database error generating mandate reference: {e}")
+            raise frappe.ValidationError(_("Unable to generate mandate reference. Please try again."))
 
-            except frappe.InternalError as e:
-                # Database deadlock - retry with exponential backoff
-                if "Deadlock" in str(e) and retry < self.MANDATE_REFERENCE_RETRIES - 1:
-                    import time
-
-                    wait_time = 0.1 * (2**retry)  # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s
-                    self.logger.warning(
-                        f"Deadlock generating mandate reference (attempt {retry + 1}/{self.MANDATE_REFERENCE_RETRIES}), "
-                        f"retrying in {wait_time:.1f}s"
-                    )
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    # Not a deadlock or max retries exceeded
-                    self.logger.error(f"Database error generating mandate reference: {e}")
-                    raise frappe.ValidationError(_("Unable to generate mandate reference. Please try again."))
-
-            except Exception as e:
-                self.logger.error(f"Unexpected error generating mandate reference: {e}")
-                raise frappe.ValidationError(_("Unable to generate mandate reference: {0}").format(str(e)))
-
-        # Should never reach here, but just in case
-        raise frappe.ValidationError(
-            _("Unable to generate unique mandate reference after {0} attempts").format(
-                self.MANDATE_REFERENCE_RETRIES
-            )
-        )
+        except Exception as e:
+            self.logger.error(f"Unexpected error generating mandate reference: {e}")
+            raise frappe.ValidationError(_("Unable to generate mandate reference: {0}").format(str(e)))
 
     # ========== Mandate Creation Methods ==========
 
@@ -1396,7 +1380,9 @@ def validate_mandate_creation_api(member: str, iban: str, mandate_id: str) -> Op
 
     Note:
         - Never throws exceptions for validation failures (returns failed
-          OperationResult); an ownership violation still raises
+          OperationResult), but a database/query failure while reading the
+          member's existing mandates now PROPAGATES (#607) instead of reading
+          as "no mandate"; an ownership violation still raises
           frappe.PermissionError (frappe.DoesNotExistError only if the
           CALLER has no member record of their own -- #1328 collapsed the
           "unknown member" and "foreign member" branches into a single
@@ -1537,7 +1523,21 @@ def get_active_sepa_mandate(
         Dict with mandate info, or None if there is none -- or if there is more than
         one and choosing would be a guess.
     """
+    return get_active_sepa_mandate_choice(member_name, purpose).mandate
+
+
+def get_active_sepa_mandate_choice(
+    member_name: str, purpose: str = "used_for_memberships"
+) -> "MandateChoice":
+    """`get_active_sepa_mandate`, but with the refusal carried as its own state (#607).
+
+    `.mandate` is what `get_active_sepa_mandate` returns; `.is_ambiguous` is True only
+    when more than one Active mandate shares the purpose and none was chosen. A caller
+    that shows the member something must use this: a refusal rendered as absence told a
+    member who is being collected from that direct debit was "not configured".
+    """
     from verenigingen.verenigingen_payments.utils.mandate_candidates import (
+        MandateChoice,
         log_ambiguous_mandate_refusal,
         resolve_purpose_flag,
     )
@@ -1555,11 +1555,34 @@ def get_active_sepa_mandate(
     )
 
     if not mandates:
-        return None
+        return MandateChoice(None, 0)
     if len(mandates) > 1:
         log_ambiguous_mandate_refusal(member_name, mandates, purpose, "Ambiguous active SEPA mandate")
-        return None
-    return mandates[0]
+        return MandateChoice(None, len(mandates))
+    return MandateChoice(mandates[0], 1)
+
+
+def member_needs_mandate_signature(member_name: str) -> bool:
+    """True when a SEPA Direct Debit member has no Active membership mandate to collect under (#1836).
+
+    Approval of a SEPA applicant never creates a mandate (a mandate is the member's own authorisation,
+    maintainer ruling on #1836): it asks the member to sign one. This is the state that request, the
+    payment dashboard and the dues page all read, so they cannot disagree. Several Active mandates is
+    NOT "needs a signature" (#607): that member is being collected from and the office must sort it out.
+
+    Assumption, stated (#1836 review): ANY Active membership mandate means "no signature needed",
+    whatever its IBAN. A mandate for an older IBAN is not reached through a real flow today (termination
+    cancels the member's mandates, and an applicant who was never terminated has none unless imported),
+    so a mismatch is not treated here; it is the IBAN-change gap of #1213.
+    """
+    payment_method, iban = frappe.db.get_value("Member", member_name, ["payment_method", "iban"]) or (
+        None,
+        None,
+    )
+    if payment_method != "SEPA Direct Debit" or not iban:
+        return False
+    choice = get_active_sepa_mandate_choice(member_name)
+    return choice.mandate is None and not choice.is_ambiguous
 
 
 def determine_mandate_action(
@@ -1567,6 +1590,11 @@ def determine_mandate_action(
 ) -> str:
     """
     Determine what action is needed for SEPA mandate based on current state.
+
+    Pass a mandate from `get_active_sepa_mandate_choice().mandate` only when
+    `.is_ambiguous` is False. `get_active_sepa_mandate` returns None for BOTH "no
+    mandate" and "refused: several Active", and here None means "create_mandate",
+    so wiring the plain helper to this one would turn a refusal into a duplicate (#607).
 
     Args:
         current_mandate: Current active mandate dict or None

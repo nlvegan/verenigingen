@@ -32,6 +32,7 @@ from verenigingen.verenigingen_payments.doctype.mollie_bulk_run.mollie_bulk_run 
     ACTIVE_STATUSES,
     MAX_ATTEMPTS_PER_PAYMENT,
 )
+from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
 PROGRESS_EVENT = "mollie_bulk_run_progress"
 PROGRESS_CHECKPOINT_INTERVAL = 10
@@ -129,7 +130,7 @@ def _list_mollie_payments(date_from, date_to) -> list[dict]:
         get_member_payment_matcher,
     )
 
-    client = MollieClient().sdk_client
+    client = MollieClient()
     matcher = get_member_payment_matcher()
 
     date_from_str = str(date_from)
@@ -141,7 +142,7 @@ def _list_mollie_payments(date_from, date_to) -> list[dict]:
     consecutive_older = 0
 
     while True:
-        page = client.payments.list(**params)
+        page = client.list_resource_page("payments", **params)
         batch = list(page)
         if not batch:
             break
@@ -152,9 +153,10 @@ def _list_mollie_payments(date_from, date_to) -> list[dict]:
             seen.add(payment.id)
 
             created_at = getattr(payment, "created_at", "") or ""
-            created_date = created_at[:10]
+            # Site-local day of the event, not the UTC day of the timestamp (#2192)
+            created_date = str(mollie_timestamp_to_local_date(created_at) or "")
             paid_at = getattr(payment, "paid_at", None)
-            paid_date = str(paid_at)[:10] if paid_at else created_date
+            paid_date = str(mollie_timestamp_to_local_date(paid_at) or "") if paid_at else created_date
 
             if created_date and created_date < date_from_str:
                 consecutive_older += 1
@@ -222,11 +224,16 @@ def _process_rows(run) -> None:
     save the whole run doc once per checkpoint and reload afterwards. The
     cancel flag is polled via a cheap single-column DB lookup on every iteration.
     """
+    from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+        get_bank_transaction_creator,
+    )
     from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
         get_payment_orchestrator,
     )
 
     orchestrator = get_payment_orchestrator()
+    creator = get_bank_transaction_creator()
+    mollie_config = creator.get_mollie_bank_account_config()
 
     if run.status != "Processing":
         run.db_set("status", "Processing", update_modified=False)
@@ -263,11 +270,10 @@ def _process_rows(run) -> None:
         # This avoids the orchestrator's "try to retrofit PE/SI" path which
         # can report Failed when member resolution or invoice matching
         # stumbles on an already-imported orphan.
-        existing_bt = frappe.db.get_value(
-            "Bank Transaction",
-            {"reference_number": row.payment_id, "docstatus": ["!=", 2]},
-            "name",
-        )
+        # Scoped to the Mollie bank account (#2620): another account's row does not
+        # mean this payment was imported.
+        existing = creator.find_mollie_bank_transaction(row.payment_id, config=mollie_config)
+        existing_bt = existing.name if existing else None
         if existing_bt:
             row.bank_transaction = existing_bt
             row.row_status = "Skipped"

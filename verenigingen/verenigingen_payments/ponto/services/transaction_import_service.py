@@ -68,6 +68,18 @@ def import_new_transactions(
                 "errors": [f"Account {account_id} not found in Ponto Settings mappings"],
             }
 
+        if mapping.get("sync_status") == "Paused":
+            reason = mapping.get("last_sync_error") or "paused"
+            frappe.logger().debug(f"Ponto account {account_id} is paused, skipping import")
+            return {
+                "success": False,
+                "paused": True,
+                "imported": 0,
+                "skipped": 0,
+                "errors": [reason],
+                "reason": "account_paused",
+            }
+
         if not mapping.get("enabled"):
             frappe.logger().debug(f"Ponto account {account_id} is disabled, skipping import")
             return {
@@ -99,6 +111,18 @@ def import_new_transactions(
             bank_account=bank_account,
             limit=limit,
         )
+
+        currency_error = next((e for e in result.errors if e.error_type == "currency"), None)
+        if currency_error:
+            # The importer paused the account and inserted nothing; one message, no sync stamp.
+            return {
+                "success": False,
+                "paused": True,
+                "imported": 0,
+                "skipped": 0,
+                "errors": [currency_error.error_message],
+                "reason": "account_paused",
+            }
 
         # Update last sync time in settings
         config.update_last_sync_time(ponto_account_id=account_id)

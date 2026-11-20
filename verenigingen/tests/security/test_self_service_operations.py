@@ -10,8 +10,8 @@ The validator looks up the caller via frappe.session.user (NOT a `user=` kwarg)
 and identifies the target via the kwargs keys in
 SelfServiceAccessController.MEMBER_FIELDS — so all tests here drive the
 session with `frappe.set_user(...)` and pass `member=...` rather than the
-legacy `target_member=...`. Member→User linkage is via Member.email ==
-User.email (NOT Member.user).
+legacy `target_member=...`. Member→User linkage is via Member.user (#1936:
+the validator has no Member.email fallback).
 """
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -34,10 +34,10 @@ class TestSelfServiceOperations(PortalSelfServiceTestMixin, EnhancedTestCase):
         self.framework = APISecurityFramework()
 
     def _link_member_to_user(self, member, roles=("Verenigingen Volunteer",)):
-        """Volunteer-tier, email-only link (the field SelfServiceAccessController
-        looks up): no Member role profile, no Member.user. Delegates the body to
+        """Volunteer-tier link via Member.user (the field SelfServiceAccessController
+        looks up, #1936): no Member role profile. Delegates the body to
         PortalSelfServiceTestMixin."""
-        return super()._link_member_to_user(member, roles=roles, role_profile=None, link_user=False)
+        return super()._link_member_to_user(member, roles=roles, role_profile=None, link_user=True)
 
     # --- _validate_self_service_access ---------------------------------------
 

@@ -170,41 +170,6 @@ class TestWorkspaceHealth(VereningingenTestCase):
         syntax_issue = next(i for i in result["data"]["issues"] if i["type"] == "content_syntax")
         self.assertEqual(syntax_issue["severity"], "critical")
 
-    # -------------------------------------------------------- broken link flag
-
-    def test_broken_link_detection_is_currently_dead_code(self):
-        """CHARACTERIZATION / KNOWN BUG: broken-link detection never fires.
-
-        _check_link_validity compares ``link.type`` against "DocType"/"Report"/
-        "Dashboard", but the Workspace Link ``type`` field only takes the values
-        "Link" and "Card Break" -- the target kind lives in ``link_type``
-        (DocType/Page/Report). So the DocType/Report/Dashboard branches are
-        unreachable and broken links are never reported.
-
-        This test pins that (buggy) behaviour: a genuinely broken DocType-kind
-        link is NOT flagged. If someone fixes the bug (comparing ``link_type``
-        instead of ``type``), this test will fail and must be updated to assert
-        detection -- serving as an intentional tripwire on the dead code.
-        """
-        bogus = "ZZ No Such Doctype " + frappe.generate_hash(length=6)
-        # Insert with a valid target (the controller rejects broken links on save),
-        # then corrupt the child row's link_to directly to simulate a DocType that
-        # was deleted after the workspace link was created.
-        ws = self._make_workspace(
-            "brokenlink",
-            links=[
-                {"type": "Link", "link_type": "DocType", "link_to": "Member", "label": "Bogus"},
-            ],
-        )
-        frappe.db.set_value("Workspace Link", ws.links[0].name, "link_to", bogus, update_modified=False)
-        frappe.db.commit()
-        frappe.clear_document_cache("Workspace", ws.name)
-
-        result = health_check(ws.name)
-
-        issue_types = [i["type"] for i in result["data"]["issues"]]
-        self.assertNotIn("broken_links", issue_types)
-
     # ------------------------------------------------------- duplicate detection
 
     def test_distinct_card_breaks_not_flagged_as_duplicates(self):

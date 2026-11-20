@@ -12,6 +12,7 @@ from verenigingen.utils.security.api_security_framework import (
     public_api,
     standard_api,
 )
+from verenigingen.utils.transaction_errors import DATABASE_ERROR, NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen.doctype.chapter.validators.postal_code_validator import (
     PostalCodeValidator,
     chapter_postal_codes_match,
@@ -65,7 +66,7 @@ def _chapter_management_enabled():
     except (frappe.DoesNotExistError, frappe.ValidationError) as e:
         frappe.log_error(f"Settings access error in chapter management check: {str(e)}", "Member Utils")
         return True  # Default to enabled for backward compatibility
-    except frappe.DatabaseError as e:
+    except DATABASE_ERROR as e:
         frappe.log_error(f"Database error in chapter management check: {str(e)}", "Member Utils")
         return True
 
@@ -85,26 +86,30 @@ def is_chapter_management_enabled():
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def check_sepa_mandate_status(member: str):
     """Check SEPA mandate status for dashboard indicators"""
-    from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+    from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
 
     # Membership-scoped (#605): this drives the member form's mandate indicator,
     # and that form is about dues. A member may legitimately also hold an Active
     # donation mandate (#584), which is not an answer to "is this member's dues
     # collection set up".
-    active_mandates = get_sepa_mandate_manager().get_active_mandates(member, purpose="used_for_memberships")
+    #
+    # Several Active membership mandates are a refusal, not "mandate active" (#2289):
+    # collection debits none of them, so the indicator must not claim one.
+    choice = unambiguous_active_mandate(member, "Member form mandate status: ambiguous mandate")
 
-    result = {"has_active_mandate": bool(active_mandates), "expiring_soon": False}
+    result = {
+        "has_active_mandate": bool(choice),
+        "expiring_soon": False,
+        "mandate_ambiguous": choice.is_ambiguous,
+    }
 
     # Get configurable warning threshold
     settings = get_member_settings()
     warning_days = settings["mandate_expiry_warning_days"]
 
-    for mandate in active_mandates:
-        if mandate.expiry_date:
-            days_to_expiry = frappe.utils.date_diff(mandate.expiry_date, today())
-            if 0 < days_to_expiry <= warning_days:
-                result["expiring_soon"] = True
-                break
+    if choice and choice.mandate.get("expiry_date"):
+        days_to_expiry = frappe.utils.date_diff(choice.mandate["expiry_date"], today())
+        result["expiring_soon"] = 0 < days_to_expiry <= warning_days
 
     return result
 
@@ -137,6 +142,9 @@ def update_member_payment_history(doc: dict, method=None):
                     "Member Payment History Security",
                 )
                 continue
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: not a per-member failure to log and move past (#2711)
+            raise
         except frappe.DoesNotExistError:
             frappe.log_error(
                 f"Member {member_doc.name} not found during payment history update", "Member Payment History"
@@ -146,7 +154,7 @@ def update_member_payment_history(doc: dict, method=None):
                 f"Validation error updating payment history for Member {member_doc.name}: {str(e)}",
                 "Member Payment History",
             )
-        except frappe.DatabaseError as e:
+        except DATABASE_ERROR as e:
             frappe.log_error(
                 f"Database error updating payment history for Member {member_doc.name}: {str(e)}",
                 "Member Payment History",
@@ -184,6 +192,9 @@ def update_member_payment_history_from_invoice(doc, method=None):
                     "Member Invoice History Security",
                 )
                 continue
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: not a per-member failure to log and move past (#2711)
+            raise
         except frappe.DoesNotExistError:
             frappe.log_error(
                 f"Member {member_doc.name} not found during invoice payment history update",
@@ -194,7 +205,7 @@ def update_member_payment_history_from_invoice(doc, method=None):
                 f"Validation error updating payment history for Member {member_doc.name}: {str(e)}",
                 "Member Payment History",
             )
-        except frappe.DatabaseError as e:
+        except DATABASE_ERROR as e:
             frappe.log_error(
                 f"Database error updating payment history for Member {member_doc.name}: {str(e)}",
                 "Member Payment History",
@@ -807,7 +818,7 @@ def reset_member_id_counter(counter_value):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.ADMIN)
+@critical_api(operation_type=OperationType.ADMIN)
 def get_next_member_id_preview():
     """Get the next member ID that would be assigned"""
     from verenigingen.verenigingen.doctype.member.member_id_manager import MemberIDManager
@@ -1151,9 +1162,8 @@ def sync_member_counter_with_settings(doc, method=None):
     if doc.doctype != "Verenigingen Settings":
         return
 
+    # sync is raise-only, so no old-vs-new comparison is needed: a lowered start
+    # is a no-op. (The old code read the "old" value with get_db_value AFTER the
+    # write, so old == new and the sync could never run -- #2261.)
     if doc.has_value_changed("member_id_start"):
-        old_start = cint(doc.get_db_value("member_id_start")) or 1000
-        new_start = cint(doc.member_id_start) or 1000
-
-        if new_start > old_start:
-            MemberIDManager.sync_counter_with_settings()
+        MemberIDManager.sync_counter_with_settings(doc.member_id_start)

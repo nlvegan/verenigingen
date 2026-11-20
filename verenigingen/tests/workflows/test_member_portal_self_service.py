@@ -28,6 +28,7 @@ import frappe
 
 from verenigingen.api import chapter_join, mollie_payment, payment_plan_management
 from verenigingen.api.member import sepa_api
+from verenigingen.services.payment.sepa_mandate_consent import get_mandate_consent_text, hash_consent_text
 from verenigingen.templates.pages import (
     address_change,
     contact_request,
@@ -38,6 +39,11 @@ from verenigingen.templates.pages import (
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.portal_self_service_mixin import PortalSelfServiceTestMixin
 from verenigingen.utils.validation.iban_validator import generate_test_iban
+
+
+def _consent():
+    """The explicit consent every member-facing mandate signing now carries (#2464)."""
+    return {"consent": 1, "consent_text_hash": hash_consent_text(get_mandate_consent_text())}
 
 
 class TestMemberPortalSelfService(PortalSelfServiceTestMixin, EnhancedTestCase):
@@ -133,7 +139,7 @@ class TestMemberPortalSelfService(PortalSelfServiceTestMixin, EnhancedTestCase):
         iban = generate_test_iban("TEST")
 
         with self._as_user(user.name):
-            result = sepa_api.setup_sepa_direct_debit(iban=iban, account_holder_name="Test Holder")
+            result = sepa_api.setup_sepa_direct_debit(iban=iban, account_holder_name="Test Holder", **_consent())
 
         self.assertTrue(result.get("success"), msg=result)
         # An active mandate exists for this member (IBAN is persisted space-formatted,
@@ -159,7 +165,7 @@ class TestMemberPortalSelfService(PortalSelfServiceTestMixin, EnhancedTestCase):
         owner, owner_user = self._member_with_membership()
         with self._as_user(owner_user.name):
             sepa_api.setup_sepa_direct_debit(
-                iban=generate_test_iban("TEST"), account_holder_name="Owner"
+                iban=generate_test_iban("TEST"), account_holder_name="Owner", **_consent()
             )
         mandate = frappe.db.get_value(
             "SEPA Mandate", {"member": owner.name, "status": "Active"}, "name"
@@ -189,8 +195,8 @@ class TestMemberPortalSelfService(PortalSelfServiceTestMixin, EnhancedTestCase):
         iban = generate_test_iban("TEST")
 
         with self._as_user(user.name):
-            first = sepa_api.setup_sepa_direct_debit(iban=iban, account_holder_name="Test Holder")
-            second = sepa_api.setup_sepa_direct_debit(iban=iban, account_holder_name="Test Holder")
+            first = sepa_api.setup_sepa_direct_debit(iban=iban, account_holder_name="Test Holder", **_consent())
+            second = sepa_api.setup_sepa_direct_debit(iban=iban, account_holder_name="Test Holder", **_consent())
 
         self.assertTrue(first.get("success"), msg=first)
         self.assertTrue(second.get("success"), msg=second)
@@ -220,8 +226,8 @@ class TestMemberPortalSelfService(PortalSelfServiceTestMixin, EnhancedTestCase):
         self.assertNotEqual(first_iban, second_iban)
 
         with self._as_user(user.name):
-            sepa_api.setup_sepa_direct_debit(iban=first_iban, account_holder_name="Test Holder")
-            result = sepa_api.setup_sepa_direct_debit(iban=second_iban, account_holder_name="Test Holder")
+            sepa_api.setup_sepa_direct_debit(iban=first_iban, account_holder_name="Test Holder", **_consent())
+            result = sepa_api.setup_sepa_direct_debit(iban=second_iban, account_holder_name="Test Holder", **_consent())
 
         self.assertTrue(result.get("success"), msg=result)
 

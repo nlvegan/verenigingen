@@ -310,8 +310,6 @@ def get_idempotency_manager(psp_name: str) -> BaseIdempotencyManager:
         >>> if manager.is_duplicate(event_id, payload):
         ...     return {"status": "duplicate"}
     """
-    global _managers
-
     if psp_name not in _managers:
         _managers[psp_name] = BaseIdempotencyManager(psp_name)
 

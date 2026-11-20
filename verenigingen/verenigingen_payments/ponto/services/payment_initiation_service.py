@@ -40,6 +40,9 @@ from frappe import _
 from verenigingen.utils.validation.iban_validator import validate_iban
 from verenigingen.verenigingen_payments.ponto.clients.payment_client import PaymentRequest, get_payment_client
 from verenigingen.verenigingen_payments.ponto.exceptions import PontoIntegrationError
+from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
+    PontoConfigurationService,
+)
 
 
 def create_sepa_payment(
@@ -127,12 +130,19 @@ def create_sepa_payment(
 
     # Verify ponto_account_id exists in settings
     settings = frappe.get_single("Ponto Settings")
-    account_valid = any(
-        mapping.ponto_account_id == ponto_account_id for mapping in settings.bank_account_mappings
+    mapping = next(
+        (m for m in settings.bank_account_mappings if m.ponto_account_id == ponto_account_id), None
     )
-    if not account_valid:
+    if not mapping:
         raise PontoIntegrationError(
             message=f"Ponto account {ponto_account_id} not found in settings",
+            details={"ponto_account_id": ponto_account_id},
+        )
+    # A paused, disabled or unlinked account may not be paid from (#2125).
+    unusable = PontoConfigurationService.unusable_reason(mapping)
+    if unusable:
+        raise PontoIntegrationError(
+            message=f"Ponto account {ponto_account_id} cannot be used: {unusable}",
             details={"ponto_account_id": ponto_account_id},
         )
 
@@ -311,7 +321,9 @@ def create_payment_for_supplier(
     # Get default Ponto account if not specified
     if not ponto_account_id:
         settings = frappe.get_single("Ponto Settings")
-        enabled_accounts = [m for m in settings.bank_account_mappings if m.enabled]
+        enabled_accounts = [
+            m for m in settings.bank_account_mappings if PontoConfigurationService.is_usable(m)
+        ]
         if not enabled_accounts:
             raise PontoIntegrationError(
                 message="No enabled Ponto accounts configured",

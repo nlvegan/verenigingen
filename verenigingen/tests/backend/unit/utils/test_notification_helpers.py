@@ -214,7 +214,9 @@ class TestGetNotificationRecipients(FrappeTestCase):
             # The emergency-fallback call queries by System Manager role —
             # intercept only that; anything else (e.g. frappe.log_error's own
             # internal lookups) must still hit the real implementation.
-            if filters == [["Has Role", "role", "=", Roles.SYSTEM_MANAGER]]:
+            # The fallback excludes the Administrator user by name (#1960): if that filter ever goes
+            # missing this no longer matches and the real query answers, so the test reddens.
+            if filters == [["name", "!=", "Administrator"], ["Has Role", "role", "=", Roles.SYSTEM_MANAGER]]:
                 return ["sysmgr1@test.com", "sysmgr2@test.com", None]
             return real_get_all(doctype, filters=filters, **kwargs)
 

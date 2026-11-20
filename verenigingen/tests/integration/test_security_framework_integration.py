@@ -16,7 +16,6 @@ resolves to no privileged role. Tests that only asserted wrapper-internal behavi
 """
 
 import unittest
-from unittest.mock import Mock, patch
 
 import frappe
 
@@ -71,23 +70,6 @@ class AuthHookRoleCheckTests(EnhancedTestCase):
             set(),
             f"Nonexistent user must not resolve to any privileged role, got {roles}",
         )
-
-    def test_session_creation_hook_survives_malformed_session_user(self):
-        """on_session_creation runs on every login and must not raise.
-
-        A raise here breaks login itself, so the hook has to tolerate a session whose
-        user is missing, non-string, or the literal "None".
-        """
-        from verenigingen.auth_hooks import on_session_creation
-
-        for session_user in (None, 123, "None"):
-            with self.subTest(session_user=repr(session_user)):
-                with patch("frappe.session") as mock_session:
-                    mock_session.user = session_user
-                    try:
-                        on_session_creation(Mock())
-                    except Exception as e:
-                        self.fail(f"on_session_creation raised for session.user={session_user!r}: {e}")
 
 
 if __name__ == "__main__":

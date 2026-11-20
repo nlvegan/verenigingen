@@ -127,12 +127,88 @@ NOTIFICATION_KEYS = {
         "recipient_policy": POLICY_DOCUMENT_FIELD,
         "cooldown_minutes": 0,
     },
+    "member_sepa_mandate_signature_requested": {
+        "label": "SEPA Mandate Signature Requested",
+        "category": CATEGORY_MEMBER,
+        "description": (
+            "Sent to a new member who chose SEPA Direct Debit when their application is approved: "
+            "they must sign the direct debit authorisation in the payment dashboard."
+        ),
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_DOCUMENT_FIELD,
+    },
     "member_application_overdue": {
         "label": "Application Overdue Alert",
         "category": CATEGORY_ADMIN,
         "description": "Alert sent to reviewers when membership applications have been pending too long.",
         "priority": PRIORITY_MEDIUM,
         "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mijnrood_disabled_default_type": {
+        "label": "MijnRood Application Type Disabled (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a MijnRood application is staged with the site's default membership type "
+        "while that type is disabled or gone. The reviewer must pick another type at approval. At most once "
+        "a day per type while the setting stays wrong. The mail names the type.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mijnrood_chapter_move_failed": {
+        "label": "MijnRood Chapter Move Failed (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a MijnRood division change could not move a member to the new chapter "
+        "(the member stays in the old one and MijnRood will not resend the change). At most once a day per "
+        "member, chapter and reason. The mail names the member, the chapters and the reason.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mijnrood_division_unmapped": {
+        "label": "MijnRood Division Not Mapped (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a MijnRood event names a division id that no Chapter answers to, or whose "
+        "mapped Chapter is gone (the event is applied without its chapter step and MijnRood will not "
+        "resend it). At most once per 24h per division and reason. The mail names the division.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mijnrood_role_mapping_invalid": {
+        "label": "MijnRood Role Mapping Invalid (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when the MijnRood role mapping points at a Role, Chapter Role or Team that is "
+        "missing or (for a Team) not active, so the event was applied without that step. At most once a "
+        "day per object and reason. The mail names the object.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mijnrood_dues_template_unresolved": {
+        "label": "MijnRood Dues Template Unresolved (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a synced member's payment period has no dues schedule template in "
+        "Verenigingen Settings, so the dues schedule was skipped. At most once per 24h per payment period. "
+        "The mail names the period.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mijnrood_sync_step_failed": {
+        "label": "MijnRood Sync Step Failed (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a MijnRood event is applied but one step for that member failed (address, "
+        "volunteer, role, chapter board, team, or account creation), so the step must be done by hand. "
+        "At most once per 24h per member, step and reason. Steps that touch money use "
+        "mijnrood_sync_money_step_failed.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mijnrood_sync_money_step_failed": {
+        "label": "MijnRood Sync Money Step Failed (Admin and Finance)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when a MijnRood event is applied but a step that touches money failed for that "
+        "member (Mollie sync, membership creation, dues schedule backfill or rate update), so it must be "
+        "done by hand. Also reaches finance. At most once per 24h per member, step and reason.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # The admin pair plus finance: the dues and Mollie state is theirs to reconcile (#2095, #2309).
+        "recipient_roles": "System Manager, Verenigingen Administrator, Verenigingen Financial Manager",
     },
     "member_application_rejected": {
         "label": "Application Rejected",
@@ -157,6 +233,16 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
         "cooldown_minutes": 1440,
+    },
+    "termination_weekly_report": {
+        "label": "Weekly Termination Report",
+        "category": CATEGORY_ADMIN,
+        "description": "Weekly summary of termination requests, mailed to Verenigingen Administrators.",
+        "priority": PRIORITY_LOW,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # Its own key: termination_overdue's audience is the admin pair, this report never included
+        # System Managers (#2240, #2095).
+        "recipient_roles": "Verenigingen Administrator",
     },
     "termination_pending_approval": {
         "label": "Termination Pending Approval",
@@ -418,9 +504,12 @@ NOTIFICATION_KEYS = {
     "dues_schedule_manual_creation": {
         "label": "Dues Schedule Created",
         "category": CATEGORY_PAYMENT,
-        "description": "Notification when a dues schedule is manually created for a member.",
+        "description": "Staff summary when dues schedules are created in bulk from the admin interface "
+        "or after a scheduled run with errors.",
         "priority": PRIORITY_LOW,
-        "recipient_policy": POLICY_DOCUMENT_FIELD,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # Seeded roles: the summary always went to Verenigingen Administrators only (#2169, #2095).
+        "recipient_roles": "Verenigingen Administrator",
         "cooldown_minutes": 0,
     },
     "dues_amendment_approved": {
@@ -518,6 +607,58 @@ NOTIFICATION_KEYS = {
         "category": CATEGORY_PAYMENT,
         "description": "Sent when Ponto reports a payment as executed for a Payment Request or Link that was "
         "cancelled here and has no live Payment Entry. The payment must be booked by hand.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        # The money has moved: every unbookable payment must reach staff (#2248). Guard only; these
+        # alerts go through Notification Log, which applies no cooldown.
+        "cooldown_minutes": 0,
+    },
+    "ponto_orphaned_payment": {
+        "label": "Ponto Payment Orphaned By A Failed Submit (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when submitting a Ponto Payment Request or Link failed after Ponto had created "
+        "the payment, and deleting it at Ponto failed too. The unsigned payment is still at Ponto with no "
+        "local row; the mail names its Ponto id so it can be deleted there by hand.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "ponto_executed_unbookable": {
+        "label": "Ponto Payment Executed But Cannot Be Booked (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when Ponto reports a payment as executed for a Payment Request whose Ponto "
+        "account mapping is paused or disabled, so no Payment Entry may be booked against it. Also carries "
+        "the Payment Entry conflict alerts: a Payment Entry that already carries the request as its "
+        "Reference No differs (party, paying bank account, amount, ...) or is ambiguous (a draft, or "
+        "more than one). The money has moved: check the bank and book the payment by hand.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 0,  # see ponto_executed_on_cancelled_row (#2248)
+    },
+    "mollie_payment_not_found": {
+        "label": "Mollie Webhook For Unknown Payment (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when a Mollie webhook names a payment id that Mollie answers with 404. The webhook "
+        "is acknowledged, so Mollie will not retry: a real payment means the API key, its test/live mode or "
+        "the profile in Mollie Settings is wrong and the payment must be booked by hand. At most once an hour "
+        "per caller.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mollie_forward_payment_staff_cancelled": {
+        "label": "Mollie Payment Delivered After Its Payment Entry Was Cancelled (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when Mollie delivers a payment again after staff cancelled its Payment Entry. "
+        "The payment is NOT booked again; staff decide by hand. Sent once per payment. The mail names the "
+        "Mollie payment id and the amount.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+    },
+    "mollie_ambiguous_party": {
+        "label": "Mollie Payment Matches Several Members (Admin)",
+        "category": CATEGORY_PAYMENT,
+        "description": "Sent when a Mollie customer or subscription id is held by more than one Member, so the "
+        "payment cannot be attributed and is NOT booked (Mollie keeps retrying). Sent once per payment. The mail "
+        "names the Mollie payment id, the id and the Members that hold it; staff remove it from all but one.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
     },
@@ -642,7 +783,10 @@ NOTIFICATION_KEYS = {
         "category": CATEGORY_SYSTEM,
         "description": "Alert for authentication anomalies like failed logins or suspicious access patterns.",
         "priority": PRIORITY_HIGH,
-        "recipient_policy": POLICY_ROLE_BASED,
+        # Custom, not Role-Based: the default audience is the holders of the Verenigingen System
+        # Administrator PROFILE, which a role list cannot name (#2254). A row an admin sets to Fixed or
+        # Role-Based still wins.
+        "recipient_policy": POLICY_CUSTOM,
     },
     "business_logic_alert": {
         "label": "Business Logic Alert",
@@ -711,6 +855,8 @@ NOTIFICATION_KEYS = {
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
         "recipient_roles": "Verenigingen Administrator",
+        # One alert per request: the default 60 mailed staff about only the first request an hour (#2174).
+        "cooldown_minutes": 0,
     },
     "contact_request_urgent": {
         "label": "Urgent Contact Request Received",
@@ -718,6 +864,8 @@ NOTIFICATION_KEYS = {
         "description": "Sent to Verenigingen Administrators and System Managers when a member files an urgent contact request.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        # One alert per request: the default 60 mailed staff about only the first request an hour (#2174).
+        "cooldown_minutes": 0,
     },
     "contact_request_response_sent": {
         "label": "Contact Request Response",
@@ -796,6 +944,8 @@ NOTIFICATION_KEYS = {
         "description": "Alert sent when automatic Payment Entry creation fails.",
         "priority": PRIORITY_HIGH,
         "recipient_policy": POLICY_ROLE_BASED,
+        # Finance staff, not the admin pair (maintainer ruling on #1330). Also moves the ING Checkout alerts on this key.
+        "recipient_roles": "Verenigingen Financial Manager",
     },
     "payment_alert_reconciliation": {
         "label": "Payment Reconciliation Alert",
@@ -823,6 +973,11 @@ NOTIFICATION_KEYS = {
 REQUIRES_ACTION_KEYS = frozenset(
     {
         "ponto_executed_on_cancelled_row",
+        "ponto_executed_unbookable",
+        "mollie_payment_not_found",
+        "ponto_orphaned_payment",
+        "mollie_forward_payment_staff_cancelled",
+        "mollie_ambiguous_party",
         "door_unavailable",
         "sepa_batch_error",
         "sepa_batch_scheduler_alert",
@@ -849,6 +1004,13 @@ REQUIRES_ACTION_KEYS = frozenset(
         "expulsion_report_submitted",
         "payment_plan_request",
         "zabbix_system_alert",
+        "mijnrood_disabled_default_type",
+        "mijnrood_chapter_move_failed",
+        "mijnrood_division_unmapped",
+        "mijnrood_role_mapping_invalid",
+        "mijnrood_dues_template_unresolved",
+        "mijnrood_sync_step_failed",
+        "mijnrood_sync_money_step_failed",
     }
 )
 

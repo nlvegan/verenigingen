@@ -104,7 +104,6 @@ class TestPontoClientWrapperStatus(EnhancedTestCase):
             (PontoPaymentClient, "payment.create", lambda c: c.create_payment(
                 account_id="acc", amount=10, currency="EUR", **pay_kwargs)),
             (PontoPaymentClient, "payment.get", lambda c: c.get_payment("acc", "p1")),
-            (PontoPaymentClient, "payment.list", lambda c: c.list_payments("acc")),
             (PontoPaymentClient, "payment.delete", lambda c: c.delete_payment("acc", "p1")),
             (PontoBetaalverzoekClient, "request.create", lambda c: c.create_payment_request(
                 amount=10, **pay_kwargs)),

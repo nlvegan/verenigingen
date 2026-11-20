@@ -60,6 +60,8 @@ from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import (
     ensure_mollie_test_credentials,
 )
 
+CI_ALWAYS_SKIPS = "live Mollie API test; skips without Mollie test credentials, which CI never has"
+
 # Mollie-accepted test IBAN that yields an immediately-valid SEPA mandate.
 _TEST_IBAN = "NL39RABO0300065264"
 

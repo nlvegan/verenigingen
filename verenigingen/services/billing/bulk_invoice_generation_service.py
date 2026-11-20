@@ -32,7 +32,9 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.services.billing.billing_constants import MAX_LOG_ERROR_LENGTH
 from verenigingen.services.infrastructure.base_service import StatefulService
+from verenigingen.utils.flag_restore import restored_flags
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 if TYPE_CHECKING:
     pass
@@ -368,6 +370,7 @@ class BulkInvoiceGenerationService(StatefulService):
                         filtered_members["business_logic"].append(member_info)
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 filtered_members["business_logic"].append(
                     {
                         "member_id": schedule_data.member_id,
@@ -466,7 +469,8 @@ class BulkInvoiceGenerationService(StatefulService):
         Returns:
             BulkGenerationResult with generation statistics and details
         """
-        try:
+        # #2577: hand back the caller's value (or absence), not an unconditional delete
+        with restored_flags("bulk_invoice_generation"):
             # Validate accounting configuration
             self._validate_accounting_configuration()
 
@@ -503,11 +507,6 @@ class BulkInvoiceGenerationService(StatefulService):
                 return self._process_parallel(schedules, cutoff_date, test_mode, result)
             else:
                 return self._process_sequential(schedules, cutoff_date, test_mode, result)
-
-        finally:
-            # Clear bulk processing flag
-            if getattr(frappe.flags, "bulk_invoice_generation", None):
-                delattr(frappe.flags, "bulk_invoice_generation")
 
     def _validate_accounting_configuration(self):
         """Validate that accounting is properly configured before generating invoices."""
@@ -646,6 +645,7 @@ class BulkInvoiceGenerationService(StatefulService):
                     result.errors.append(error_msg)
 
                 except Exception as ge:
+                    reraise_if_job_timeout(ge)  # #2235: never turn an RQ job timeout into a result
                     recovery_result = schedule._handle_invoice_generation_failure(str(ge))
                     error_msg = (
                         f"Schedule {schedule_name} unexpected error "
@@ -655,10 +655,13 @@ class BulkInvoiceGenerationService(StatefulService):
                     result.errors.append(f"ERROR: {error_msg}")
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 clean_error = self._clean_error_message(str(e))
                 error_msg = f"Error processing {schedule_name}: {clean_error}"
                 frappe.log_error(error_msg, "Membership Dues Generation")
                 result.errors.append(error_msg)
+
+            _commit_schedule_progress()
 
         # Commit changes
         frappe.db.commit()
@@ -670,6 +673,7 @@ class BulkInvoiceGenerationService(StatefulService):
                     members_to_update, successful_invoices
                 )
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 error_msg = f"Error in bulk payment history update: {str(e)[:100]}"
                 frappe.log_error(error_msg, "Bulk Payment History Update Error")
                 result.errors.append(error_msg)
@@ -736,6 +740,7 @@ class BulkInvoiceGenerationService(StatefulService):
                             }
                         )
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 frappe.log_error(f"Error checking coverage gap: {str(e)}", "Coverage Gap Detection")
 
         if coverage_gaps:
@@ -817,6 +822,7 @@ class BulkInvoiceGenerationService(StatefulService):
 
                             manager.add_or_update_entry(inv_data["invoice"], build_invoice_entry, "invoice")
                         except Exception as inv_error:
+                            reraise_if_job_timeout(inv_error)  # #2235: a job timeout must propagate
                             frappe.log_error(
                                 f"Failed to add invoice {inv_data['invoice']} to payment history: {str(inv_error)}",
                                 "Individual Invoice Payment History Update",
@@ -825,6 +831,7 @@ class BulkInvoiceGenerationService(StatefulService):
                     wrote_for_member = True
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 frappe.log_error(
                     f"Error updating payment history for member {member_name}: {str(e)}",
                     "Bulk Payment History Member Update",
@@ -841,8 +848,8 @@ class BulkInvoiceGenerationService(StatefulService):
             # immediately; now that the manager correctly leaves the transaction
             # alone, committing once at the END of this loop would accumulate an
             # X-lock on every member in the batch and hold them all for the whole
-            # run -- while _get_invoice_with_retry sleeps up to 6s per
-            # not-yet-visible invoice inside that window. A concurrent writer to
+            # run. (_get_invoice_with_retry no longer sleeps: a not-yet-visible
+            # invoice enqueues a retry job.) A concurrent writer to
             # one of those members would wait and then take a 1205, which does NOT
             # roll back and leaves the victim running against a broken transaction.
             #
@@ -978,14 +985,18 @@ def process_invoice_chunk(
                 result.errors.append(error_msg)
 
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 error_msg = f"Unexpected error for {schedule_name}: {str(e)[:MAX_LOG_ERROR_LENGTH]}"
                 _safe_log_error(f"Chunk {chunk_id} Error", schedule_name, e)
                 result.errors.append(error_msg)
 
         except Exception as outer_e:
+            reraise_if_job_timeout(outer_e)  # #2235: never turn an RQ job timeout into a result
             error_msg = f"Error loading schedule {schedule_name}: {str(outer_e)[:MAX_LOG_ERROR_LENGTH]}"
             _safe_log_error(f"Chunk {chunk_id} Load Error", schedule_name, outer_e)
             result.errors.append(error_msg)
+
+        _commit_schedule_progress()
 
     frappe.db.commit()
 
@@ -994,6 +1005,24 @@ def process_invoice_chunk(
     )
 
     return result
+
+
+def _commit_schedule_progress():
+    """Commit what the schedule just processed (invoice and retry tracking) (#2359).
+
+    Frappe's ``execute_job`` rolls back everything uncommitted when a job fails. Since #2235
+    an RQ job timeout propagates, so a loop that commits only at its end loses every
+    invoice built before the timeout, on every run, once a chunk outlasts the job timeout.
+    Committing per schedule bounds the loss to the schedule in flight.
+
+    Deliberately NOT in a ``finally``: on a timeout the in-flight schedule's half-built
+    state must roll back, so the commit is reached only when the schedule's handlers have
+    returned. Deliberately no retry tracking is written for the schedule a timeout lands
+    on: the timeout fires wherever the clock happens to run out, so that schedule is
+    usually innocent, and counting it would push it toward manual review. Progress is kept
+    instead, so the next run resumes after the committed schedules.
+    """
+    frappe.db.commit()
 
 
 def _safe_log_error(title: str, schedule_name: str, error: Exception):

@@ -19,7 +19,6 @@
 ./scripts/debug/debug_dashboard_access.py
 ./scripts/debug/debug_volunteer_lookup.py
 ./scripts/debug/fix_dashboard_chart_issue.py
-./scripts/debug/incremental_update_debug_test.py
 ./scripts/debug/membership_dues_coverage_debugger.py
 ./scripts/debug/payment_history_debugger.py
 ./scripts/debug/remove_period_closing_vouchers.py
@@ -530,7 +529,6 @@
 ./verenigingen/verenigingen/report/members_without_active_memberships/members_without_active_memberships.py
 ./verenigingen/verenigingen/report/members_without_dues_schedule/members_without_dues_schedule.py
 ./verenigingen/verenigingen/report/termination_audit_report/termination_audit_report.py
-./verenigingen/verenigingen/web_form/donation_form/donation_form.py
 ./verenigingen/verenigingen/web_form/membership_application.py
 ./verenigingen/verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py
 ./verenigingen/www/e-boekhouden-dashboard.py

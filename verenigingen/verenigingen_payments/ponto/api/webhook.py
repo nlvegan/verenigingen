@@ -41,6 +41,7 @@ from frappe.utils import now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.security.client_ip import get_client_ip
+from verenigingen.utils.single_check_defaults import is_check_unset
 from verenigingen.utils.webhook.logging import create_webhook_log
 from verenigingen.utils.webhook_error_handler import WebhookErrorHandler
 from verenigingen.utils.webhook_rate_limiter import WebhookRateLimitExceeded, get_webhook_rate_limiter
@@ -140,13 +141,17 @@ def _update_account_sync_status(
     """
     try:
         # Check if mapping exists first
-        mapping_name = frappe.db.get_value(
-            "Ponto Bank Account Mapping", {"parent": "Ponto Settings", "ponto_account_id": account_id}, "name"
+        mapping = frappe.db.get_value(
+            "Ponto Bank Account Mapping",
+            {"parent": "Ponto Settings", "ponto_account_id": account_id},
+            ["name", "sync_status"],
+            as_dict=True,
         )
 
-        if not mapping_name:
+        if not mapping:
             frappe.logger().warning(f"No bank account mapping found for Ponto account {account_id}")
             return False
+        mapping_name = mapping.name
 
         # Build atomic update based on status
         update_fields = {"sync_status": status}
@@ -159,8 +164,16 @@ def _update_account_sync_status(
             update_fields["last_sync_failure_time"] = now_datetime()
             update_fields["last_sync_error"] = error
 
+        if mapping.sync_status == "Paused":
+            # A pause carries the reason staff must see (#2125); a webhook must not erase it,
+            # so status and error stay. A real failure is still timestamped.
+            update_fields = {k: v for k, v in update_fields.items() if k == "last_sync_failure_time"}
+
         # Atomic update - no read-modify-write race condition
-        frappe.db.set_value("Ponto Bank Account Mapping", mapping_name, update_fields, update_modified=False)
+        if update_fields:
+            frappe.db.set_value(
+                "Ponto Bank Account Mapping", mapping_name, update_fields, update_modified=False
+            )
         frappe.db.commit()
 
         frappe.logger().debug(f"Updated sync status for account {account_id}: {status}")
@@ -208,6 +221,32 @@ class PontoEventTypes:
     PERIODIC_PAYMENT_EXECUTION = "pontoConnect.periodicPaymentInitiationRequest.executed"
 
 
+def is_signature_required(settings) -> bool:
+    """Whether an unsigned webhook must be refused. Fails CLOSED (#2478).
+
+    A Single's JSON default is applied only when the doctype has no ``tabSingles`` rows at all. A
+    site that saved Ponto Settings before ``require_webhook_signature`` existed has rows for the
+    other fields and none for this one, so the Document reads it as 0 ("not required"), which is
+    the insecure mode. The Document also reads a blank or NULL value as 0. Only an explicit "0" row
+    is the operator's opt-out; a missing, blank or NULL row means required.
+
+    With no rows at all the Document applies the JSON default 1, so its value is trusted: only a
+    Property Setter could make it 0 there, and that is an explicit operator choice.
+    """
+    try:
+        # Belt and braces: Ponto Settings.load_from_db already reads an unset row as 1, but a
+        # Document that bypassed it (or a stand-in) would still carry the raw 0.
+        if is_check_unset("Ponto Settings", "require_webhook_signature"):
+            return True
+    except Exception:
+        frappe.log_error(
+            title="Ponto webhook: signature setting unreadable, requiring the signature",
+            message=frappe.get_traceback(),
+        )
+        return True
+    return bool(getattr(settings, "require_webhook_signature", True))
+
+
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 @public_api(operation_type=OperationType.WEBHOOK_PROCESSING)
 def handle_ponto_webhook():
@@ -248,15 +287,11 @@ def handle_ponto_webhook():
         payload = frappe.request.get_data()
         signature = frappe.request.headers.get("Signature")
 
-        # Check if webhooks are enabled
         settings = frappe.get_single("Ponto Settings")
-        if not settings.enable_webhooks:
-            error_handler.log_info("Webhook received but webhooks are disabled")
-            return webhook_ack(messages_before)
 
         # Verify webhook signature (JWT/JWKS)
         # SECURITY: When require_webhook_signature is enabled, reject unsigned requests
-        require_signature = getattr(settings, "require_webhook_signature", True)
+        require_signature = is_signature_required(settings)
         claims = None
 
         if signature:
@@ -287,6 +322,14 @@ def handle_ponto_webhook():
                 "Webhook received without signature - INSECURE MODE. "
                 "Enable require_webhook_signature in Ponto Settings for production."
             )
+
+        # Honour enable_webhooks only AFTER the request is authenticated (#1813): checked
+        # first, an anonymous caller could read from the status code (200 off, 401 on)
+        # whether the integration is enabled. A genuine, signed delivery to a disabled
+        # integration is still acked so Ponto does not keep retrying it.
+        if not settings.enable_webhooks:
+            error_handler.log_info("Webhook received but webhooks are disabled")
+            return webhook_ack(messages_before)
 
         # Parse the webhook payload
         try:

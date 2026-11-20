@@ -737,3 +737,197 @@ class TestTheAmbiguityRefusalIsActionable(PurposeScopedChainFixture):
         existed for only one of them.
         """
         self._assert_refusal_names_both(secure.load_unpaid_invoices_secure, "AmbigLogSec")
+
+
+class TestManagerReadsDoNotSwallowFailures(PurposeScopedMandateFixture):
+    """#607 item 2: `get_active_mandates` / `has_active_mandate` returned []/False on ANY error.
+
+    `get_default_mandate` calls the first, so a DB failure reached its consumers as "no
+    mandate" even though the module-level helper had stopped doing that (#604). The failure
+    is a real query-layer one (a list reaches `frappe.get_all`/`frappe.db.exists` as a
+    filter value); nothing is patched.
+    """
+
+    def _manager(self):
+        from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+
+        return get_sepa_mandate_manager()
+
+    def test_get_active_mandates_raises_on_a_query_failure(self):
+        with self.assertRaises(Exception) as caught:
+            self._manager().get_active_mandates(["a", "b"])
+        self.assertNotIsInstance(caught.exception, ValueError)
+
+    def test_get_default_mandate_raises_on_a_query_failure(self):
+        with self.assertRaises(Exception) as caught:
+            self._manager().get_default_mandate(["a", "b"])
+        self.assertNotIsInstance(caught.exception, ValueError)
+
+    def test_has_active_mandate_raises_on_a_query_failure(self):
+        with self.assertRaises(Exception) as caught:
+            self._manager().has_active_mandate(["a", "b"])
+        self.assertNotIsInstance(caught.exception, ValueError)
+
+    def test_the_financial_summary_degrades_to_empty_and_logs_on_a_mandate_query_failure(self):
+        """A mandate query failure reaches `get_financial_summary`'s own handler.
+
+        It returns {} and writes an Error Log row, instead of the old behaviour where the
+        swallowed failure read as "no mandate" and a populated summary came back. Scope of
+        this test: the summary path only. It makes no claim about the Member save path;
+        I checked by grep that no Member validate/on_update hook calls these helpers.
+        """
+        title_prefix = "Error getting financial summary"
+        self.member.name = ["a", "b"]
+        self.expectErrorLog(title_prefix)
+        with self.assertErrorLog(title_prefix):
+            summary = self.member.get_financial_summary()
+        self.assertEqual(summary, {})
+
+    def test_the_reads_still_answer_for_a_real_member(self):
+        """Control: the fixture member has a membership mandate, so success is not vacuous."""
+        manager = self._manager()
+        self.assertTrue(manager.has_active_mandate(self.member.name))
+        self.assertEqual(len(manager.get_active_mandates(self.member.name)), 2)
+        self.assertEqual(
+            manager.get_default_mandate(self.member.name).mandate_id, self.membership_mandate.mandate_id
+        )
+
+
+class TestDashboardDistinguishesRefusalFromAbsence(PurposeScopedMandateFixture):
+    """#607 item 3: a refused (ambiguous) mandate was shown as "SEPA Direct Debit not configured"."""
+
+    def _dashboard_context(self):
+        from verenigingen.templates.pages.payment_dashboard import _add_bank_details_context
+
+        context = frappe._dict(member=self.member.name)
+        _add_bank_details_context(context)
+        return context
+
+    def _make_second_membership_mandate_active(self):
+        second = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "mandate_id": f"PURP-DUP-{frappe.generate_hash(length=8)}",
+                "member": self.member.name,
+                "account_holder_name": self.member.full_name,
+                "iban": "NL86INGB0002445588",
+                "sign_date": today(),
+                "status": "Draft",
+                "is_active": 0,
+                "mandate_type": "RCUR",
+                "scheme": "SEPA",
+                "used_for_memberships": 1,
+            }
+        )
+        second.insert()
+        # `save()` refuses a second same-purpose Active mandate; this bypass is the
+        # route by which the state stays reachable (pre-#584 rows are not rewritten).
+        frappe.db.set_value(
+            "SEPA Mandate", second.name, {"status": "Active", "is_active": 1}, update_modified=False
+        )
+
+    def test_one_membership_mandate_is_not_ambiguous(self):
+        context = self._dashboard_context()
+        self.assertTrue(context.current_mandate)
+        self.assertFalse(context.mandate_ambiguous)
+
+    def test_two_active_membership_mandates_are_flagged_ambiguous_not_absent(self):
+        self.expectErrorLog("Ambiguous active SEPA mandate")  # the refusal under test
+        self._make_second_membership_mandate_active()
+        context = self._dashboard_context()
+        self.assertFalse(context.current_mandate, "the dashboard must still not pick one by guess")
+        self.assertTrue(context.mandate_ambiguous)
+
+    def test_no_membership_mandate_is_absence_not_ambiguity(self):
+        frappe.db.set_value(
+            "SEPA Mandate",
+            self.membership_mandate.name,
+            {"status": "Cancelled", "is_active": 0},
+            update_modified=False,
+        )
+        context = self._dashboard_context()
+        self.assertFalse(context.current_mandate)
+        self.assertFalse(context.mandate_ambiguous)
+
+    def test_the_card_does_not_say_not_configured_for_a_refusal(self):
+        """Render the real template block: refusal shows its own text, no setup button."""
+        self.expectErrorLog("Ambiguous active SEPA mandate")  # the refusal under test
+        self._make_second_membership_mandate_active()
+        html = self._render_methods_card(self._dashboard_context())
+        self.assertNotIn("SEPA Direct Debit not configured", html)
+        self.assertNotIn("showBankSetupForm", html)
+        self.assertIn("more than one active direct debit authorization", html)
+
+    def test_the_card_still_says_not_configured_for_absence(self):
+        frappe.db.set_value(
+            "SEPA Mandate",
+            self.membership_mandate.name,
+            {"status": "Cancelled", "is_active": 0},
+            update_modified=False,
+        )
+        html = self._render_methods_card(self._dashboard_context())
+        self.assertIn("SEPA Direct Debit not configured", html)
+        self.assertIn("showBankSetupForm", html)
+
+    def _render_methods_card(self, context):
+        """Render only the SEPA card of payment_dashboard.html (sliced between its markers)."""
+        path = frappe.get_app_path("verenigingen", "templates", "pages", "payment_dashboard.html")
+        with open(path) as handle:
+            source = handle.read()
+        start = source.index("<!-- SEPA Direct Debit Card -->")
+        end = source.index("<!-- Mollie Card -->")
+        return frappe.render_template(source[start:end], context)
+
+
+    def _render_page(self):
+        """Whole-page render of /payment_dashboard for this member, (the suite runs as Administrator, which is_admin needs)."""
+        from frappe.website.serve import get_response
+        from frappe.website.utils import clear_website_cache
+
+        # The page response is cached by path alone, not by `member`, so a second render
+        # in the same run would be served the first one's HTML.
+        clear_website_cache()
+        frappe.form_dict.member = self.member.name
+        try:
+            response = get_response("payment_dashboard")
+            return response.get_data(as_text=True)
+        finally:
+            frappe.form_dict.pop("member", None)
+
+    def test_the_whole_page_shows_the_attention_card_only_for_the_ambiguous_state(self):
+        self.expectErrorLog("Ambiguous active SEPA mandate")
+        self.assertNotIn("sepa-attention-display", self._render_page())
+        self._make_second_membership_mandate_active()
+        html = self._render_page()
+        self.assertIn("sepa-attention-display", html)
+        self.assertIn("more than one active direct debit authorization", html)
+
+    def test_an_active_mollie_method_keeps_the_top_card_for_the_js_with_ambiguous_sepa(self):
+        """Mollie takes precedence in the TOP card; the SEPA card still needs attention.
+
+        Probe shortcut, stated: the Mollie state is set with `db.set_value` on the Member's
+        mollie fields (the page reads them from the Member), not created through a Mollie flow.
+        The JS fills `#active-method-display` with "Mollie Payments / Active", so that element
+        must render, and the top-card attention block must not take its place.
+        """
+        self.expectErrorLog("Ambiguous active SEPA mandate")
+        self._make_second_membership_mandate_active()
+        frappe.db.set_value(
+            "Member",
+            self.member.name,
+            {
+                "mollie_customer_id": "cst_probe12345",
+                "mollie_subscription_id": "sub_probe123",
+                "subscription_status": "active",
+            },
+        )
+        html = self._render_page()
+
+        top_start = html.index("Active Payment Method")
+        top_card = html[top_start : html.index("Next Payment Card", top_start)]
+        self.assertIn('id="active-method-display"', top_card)
+        self.assertNotIn("sepa-attention-display", top_card)
+
+        sepa_card = html[html.index("<!-- SEPA Direct Debit Card -->") : html.index("<!-- Mollie Card -->")]
+        self.assertIn("more than one active direct debit authorization", sepa_card)
+        self.assertIn("Needs attention", sepa_card)

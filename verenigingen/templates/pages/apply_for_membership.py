@@ -5,7 +5,7 @@ Context for the membership application page
 import frappe
 from frappe import _
 
-from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.member_utils import get_member_name_for_user
 from verenigingen.utils.select_options import coerce_select_option
 from verenigingen.utils.settings_utils import populate_income_calculator_context
 
@@ -51,7 +51,7 @@ def get_context(context):
 
     # Check if user is already a member
     if frappe.session.user != "Guest":
-        existing_member = get_current_user_member_name()
+        existing_member = get_member_name_for_user(frappe.session.user)
         if existing_member:
             context.already_member = True
             context.member_name = existing_member

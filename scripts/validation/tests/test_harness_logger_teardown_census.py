@@ -100,7 +100,13 @@ BASELINE = Path(__file__).resolve().parents[1] / "harness_logger_teardown_baseli
 # tearDownClass, so this walk's real-defs-only AST resolution (see the module
 # docstring) finds no new textual site: both inherit the one route already
 # counted above. MRO_CALLS / MRO_ERRORS / MRO_TEARDOWNS all stay put.
-MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 23, 4, 12
+# 23, 4, 12 -> 24, 5, 13 (#2271): TestContributionAmendmentRequestCoverage.tearDownClass
+# used to swallow a failed Membership Dues Schedule delete with `pass`; it now logs it
+# through get_harness_logger(...).error(). That is a NEW class-teardown route, so teardowns
+# and calls each gain one, and it enters AT ERROR (a surviving schedule leaks into later
+# modules and the mirror exists to carry exactly that to a CI log), so MRO_ERRORS moves
+# too and RESIDUAL_BELOW_ERROR (24-5) stays 19.
+MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 24, 5, 13
 # 35, 7 -> 36, 8 (#392): this branch replaced a silent `except Exception: pass`
 # in test_rest_migration_payments.py's tearDown with a get_harness_logger
 # `.error()` call, so name-mode gains one site and it is an ERROR one. The
@@ -138,7 +144,8 @@ MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 23, 4, 12
 # 42, 13 -> 43, 13 (#1306 round 5): the same single route as the MRO note above
 # (EnhancedTestCase._member_has_blocked_schedule). It enters at WARNING, so
 # NAME_ERRORS does NOT move -- only the call count.
-NAME_CALLS, NAME_ERRORS = 43, 13
+# 43, 13 -> 44, 14 (#2271): the same single route as the MRO note above, at ERROR.
+NAME_CALLS, NAME_ERRORS = 44, 14
 RESIDUAL_BELOW_ERROR = 19  # 17 -> 18 (#1154's WARNING success-path sweep, dropped by the
 # mirror knowingly); UNCHANGED at 18 when its ERROR failure-path sibling landed, because
 # that one entered at ERROR and moved MRO_ERRORS with it. 18 -> 19 (#1306 round 5):
@@ -184,7 +191,7 @@ class TestHarnessLoggerTeardownCensus(unittest.TestCase):
         self.assertEqual(
             len(errors),
             MRO_ERRORS,
-            "harness_logger.py says exactly four class-teardown records are at ERROR, "
+            "harness_logger.py says exactly five class-teardown records are at ERROR, "
             f"and that this is why the mirror gate sits there. Now: {sorted(errors)}",
         )
 

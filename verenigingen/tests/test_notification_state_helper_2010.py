@@ -10,7 +10,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.services.communication.email_service import get_email_service
-from verenigingen.tests.utils.notification_state import own_notification_keys
+from verenigingen.tests.utils.notification_state import own_notification_keys, snapshot_notification_rows
 
 DOCTYPE = "Verenigingen Email Configuration"
 KEY = "payment_reminder_friendly"
@@ -36,19 +36,14 @@ class TestOwnNotificationKeys(FrappeTestCase):
         self.owner = unittest.TestCase()  # stands in for a test: carries addCleanup/doCleanups
         config = frappe.get_single(DOCTYPE)
         self.original_rows = _config_rows_2010()
+        self.original_snapshot = snapshot_notification_rows()
         self.original_master = config.master_email_enabled
         self.addCleanup(self._put_state_back)
 
     def _put_state_back(self):
         from verenigingen.tests.utils.notification_state import _restore_notification_rows
 
-        _restore_notification_rows(
-            [
-                {"notification_key": k, "label": k, "category": "Admin", "enabled": e, "cooldown_minutes": c}
-                for k, (e, c) in self.original_rows.items()
-            ],
-            self.original_master,
-        )
+        _restore_notification_rows(self.original_snapshot, self.original_master)
 
     def _set_row(self, enabled, cooldown):
         config = frappe.get_single(DOCTYPE)

@@ -35,6 +35,8 @@ from verenigingen.verenigingen_payments.mollie.exceptions import MollieIntegrati
 from verenigingen.verenigingen_payments.mollie.services.subscription_service import SubscriptionService
 from verenigingen.verenigingen_payments.utils.payment_gateways import PaymentGatewayFactory
 
+CI_ALWAYS_SKIPS = "real Mollie API tests; the class skips in setUpClass without a Mollie API key, which CI never has"
+
 
 class TestMollieSubscriptionRealAPI(EnhancedTestCase):
     """

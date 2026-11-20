@@ -723,8 +723,18 @@ class BoardManager(BaseManager):
             if not old_board_member:
                 continue
 
-            # Check for role changes (same volunteer, same activity status, different role)
+            # Volunteer reassigned on an existing active row (#2553): the old holder loses
+            # the seat, the new one is seated by _newly_seated_board_members. Checked first:
+            # the role-change branch below would end the NEW volunteer's assignment instead.
             if (
+                old_board_member.is_active == 1
+                and old_board_member.volunteer
+                and old_board_member.volunteer != board_member.volunteer
+            ):
+                self._end_replaced_holder(old_board_member, board_member)
+
+            # Check for role changes (same volunteer, same activity status, different role)
+            elif (
                 old_board_member.is_active == 1
                 and board_member.is_active == 1
                 and board_member.volunteer
@@ -791,6 +801,28 @@ class BoardManager(BaseManager):
 
         # Handle deleted board members (existed in old doc but not in new)
         self.handle_board_member_deletions(old_doc)
+
+    def _end_replaced_holder(self, old_board_member, board_member):
+        """End the previous holder's seat when a save hands the same row to another volunteer (#2553)."""
+        end_date = board_member.to_date if not board_member.is_active and board_member.to_date else today()
+        self.chapter_doc.volunteer_integration_manager.update_volunteer_assignment_history(
+            old_board_member.volunteer,
+            old_board_member.chapter_role,
+            old_board_member.from_date,
+            end_date,
+        )
+        # The database still shows the old holder's seat here, which is what makes a
+        # Financial departure (and so a stale expense approver) detectable.
+        self._defer_board_access_recalculation(old_board_member.volunteer)
+        self.log_action(
+            "Board seat reassigned to another volunteer",
+            {
+                "old_volunteer": old_board_member.volunteer,
+                "new_volunteer": board_member.volunteer,
+                "role": old_board_member.chapter_role,
+                "end_date": end_date,
+            },
+        )
 
     def handle_board_member_deletions(self, old_doc):
         """
@@ -905,6 +937,10 @@ class BoardManager(BaseManager):
                 volunteer_doc = frappe.get_doc("Volunteer", board_member.volunteer)
                 if volunteer_doc.member:
                     self._add_to_chapter_members(volunteer_doc.member)
+                    # Seating a board member is not an application or a join the board is
+                    # told about (#1843): notify_board_of_joins skips these ids.
+                    seated = self.chapter_doc.flags.setdefault("board_seated_member_ids", set())
+                    seated.add(volunteer_doc.member)
                     self.log_action(
                         "Auto-added board member to chapter members",
                         {
@@ -931,7 +967,8 @@ class BoardManager(BaseManager):
         new role (the differing start_date slipped past the dedup).
 
         Role changes on an existing active row are handled by
-        handle_board_member_changes(), not here.
+        handle_board_member_changes(), not here. A volunteer handed an existing active
+        row IS seated here (#2553); the previous holder is ended there.
 
         Shared by the two passes that act on a seating -- the `members` append and the
         assignment history / role grant. They run at different points in the save
@@ -945,7 +982,18 @@ class BoardManager(BaseManager):
             old_board_member = old_board_members_by_name.get(board_member.name) if board_member.name else None
             is_new_row = old_board_member is None
             is_reactivation = old_board_member is not None and not old_board_member.is_active
-            if board_member.is_active and board_member.volunteer and (is_new_row or is_reactivation):
+            # Another volunteer on an existing active row is a seating for the new one (#2553).
+            is_handover = (
+                old_board_member is not None
+                and bool(old_board_member.is_active)
+                and bool(old_board_member.volunteer)
+                and old_board_member.volunteer != board_member.volunteer
+            )
+            if (
+                board_member.is_active
+                and board_member.volunteer
+                and (is_new_row or is_reactivation or is_handover)
+            ):
                 yield board_member
 
     def _log_or_reraise(self, action: str, details: Dict, error: Exception) -> None:
@@ -1093,13 +1141,20 @@ class BoardManager(BaseManager):
 
             # Not a member yet, add them
             member_doc = frappe.get_doc("Member", member_id)
+            # Derive `enabled`/`status` from the member's CURRENT status, exactly as
+            # MemberManager.add_member's new-row branch does (#1559): hardcoding
+            # enabled=1/'Active' showed a Suspended/Quit/Deceased member as a live,
+            # enabled chapter member (and mailed them a welcome).
+            from .member_manager import MemberManager
+
+            chapter_enabled, chapter_status = MemberManager._derive_membership_status(member_doc, True)
             new_member = self.chapter_doc.append(
                 "members",
                 {
                     "member": member_id,
                     "chapter_join_date": today(),
-                    "enabled": 1,
-                    "status": "Active",  # Set required status field
+                    "enabled": chapter_enabled,
+                    "status": chapter_status,
                 },
             )
 
@@ -1140,7 +1195,7 @@ class BoardManager(BaseManager):
         except frappe.DoesNotExistError:
             return False
 
-    def _defer_board_access_recalculation(self, volunteer_name: str):
+    def _defer_board_access_recalculation(self, volunteer_name: str, held_financial_before=None):
         """Queue a volunteer's board access to be recalculated after this save.
 
         Every board change — seating, unseating, deactivating, changing role — is
@@ -1157,13 +1212,40 @@ class BoardManager(BaseManager):
         only frame in the save where those reads are truthful. Additions were deferred
         for this reason already; removals were not, which is why vacating a seat never
         withdrew the board role profile (issue #211).
+
+        ``held_financial_before`` (#1682): whether the volunteer held an active Financial seat
+        on this chapter BEFORE the change, so only a seat that was Financial can leave a stale
+        expense approver behind. A Chapter save defers from validate(), where the database
+        still shows the previous board, so ``None`` reads it from there. A standalone row
+        write defers after the database changed, so it must say (see ChapterBoardMember).
         """
         if not volunteer_name:
             return
+        if held_financial_before is None:
+            held_financial_before = self._holds_financial_seat_in_db(volunteer_name)
+        if held_financial_before:
+            if not hasattr(self.chapter_doc, "_pending_financial_departures"):
+                self.chapter_doc._pending_financial_departures = set()
+            self.chapter_doc._pending_financial_departures.add(volunteer_name)
         if not hasattr(self.chapter_doc, "_pending_board_profile_syncs"):
             self.chapter_doc._pending_board_profile_syncs = []
         if volunteer_name not in self.chapter_doc._pending_board_profile_syncs:
             self.chapter_doc._pending_board_profile_syncs.append(volunteer_name)
+
+    def _holds_financial_seat_in_db(self, volunteer_name: str) -> bool:
+        """Whether the database shows an active Financial seat for the volunteer on this chapter."""
+        return bool(
+            frappe.db.sql(
+                """
+                SELECT 1 FROM `tabChapter Board Member` cbm
+                JOIN `tabChapter Role` cr ON cr.name = cbm.chapter_role
+                WHERE cbm.parent = %s AND cbm.volunteer = %s AND cbm.is_active = 1
+                    AND cr.permissions_level = 'Financial' AND cr.is_active = 1
+                LIMIT 1
+                """,
+                (self.chapter_doc.name, volunteer_name),
+            )
+        )
 
     def flush_pending_board_profile_syncs(self):
         """Recalculate deferred board access for everyone whose seat changed in this save.
@@ -1183,10 +1265,57 @@ class BoardManager(BaseManager):
             return
         # Clear first so a re-entrant save doesn't double-process.
         self.chapter_doc._pending_board_profile_syncs = []
+        departed = sorted(getattr(self.chapter_doc, "_pending_financial_departures", None) or ())
+        self.chapter_doc._pending_financial_departures = set()
         for volunteer_name in pending:
             self._sync_role_profile_for_volunteer(volunteer_name)
             self._withdraw_board_role_if_unseated(volunteer_name)
             self._assert_board_access_withdrawn(volunteer_name)
+            self._refresh_volunteer_status(volunteer_name)
+        self._refresh_expense_approvers(departed)
+
+    def _refresh_expense_approvers(self, departed_volunteers):
+        """Refresh Employee/Department expense approvers for a seat change, now (#1682).
+
+        The approvers derive from these very rows, and until now only the daily scheduler
+        recomputed them, so an ended or re-roled Financial seat stayed approver for a day.
+        This is the one place every seat writer converges (Chapter save, standalone row
+        insert/update/delete, term ending, termination), after the rows are persisted. No
+        commit: it runs in the writer's transaction. A failure other than a deadlock or lock
+        timeout is logged and does not block the board change; the daily run recomputes
+        approvers but never clears one, so it does not repair a missed clearing.
+
+        ``departed_volunteers``: those who held a Financial seat here before this change.
+        Those who no longer hold one lose their approver rows; anyone else's hand-set
+        approver is left alone (#1650).
+        """
+        from verenigingen.services.volunteer.native_expense_helpers import (
+            refresh_expense_approvers_for_chapter,
+        )
+
+        try:
+            refresh_expense_approvers_for_chapter(self.chapter_doc.name, departed_volunteers)
+        except Exception as e:
+            self._log_or_reraise(
+                "Failed to refresh expense approvers", {"volunteers": list(departed_volunteers)}, e
+            )
+
+    def _refresh_volunteer_status(self, volunteer_name: str):
+        """Re-derive Volunteer.status once the seat change is in the database (#2540).
+
+        The history writes in validate() refresh the status too, but they run before the
+        Chapter Board Member rows are persisted: has_current_assignment() still finds the
+        seat being ended in `tabChapter Board Member` and keeps the volunteer Active. This
+        is the first frame where that read is truthful, same reason as the profile sync.
+        The derivation only moves status on real assignment evidence (never writes
+        Retired or Onboarding), so a volunteer who still holds another seat stays Active.
+        """
+        try:
+            from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
+
+            AssignmentHistoryManager.refresh_volunteer_status(volunteer_name)
+        except Exception as e:
+            self._log_or_reraise("Failed to refresh volunteer status", {"volunteer": volunteer_name}, e)
 
     def _withdraw_board_role_if_unseated(self, volunteer_name: str):
         """Drop the Frappe board role from a volunteer who no longer holds a seat.
@@ -1311,11 +1440,10 @@ class BoardManager(BaseManager):
                 sync_user_role_profile,
             )
 
-            # reraise_non_resumable: the grant this sync replaced (#1672) ran in validate(),
-            # where a 1213/1205 aborted the Chapter save. The sync swallows them by default,
-            # which would let a seat commit with no role until the nightly sync.
-            # A non-lock failure comes back as success=False and is already in the Error Log.
-            sync_user_role_profile(user, reraise_non_resumable=True)
+            # The grant this sync replaced (#1672) ran in validate(), where a 1213/1205 aborted
+            # the Chapter save; the sync re-raises them (#1888), so a seat cannot commit with
+            # no role. A non-lock failure comes back as success=False and is in the Error Log.
+            sync_user_role_profile(user)
         except Exception as e:
             self._log_or_reraise(
                 "Failed to sync role profile for volunteer", {"volunteer": volunteer_name}, e

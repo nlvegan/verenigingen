@@ -15,6 +15,7 @@ from frappe.utils import now
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+from verenigingen.tests.utils.notification_state import restore_notification_rows, snapshot_notification_rows
 from verenigingen.utils.alert_manager import (
     BUSINESS_ALERT_TYPES,
     BUSINESS_GROUP,
@@ -33,21 +34,6 @@ TECH_KEY = "system_alert"
 BIZ_KEY = "business_monitoring_alert"
 TECH_TYPE = "HIGH_ERROR_RATE"
 BIZ_TYPE = "SEPA_COMPLIANCE"
-
-
-def _snapshot_rows():
-    """Plain copy of the Email Notification Type child rows (#2029)."""
-    fields = [
-        f.fieldname for f in frappe.get_meta("Email Notification Type").fields if f.fieldtype != "Section Break"
-    ]
-    config = frappe.get_single("Verenigingen Email Configuration")
-    return [{f: r.get(f) for f in fields} for r in config.notification_types]
-
-
-def _restore_rows(rows):
-    config = frappe.get_single("Verenigingen Email Configuration")
-    config.set("notification_types", rows)
-    config.save()
 
 
 class TestAlertManagerRecipients(EnhancedTestCase):
@@ -69,9 +55,9 @@ class TestAlertManagerRecipients(EnhancedTestCase):
         for title in (NO_RECIPIENTS_LOG_TITLE, UNSENT_LOG_TITLE):
             for scope in (SYSADMIN, VADMIN, TECHNICAL_GROUP, BUSINESS_GROUP):
                 frappe.cache().delete_value(f"{UNSENT_LOG_CACHE_PREFIX}:{title}:{scope}")
-        # Own the rows by hand (kept; singleton_backup has restored child tables since #2091, see #2159).
-        rows = _snapshot_rows()
-        self.addCleanup(_restore_rows, rows)
+        # Uncommitted, byte-for-byte restore, not singleton_backup: that one commits, which would also make
+        # the Users disabled below permanent (#2159).
+        self.addCleanup(restore_notification_rows, snapshot_notification_rows())
         self._set_alert_rows(TECH_KEY, 1)
         self._set_alert_rows(BIZ_KEY, 1)
         # Only the fixture users hold the profiles; the site may carry others.

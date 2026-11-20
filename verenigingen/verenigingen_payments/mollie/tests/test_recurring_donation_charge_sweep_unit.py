@@ -80,8 +80,11 @@ class _FakeMollieClient:
     def __init__(self, subscriptions=None):
         self._subscriptions = subscriptions or {}
 
-    def get_subscription(self, customer_id, subscription_id):
-        return _FakeSubscription(self._subscriptions.get(subscription_id, []))
+    def list_subscription_payments(self, customer_id, subscription_id, limit=None):
+        return _FakeSubscription(self._subscriptions.get(subscription_id, [])).payments.list(limit=limit)
+
+    def get_next_payments_page(self, page):
+        return page.get_next()
 
 
 class _SweepTestBase(EnhancedTestCase):
@@ -110,6 +113,35 @@ class _SweepTestBase(EnhancedTestCase):
         donation.insert(ignore_permissions=True)
         self.track_test_record("Donation", donation.name)
         return donation
+
+    def _book_live_journal_entry(self, payment_id):
+        """A live Journal Entry keyed by the payment id: what 'booked' means (#945).
+
+        Built as a DRAFT because that is the cheapest row the lookup counts;
+        the sweep's resolve_journal_entry_by_reference now submits it (#2535),
+        which is fine here: it still reads as booked, which is what is asserted.
+        """
+        accounts = frappe.get_all(
+            "Account",
+            filters={
+                "company": self.company,
+                "is_group": 0,
+                "account_type": ["not in", ["Receivable", "Payable"]],
+                "root_type": ["in", ["Asset", "Expense", "Income"]],
+            },
+            pluck="name",
+            limit=2,
+        )
+        je = frappe.new_doc("Journal Entry")
+        je.company = self.company
+        je.posting_date = frappe.utils.nowdate()
+        je.cheque_no = payment_id
+        je.cheque_date = frappe.utils.nowdate()
+        je.append("accounts", {"account": accounts[0], "debit_in_account_currency": 1})
+        je.append("accounts", {"account": accounts[1], "credit_in_account_currency": 1})
+        je.insert()
+        self.track_test_record("Journal Entry", je.name)
+        return je.name
 
     def _origin(self, tag, **kwargs):
         defaults = dict(
@@ -145,11 +177,11 @@ class TestActiveSubscriptionSelection(_SweepTestBase):
 
         seen_subscription_ids = []
 
-        def _get_subscription(customer_id, subscription_id):
+        def _list_payments(customer_id, subscription_id, limit=None):
             seen_subscription_ids.append(subscription_id)
-            return _FakeSubscription([])
+            return _FakeSubscription([]).payments.list(limit=limit)
 
-        client = SimpleNamespace(get_subscription=_get_subscription)
+        client = SimpleNamespace(list_subscription_payments=_list_payments)
         with patch(f"{_MODULE}.MollieClient", return_value=client):
             sweep_recurring_donation_charges()
 
@@ -162,7 +194,7 @@ class TestActiveSubscriptionSelection(_SweepTestBase):
         def _boom(*a, **k):
             raise AssertionError("should not be called for a One-time donation")
 
-        client = SimpleNamespace(get_subscription=_boom)
+        client = SimpleNamespace(list_subscription_payments=_boom)
         with patch(f"{_MODULE}.MollieClient", return_value=client):
             summary = sweep_recurring_donation_charges()
 
@@ -189,10 +221,12 @@ class TestSweepOnePayment(_SweepTestBase):
         mocked_processor.return_value.process_donation_payment.assert_not_called()
 
     def test_already_booked_charge_is_skipped_without_reprocessing(self):
-        # origin.payment_id IS the first payment's id, so listing it back
-        # from Mollie must not re-trigger booking.
+        # Booked = a live Journal Entry, not a Donation row (#945). Here the
+        # origin's own first payment has both, so listing it back must not
+        # re-trigger booking.
         tag = frappe.generate_hash(length=8)
         self._origin(tag)
+        self._book_live_journal_entry(f"tr_first_{tag}")
         client = _FakeMollieClient(subscriptions={f"sub_{tag}": [_payment(f"tr_first_{tag}")]})
 
         with patch(f"{_MODULE}.MollieClient", return_value=client), patch(
@@ -204,9 +238,27 @@ class TestSweepOnePayment(_SweepTestBase):
         self.assertEqual(summary["charges_booked"], 0)
         mocked_processor.return_value.process_donation_payment.assert_not_called()
 
+    def test_a_donation_row_without_a_journal_entry_is_not_booked_yet(self):
+        # #945: ensure_donation_for_recurring_charge inserts the row BEFORE
+        # booking, so a charge whose booking failed has a row and no entry.
+        tag = frappe.generate_hash(length=8)
+        self._origin(tag)  # carries payment_id tr_first_<tag>, no Journal Entry
+        client = _FakeMollieClient(subscriptions={f"sub_{tag}": [_payment(f"tr_first_{tag}")]})
+
+        with patch(f"{_MODULE}.MollieClient", return_value=client), patch(
+            f"{_MODULE}.DonationProcessor"
+        ) as mocked_processor:
+            mocked_processor.return_value.process_donation_payment.return_value = {"status": "success"}
+            summary = sweep_recurring_donation_charges()
+
+        self.assertEqual(summary["charges_booked"], 1)
+        self.assertEqual(summary["charges_already_booked"], 0)
+        mocked_processor.return_value.process_donation_payment.assert_called_once()
+
     def test_unbooked_paid_charge_is_booked(self):
         tag = frappe.generate_hash(length=8)
         self._origin(tag)
+        self._book_live_journal_entry(f"tr_first_{tag}")
         client = _FakeMollieClient(
             subscriptions={f"sub_{tag}": [_payment(f"tr_first_{tag}"), _payment(f"tr_second_{tag}")]}
         )
@@ -224,6 +276,7 @@ class TestSweepOnePayment(_SweepTestBase):
         self.assertEqual(called_payment_id, f"tr_second_{tag}")
 
     def test_booking_failure_is_recorded_not_raised(self):
+        self.expectErrorLog("Recurring Donation Charge Sweep")
         tag = frappe.generate_hash(length=8)
         self._origin(tag)
         client = _FakeMollieClient(subscriptions={f"sub_{tag}": [_payment(f"tr_second_{tag}")]})
@@ -242,6 +295,7 @@ class TestSweepOnePayment(_SweepTestBase):
         self.assertEqual(summary["errors"][0]["payment_id"], f"tr_second_{tag}")
 
     def test_one_subscription_failing_does_not_stop_the_sweep(self):
+        self.expectErrorLog("Recurring Donation Charge Sweep")
         tag = frappe.generate_hash(length=8)
         self._origin(tag)
         tag2 = frappe.generate_hash(length=8)
@@ -254,12 +308,12 @@ class TestSweepOnePayment(_SweepTestBase):
 
         good_client = _FakeMollieClient(subscriptions={f"sub_{tag}": [_payment(f"tr_second_{tag}")]})
 
-        def _get_subscription(customer_id, subscription_id):
+        def _list_payments(customer_id, subscription_id, limit=None):
             if subscription_id == f"sub_broken_{tag2}":
                 raise RuntimeError("Mollie unreachable")
-            return good_client.get_subscription(customer_id, subscription_id)
+            return good_client.list_subscription_payments(customer_id, subscription_id, limit=limit)
 
-        combined_client = SimpleNamespace(get_subscription=_get_subscription)
+        combined_client = SimpleNamespace(list_subscription_payments=_list_payments)
         with patch(f"{_MODULE}.MollieClient", return_value=combined_client), patch(
             f"{_MODULE}.DonationProcessor"
         ) as mocked_processor:
@@ -286,6 +340,7 @@ class TestPagination(_SweepTestBase):
     def test_an_unbooked_charge_on_the_second_page_is_still_booked(self):
         tag = frappe.generate_hash(length=8)
         self._origin(tag)
+        self._book_live_journal_entry(f"tr_first_{tag}")
         # Page 1 carries only the already-booked first payment; the unbooked
         # charge sits on page 2. Reading only page 1 would find nothing to
         # book and this test would see charges_booked == 0.
@@ -338,3 +393,222 @@ class TestPagination(_SweepTestBase):
             summary["charges_booked"] + summary["charges_already_booked"] + summary["charges_not_paid"]
         )
         self.assertEqual(total_seen, sweep_module._MAX_PAGES_PER_SUBSCRIPTION)
+
+
+class _SdkPage(_FakePage):
+    """A `_FakePage` whose get_next() counts the HTTP request it stands for."""
+
+    def __init__(self, sdk, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._sdk = sdk
+
+    def get_next(self):
+        self._sdk.calls["get_next"] += 1
+        self._sdk.fail_if_scripted("get_next")
+        nxt, *rest = self._remaining_pages
+        return _SdkPage(self._sdk, nxt, rest)
+
+
+class _FakeSdk:
+    """The Mollie SDK HTTP boundary: customers.get -> subscriptions.get -> payments.list.
+
+    Each of those is one HTTP request. `failures` maps a request name to a
+    list of exceptions raised on its first calls, one per call, then it
+    succeeds: a 429 that clears after a backoff, or one that never does.
+    """
+
+    def __init__(self, pages_by_subscription, failures=None):
+        self._pages = pages_by_subscription
+        self._failures = {k: list(v) for k, v in (failures or {}).items()}
+        self.calls = {"customers.get": 0, "subscriptions.get": 0, "payments.list": 0, "get_next": 0}
+        self.customers = SimpleNamespace(get=self._customers_get)
+
+    def fail_if_scripted(self, name):
+        queue = self._failures.get(name)
+        if queue:
+            raise queue.pop(0)
+
+    def _customers_get(self, customer_id):
+        self.calls["customers.get"] += 1
+        self.fail_if_scripted("customers.get")
+        return SimpleNamespace(subscriptions=SimpleNamespace(get=self._subscriptions_get))
+
+    def _subscriptions_get(self, subscription_id):
+        self.calls["subscriptions.get"] += 1
+        self.fail_if_scripted("subscriptions.get")
+
+        def _list(limit=None):
+            self.calls["payments.list"] += 1
+            self.fail_if_scripted("payments.list")
+            first, *rest = self._pages.get(subscription_id, [[]])
+            return _SdkPage(self, first, rest)
+
+        return SimpleNamespace(payments=SimpleNamespace(list=_list))
+
+
+def _too_many_requests():
+    from mollie.api.error import RequestError
+
+    return RequestError("429 Too Many Requests")
+
+
+class TestSweepRetriesMollieReads(_SweepTestBase):
+    """#929: the sweep's reads go through MollieClient's retry; only the SDK is stubbed.
+
+    The real MollieClient is used. MollieClient's circuit breaker is a no-op
+    (core/resilience/__init__.py: removed on purpose), so there is no breaker
+    to trip: what throttles the sweep is the retry's backoff, which these
+    tests observe through the (stubbed) sleep.
+    """
+
+    def _run_sweep_over_sdk(self, sdk):
+        from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
+
+        self.expectErrorLog("Mollie Client")
+        self.expectErrorLog("Recurring Donation Charge Sweep")
+        with patch.object(MollieClient, "_get_api_key", return_value="test_dummy"), patch.object(
+            MollieClient, "_get_mollie_client", return_value=sdk
+        ), patch(
+            "verenigingen.verenigingen_payments.core.resilience.retry_policy.time.sleep"
+        ) as sleep, patch(
+            f"{_MODULE}._active_donation_subscriptions", return_value=self.origins
+        ), patch(
+            f"{_MODULE}.resolve_journal_entry_by_reference", return_value=None
+        ), patch(
+            f"{_MODULE}.DonationProcessor"
+        ) as mocked_processor:
+            mocked_processor.return_value.process_donation_payment.return_value = {"status": "success"}
+            summary = sweep_recurring_donation_charges()
+        self.sleep = sleep
+        return summary
+
+    def _origins(self, *tags):
+        return [
+            SimpleNamespace(
+                name=f"DON-{tag}", mollie_subscription_id=f"sub_{tag}", mollie_customer_id=f"cst_{tag}"
+            )
+            for tag in tags
+        ]
+
+    def test_a_429_on_each_request_is_retried_then_succeeds(self):
+        tag = frappe.generate_hash(length=8)
+        self.origins = self._origins(tag)
+        # A 429 on the first request of the page read, another on its last
+        # request (which restarts the whole chain), and one on the next-page
+        # request: each must be retried, and the run must still book both.
+        sdk = _FakeSdk(
+            {f"sub_{tag}": [[_payment(f"tr_a_{tag}")], [_payment(f"tr_b_{tag}")]]},
+            failures={
+                "customers.get": [_too_many_requests()],
+                "payments.list": [_too_many_requests()],
+                "get_next": [_too_many_requests()],
+            },
+        )
+        summary = self._run_sweep_over_sdk(sdk)
+
+        self.assertEqual(summary["errors"], [])
+        self.assertEqual(summary["charges_booked"], 2)
+        # Attempt 1 dies at customers.get; attempt 2 dies at payments.list;
+        # attempt 3 succeeds. The next-page request fails once, then succeeds.
+        self.assertEqual(
+            sdk.calls, {"customers.get": 3, "subscriptions.get": 2, "payments.list": 2, "get_next": 2}
+        )
+        self.assertEqual(self.sleep.call_count, 3)
+
+    def test_a_persistent_429_exhausts_the_retry_policy_and_the_sweep_moves_on(self):
+        tag, tag2 = frappe.generate_hash(length=8), frappe.generate_hash(length=8)
+        self.origins = self._origins(tag, tag2)
+        # Every customers.get fails for the first subscription: 3 attempts
+        # (the policy's max_attempts) and no more, then the sweep records ONE
+        # error for it and still sweeps the second subscription.
+        sdk = _FakeSdk(
+            {f"sub_{tag2}": [[_payment(f"tr_ok_{tag2}")]]},
+            failures={"customers.get": [_too_many_requests() for _ in range(3)]},
+        )
+        client_rows_before = frappe.db.count("Error Log", {"method": "Mollie Client"})
+        summary = self._run_sweep_over_sdk(sdk)
+
+        # One Error Log row for the failed subscription, not one per attempt.
+        self.assertEqual(frappe.db.count("Error Log", {"method": "Mollie Client"}) - client_rows_before, 1)
+        self.assertEqual(len(summary["errors"]), 1)
+        self.assertEqual(summary["errors"][0]["subscription_id"], f"sub_{tag}")
+        self.assertIn("429", summary["errors"][0]["error"])
+        self.assertEqual(summary["charges_booked"], 1)
+        self.assertEqual(sdk.calls["customers.get"], 3 + 1)
+        # Backoff between the attempts: the sweep is throttled, not a tight loop.
+        self.assertEqual(self.sleep.call_count, 2)
+
+    def test_a_healthy_run_makes_exactly_one_request_per_step_and_never_sleeps(self):
+        tag = frappe.generate_hash(length=8)
+        self.origins = self._origins(tag)
+        sdk = _FakeSdk({f"sub_{tag}": [[_payment(f"tr_a_{tag}")], [_payment(f"tr_b_{tag}")]]})
+        summary = self._run_sweep_over_sdk(sdk)
+
+        self.assertEqual(summary["errors"], [])
+        self.assertEqual(summary["charges_booked"], 2)
+        self.assertEqual(
+            sdk.calls, {"customers.get": 1, "subscriptions.get": 1, "payments.list": 1, "get_next": 1}
+        )
+        self.sleep.assert_not_called()
+
+
+class TestResolveJournalEntryByReference(_SweepTestBase):
+    """The shared lookup every booker uses (donation, refund, dues reversal, sweep): #2535."""
+
+    def test_a_stranded_draft_is_submitted_and_its_name_returned(self):
+        from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+            resolve_journal_entry_by_reference,
+        )
+
+        ref = f"tr_resolve_{frappe.generate_hash(length=8)}"
+        name = self._book_live_journal_entry(ref)
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)
+
+        self.assertEqual(resolve_journal_entry_by_reference(ref, 1.0), name)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 1)
+
+    def test_an_unknown_reference_resolves_to_none_and_the_pure_lookup_never_submits(self):
+        from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+            find_journal_entry_by_reference,
+            resolve_journal_entry_by_reference,
+        )
+
+        self.assertIsNone(
+            resolve_journal_entry_by_reference(f"tr_none_{frappe.generate_hash(length=8)}", 1.0)
+        )
+        ref = f"tr_pure_{frappe.generate_hash(length=8)}"
+        name = self._book_live_journal_entry(ref)
+
+        self.assertEqual(find_journal_entry_by_reference(ref), name)
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)
+
+    def test_an_unknown_amount_fails_closed_and_the_draft_is_left(self):
+        """There is no "skip the check": a caller without an amount must not auto-submit."""
+        from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
+            resolve_journal_entry_by_reference,
+        )
+
+        ref = f"tr_noamt_{frappe.generate_hash(length=8)}"
+        name = self._book_live_journal_entry(ref)
+        self.expectErrorLog("Journal Entry Draft Amount Mismatch")
+
+        self.assertEqual(resolve_journal_entry_by_reference(ref, None), name)
+
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)
+
+
+class TestTotalReversedWithDrafts(_SweepTestBase):
+    """total_reversed counts a draft (a booking in flight) but never submits it: it has no amount to check (#2535)."""
+
+    def test_a_draft_counts_and_is_left_a_draft(self):
+        from verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency import (
+            build_reversal_key,
+            total_reversed,
+        )
+
+        payment_id = f"tr_tot_{frappe.generate_hash(length=8)}"
+        name = self._book_live_journal_entry(build_reversal_key(payment_id, "refund", "re_1"))
+
+        self.assertEqual(total_reversed(payment_id), 1.0)
+        self.assertEqual(frappe.db.get_value("Journal Entry", name, "docstatus"), 0)

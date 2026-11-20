@@ -8,6 +8,7 @@
  * @version 1.0.0
  */
 
+const Ajv = require('ajv');
 const { SimpleAPIContractTester } = require('../setup/api-contract-simple');
 
 describe('Financial API Contract Tests', () => {
@@ -438,12 +439,20 @@ describe('Financial API Contract Tests', () => {
 				birth_date: '1990-01-01'
 			};
 
-			const startTime = performance.now();
-			const result = tester.validateAPICall(apiName, validRequest, 'request');
-			const endTime = performance.now();
+			// Assert caching by compile count, not wall-clock (#2440, as #2420).
+			const compileSpy = jest.spyOn(Ajv.prototype, 'compile');
+			try {
+				const result = tester.validateAPICall(apiName, validRequest, 'request');
+				expect(result.valid).toBe(true);
+				expect(compileSpy).toHaveBeenCalledTimes(1);
 
-			expect(result.valid).toBe(true);
-			expect(endTime - startTime).toBeLessThan(100); // Should be very fast with caching
+				const cached = tester.validateAPICall(apiName, validRequest, 'request');
+				expect(cached.valid).toBe(true);
+				expect(compileSpy).toHaveBeenCalledTimes(1); // second call recompiles nothing
+				expect(tester.compiledValidators.size).toBe(1);
+			} finally {
+				compileSpy.mockRestore();
+			}
 		});
 	});
 

@@ -1,82 +1,102 @@
 """
-Suspension API — HTTP-layer security tests.
+Suspension API: HTTP-layer security tests (#2370)
+=================================================
 
-These exercise the genuinely HTTP-specific security behaviour of the suspension
-API (CSRF enforcement, unauthenticated rejection, security-decorator enforcement)
-by driving REAL HTTP requests against the running site. Under `bench run-tests`
-(and in CI) no web server is bound to the site URL, so they self-skip.
+These exercise the security behaviour that only exists at the HTTP transport layer (CSRF
+enforcement, guest refusal, security-tier enforcement) by driving ``suspend_member`` through the
+real WSGI app (``verenigingen.tests.support.wsgi_http_session``).
 
-The business-logic and RBAC coverage that used to live here as always-skipped
-HTTP tests now runs in-process in ``test_suspension_api_integration.py`` (issue
-#162), where it can actually execute and assert in CI.
+They used to send ``requests`` to the site URL and self-skipped when no web server answered, which
+is always the case under ``bench run-tests`` and in CI. The business-logic and RBAC coverage lives
+in-process in ``test_suspension_api_integration.py`` (issue #162).
+
+Two premises of the old tests were false, and nothing ever checked them because they never ran:
+
+* ``test_csrf_protection_real_validation`` posted with a bare ``requests.Session()``, i.e. as a
+  guest, and expected 401/403. That is the guest refusal, not CSRF. A real CSRF failure is HTTP
+  400 ``CSRFTokenError``, and only for a logged-in session that has loaded a page (#2367).
+* ``test_api_security_decorators_real_validation`` also posted as a guest, which Frappe refuses at
+  whitelist dispatch ("not whitelisted" for guests), so ``@critical_api`` never ran. The decorator
+  is now exercised by a logged-in user whose profile tops out below CRITICAL.
 """
-
-import requests
 
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.wsgi_http_session import (
+    CommittedLoginUsersMixin,
+    api_path,
+    operation_result,
+    run_wsgi_cases,
+)
+
+SUSPEND_MEMBER = api_path("verenigingen.api.suspension_api.suspend_member")
+# Unknown on purpose: an admin who gets past every layer is answered DOES_NOT_EXIST and nothing
+# is suspended, so the control never changes data.
+# The endpoint logs this when an admin asks about an unknown member (the control cases below).
+ERROR_LOG_TITLE = "Suspension API Validation Error"
+PAYLOAD = {"member_name": "HTTP-SUSPENSION-NO-SUCH-MEMBER", "suspension_reason": "HTTP security test"}
 
 
-def _http_endpoint_reachable(site_url):
-    """Return True if the site's HTTP endpoint accepts connections.
-
-    These tests drive real HTTP requests; under `bench run-tests` there is no
-    live web server bound to the site URL, so probe once with a short timeout so
-    the suite self-skips cleanly instead of erroring on every test.
-    """
-    try:
-        requests.get(f"{site_url}/api/method/frappe.ping", timeout=2)
-        return True
-    except Exception:
-        return False
-
-
-class TestSuspensionAPISecurityHTTPIntegration(EnhancedTestCase):
-    """Real-HTTP security-framework validation for the suspension API.
-
-    Tests real security-framework behaviour (CSRF, authentication, decorator
-    enforcement) that only exists at the HTTP transport layer. Skips when no live
-    web server is reachable (the normal case under `bench run-tests` / CI).
-    """
-
+class TestSuspensionAPISecurityHTTPIntegration(CommittedLoginUsersMixin, EnhancedTestCase):
     def setUp(self):
         super().setUp()
-        self.site_url = frappe.utils.get_url()
-        self.api_base = f"{self.site_url}/api/method"
-
-        if not _http_endpoint_reachable(self.site_url):
-            self.skipTest(
-                f"Site HTTP endpoint not reachable at {self.site_url}; "
-                "HTTP integration tests require a running web server."
-            )
-
-        self.test_member = self.create_test_member(
-            first_name="Security",
-            last_name="Test",
-            email="security.suspend@test.nl",
+        # A CRITICAL profile, and one that tops out below CRITICAL (the framework tier must refuse it).
+        users = self._create_login_users(
+            admin="Verenigingen Administrator", member="Verenigingen Member"
         )
+        self.admin_user, self.member_user = users["admin"], users["member"]
+
+    def _suspend_case(self, name, user=None, csrf="valid"):
+        return {
+            "name": name,
+            "endpoint": SUSPEND_MEMBER,
+            "login": {"usr": user, "pwd": self.password} if user else None,
+            "csrf": csrf if user else False,
+            "json": PAYLOAD,
+        }
 
     def test_csrf_protection_real_validation(self):
-        """A session POST without a CSRF token is rejected by the framework."""
-        response = requests.Session().post(
-            f"{self.api_base}/verenigingen.api.suspension_api.suspend_member",
-            data={"member_name": self.test_member.name, "suspension_reason": "CSRF Test"},
+        """A logged-in POST with a missing or wrong CSRF token is refused; the same user with the token is not."""
+        self.expectErrorLog(ERROR_LOG_TITLE)
+        out = run_wsgi_cases(
+            self._suspend_case("missing", self.admin_user, csrf="missing"),
+            self._suspend_case("wrong", self.admin_user, csrf="wrong"),
+            self._suspend_case("valid", self.admin_user, csrf="valid"),
         )
-        self.assertIn(response.status_code, [401, 403])
+
+        for name in ("missing", "wrong"):
+            self.assertEqual(out[name]["status"], 400, out[name]["body"][:300])
+            self.assertIn("CSRFTokenError", out[name]["body"], name)
+        # Control: with a valid token the endpoint body runs, so the refusals are about the token.
+        self.assertEqual(out["valid"]["status"], 200, out["valid"]["body"][:300])
+        self.assertEqual(operation_result(out["valid"])["error"]["code"], "DOES_NOT_EXIST")
+        # The endpoint's unknown-member answer logs a row (written by the child, committed; Error Log
+        # is MyISAM so this connection sees it). That row is what shows the body really ran.
+        self.assertTrue(
+            frappe.db.exists("Error Log", {"method": ["like", f"%{self.admin_user}%"]}),
+            "the authorised request did not reach the endpoint body",
+        )
 
     def test_authentication_required_real_validation(self):
-        """An unauthenticated suspension request is rejected."""
-        response = requests.post(
-            f"{self.api_base}/verenigingen.api.suspension_api.suspend_member",
-            data={"member_name": self.test_member.name, "suspension_reason": "Auth Test"},
-        )
-        self.assertIn(response.status_code, [401, 403])
+        """An unauthenticated suspension request is refused at dispatch (403 PermissionError)."""
+        out = run_wsgi_cases(self._suspend_case("guest"))["guest"]
+
+        self.assertEqual(out["status"], 403, out["body"][:300])
+        self.assertIn("PermissionError", out["body"])
+        self.assertNotIn("DOES_NOT_EXIST", out["body"])
 
     def test_api_security_decorators_real_validation(self):
-        """The @critical_api decorator denies an unauthenticated caller."""
-        response = requests.Session().post(
-            f"{self.api_base}/verenigingen.api.suspension_api.suspend_member",
-            data={"member_name": "test", "suspension_reason": "decorator test"},
+        """@critical_api refuses a logged-in caller whose role profile is below CRITICAL."""
+        self.expectErrorLog(ERROR_LOG_TITLE)
+        out = run_wsgi_cases(
+            self._suspend_case("member", self.member_user),
+            self._suspend_case("admin", self.admin_user),
         )
-        self.assertIn(response.status_code, [401, 403])
+
+        self.assertEqual(out["member"]["status"], 403, out["member"]["body"][:300])
+        # The framework's generic refusal, raised before the endpoint body ran.
+        self.assertIn("Access denied", out["member"]["body"])
+        self.assertNotIn("DOES_NOT_EXIST", out["member"]["body"])
+        # Control: a CRITICAL profile gets through to the body.
+        self.assertEqual(operation_result(out["admin"])["error"]["code"], "DOES_NOT_EXIST")

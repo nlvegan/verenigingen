@@ -19,7 +19,7 @@ import frappe
 from frappe.utils import today, add_days, get_datetime
 from unittest.mock import patch, MagicMock
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
-from verenigingen.tests.utils.reminder_mail_state import allow_reminder_sends
+from verenigingen.tests.utils.notification_state import PAYMENT_REMINDER_KEYS, own_notification_keys
 
 
 class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
@@ -62,64 +62,17 @@ class TestPaymentProcessingAPIIntegration(EnhancedTestCase):
         account.flags.ignore_mandatory = True
         account.insert(ignore_permissions=True)
 
-    def _enable_notifications(self, notification_keys):
-        """Enable the given notification keys in Verenigingen Email Configuration.
-
-        EmailService passes a notification_key for payment reminders / chapter
-        notifications. _send_email_internal silently skips (without calling
-        frappe.sendmail) when that key is not enabled in the configuration. The
-        minimal test site has an empty notification_types table, so every keyed
-        send is skipped. Enable the relevant keys so the real send path runs.
-        """
-        config = frappe.get_single("Verenigingen Email Configuration")
-        config.master_email_enabled = 1
-        existing = {nt.notification_key for nt in config.notification_types}
-        changed = False
-        for key in notification_keys:
-            if key in existing:
-                for nt in config.notification_types:
-                    # #1999: a registered key is seeded with a real cooldown (payment_reminder_*
-                    # 10080/4320 min), which would throttle the repeat sends to this fixed member.
-                    if nt.notification_key == key and (not nt.enabled or nt.cooldown_minutes):
-                        nt.enabled = 1
-                        nt.cooldown_minutes = 0
-                        changed = True
-            else:
-                config.append(
-                    "notification_types",
-                    {
-                        "notification_key": key,
-                        "enabled": 1,
-                        "label": key,
-                        "category": "Payment",
-                        # No cooldown so repeated sends within a test are not throttled.
-                        "cooldown_minutes": 0,
-                    },
-                )
-                changed = True
-        if changed or config.has_value_changed("master_email_enabled"):
-            config.flags.ignore_permissions = True
-            config.save(ignore_permissions=True)
-
     def setUp(self):
         super().setUp()
 
         # Real payment-reminder/chapter-notification sends require a default
         # outgoing email account to reach frappe.sendmail (see helper docstring).
         self._ensure_outgoing_email_account()
-        # ...and the keyed notifications must be enabled in the config, otherwise
-        # the keyed send path is silently skipped (see helper docstring).
-        self._enable_notifications(
-            [
-                "payment_reminder_friendly",
-                "payment_reminder_urgent",
-                "chapter_board_notification",
-                # chapter board overdue notice uses notification_type="payment_failure"
-                "payment_failure",
-            ]
-        )
-        # #2015: only a real send is counted, so cooldown state must be explicit
-        allow_reminder_sends()
+        # ...and the keyed notifications must be enabled in the config, otherwise the keyed send
+        # path is silently skipped. own_notification_keys seeds exactly these keys (cooldown 0, so
+        # repeat sends to the fixed member are not throttled) and restores them afterwards (#2053).
+        # It must be the FIRST thing to touch the configuration: it restores to what it snapshotted.
+        own_notification_keys(self, *PAYMENT_REMINDER_KEYS)
 
         # Create realistic test data using Enhanced Test Factory
         # This creates real members, chapters, invoices, etc. in the database.

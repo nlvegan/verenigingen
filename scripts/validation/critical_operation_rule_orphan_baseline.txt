@@ -25,14 +25,11 @@ critical_operation_rule.json::add_missing_eboekhouden_doctypes::1
 critical_operation_rule.json::add_module_onboarding_custom_field::1
 critical_operation_rule.json::add_performance_indexes::1
 critical_operation_rule.json::add_quick_start_card::1
-critical_operation_rule.json::add_role_to_user::1
 critical_operation_rule.json::add_working_chapter_charts::1
 critical_operation_rule.json::admin_function::1
 critical_operation_rule.json::admin_tools_analyze_database_performance::1
-critical_operation_rule.json::admin_tools_apply_production_security::1
 critical_operation_rule.json::admin_tools_check_and_fix_invoice::1
 critical_operation_rule.json::admin_tools_check_current_security_status::1
-critical_operation_rule.json::admin_tools_cleanup_orphaned_gl_entries::1
 critical_operation_rule.json::admin_tools_cleanup_test_members_only::1
 critical_operation_rule.json::admin_tools_comprehensive_dues_health_maintenance::1
 critical_operation_rule.json::admin_tools_comprehensive_dues_schedule_health_check::1
@@ -46,10 +43,6 @@ critical_operation_rule.json::admin_tools_get_optimization_suggestions::1
 critical_operation_rule.json::admin_tools_get_performance_dashboard::1
 critical_operation_rule.json::admin_tools_get_system_health::1
 critical_operation_rule.json::admin_tools_get_table_statistics::1
-critical_operation_rule.json::admin_tools_nuclear_cleanup_all_imported_data::1
-critical_operation_rule.json::admin_tools_nuclear_cleanup_all_members::1
-critical_operation_rule.json::admin_tools_nuclear_truncate_member_tables::1
-critical_operation_rule.json::admin_tools_nuclear_truncate_version_and_deleted_tables::1
 critical_operation_rule.json::admin_tools_preview_member_cleanup::1
 critical_operation_rule.json::admin_tools_sync_all_member_fields::1
 critical_operation_rule.json::admin_tools_test_cleanup_small_batch::1
@@ -311,7 +304,6 @@ critical_operation_rule.json::create_missing_account_groups::1
 critical_operation_rule.json::create_missing_payment_entry::1
 critical_operation_rule.json::create_missing_templates::1
 critical_operation_rule.json::create_other_missing_custom_fields::1
-critical_operation_rule.json::create_payment_entries::1
 critical_operation_rule.json::create_proper_chapter_charts::1
 critical_operation_rule.json::create_root_accounts::1
 critical_operation_rule.json::create_sales_invoice_coverage_fields::1
@@ -700,7 +692,6 @@ critical_operation_rule.json::send_anbi_receipt_manual::1
 critical_operation_rule.json::send_test_newsletter::1
 critical_operation_rule.json::sepa_analytics::1
 critical_operation_rule.json::sepa_api_setup_sepa_direct_debit::1
-critical_operation_rule.json::sepa_batch_creation::1
 critical_operation_rule.json::sepa_batch_validation::1
 critical_operation_rule.json::sepa_invoice_loading::1
 critical_operation_rule.json::sepa_xml_preview::1

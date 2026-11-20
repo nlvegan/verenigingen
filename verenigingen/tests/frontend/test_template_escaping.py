@@ -175,4 +175,9 @@ class TestTemplateEscapingThroughRealControllers(EnhancedTestCase):
 
         html = self._render("my_dues_schedule", email)
 
-        self.assertIn("No member record found", html)
+        # #2207/#2231 ruling: the no-member banner shows the shared not-linked sentence; the old
+        # "No member record found" wording is gone from page renders.
+        from verenigingen.utils.member_utils import get_not_linked_message
+
+        self.assertIn(get_not_linked_message(), html)
+        self.assertNotIn("Member Record Not Found", html)

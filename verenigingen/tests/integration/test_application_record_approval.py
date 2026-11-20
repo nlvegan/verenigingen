@@ -36,9 +36,14 @@ from verenigingen.services.member.lifecycle.member_status_notification_service i
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.termination_request import execute_real_termination
 from verenigingen.tests.utils.application_door_fixture import ApplicationDoorMixin
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 
 SUBMISSION = "Membership Application Submission"
+STATUS_MAIL_JOB = (
+    "verenigingen.services.member.lifecycle.member_status_notification_service."
+    "send_status_change_notification_job"
+)
 EMISSION = (
     "verenigingen.services.member.lifecycle.member_event_emission_service.MemberEventEmissionService"
 )
@@ -602,10 +607,26 @@ class TestApproveApplication(ApprovalCase):
             return bool(frappe.flags.get("bulk_member_operations") or frappe.flags.get("in_bulk_import"))
 
         # Mock justified: Environment flag - frappe.flags.in_test is the only part of the rule replaced
+        # The mail is queued for after the commit (#2735) and CI has no workers: capture the job, run it by hand.
+        queued = []
+        real_enqueue = frappe.enqueue
+
+        def capture_status_mail_job(*args, **kwargs):
+            if kwargs.get("method") == STATUS_MAIL_JOB:
+                return queued.append(kwargs)
+            return real_enqueue(*args, **kwargs)
+
         with patch(f"{EMISSION}.should_skip_event_emission", skip_unless_bulk):
             with patch.object(MemberStatusNotificationService, "send_status_change_notification", spy):
-                self._approve_as(name)
+                with patch("frappe.enqueue", capture_status_mail_job):
+                    self._approve_as(name)
+                for job in queued:
+                    frappe.call(job["method"], **{k: job[k] for k in ("member_name", "old_status", "new_status")})
 
+        queued_for_applicant = [
+            job["new_status"] for job in queued if frappe.db.get_value("Member", job["member_name"], "email") == self.email
+        ]
+        self.assertNotIn("Pending", queued_for_applicant, "no Pending mail is even queued")
         mine = [status for email, status in seen if email == self.email]
         self.assertIn("Active", mine, "control: the notification path ran, so a Pending one could have")
         self.assertNotIn("Pending", mine)
@@ -749,6 +770,110 @@ class TestRejectApplication(ApprovalCase):
         self.assertEqual((calls[0]["reference_doctype"], calls[0]["reference_name"]), (SUBMISSION, name))
         self.assertEqual(calls[0]["context"]["rejection_category"], "Other")
         self.assertEqual(calls[0]["context"]["member"].first_name, "Appr")
+
+    def _rejection_mail_html(self, name, **kwargs):
+        """The HTML the real EmailService renders from a real Email Template for a real reject_application
+        call (keyword arguments, as over HTTP, so the security decorator's argument pass runs too)."""
+        from verenigingen.services.communication.email_service import EmailService, invalidate_template_cache
+        from verenigingen.utils.operation_result import OperationResult
+
+        sent = []
+
+        def capture(service, **mail):
+            sent.append(mail["content"])
+            return OperationResult.ok({"queued": True})
+
+        # The service caches templates in-process; a template another test changed must not be served stale
+        for template in ("membership_application_rejected", kwargs.get("email_template")):
+            if template:
+                invalidate_template_cache(template)
+        # Mock justified: External Service - SMTP delivery; the template render and the endpoint are real
+        with patch.object(EmailService, "_send_email_internal", capture):
+            result = self._reject_as(name, **kwargs)
+        self.assertTrue(result["mail_sent"], result)
+        self.assertEqual(len(sent), 1, "exactly one rejection mail")
+        return sent[0]
+
+    def _assert_reason_reads_as_typed(self, content, reason):
+        """What the applicant SEES (the parsed text) is the reason as typed, and no typed tag became a live
+        element. Parsed text, not a string spelling: one escape renders as the typed text, two or none do not."""
+        import lxml.html
+
+        tree = lxml.html.fromstring(content)
+        text = tree.text_content()
+        self.assertIn(reason, text, "the reason reads exactly as the reviewer typed it")
+        for tag in ("b", "script", "a"):
+            self.assertEqual(tree.xpath(f"//{tag}"), [], f"a typed <{tag}> must not become a live element")
+
+    def test_an_apostrophe_and_an_ampersand_in_the_reason_are_escaped_once_in_the_mail(self):
+        """#2391: the reason was HTML-escaped by the decorator, again by _sanitize_text_fields, and a third time
+        by the template's |e, so the applicant read &amp;#x27; for an apostrophe. Once is right."""
+        reason = "Doesn't qualify & more"
+        name = self._stage_and_confirm()
+
+        content = self._rejection_mail_html(name, reason=reason)
+
+        self._assert_reason_reads_as_typed(content, reason)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "review_notes").count(reason), 1, "stored raw")
+
+    def test_markup_and_an_apostrophe_in_the_reason_stay_inert_in_the_mail(self):
+        """Control for the test above: removing the input-side escaping must not leave markup live."""
+        reason = "Don't <b>x</b> & <script>alert(1)</script> <a href=\"https://evil.example\">click</a>"
+        name = self._stage_and_confirm()
+
+        content = self._rejection_mail_html(name, reason=reason)
+
+        self._assert_reason_reads_as_typed(content, reason)
+        self.assertNotIn("<b>x</b>", content)
+
+    def _reseed_stock_rejection_templates(self):
+        """The three seeder-only rejection templates exist and carry the seeder's CURRENT text; the fixture
+        row for membership_application_rejected is put back from the fixture (cleanup does both again)."""
+        from verenigingen.api.membership_email_templates import create_default_email_templates
+        from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates
+
+        names = (
+            "membership_application_rejected",
+            "membership_rejection_incomplete",
+            "membership_rejection_ineligible",
+            "membership_rejection_duplicate",
+        )
+        for template in names:
+            if frappe.db.exists("Email Template", template):
+                frappe.delete_doc("Email Template", template, force=True)
+        create_default_email_templates()
+        _cleanup_stock_email_templates(["membership_application_rejected"])
+        self.addCleanup(_cleanup_stock_email_templates, names)
+        return names
+
+    def test_every_shipped_rejection_template_keeps_markup_in_the_reason_inert(self):
+        """reject_application accepts any Email Template, and the stock ones are all selectable: each must
+        escape the reason once (three of them rendered a bare {{ reason }}, so a typed link went out live)."""
+        reason = "Don't <b>x</b> & <a href=\"https://evil.example\">click</a>"
+        for template in self._reseed_stock_rejection_templates():
+            with self.subTest(template=template):
+                self.email = self._fresh_applicant_email()
+                name = self._stage_and_confirm(email=self.email)
+
+                content = self._rejection_mail_html(name, reason=reason, email_template=template)
+
+                self._assert_reason_reads_as_typed(content, reason)
+
+    def test_a_markup_chapter_or_membership_type_is_refused_without_live_markup(self):
+        """The identifiers stay on the decorator's escaping: their refusal text is rendered as HTML by Desk, so
+        the typed tag must not come back as a tag (the free-text unescape must not reach them)."""
+        payload = "<img src=x onerror=alert(1)>"
+        for field in ("chapter", "membership_type"):
+            with self.subTest(field=field):
+                name = self._stage_and_confirm()
+                kwargs = {field: payload}
+
+                with self.assertRaises(frappe.ValidationError) as caught:
+                    self._approve_as(name, **kwargs)
+
+                shown = " ".join([str(caught.exception)] + [str(m) for m in frappe.local.message_log])
+                self.assertNotIn("<img", shown)
+                self.assertIn("&lt;img", shown, "control: the refusal does name what was typed, escaped")
 
     def _reject_with_mail_service(self, name, **service):
         from verenigingen.services.communication.email_service import EmailService
@@ -932,6 +1057,334 @@ class TestApproveApplicationBoard(ApprovalCase):
 
         self.assertTrue(result["success"], result)
         self.assertEqual(frappe.db.get_value("Member", {"email": self.email}, "status"), "Active")
+
+    def _follow_on_state(self, name, result):
+        """What an approval left behind: (member, invoice named by the response, schedules, ACR rows).
+        The schedules and requests are read from the database; the invoice is only counted when it exists."""
+        member = frappe.db.get_value(SUBMISSION, name, "member")
+        invoice = result.get("invoice") if frappe.db.exists("Sales Invoice", result.get("invoice")) else None
+        schedules = frappe.get_all(
+            "Membership Dues Schedule", {"member": member, "is_template": 0}, pluck="name"
+        ) if member else []
+        requests = frappe.get_all("Account Creation Request", {"source_record": member}, pluck="name") if member else []
+        return member, invoice, schedules, requests
+
+    def _approve_for_comparison(self, user, **kwargs):
+        """Stage an applicant of self.chapter and approve it as `user` with the invoice requested (real flow).
+
+        The membership Item is the one setUp pre-created: creating it is a different matter (the Item is made
+        lazily by the first invoice of a type, and the harness's own staff user cannot create it either)."""
+        self.email = self._fresh_applicant_email()
+        name = self._stage_and_confirm()
+        errors = set(frappe.get_all("Error Log", pluck="name"))
+        result = self._approve_as(name, user=user, create_invoice=True, activate_as_volunteer=True, **kwargs)
+        new_errors = [
+            row.method
+            for row in frappe.get_all("Error Log", {"name": ["not in", list(errors) or [""]]}, ["method"])
+        ]
+        return name, result, new_errors
+
+    def test_board_approval_creates_invoice_schedule_and_account_request_like_admin(self):
+        """#1930: after the approver is AUTHORISED, the follow-on steps run with system privileges, so a
+        board approval ends exactly where an Administrator approval does."""
+        # With no outgoing Email Account both approvals log an "Approval Email Failed" row whose title carries
+        # the member id, so the two Error Log lists could never be equal. Give the site an account.
+        ensure_outgoing_email_account(self)
+        admin_name, admin_result, admin_errors = self._approve_for_comparison(self.admin_user.email)
+        admin_state = self._follow_on_state(admin_name, admin_result)
+        board_name, board_result, board_errors = self._approve_for_comparison(self.board.user)
+        board_state = self._follow_on_state(board_name, board_result)
+
+        self.assertTrue(admin_state[1], "control: the Administrator approval creates an invoice")
+        self.assertTrue(admin_state[2], "control: the Administrator approval creates a dues schedule")
+        self.assertTrue(admin_state[3], "control: the Administrator approval queues an account request")
+        self.assertTrue(board_result["success"], board_result)
+        self.assertFalse(board_result.get("dues_schedule_failed"), board_result)
+        self.assertTrue(board_state[1], f"board approval created no invoice: {board_result} {board_errors}")
+        self.assertTrue(board_state[2], f"board approval created no dues schedule: {board_errors}")
+        self.assertTrue(board_state[3], f"board approval queued no account request: {board_errors}")
+        self.assertEqual(board_result.get("invoice") is None, admin_result.get("invoice") is None)
+        self.assertEqual(
+            (board_result.get("user_account_status"), len(board_state[2])),
+            (admin_result.get("user_account_status"), len(admin_state[2])),
+        )
+        self.assertEqual(board_errors, admin_errors)
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", board_state[1], ["docstatus", "grand_total"]),
+            frappe.db.get_value("Sales Invoice", admin_state[1], ["docstatus", "grand_total"]),
+        )
+
+    def _typed(self, role_profile):
+        """A membership type carrying `role_profile`. The harness gives every type the Staff profile, which
+        is NOT what a real member type carries, so a job test must pick its profile on purpose."""
+        self.assertTrue(frappe.db.exists("Role Profile", role_profile), role_profile)
+        membership_type = self.factory.ensure_membership_type(
+            f"Profiled Type {frappe.generate_hash(length=6)}",
+            {"amount": 25.00, "billing_period": "Monthly", "role_profile": role_profile},
+        )
+        membership_type.get_or_create_membership_item()
+        return membership_type.name
+
+    def _approve_capturing_jobs(self, user, **kwargs):
+        """(response, [(method, kwargs)] of every job the approval enqueued). The RQ push is the only thing
+        stubbed, so the test can run the account job itself, as the enqueuing user, the way a worker does."""
+        jobs = []
+
+        # Mock justified: Infrastructure - the RQ push; the captured call is executed by the test below.
+        def capture(method, queue=None, timeout=None, job_name=None, enqueue_after_commit=False, **job_kwargs):
+            jobs.append((method, job_kwargs))
+
+        self.email = self._fresh_applicant_email()
+        name = self._stage_and_confirm()
+        with patch("frappe.enqueue", side_effect=capture):
+            response = self._approve_as(name, user=user, create_invoice=False, **kwargs)
+        return response, jobs
+
+    def _run_account_job_as(self, user, jobs):
+        """Run the queued account creation job as `user`, like execute_job: set the user, call the method."""
+        from verenigingen.verenigingen.doctype.account_creation_request.account_creation_request import (
+            ACCOUNT_JOB,
+            APPROVED_ACCOUNT_JOB,
+        )
+
+        account_jobs = [(m, kw) for m, kw in jobs if m in (ACCOUNT_JOB, APPROVED_ACCOUNT_JOB)]
+        self.assertEqual(len(account_jobs), 1, jobs)
+        method, kwargs = account_jobs[0]
+        # The job entry sets these three process-wide flags for the life of a worker process and never clears
+        # them; here they would outlive the test (in_import alone breaks every later application staging).
+        names = ("in_background_job", "bulk_account_creation", "in_import")
+        before = {name: frappe.flags.get(name) for name in names}
+        try:
+            with self.as_user(user):
+                return frappe.get_attr(method)(**kwargs), kwargs["request_name"]
+        finally:
+            for name, value in before.items():
+                frappe.flags[name] = value
+
+    def test_board_approval_account_request_is_processed_by_its_own_job_as_the_approver(self):
+        """#1930: queuing the request is not enough, the JOB runs as the approver and the standard job and the
+        pipeline's role gate need an administrator. The approval's job proves the approval and completes it."""
+        response, jobs = self._approve_capturing_jobs(
+            self.board.user, membership_type=self._typed("Verenigingen Member")
+        )
+        member = response["member"]
+
+        result, request_name = self._run_account_job_as(self.board.user, jobs)
+
+        self.assertTrue(result.success, result)
+        self.assertEqual(frappe.db.get_value("Account Creation Request", request_name, "status"), "Completed")
+        self.assertTrue(frappe.db.exists("User", self.email), "the member's user account exists")
+        self.assertEqual(frappe.db.get_value("Member", member, "user"), self.email)
+
+    def test_a_board_member_cannot_run_the_approval_job_for_a_request_they_did_not_approve(self):
+        """Control: the approval's job is not a general ACR processor. A board member who did NOT approve
+        the application is refused (their own approval is the proof), and nothing is processed."""
+        response, jobs = self._approve_capturing_jobs(self.admin_user.email)
+        outsider = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        self.expectErrorLog("Approved Account Creation Refused")
+
+        result, request_name = self._run_account_job_as(outsider.user, jobs)
+
+        self.assertFalse(result.success, result)
+        self.assertEqual(frappe.db.get_value("Account Creation Request", request_name, "status"), "Queued")
+        self.assertFalse(frappe.db.exists("User", self.email), "no account was created for the outsider's run")
+
+    def _created_roles(self):
+        return set(frappe.get_all("Has Role", {"parenttype": "User", "parent": self.email}, pluck="role"))
+
+    def test_a_board_approver_cannot_mint_a_staff_account_by_picking_a_staff_membership_type(self):
+        """#1930 round 3: the approver chooses the Membership Type and its role_profile rides onto the
+        request. The approval's job must refuse a profile above member level: no User is created, the request
+        is Failed with a reason and an Error Log row, and the approval itself stays done."""
+        staff_type = self._typed("Verenigingen Staff")
+        self.expectErrorLog("Approved Account Creation Refused")
+        response, jobs = self._approve_capturing_jobs(self.board.user, membership_type=staff_type)
+
+        result, request_name = self._run_account_job_as(self.board.user, jobs)
+
+        self.assertEqual(
+            frappe.db.get_value("Account Creation Request", request_name, "role_profile"),
+            "Verenigingen Staff",
+            "precondition: the approver's type put the Staff profile on the request",
+        )
+        self.assertFalse(result.success, result)
+        self.assertFalse(frappe.db.exists("User", self.email), "a User was created from the elevated profile")
+        status, reason = frappe.db.get_value(
+            "Account Creation Request", request_name, ["status", "failure_reason"]
+        )
+        self.assertEqual(status, "Failed")
+        self.assertIn("Verenigingen Staff", reason)
+        self.assertTrue(
+            frappe.db.exists("Error Log", {"method": "Approved Account Creation Refused"}),
+            "the refusal left no Error Log row",
+        )
+        self.assertEqual(frappe.db.get_value("Member", response["member"], "status"), "Active")
+
+    def test_an_administrator_approval_with_the_same_staff_type_still_creates_the_account(self):
+        """Control for the guard above: the same Staff-profile type approved by an Administrator goes through
+        the standard job (not the approval's), exactly as before, and the user gets the Staff profile roles."""
+        staff_type = self._typed("Verenigingen Staff")
+        response, jobs = self._approve_capturing_jobs(self.admin_user.email, membership_type=staff_type)
+
+        result, request_name = self._run_account_job_as(self.admin_user.email, jobs)
+
+        self.assertTrue(result.success, result)
+        self.assertEqual(frappe.db.get_value("Account Creation Request", request_name, "status"), "Completed")
+        self.assertIn("Verenigingen Staff", self._created_roles())
+
+    def _board_request(self):
+        """A board approval's account request and its queued job, for the ownership-leg controls."""
+        response, jobs = self._approve_capturing_jobs(
+            self.board.user, membership_type=self._typed("Verenigingen Member")
+        )
+        return response["member"], jobs
+
+    def _expect_refused_untouched(self, user, jobs):
+        self.expectErrorLog("Approved Account Creation Refused")
+        result, request_name = self._run_account_job_as(user, jobs)
+        self.assertFalse(result.success, result)
+        self.assertIn("not backed by your approval", str(result.error_message))
+        self.assertEqual(frappe.db.get_value("Account Creation Request", request_name, "status"), "Queued")
+        self.assertFalse(frappe.db.exists("User", self.email))
+
+    def test_leg_requested_by_a_request_filed_by_someone_else_is_refused(self):
+        """(a) the caller approved the member's application, but somebody else filed the request."""
+        member, jobs = self._board_request()
+        request_name = frappe.db.get_value("Account Creation Request", {"source_record": member}, "name")
+        frappe.db.set_value(  # probe shortcut: stands in for a request filed by another user
+            "Account Creation Request", request_name, "requested_by", self.admin_user.email
+        )
+        self._expect_refused_untouched(self.board.user, jobs)
+
+    def test_leg_reviewed_by_a_request_filed_by_the_caller_for_a_member_someone_else_approved(self):
+        """(b) the caller filed the request, but another user approved the application."""
+        member, jobs = self._board_request()
+        application = frappe.db.get_value(SUBMISSION, {"member": member}, "name")
+        frappe.db.set_value(  # probe shortcut: stands in for another reviewer
+            SUBMISSION, application, "reviewed_by", self.admin_user.email
+        )
+        self._expect_refused_untouched(self.board.user, jobs)
+
+    def test_leg_member_a_request_for_a_different_member_than_the_approved_one_is_refused(self):
+        """(c) the application the caller approved names another member than the request's."""
+        member, jobs = self._board_request()
+        application = frappe.db.get_value(SUBMISSION, {"member": member}, "name")
+        other = self.factory.create_test_member(email=self._fresh_applicant_email()).name
+        frappe.db.set_value(SUBMISSION, application, "member", other)  # probe shortcut
+        self._expect_refused_untouched(self.board.user, jobs)
+
+    def test_leg_status_a_request_whose_application_is_not_approved_is_refused(self):
+        """(d) the caller reviewed the member's application but it is not Approved."""
+        member, jobs = self._board_request()
+        application = frappe.db.get_value(SUBMISSION, {"member": member}, "name")
+        frappe.db.set_value(SUBMISSION, application, "status", "Rejected")  # probe shortcut
+        self._expect_refused_untouched(self.board.user, jobs)
+
+    def test_board_approval_creates_the_membership_item_and_invoice_for_a_type_without_one(self):
+        """#1930 (the 'insert on Item' refusal): the first invoice of a membership type creates its Item.
+        A board approver cannot create an Item, so that step runs with permission checks bypassed, as the
+        approver (maintainer ruling 2026-11-12). No role is granted to anyone: the harness's Creation User is
+        left as it is, so a pass proves the Item is made by the approver's own bypassed write."""
+        fresh_type = self.factory.ensure_membership_type(
+            f"Board Item Type {frappe.generate_hash(length=6)}", {"amount": 25.00, "billing_period": "Monthly"}
+        )
+        item_code = f"MEM-{fresh_type.membership_type_name}".upper().replace(" ", "-")
+        self.assertFalse(frappe.db.exists("Item", item_code), "precondition: no membership Item yet")
+        name = self._stage_and_confirm(selected_membership_type=fresh_type.name)
+
+        result = self._approve_as(name, user=self.board.user, create_invoice=True)
+
+        self.assertTrue(frappe.db.exists("Item", item_code), result)
+        self.assertTrue(frappe.db.exists("Sales Invoice", result.get("invoice")), result)
+        self.assertFalse(result["invoice_failed"], result)
+        self.assertEqual(
+            frappe.db.get_value("Sales Invoice", result["invoice"], "owner"),
+            self.board.user,
+            "the approver stays the owner of what the follow-on steps create",
+        )
+
+    def test_the_bypass_never_outlives_its_scope(self):
+        """The permission bypass is a request-local flag: it is restored when the block ends, on an exception
+        too, and a nested scope hands back the outer one. After a real approval it is off again."""
+        from verenigingen.utils.secure_operations import authorised_follow_on_steps, follow_on_ignore_permissions
+
+        self.assertIsNone(follow_on_ignore_permissions())
+        with self.assertRaises(RuntimeError):
+            with authorised_follow_on_steps():
+                self.assertTrue(follow_on_ignore_permissions())
+                with authorised_follow_on_steps():
+                    pass
+                self.assertTrue(follow_on_ignore_permissions(), "the inner scope ended, the outer one has not")
+                raise RuntimeError("a failing step")
+        self.assertIsNone(follow_on_ignore_permissions())
+
+        name = self._stage_and_confirm()
+        self._approve_as(name, user=self.board.user, create_invoice=True)
+        self.assertIsNone(follow_on_ignore_permissions(), "left on after a real approval")
+
+    def test_without_the_bypass_a_board_member_still_cannot_write_those_records(self):
+        """Control for the whole file: the records the follow-on steps create are refused to the board
+        approver outside the scope (this is what the bypass exists for), so the green tests above are not
+        green because the board member could always write them."""
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+            MembershipDuesSchedule,
+        )
+
+        name = self._stage_and_confirm()
+        member = self._approve_as(name, user=self.admin_user.email)["member"]
+        schedule = frappe.get_value("Membership Dues Schedule", {"member": member, "is_template": 0}, "name")
+        frappe.db.delete("Membership Dues Schedule", {"name": schedule})
+        with self.as_user(self.board.user):
+            with self.assertRaises(frappe.PermissionError):
+                MembershipDuesSchedule.create_from_template(
+                    member, membership_type=self.membership_type.name
+                )
+
+    def test_a_failed_dues_schedule_is_reported_not_claimed_as_complete(self):
+        """A step that still fails must not read as full success. The fault is injected at the schedule
+        factory's boundary (the only way to make a permitted write fail); the Error Log row is the service's own."""
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+            MembershipDuesSchedule,
+        )
+
+        self.expectErrorLog("Dues Schedule Creation Failed")
+        name = self._stage_and_confirm()
+
+        # Mock justified: Infrastructure fault injection - a data fault that makes the factory raise.
+        with patch.object(MembershipDuesSchedule, "create_from_template", side_effect=Exception("boom")):
+            result = self._approve_as(name, user=self.board.user, create_invoice=False)
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["dues_schedule_failed"], result)
+        self.assertIn("dues schedule could NOT be created", result["message"])
+
+    def test_board_member_of_another_chapter_is_refused_and_nothing_is_created(self):
+        """Control: the bypass starts only AFTER authorisation. A board member of a chapter that is not the
+        applicant's is refused BY THE AUTHORISATION CHECK (its own message), the approval core is never
+        reached, and no Member, invoice, schedule or account request appears.
+
+        The refusal text and the never-reached core are asserted because a downstream step that happened to
+        refuse the outsider would pass a bare assertRaises even if the authorisation itself were bypassed."""
+        outsider = self.create_test_board_member(self.other_chapter.name, permissions_level="Admin")
+        name = self._stage_and_confirm()  # an application of self.chapter
+        invoices = frappe.db.count("Sales Invoice")
+        requests = frappe.db.count("Account Creation Request")
+        errors = frappe.db.count("Error Log")
+        # Mock justified: tripwire on an internal boundary - the test only needs to know the core ran.
+        with patch(
+            "verenigingen.services.member.application.application_materialiser.materialise_member",
+            side_effect=AssertionError("the approval core ran for an unauthorised approver"),
+        ) as core:
+            with self.assertRaises(frappe.PermissionError) as refused:
+                self._approve_as(name, user=outsider.user, create_invoice=True, activate_as_volunteer=True)
+
+        self.assertIn("You don't have permission to approve this application", str(refused.exception))
+        core.assert_not_called()
+        self.assertEqual(frappe.db.count("Error Log"), errors)
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
+        self.assertEqual(frappe.db.count("Sales Invoice"), invoices)
+        self.assertEqual(frappe.db.count("Account Creation Request"), requests)
 
     def test_board_member_cannot_place_member_in_a_chapter_they_do_not_manage(self):
         """Ruling AR / #1908: refused for an unmanaged chapter, with the shared helper's message (it used
@@ -1469,6 +1922,27 @@ class TestRequestMoreInfo(ApprovalCase):
         self.assertNotIn("<b>Bold</b>", content)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt; &amp; more<br>second line", content)
         self.assertIn("&lt;b&gt;Bold&lt;/b&gt;", content)
+
+    def test_an_apostrophe_and_an_ampersand_in_the_request_are_escaped_once_over_keyword_arguments(self):
+        """#2391 sibling: over HTTP every argument is a keyword, so the decorator's escaping pass runs (the
+        positional calls above skip it); the mail and the timeline note must still escape the text once."""
+        from frappe.core.doctype.communication.communication import Communication
+
+        name = self._stage_and_confirm()
+        info = "Don't forget <b>x</b> & more"
+
+        with self.as_user(self.admin_user.email):
+            # Mock justified: External Service - SMTP delivery
+            with patch.object(Communication, "get_outgoing_email_account", return_value=True):
+                with patch.object(Communication, "send_email"):
+                    request_more_info(application_name=name, info_needed=info)
+
+        expected = "Don't forget &lt;b&gt;x&lt;/b&gt; &amp; more"  # escaped once (Frappe's escape_html keeps ')
+        content = self._threads(SUBMISSION, name)[0].content
+        self.assertIn(expected, content)
+        self.assertNotIn("&amp;amp;", content)
+        self.assertNotIn("&amp;lt;", content)
+        self.assertIn(expected, self._notes(name)[0].content)
 
     def test_an_empty_request_is_refused_and_writes_nothing(self):
         name = self._stage_and_confirm()

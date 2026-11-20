@@ -72,8 +72,11 @@ class TestMollieReturnUrl(ReturnUrlCase):
             status="open",
             expires_at="2099-01-01T00:00:00+00:00",
         )
+        # A Donation stand-in, not a Sales Invoice: MollieGateway.process_payment refuses a
+        # Sales Invoice before any Mollie call until #2244 is fixed, and this test's subject is
+        # the return URL, for which the doctype is incidental.
         doc = SimpleNamespace(
-            doctype="Sales Invoice", name="SINV-X-2", amount=12.5, currency="EUR", contact_email=""
+            doctype="Donation", name="DON-X-2", amount=12.5, currency="EUR", contact_email=""
         )
         with self.assertNoErrorLog():
             result = gateway.process_payment(doc, {})
@@ -82,7 +85,7 @@ class TestMollieReturnUrl(ReturnUrlCase):
         sent = gateway.client.payments.create.call_args[0][0]["redirectUrl"]
         path, query = self._url_parts(sent)
         self.assertEqual(path, "/payment_success")
-        self.assertEqual(query["docname"], "SINV-X-2")
+        self.assertEqual((query["doctype"], query["docname"]), ("Donation", "DON-X-2"))
 
 
 class TestIngReturnUrl(ReturnUrlCase):

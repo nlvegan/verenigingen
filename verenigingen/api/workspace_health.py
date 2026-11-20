@@ -94,13 +94,10 @@ class WorkspaceHealthManager:
         # 1. Content/Database Sync (Most Common Issue)
         self._check_content_sync()
 
-        # 2. Link Validation (Broken References)
-        self._check_link_validity()
-
-        # 3. Structural Issues
+        # 2. Structural Issues
         self._check_structure()
 
-        # 4. Permission Issues
+        # 3. Permission Issues
         self._check_permissions()
 
     def _check_content_sync(self) -> None:
@@ -144,52 +141,6 @@ class WorkspaceHealthManager:
                     "severity": "critical",
                     "description": "Content field contains invalid JSON",
                     "details": {"error": str(e)},
-                }
-            )
-
-    def _check_link_validity(self) -> None:
-        """Check if all workspace links point to valid targets"""
-        broken_links = []
-
-        for link in self.workspace.links:
-            if link.type == "DocType":
-                if not frappe.db.exists("DocType", link.link_to):
-                    broken_links.append(
-                        {
-                            "label": link.label,
-                            "link_to": link.link_to,
-                            "type": link.type,
-                            "error": "DocType does not exist",
-                        }
-                    )
-            elif link.type == "Report":
-                if not frappe.db.exists("Report", link.link_to):
-                    broken_links.append(
-                        {
-                            "label": link.label,
-                            "link_to": link.link_to,
-                            "type": link.type,
-                            "error": "Report does not exist",
-                        }
-                    )
-            elif link.type == "Dashboard":
-                if not frappe.db.exists("Dashboard", link.link_to):
-                    broken_links.append(
-                        {
-                            "label": link.label,
-                            "link_to": link.link_to,
-                            "type": link.type,
-                            "error": "Dashboard does not exist",
-                        }
-                    )
-
-        if broken_links:
-            self.issues.append(
-                {
-                    "type": "broken_links",
-                    "severity": "medium",
-                    "description": f"Found {len(broken_links)} broken links",
-                    "details": {"broken_links": broken_links},
                 }
             )
 
@@ -239,8 +190,6 @@ class WorkspaceHealthManager:
                 self._fix_content_sync(issue)
             elif issue["type"] == "content_syntax":
                 self._fix_content_syntax(issue)
-            elif issue["type"] == "broken_links":
-                self._fix_broken_links(issue)
             elif issue["type"] == "duplicate_links":
                 self._fix_duplicate_links(issue)
 
@@ -302,35 +251,6 @@ class WorkspaceHealthManager:
             if issue["type"] == "content_sync":
                 self._fix_content_sync(issue)
                 break
-
-    def _fix_broken_links(self, issue: Dict) -> None:
-        """Remove broken links with confirmation"""
-        broken_links = issue["details"]["broken_links"]
-
-        # Remove broken links
-        links_to_remove = []
-        for link in self.workspace.links:
-            signature = f"{link.type}:{link.link_to}"
-            for broken in broken_links:
-                broken_signature = f"{broken['type']}:{broken['link_to']}"
-                if broken_signature == signature:
-                    links_to_remove.append(link)
-                    break
-
-        for link in links_to_remove:
-            self.workspace.remove(link)
-
-        if links_to_remove:
-            self.workspace.save()
-            frappe.db.commit()
-
-            self.fixes_applied.append(
-                {
-                    "type": "broken_links",
-                    "description": f"Removed {len(links_to_remove)} broken links",
-                    "details": {"removed_links": [f"{link.type}:{link.link_to}" for link in links_to_remove]},
-                }
-            )
 
     def _fix_duplicate_links(self, issue: Dict) -> None:
         """Remove duplicate links"""

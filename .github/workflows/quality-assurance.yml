@@ -283,6 +283,7 @@ jobs:
           echo "✅ Integration validation completed"
 
       - name: 📈 Generate Quality Report
+        # merge_group: unchanged, GITHUB_REF_NAME only labels the report (a queue run shows its gh-readonly-queue ref)
         run: |
           echo "📈 Generating Quality Assurance Report..."
           node -e "

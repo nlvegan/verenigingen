@@ -44,8 +44,10 @@ from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 from verenigingen.tests.utils.force_delete import delete_role_and_grants
 from verenigingen.tests.utils.form_dict_guard import guard_form_dict
+from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
 from verenigingen.tests.utils.response_guard import guard_local_response
 from verenigingen.tests.utils.session_variable_guard import guard_session_variables
+from verenigingen.tests.utils.throttle_guard import raise_throttle_user_limit
 
 
 class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
@@ -77,6 +79,11 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # in one process, on one DB connection, and frappe.db.rollback()
         # never touches session state.
         guard_session_variables(cls)
+        # #2256: also cover Users inserted in setUpClass (the per-test call comes too late).
+        raise_throttle_user_limit(cls)
+
+        # #1758: CI's site config provides an outgoing mail account; local sites may not.
+        ensure_outgoing_mail_account(cls)
 
         cls._ensure_test_environment()
         cls._track_created_docs = []
@@ -85,6 +92,12 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         cls._validate_fixtures()
 
         cls.setup_payment_modes()  # Ensure payment modes exist for all tests
+
+        # #2766: stored exchange rates, so no invoice on a foreign-currency price list
+        # reaches erpnext's live fetch (refused for a non-System session user).
+        from verenigingen.tests.fixtures.enhanced_test_factory import ensure_test_exchange_rates
+
+        ensure_test_exchange_rates()
 
         # Ensure a current-year Fiscal Year (covering all companies) and a global
         # default Company exist once per session. erpnext v16 leaves neither
@@ -193,6 +206,8 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         guard_form_dict(self)
         # #1983: frappe.local.response too (a bare `_dict()` has no `docs`).
         guard_local_response(self)
+        # #2256: Frappe's User-creation throttle (>60/hour) is armed unless raised; see throttle_guard.
+        raise_throttle_user_limit(self)
 
         # BATCH-QUEUE ISOLATION: the FinancialHistoryBatchProcessor's queues are
         # class-level and therefore PROCESS-global, and add_invoice_to_payment_history()
@@ -255,6 +270,10 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
 
         self.factory = CoreTestDataFactory()
+        # #2039: rows the factory builds internally (auto Chapter, auto Member + Customer behind
+        # create_test_volunteer, Region) were recorded only on factory.created_records, which
+        # nothing drained, so a test body that commits left them on the site for good.
+        self.factory.on_track = self.track_doc
 
         # Set up test request context for API security framework
         self._setup_test_request_context()
@@ -293,8 +312,13 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # Clean up test request context
         self._cleanup_test_request_context()
 
-        # Restore original behaviors
-        self._cleanup_test_mocks()
+        # The mocks are NOT stopped here (#2221): tearDown runs before addCleanup, so a test's
+        # own nested patch of the same target would put the mock back permanently. The stop is
+        # registered with addCleanup in _setup_test_mocks and unwinds LIFO after the test's own.
+        # Exception: a hand-driven setUp()/tearDown() pair (no run(), `_outcome` is None) never
+        # reaches doCleanups, so stop here; the stop is idempotent and nothing is nested.
+        if self._outcome is None:
+            self._cleanup_test_mocks()
 
         super().tearDown()
 
@@ -1687,6 +1711,15 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
             or frappe.get_all("Company", limit=1, pluck="name")[0],
         }
         defaults.update(kwargs)
+        # Without a list in the company currency erpnext fetches a live exchange rate
+        # for the site default ("Standard Selling" = INR on a fresh site), refused for
+        # a non-System session user (#2766).
+        if "selling_price_list" not in defaults:
+            from verenigingen.tests.fixtures.enhanced_test_factory import ensure_selling_price_list
+
+            defaults["selling_price_list"] = ensure_selling_price_list(
+                frappe.db.get_value("Company", defaults["company"], "default_currency")
+            )
 
         invoice = frappe.new_doc("Sales Invoice")
         for key, value in defaults.items():
@@ -2775,6 +2808,11 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
     def create_test_volunteer(self, **kwargs):
         """Create test volunteer with automatic tracking"""
+        # The core factory takes ``member=``; EnhancedTestCase spells it ``member_name=``.
+        # Without this mapping ``member_name`` fell into the field overrides and the factory
+        # built a second Member (#2208).
+        if "member_name" in kwargs and kwargs.get("member") is None:
+            kwargs["member"] = kwargs.pop("member_name")
         volunteer = self.factory.create_test_volunteer(**kwargs)
         self.track_doc("Volunteer", volunteer.name)
         return volunteer

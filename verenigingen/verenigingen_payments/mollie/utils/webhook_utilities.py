@@ -108,6 +108,26 @@ def extract_webhook_ids(webhook_data: Dict[str, Any]) -> Dict[str, Optional[str]
     }
 
 
+def extract_refund_status(webhook_data: Dict[str, Any]) -> Any:
+    """The refund's own ``status`` (#2138): ``refund.status`` when the payload nests the refund
+    (``refund.id``, as ``extract_webhook_ids`` also reads), else the top-level one. On a nested
+    payload the top-level ``status`` is the PAYMENT's and never stands in for a missing one."""
+    if not isinstance(webhook_data, dict):
+        return None
+    nested = webhook_data.get("refund")
+    return nested.get("status") if isinstance(nested, dict) else webhook_data.get("status")
+
+
+def refund_is_paid_out(webhook_data: Dict[str, Any]) -> bool:
+    """True only when the refund object itself reports status ``refunded`` (#2138).
+
+    The same rule as the discovery path (``UnifiedIdempotencyManager._refund_is_paid_out``):
+    a ``queued``/``pending``/``processing``/``failed``/``canceled`` refund has not moved
+    money out, and a missing status is not presumed paid.
+    """
+    return extract_refund_status(webhook_data) == "refunded"
+
+
 def safe_extract_amount(webhook_data: Dict[str, Any], default: float = 0.0) -> float:
     """
     Safely extract amount from webhook data.
@@ -150,8 +170,14 @@ def safe_extract_date(webhook_data: Dict[str, Any], date_field: str = "created_a
         camel_field = head + "".join(part.capitalize() for part in tail)
         date_value = webhook_data.get(date_field) or webhook_data.get(camel_field)
         if date_value:
-            # Extract date part (first 10 characters for YYYY-MM-DD)
-            return date_value[:10] if len(date_value) >= 10 else None
+            # Mollie stamps in UTC; the booking day is the site's, not the first ten
+            # characters of the UTC string (#2162).
+            from verenigingen.verenigingen_payments.utils.timezone_utils import (
+                mollie_timestamp_to_local_date,
+            )
+
+            local_date = mollie_timestamp_to_local_date(date_value)
+            return local_date.isoformat() if local_date else None
     except (TypeError, AttributeError):
         frappe.logger().warning(f"⚠️ Could not extract {date_field} from webhook data")
 

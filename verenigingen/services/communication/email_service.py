@@ -253,30 +253,22 @@ class EmailService(StatelessService):
             stacklevel=2,
         )
         try:
-            # Map notification types to templates
+            # Map notification types to templates. Every value must be an Email Template a
+            # fixture ships (#2019): suspension/termination mail is sent by
+            # MemberStatusNotificationService, the SEPA/board entries had no caller.
             template_mapping = {
                 "member_approval": "membership_application_approved",
                 "chapter_membership_approval": "chapter_membership_approved",
-                "member_suspension": "Member Suspension Notification",
-                "member_termination": "Member Termination Notification",
-                "member_reactivation": "Member Reactivation Notification",
                 "member_rejection": "membership_application_rejected",
                 "payment_failure": "Payment Failure Notification",
-                "sepa_mandate_created": "SEPA Mandate Created",
-                "board_member_added": "Board Member Added",
             }
 
             # Map notification types to notification keys for Verenigingen Email Configuration control
             key_mapping = {
                 "member_approval": "member_application_approved",
                 "chapter_membership_approval": "chapter_membership_approved",
-                "member_suspension": "member_suspended",
-                "member_termination": "member_terminated",
-                "member_reactivation": "member_activated",
                 "member_rejection": "member_application_rejected",
                 "payment_failure": "payment_failure",
-                "sepa_mandate_created": "sepa_mandate_created",
-                "board_member_added": "board_member_added",
             }
 
             template_name = template_mapping.get(notification_type)
@@ -410,7 +402,8 @@ class EmailService(StatelessService):
             reference_name: Optional document name for tracking
             notification_key: Optional key for Verenigingen Email Configuration lookup.
                              Enables per-notification settings and cooldown tracking.
-            **options: Additional options (delayed, etc.)
+            **options: Additional options (sender, cc, bcc, ...). ``delayed`` is not one of them: every
+                       send is queued (#2336).
 
         Returns:
             OperationResult with success status and details
@@ -560,7 +553,8 @@ class EmailService(StatelessService):
                     "No active email account configured. Please configure an email account in Settings."
                 )
 
-            # Use frappe.sendmail with delayed=True (default) to queue for background processing
+            # EmailService ALWAYS queues (maintainer ruling on #2336): "delayed" is hardcoded True and is
+            # deliberately not in supported_keys, so a caller's delayed=False is ignored. Do not pass it.
             # This queues the email for background processing by RQ workers
             email_args = {
                 "recipients": recipients,
