@@ -472,6 +472,7 @@ _no_import_flags::2
 _non_group::2  # clone family, 1 near-identical pair(s)
 _ok::10  # clone family, 6 near-identical pair(s)
 _original_outstanding::2
+_orphan_payment_stub::2  # clone family, 1 near-identical pair(s)
 _ours::2  # clone family, 1 near-identical pair(s)
 _parse_date::7  # clone family, 4 near-identical pair(s)
 _parse_email_list::2  # clone family, 1 near-identical pair(s)
