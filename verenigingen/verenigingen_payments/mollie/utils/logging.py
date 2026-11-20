@@ -26,7 +26,9 @@ _LOG_RECORD_RESERVED_KEYS = frozenset(logging.LogRecord("", 0, "", 0, "", (), No
 def _merge_caller_context(context: Dict[str, Any], caller_kwargs: Dict[str, Any]) -> None:
     """Merge caller kwargs into ``extra=``; a reserved LogRecord key is kept as ``ctx_<key>``.
 
-    Same prefix as verenigingen.utils.error_handling.log_error (#2954).
+    Only the ``ctx_`` prefix string is shared with verenigingen.utils.error_handling.log_error,
+    which differs: it prefixes EVERY non-reserved key and drops reserved ones, using its own
+    inline list (#2954).
     """
     for key, value in caller_kwargs.items():
         context[f"ctx_{key}" if key in _LOG_RECORD_RESERVED_KEYS else key] = value

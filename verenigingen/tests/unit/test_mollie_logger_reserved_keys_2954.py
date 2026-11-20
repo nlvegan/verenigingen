@@ -13,7 +13,10 @@ import unittest
 
 import frappe
 
-from verenigingen.verenigingen_payments.mollie.utils.logging import MollieLogger
+from verenigingen.verenigingen_payments.mollie.utils.logging import (
+    _LOG_RECORD_RESERVED_KEYS,
+    MollieLogger,
+)
 
 
 class _2954ListHandler(logging.Handler):
@@ -80,3 +83,13 @@ class TestMollieLoggerReservedKeys2954(unittest.TestCase):
         record = self.handler.records[0]
         self.assertEqual(record.payment_ref, "p1")
         self.assertFalse(hasattr(record, "ctx_payment_ref"))
+
+    def test_message_and_asctime_are_reserved_though_absent_from_a_fresh_record(self):
+        # makeRecord rejects both, but they are set only on formatting, so they are not in
+        # LogRecord().__dict__ and must be added to the set by hand.
+        self.mollie.performance("op", 0.1, message="m", asctime="a")
+        record = self.handler.records[0]
+        self.assertEqual(record.ctx_message, "m")
+        self.assertEqual(record.ctx_asctime, "a")
+        for key in ("message", "asctime", "stack_info", "taskName"):
+            self.assertIn(key, _LOG_RECORD_RESERVED_KEYS)
