@@ -171,3 +171,20 @@ class TestVolunteerMemberRelinkBoardAccess2615(VereningingenTestCase):
 
         self.assertEqual(frappe.db.get_value("Volunteer", volunteer.name, "member"), member.name)
         self._assert_untouched_relink_2615(user.name, before, "filling an empty member provisioned the user")
+
+    def test_filling_an_empty_member_of_a_seated_volunteer_does_not_provision_the_member_user(self):
+        """Seated variant of the empty-to-filled control: an UNSEATED volunteer is shielded by
+        `_holds_active_seat`, so only a seated one pins the `old_member` condition. Decision:
+        empty -> filled does nothing. Probe shortcut: `db.set_value` clears the member to stand
+        in for an orphaned seated volunteer; the fill itself is a real staff save."""
+        seat_user, _seat_member, volunteer = self._person_2615("SeatedOrphan", with_volunteer=True)
+        self._seat_2615(volunteer, seat_user)
+        self.assertTrue(frappe.db.count("Chapter Board Member", {"volunteer": volunteer.name, "is_active": 1}))
+        frappe.db.set_value("Volunteer", volunteer.name, "member", None)
+        user, member, _none = self._person_2615("SeatedAdopter", with_volunteer=False)
+        before = self._snapshot_relink_2615(user.name)
+
+        self._relink_as_staff_2615(volunteer, member)
+
+        self.assertEqual(frappe.db.get_value("Volunteer", volunteer.name, "member"), member.name)
+        self._assert_untouched_relink_2615(user.name, before, "filling a seated volunteer's empty member provisioned the user")
