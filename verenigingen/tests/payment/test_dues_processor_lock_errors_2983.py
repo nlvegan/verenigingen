@@ -58,7 +58,6 @@ class TestDuesProcessorLockErrors2983(DuesCreationTestBase):
             "Sales Invoice Fetch Error",
             "Mollie dues: Bank Transaction not linked",
             "Bank Transaction Creation Error",
-            "Bank Transaction Deadlock Error",
             "Payment Router Error",
         )
         self.member = self._member_with_customer()

@@ -834,7 +834,7 @@ class BankTransactionCreator:
                 # this cannot mistake a different account's row sharing the reference for
                 # "already exists" and skip creating THIS account's transaction (#383
                 # review). Plain (non-resubmitting) check: this runs inside the
-                # deadlock/race retry loop, including right after a QueryDeadlockError,
+                # duplicate-entry/race retry loop (a QueryDeadlockError is re-raised, #2983),
                 # where the transaction may already be gone -- retrying a submit from
                 # here is not race detection's job.
                 existing_match = self._find_matching_bank_transaction(reference_number, bank_account, company)
