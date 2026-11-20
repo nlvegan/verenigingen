@@ -9,11 +9,14 @@ Each CI-gating tree scan below is run as a subprocess (the way CI runs it) over 
 tree. Per validator: a CONTROL (clean tree, exit 0) and the RED case (one unparseable
 or undecodable file, non-zero exit that names the file).
 """
+import contextlib
 import importlib.util
+import io
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -135,6 +138,30 @@ class HarnessRegistryUnscannableTest(unittest.TestCase):
         self.assertEqual(self._find("harness_factory_shadow_validator.py", CLEAN_SRC), [])
 
 
+class FactoryShadowOwnHandlersTest(unittest.TestCase):
+    """find_violations() also fills the sink through harness_super_skip._collect_classes,
+    so the find_violations-level test cannot tell whether factory_shadow's OWN two
+    handlers report. Call each directly."""
+
+    def _sink_of(self, func_name):
+        module = _load_validator_module("harness_factory_shadow_validator.py")
+        sink = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _write_unscannable_tree(tmp, "test_broken_harness.py", UNPARSEABLE_SRC)
+            getattr(module, func_name)(root, sink)
+        return sink
+
+    def test_root_shadowed_attrs_reports_unparseable_file(self):
+        sink = self._sink_of("_root_shadowed_attrs")
+        self.assertEqual(len(sink), 1, sink)
+        self.assertIn("test_broken_harness.py", sink[0])
+
+    def test_collect_reports_unparseable_file(self):
+        sink = self._sink_of("_collect")
+        self.assertEqual(len(sink), 1, sink)
+        self.assertIn("test_broken_harness.py", sink[0])
+
+
 class HarnessMainFailsClosedTest(unittest.TestCase):
     """main() must turn a non-empty sink into a non-zero exit."""
 
@@ -146,9 +173,84 @@ class HarnessMainFailsClosedTest(unittest.TestCase):
                 unscannable.append("somewhere/broken.py: SyntaxError: x")
                 return []
 
-            module.find_violations = _report_one
-            sys.argv = [filename]
-            self.assertEqual(module.main(), 1, filename)
+            with mock.patch.object(module, "find_violations", _report_one), mock.patch.object(
+                sys, "argv", [filename]
+            ):
+                self.assertEqual(module.main(), 1, filename)
+
+
+SENTINEL_BASELINE = b"# sentinel baseline: must survive a refused --update-baseline\n"
+
+
+class _UpdateBaselineRefusalMixin:
+    """--update-baseline over a tree holding an unscannable file must refuse (non-zero,
+    names the file) and leave the baseline BYTE-IDENTICAL. The scan roots are module
+    globals, so they are pointed at a temp tree in-process; the real baseline is never
+    opened because --baseline names a temp file."""
+
+    script = None
+    filename = "target_module.py"
+    bad_payload = UNPARSEABLE_SRC
+
+    def _run_update(self, module, root, baseline):
+        patches = [
+            mock.patch.object(module, "REPO_ROOT", root),
+            mock.patch.object(module, "SCAN_ROOTS", ("pkg",)),
+        ]
+        argv = [self.script, "--update-baseline", "--baseline", str(baseline)]
+        with patches[0], patches[1], mock.patch.object(sys, "argv", argv):
+            err, out = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+                rc = module.main(argv)
+        return rc, out.getvalue() + err.getvalue()
+
+    def test_update_baseline_refuses_and_leaves_baseline_untouched(self):
+        module = _load_validator_module(self.script)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "pkg").mkdir()
+            (root / "pkg" / self.filename).write_bytes(self.bad_payload)
+            baseline = root / "baseline.txt"
+            baseline.write_bytes(SENTINEL_BASELINE)
+            rc, output = self._run_update(module, root, baseline)
+            self.assertEqual(baseline.read_bytes(), SENTINEL_BASELINE)
+        self.assertNotEqual(rc, 0, output)
+        self.assertIn(self.filename, output)
+
+
+class ErrorSwallowUpdateBaselineRefusalTest(_UpdateBaselineRefusalMixin, unittest.TestCase):
+    script = "error_swallow_validator.py"
+
+
+class LogErrorArgOrderUpdateBaselineRefusalTest(_UpdateBaselineRefusalMixin, unittest.TestCase):
+    script = "log_error_arg_order_validator.py"
+
+
+class FailedWriteUpdateBaselineRefusalTest(_UpdateBaselineRefusalMixin, unittest.TestCase):
+    script = "failed_write_validator.py"
+
+
+class DbClockUpdateBaselineRefusalTest(_UpdateBaselineRefusalMixin, unittest.TestCase):
+    script = "db_clock_date_window_validator.py"
+    bad_payload = UNDECODABLE_SRC
+
+
+class TestQualityEnforcerUpdateBaselineRefusalTest(unittest.TestCase):
+    """main() reads sys.argv and exits via sys.exit; REPO_ROOT is the full-scan root."""
+
+    def test_update_baseline_refuses_and_leaves_baseline_untouched(self):
+        module = _load_validator_module("test_quality_enforcer.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "test_target_module.py").write_bytes(UNPARSEABLE_SRC)
+            baseline = root / "baseline.txt"
+            baseline.write_bytes(SENTINEL_BASELINE)
+            argv = ["test_quality_enforcer.py", "--update-baseline", "--baseline", str(baseline)]
+            with mock.patch.object(module, "REPO_ROOT", root), mock.patch.object(sys, "argv", argv):
+                with self.assertRaises(SystemExit) as ctx:
+                    module.main()
+            self.assertEqual(baseline.read_bytes(), SENTINEL_BASELINE)
+        self.assertNotIn(ctx.exception.code, (0, None))
 
 
 if __name__ == "__main__":
