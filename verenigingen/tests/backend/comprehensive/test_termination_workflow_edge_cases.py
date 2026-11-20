@@ -246,19 +246,18 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
         termination.execution_date = today()
         termination.save()
 
-        # Try to modify member concurrently
-        try:
-            member_copy.status = "Suspended"
-            member_copy.suspension_reason = "Concurrent modification"
-            member_copy.save()
+        # Modify the member through the stale copy. Saving the draft request as
+        # "Executed" does not touch the Member row, so the copy is still current and
+        # its save goes through; but update_termination_status_display (Member
+        # validate hook, member_utils.py) reflects an Executed request onto the
+        # member, so the attempted "Suspended" ends as "Quit". Nothing here may
+        # swallow an exception, or a regression would pass silently.
+        member_copy.status = "Suspended"
+        member_copy.suspension_reason = "Concurrent modification"
+        member_copy.save()
 
-            # Should handle gracefully or detect conflict
-            final_member = frappe.get_doc("Member", self.member1.name)
-            self.assertIn(final_member.status, ["Quit", "Suspended"])
-
-        except Exception:
-            # Conflict detection is acceptable
-            pass
+        final_member = frappe.get_doc("Member", self.member1.name)
+        self.assertEqual(final_member.status, "Quit")
 
         # Clean up
         termination.delete()
