@@ -260,10 +260,6 @@ class SEPAMandateLifecycleService:
             # unless they need to be auto-expired
             return mandate_doc.status
 
-        except NON_RESUMABLE_DB_ERRORS:
-            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
-            # would let the caller claim success (#2869, rule from #2700).
-            raise
         except Exception as e:
             frappe.log_error(
                 title="SEPA Mandate Lifecycle", message=f"Error in set_status_based_on_dates: {str(e)}"
@@ -284,10 +280,6 @@ class SEPAMandateLifecycleService:
             else:
                 mandate_doc.is_active = 0
 
-        except NON_RESUMABLE_DB_ERRORS:
-            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
-            # would let the caller claim success (#2869, rule from #2700).
-            raise
         except Exception as e:
             frappe.log_error(
                 title="SEPA Mandate Lifecycle", message=f"Error in sync_status_and_active_flag: {str(e)}"

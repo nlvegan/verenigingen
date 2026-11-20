@@ -146,10 +146,6 @@ class SEPAMandateMemberIntegrationService:
                     frappe.ValidationError,
                 )
 
-        except NON_RESUMABLE_DB_ERRORS:
-            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
-            # would let the caller claim success (#2869, rule from #2700).
-            raise
         except Exception as e:
             frappe.log_error(
                 title="SEPA Field Validation Error",
@@ -314,10 +310,6 @@ class SEPAMandateMemberIntegrationService:
                 f"SEPA mandate link {audit_data['action']} completed for member {mandate_doc.member}"
             )
 
-        except NON_RESUMABLE_DB_ERRORS:
-            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
-            # would let the caller claim success (#2869, rule from #2700).
-            raise
         except Exception as e:
             # Record failed operation
             audit_data["status"] = "failed"
@@ -410,9 +402,10 @@ class SEPAMandateMemberIntegrationService:
 
             frappe.logger().debug(f"SEPA audit log created: {audit_log.name}")
 
-        except NON_RESUMABLE_DB_ERRORS:
-            # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
-            # would let the caller claim success (#2869, rule from #2700).
+        except frappe.QueryDeadlockError:
+            # Best-effort audit write, with one exception: a 1213 has already rolled the whole
+            # transaction back, so carrying on (or reporting success) would be wrong. A 1205 only
+            # failed this INSERT and falls through to the best-effort log below (#2869).
             raise
         except Exception as e:
             # Log audit creation errors but don't fail the main operation
