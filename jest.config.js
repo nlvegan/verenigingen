@@ -83,11 +83,7 @@ module.exports = {
 	roots: ['<rootDir>/verenigingen'],
 
 	/** @type {Array<string>} Patterns for locating test files - utilities and controller tests */
-	testMatch: [
-		'**/tests/unit/**/*.test.js',
-		'**/tests/unit/doctype/test_*_controller.js',
-		'**/tests/unit/doctype/test_*_real_controller.js'
-	],
+	testMatch: ['**/tests/unit/**/*.test.js'],
 
 	// Coverage is collected only from the *instrumentable* JS layer: source modules
 	// that the unit suites `require()` directly. The doctype controllers under

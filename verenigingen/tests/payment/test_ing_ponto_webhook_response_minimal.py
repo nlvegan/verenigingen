@@ -51,7 +51,7 @@ class _GuestWebhookCase(EnhancedTestCase):
         body = raw if raw is not None else json.dumps(payload).encode()
         environ = EnvironBuilder(
             method="POST",
-            path="/",
+            path=f"/api/method/{dotted}",  # the framework emits its headers for API dispatch only (#2732)
             data=body,
             content_type="application/json",
             headers=headers or {},
@@ -512,11 +512,19 @@ class TestPontoWebhookTimeAndAlgorithmDiagnostics(_PontoJwtCase):
         self.assertEqual((status, body), (401, {"status": "error"}))
         self.assertEqual(messages, [])
         # the whole response dict (status code + headers), not just the pieces named above
+        # #2732: the security headers are real response headers now, never a "headers" key in the
+        # JSON body, so the body dict is the status code alone. response_headers persists across
+        # in-process tests, so compare only the framework's own header names.
         response = dict(frappe.local.response)
-        headers = {
-            k: v for k, v in response.pop("headers").items() if k not in ("X-RateLimit-Remaining", "X-RateLimit-Reset")
-        }  # the two counters move with every request
         self.assertEqual(response, {"http_status_code": 401})
+        framework_header_names = (
+            "Referrer-Policy",
+            "X-Content-Type-Options",
+            "X-Frame-Options",
+            "X-RateLimit-Limit",
+            "X-RateLimit-Window",
+        )  # the two X-RateLimit counters move with every request and are left out
+        headers = {k: v for k, v in frappe.local.response_headers.items() if k in framework_header_names}
         self.assertEqual(
             headers,
             {

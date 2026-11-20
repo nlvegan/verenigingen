@@ -214,7 +214,13 @@ class SEPABatchProcessor:
 
                 # Get sequence type from batch lookup
                 cache_key = f"{mandate_data['name']}:{processed['invoice_name']}"
-                sequence_type = sequence_types.get(cache_key, "RCUR")
+                sequence_type = sequence_types.get(cache_key)
+                if not sequence_type:
+                    # Undeterminable (#2716): leave the invoice out rather than guess.
+                    self._skip_undeterminable_sequence_type(
+                        batch, processed["invoice_name"], mandate_data["name"]
+                    )
+                    continue
 
                 try:
                     # Use optimized invoice addition with pre-fetched data
@@ -439,6 +445,9 @@ class SEPABatchProcessor:
         )
 
         sequence_info = get_mandate_sequence_type(mandate.name, invoice.name)
+        if sequence_info.get("error"):
+            self._skip_undeterminable_sequence_type(batch, invoice.name, mandate.name)
+            return
         correct_sequence_type = sequence_info["sequence_type"]
 
         batch.append(
@@ -509,6 +518,9 @@ class SEPABatchProcessor:
             return
 
         sequence_info = get_mandate_sequence_type(mandate_name, invoice_data["name"])
+        if sequence_info.get("error"):
+            self._skip_undeterminable_sequence_type(batch, invoice_data["name"], mandate_name)
+            return
         correct_sequence_type = sequence_info["sequence_type"]
 
         batch.append(
@@ -559,7 +571,11 @@ class SEPABatchProcessor:
             mandate_name, invoice_name = pair
             cache_key = f"{mandate_name}:{invoice_name}"
             invoice_data = invoice_lookup[cache_key]
-            sequence_type = sequence_types.get(cache_key, "RCUR")  # Default to RCUR
+            sequence_type = sequence_types.get(cache_key)
+            if not sequence_type:
+                # Undeterminable (#2716): leave the invoice out rather than guess.
+                self._skip_undeterminable_sequence_type(batch, invoice_name, mandate_name)
+                continue
 
             try:
                 self.add_invoice_to_batch_with_sequence(batch, invoice_data, sequence_type)
@@ -574,6 +590,12 @@ class SEPABatchProcessor:
         frappe.logger().info(
             f"Fallback processing: {successful_count}/{len(invoices)} invoices added to batch"
         )
+
+    def _skip_undeterminable_sequence_type(self, batch, invoice_name, mandate_name):
+        """Leave an invoice out of the batch and tell staff why (#2716)."""
+        from verenigingen.verenigingen_payments.utils.sepa_utilities import BatchLoggingUtilities
+
+        BatchLoggingUtilities.record_undeterminable_sequence_type(batch, invoice_name, mandate_name)
 
     def _create_mandate_usage_record(self, mandate_name, invoice_name, amount, sequence_type):
         """Create mandate usage record for tracking.

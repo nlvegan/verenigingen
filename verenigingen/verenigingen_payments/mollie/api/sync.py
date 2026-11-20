@@ -11,7 +11,7 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
 
 from ..core.client import MollieClient
@@ -276,7 +276,7 @@ def sync_member_subscriptions(member_id: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist(methods=["POST"])
-@standard_api(operation_type=OperationType.ADMIN)
+@critical_api(operation_type=OperationType.ADMIN)
 def bulk_sync_recent_payments(hours: int = 24) -> Dict[str, Any]:
     """
     Bulk synchronize recent payments.

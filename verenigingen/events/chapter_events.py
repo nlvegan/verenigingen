@@ -125,6 +125,13 @@ def _emit_chapter_event(event_name, event_data):
         # Membership jobs mail and change roles for the member, so they must not run
         # ahead of (or without) the commit that made the member part of the chapter (#2137).
         after_commit=event_name == "chapter_membership_changed",
+        # One job per changed board row within a save. Without these every volunteer shares
+        # one id per subscriber and deduplicate=True drops all but the first while it is
+        # still queued or running (#2250). `role`/`old_role` are part of the key because one
+        # volunteer can gain or lose two roles in one save, with the same action each time.
+        job_id_keys=(
+            ("volunteer", "action", "role", "old_role") if event_name == "chapter_board_changed" else ()
+        ),
     )
 
 

@@ -28,7 +28,7 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 def get_dashboard_data(
     year=None,
     period="year",
-    compare_previous=False,
+    compare_previous: bool = False,
     cohort_interval="monthly",
     filters: dict | str | None = None,
 ):
@@ -169,7 +169,7 @@ def calculate_projected_revenue(year):
     - Active Membership Dues Schedules with their billing frequencies
     - Member dues_rate (custom rates) or schedule suggested_amount
     - Excludes members with termination dates within the projection year
-    - Annualizes based on billing frequency (Monthly=12x, Quarterly=4x, Yearly=1x)
+    - Annualizes based on billing frequency (Monthly=12x, Quarterly=4x, Annual=1x)
 
     Args:
         year: The reference year - will calculate projected revenue for year+1
@@ -353,45 +353,29 @@ def get_current_year_revenue(year):
         if year < current_year:
             ungenerated_dues = 0
         else:
-            ungenerated_dues_query = """
+            # The annualised rate comes from the one period table (#2688): this CASE used to
+            # test 'Yearly' and singular units, which are not Membership Dues Schedule options,
+            # so Annual, Semi-Annual, Weekly, Daily and every Custom row priced to 0.
+            annualized_rate_sql = build_billing_frequency_multiplier_sql(
+                frequency_column="mds.billing_frequency",
+                amount_expression="COALESCE(m.dues_rate, mds.suggested_amount, 0)",
+                include_custom=True,
+                custom_frequency_number_col="mds.custom_frequency_number",
+                custom_frequency_unit_col="mds.custom_frequency_unit",
+            )
+            ungenerated_dues_query = f"""
             SELECT
                     SUM(
                         CASE
                             -- Calculate days in year not covered by invoices
                             -- Use GREATEST to ensure we don't estimate before member joined
                             WHEN GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s)) < %s THEN
-                            CASE
-                                WHEN mds.billing_frequency = 'Monthly' THEN
-                                    COALESCE(m.dues_rate, mds.suggested_amount, 0) *
-                                    (12.0 * DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s)
-                                WHEN mds.billing_frequency = 'Quarterly' THEN
-                                    COALESCE(m.dues_rate, mds.suggested_amount, 0) *
-                                    (4.0 * DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s)
-                                WHEN mds.billing_frequency = 'Yearly' THEN
-                                    COALESCE(m.dues_rate, mds.suggested_amount, 0) *
-                                    (1.0 * DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s)
-                                WHEN mds.billing_frequency = 'Custom' THEN
-                                    -- Handle custom billing frequencies
-                                    CASE
-                                        WHEN mds.custom_frequency_unit = 'Month' THEN
-                                            COALESCE(m.dues_rate, mds.suggested_amount, 0) *
-                                            ((12.0 / NULLIF(mds.custom_frequency_number, 0)) * DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s)
-                                        WHEN mds.custom_frequency_unit = 'Week' THEN
-                                            COALESCE(m.dues_rate, mds.suggested_amount, 0) *
-                                            ((52.0 / NULLIF(mds.custom_frequency_number, 0)) * DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s)
-                                        WHEN mds.custom_frequency_unit = 'Year' THEN
-                                            COALESCE(m.dues_rate, mds.suggested_amount, 0) *
-                                            ((1.0 / NULLIF(mds.custom_frequency_number, 0)) * DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s)
-                                        ELSE
-                                            0
-                                    END
-                                ELSE
-                                    0
-                            END
-                        ELSE
-                            0
-                    END
-                ) as total
+                                ({annualized_rate_sql}) *
+                                DATEDIFF(%s, GREATEST(COALESCE(last_coverage.coverage_end, %s), COALESCE(m.member_since, %s))) / %s
+                            ELSE
+                                0
+                        END
+                    ) as total
             FROM `tabMembership Dues Schedule` mds
             JOIN `tabMember` m ON m.name = mds.member
             LEFT JOIN (
@@ -418,27 +402,7 @@ def get_current_year_revenue(year):
                         year_end,
                         year_start,
                         year_start,
-                        days_in_year,  # Monthly (year_end, coverage_end default, member_since default, days)
-                        year_end,
-                        year_start,
-                        year_start,
-                        days_in_year,  # Quarterly
-                        year_end,
-                        year_start,
-                        year_start,
-                        days_in_year,  # Yearly
-                        year_end,
-                        year_start,
-                        year_start,
-                        days_in_year,  # Custom: Month
-                        year_end,
-                        year_start,
-                        year_start,
-                        days_in_year,  # Custom: Week
-                        year_end,
-                        year_start,
-                        year_start,
-                        days_in_year,  # Custom: Year
+                        days_in_year,
                         year,  # for filtering invoices by year
                         year_end,  # for member_end_date check
                     ),

@@ -180,7 +180,7 @@ frappe.ready(function() {
                 } else {
                     frappe.msgprint({
                         title: 'Error',
-                        message: r.message ? r.message.error : 'Failed to load accounts',
+                        message: escapeHtml(r.message ? r.message.error : 'Failed to load accounts'),
                         indicator: 'red'
                     });
                 }
@@ -214,8 +214,8 @@ frappe.ready(function() {
             if (account.is_group) return; // Skip group accounts
 
             const row = $('<tr>');
-            row.append(`<td><strong>${account.account_code}</strong></td>`);
-            row.append(`<td>${account.account_name}</td>`);
+            row.append(`<td><strong>${escapeHtml(account.account_code)}</strong></td>`);
+            row.append(`<td>${escapeHtml(account.account_name)}</td>`);
 
             // Current type (editable)
             const currentType = pendingChanges[account.account] || account.current_type || '';
@@ -257,7 +257,7 @@ frappe.ready(function() {
             row.append(currentTd);
 
             // Recommended type
-            row.append(`<td>${account.recommended_type}</td>`);
+            row.append(`<td>${escapeHtml(account.recommended_type)}</td>`);
 
             // Action buttons
             const actionTd = $('<td>');
@@ -314,7 +314,7 @@ frappe.ready(function() {
                             if (!r.message || !r.message.success) {
                                 failed++;
                                 const errorMsg = r.message?.error || 'Unknown error';
-                                errors.push(`${change.account}: ${errorMsg}`);
+                                errors.push(`${escapeHtml(change.account)}: ${escapeHtml(errorMsg)}`);
                             }
 
                             // When all are done, show summary
@@ -342,7 +342,7 @@ frappe.ready(function() {
                             completed++;
                             failed++;
                             const errorMsg = r.message || r.statusText || 'Network error';
-                            errors.push(`${change.account}: ${errorMsg}`);
+                            errors.push(`${escapeHtml(change.account)}: ${escapeHtml(errorMsg)}`);
 
                             // When all are done, show summary
                             if (completed === changes.length) {
@@ -387,15 +387,15 @@ frappe.ready(function() {
 
         data.suggestions.forEach(function(suggestion) {
             const row = $('<tr>');
-            row.append(`<td><strong>${suggestion.account_code}</strong></td>`);
-            row.append(`<td>${suggestion.account_name}</td>`);
-            row.append(`<td><span class="mapping-tag ${suggestion.suggested_type.toLowerCase().replace(' ', '-')}">${suggestion.suggested_type}</span></td>`);
-            row.append(`<td>${suggestion.transaction_category || '-'}</td>`);
-            row.append(`<td><span class="confidence-${suggestion.confidence}">${suggestion.confidence.toUpperCase()}</span></td>`);
+            row.append(`<td><strong>${escapeHtml(suggestion.account_code)}</strong></td>`);
+            row.append(`<td>${escapeHtml(suggestion.account_name)}</td>`);
+            row.append(`<td><span class="mapping-tag ${escapeHtml(suggestion.suggested_type.toLowerCase().replace(' ', '-'))}">${escapeHtml(suggestion.suggested_type)}</span></td>`);
+            row.append(`<td>${escapeHtml(suggestion.transaction_category || '-')}</td>`);
+            row.append(`<td><span class="confidence-${escapeHtml(suggestion.confidence)}">${escapeHtml(suggestion.confidence.toUpperCase())}</span></td>`);
             row.append(`
                 <td>
                     <button class="btn btn-sm btn-primary create-mapping"
-                            data-suggestion='${JSON.stringify(suggestion)}'>
+                            data-suggestion="${escapeHtml(JSON.stringify(suggestion))}">
                         <i class="fa fa-plus"></i> Create
                     </button>
                 </td>
@@ -531,13 +531,13 @@ frappe.ready(function() {
         const tbody = table.find('tbody');
         mappings.forEach(function(mapping) {
             const row = $('<tr>');
-            row.append(`<td><strong>${mapping.account_code || 'N/A'}</strong><br><small>${mapping.account_name}</small></td>`);
-            row.append(`<td><span class="mapping-tag ${mapping.document_type.toLowerCase().replace(' ', '-')}">${mapping.document_type}</span></td>`);
-            row.append(`<td>${mapping.transaction_category || '-'}</td>`);
+            row.append(`<td><strong>${escapeHtml(mapping.account_code || 'N/A')}</strong><br><small>${escapeHtml(mapping.account_name)}</small></td>`);
+            row.append(`<td><span class="mapping-tag ${escapeHtml(mapping.document_type.toLowerCase().replace(' ', '-'))}">${escapeHtml(mapping.document_type)}</span></td>`);
+            row.append(`<td>${escapeHtml(mapping.transaction_category || '-')}</td>`);
             row.append(`<td>${mapping.usage_count || 0}</td>`);
             row.append(`
                 <td>
-                    <a href="/app/e-boekhouden-account-mapping/${mapping.name}"
+                    <a href="/app/e-boekhouden-account-mapping/${encodeURIComponent(mapping.name)}"
                        class="btn btn-sm btn-outline-primary">
                         <i class="fa fa-edit"></i>
                     </a>
@@ -569,8 +569,8 @@ frappe.ready(function() {
                     // Add mapping rows
                     for (const [eboekType, erpType] of Object.entries(r.message.mappings)) {
                         const row = $('<tr>');
-                        row.append(`<td><strong>${eboekType}</strong></td>`);
-                        row.append(`<td><span class="mapping-tag ${erpType.toLowerCase().replace(' ', '-')}">${erpType}</span></td>`);
+                        row.append(`<td><strong>${escapeHtml(eboekType)}</strong></td>`);
+                        row.append(`<td><span class="mapping-tag ${escapeHtml(erpType.toLowerCase().replace(' ', '-'))}">${escapeHtml(erpType)}</span></td>`);
 
                         let notes = '';
                         if (erpType === 'Payment Entry') {

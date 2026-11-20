@@ -348,7 +348,14 @@ class VolunteerExpenseSubmissionService(StatelessService):
 
         board_membership = frappe.db.exists(
             "Chapter Member",
-            {"parent": self.settings.national_board_chapter, "member": self.volunteer_doc.member},
+            {
+                "parent": self.settings.national_board_chapter,
+                "member": self.volunteer_doc.member,
+                # Same rule as the Expense Claim validate hook (#2528, #2704): a Pending, disabled
+                # or Inactive row is not board membership.
+                "enabled": 1,
+                "status": "Active",
+            },
         )
         if not board_membership:
             return _("National board membership required for non-policy national expenses")

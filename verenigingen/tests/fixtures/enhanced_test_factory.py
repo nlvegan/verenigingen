@@ -245,6 +245,29 @@ def suspend_insert_capture():
         _insert_capture_suspended = previous
 
 
+def ensure_selling_price_list(currency="EUR"):
+    """Return an enabled selling Price List name IN `currency` (#2766).
+
+    A list in another currency (a fresh site's 'Standard Selling' is INR) makes
+    erpnext fetch a live exchange rate on insert, which it refuses unless the
+    session user is a System User -- so the invoice depended on whatever user an
+    earlier module left behind. Shared master data, not claimed by either drain; a
+    test's rollback can still remove it, and the get-or-create rebuilds it.
+
+    Module-level so factories that are not an EnhancedTestCase (the SEPA factory)
+    reuse it instead of growing another copy.
+    """
+    if frappe.db.get_value("Price List", "Standard Selling", "currency") == currency:
+        return "Standard Selling"
+    name = f"Test Selling {currency}"
+    if not frappe.db.exists("Price List", name):
+        with suspend_insert_capture():
+            frappe.get_doc(
+                {"doctype": "Price List", "price_list_name": name, "selling": 1, "currency": currency}
+            ).insert(ignore_permissions=True)
+    return name
+
+
 def shared_fixture(method):
     """Declare that a get-or-create helper produces SHARED master data.
 
@@ -265,6 +288,94 @@ def shared_fixture(method):
             return method(*args, **kwargs)
 
     return wrapper
+
+
+# Currencies the test companies and the default price lists use (measured on a test site:
+# company default_currency EUR/INR/USD; Price Lists EUR/INR/USD). Every pair names EUR
+# because that is the currency of the harness companies; the plain erpnext USD<->INR
+# records are deliberately left alone, since erpnext's own tests assert on them.
+_TEST_RATE_PAIRS = (
+    ("INR", "EUR", 0.011),
+    ("EUR", "INR", 90.0),
+    ("USD", "EUR", 0.92),
+    ("EUR", "USD", 1.09),
+)
+# Dated far in the past so a stored row precedes ANY posting date a test uses when
+# `Accounts Settings.allow_stale` is on (erpnext only requires date <= posting date).
+_TEST_RATE_FLOOR_DATE = "2000-01-01"
+
+
+@shared_fixture
+def ensure_test_exchange_rates():
+    """Get-or-create stored Currency Exchange rows so no test reaches the live fetch (#2766).
+
+    `erpnext.setup.utils.get_exchange_rate` looks up a stored row first; only without
+    one does it reach the external provider, which it refuses unless the session user
+    is a System User ("Only system users can fetch exchange rates from an external
+    provider"). A Sales Invoice on an INR price list for a EUR company therefore
+    failed in merge-queue shards, depending on who the session user was.
+
+    Two rows per direction: one dated today (inside `stale_days`, for sites with
+    `allow_stale` off) and one dated far in the past (matches every later posting date
+    when `allow_stale` is on). Both directions, because newer erpnext falls back to the
+    inverse of the opposite direction while older erpnext does not. Both
+    `for_buying` and `for_selling` set, so either `args` filter matches.
+
+    Not tracked and created under `shared_fixture`: the drain must never claim them.
+    Idempotent and cheap when present, so it is safe to call before every test; the
+    date is re-read each call, so a run crossing midnight reseeds.
+    """
+    today = str(getdate())
+    for from_currency, to_currency, rate in _TEST_RATE_PAIRS:
+        for date in (_TEST_RATE_FLOOR_DATE, today):
+            if frappe.db.exists(
+                "Currency Exchange",
+                {
+                    "from_currency": from_currency,
+                    "to_currency": to_currency,
+                    "date": date,
+                    "for_buying": 1,
+                    "for_selling": 1,
+                },
+            ):
+                continue
+            frappe.get_doc(
+                {
+                    "doctype": "Currency Exchange",
+                    "date": date,
+                    "from_currency": from_currency,
+                    "to_currency": to_currency,
+                    "exchange_rate": rate,
+                    "for_buying": 1,
+                    "for_selling": 1,
+                }
+            ).insert(ignore_permissions=True)
+
+
+def log_session_user_tripwire_2766(test_id):
+    """Write one TRIPWIRE-2766 line to stderr when Administrator is not a System User.
+
+    CI shards intermittently raise "Only system users can fetch exchange rates"
+    while the session user is Administrator, and the cause could not be reproduced
+    off CI. This records what erpnext's own `is_system_user` resolves, next to the
+    cached and DB `user_type`. Silent in the normal case. Returns whether it fired.
+    """
+    if frappe.session.user != "Administrator":
+        return False
+    import erpnext.setup.utils as erpnext_utils
+
+    if erpnext_utils.is_system_user():
+        return False
+    logger.warning(
+        "TRIPWIRE-2766 Administrator is not a System User: test=%s cached_user_type=%r "
+        "db_user_type=%r erpnext_is_system_user_is_frappe_permissions=%s",
+        test_id,
+        frappe.get_cached_value("User", "Administrator", "user_type"),
+        frappe.db.get_value("User", "Administrator", "user_type"),
+        erpnext_utils.is_system_user is frappe.permissions.is_system_user,
+    )
+    return True
+
 
 # erpnext v16.20 creates its base test masters (Company, Territory tree, Customer
 # Groups, Chart of Accounts, Fiscal Year, price lists, ...) via a module-level
@@ -2426,6 +2537,17 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # #1758: CI's site config provides an outgoing mail account; local sites may not.
         ensure_outgoing_mail_account(cls)
 
+        # #528: give every class the SAME baseline and take it away again afterwards.
+        # own_settings_company pins the harness company (and its income account) now and
+        # restores what was there in addClassCleanup, so (a) a company a class chooses in
+        # its own setUpClass is recognisable as "differs from this baseline" however the
+        # site's ambient value looks, and (b) a class that chooses one and never restores
+        # it cannot leak it into the next class's baseline (which made a later class
+        # choosing the SAME company look ambient and get reverted).
+        from verenigingen.tests.support.verenigingen_settings import own_settings_company
+
+        cls._settings_company_at_class_start = own_settings_company(cls)
+
     def setUp(self):
         super().setUp()
 
@@ -2441,6 +2563,12 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # CRITICAL: Ensure Administrator context for all tests
         # This prevents permission errors and test contamination from other tests
         frappe.set_user("Administrator")
+
+        # #2766: stored exchange rates (rolled back by every tearDown unless
+        # before_tests committed them; the midnight rollover reseeds too), and a
+        # one-line diagnostic if the Administrator session is not a System User.
+        ensure_test_exchange_rates()
+        log_session_user_tripwire_2766(self.id())
 
         # CRITICAL: Restore the frappe.form_dict LocalProxy. Some tests set request
         # args by assigning `frappe.form_dict = frappe._dict({...})` directly, which
@@ -2556,6 +2684,14 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # surfaced as `Could not find Territory: Netherlands` in whichever test built
         # a Customer first (#291).
         self.factory = EnhancedTestDataFactory(seed=12345, use_faker=True)
+
+        # #528: decide BEFORE the master-data steps below, one of which (tests/setup
+        # self-heal of a stale company) also writes this Single and would otherwise
+        # look like the class's own choice.
+        # Decided ONCE per class: what setUpClass wrote cannot change between methods, but
+        # the self-heal above can leave a real company behind that would then look chosen.
+        if "_settings_company_kept_for_class" not in vars(type(self)):
+            type(self)._settings_company_kept_for_class = self._settings_company_chosen_by_class()
 
         # Ensure required system settings and master data exist
         self._ensure_production_ready_setup()
@@ -5974,6 +6110,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
                 ),
             }
 
+        # #528: a company the class itself chose in setUpClass wins over the default, with
+        # its income account and cost center, so the pair stays coherent.
+        test_company = getattr(self, "_settings_company_kept_for_class", None) or test_company
+
         # Get or create income account for test company
         income_account = self._get_or_create_income_account(test_company)
 
@@ -6016,6 +6156,26 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             )
 
         frappe.db.commit()
+
+    def _settings_company_chosen_by_class(self):
+        """The Settings company this class deliberately set in setUpClass, else None.
+
+        "Deliberately" = an existing Company that differs from the baseline setUpClass
+        pinned (`_settings_company_at_class_start`, see there). A company that does not
+        exist keeps getting the harness default; so does a mid-test change, which
+        tearDown's restore puts back to the value the class left. A class that wrote it
+        uncommitted loses it to the first tearDown rollback, as before.
+        """
+        current = frappe.db.get_value("Verenigingen Settings", None, "company")
+        pinned = getattr(type(self), "_settings_company_at_class_start", None)
+        # No pinned baseline (own_settings_company found no harness company): nothing to
+        # compare with, and "differs from nothing" would make every real ambient company
+        # look chosen by the class.
+        if not pinned:
+            return None
+        if current and current != pinned and frappe.db.exists("Company", current):
+            return current
+        return None
 
     def _restore_verenigingen_settings(self):
         """
@@ -6129,22 +6289,8 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         return uom_name
 
     def _ensure_selling_price_list(self, currency="EUR"):
-        """Return an enabled selling Price List IN `currency` (#2766).
-
-        A list in another currency (a fresh site's 'Standard Selling' is INR) makes
-        erpnext fetch a live exchange rate on insert, which it refuses unless the
-        session user is a System User -- so the invoice depended on whatever user an
-        earlier module left behind. Shared master data: never drained.
-        """
-        if frappe.db.get_value("Price List", "Standard Selling", "currency") == currency:
-            return "Standard Selling"
-        name = f"Test Selling {currency}"
-        if not frappe.db.exists("Price List", name):
-            with suspend_insert_capture():
-                frappe.get_doc(
-                    {"doctype": "Price List", "price_list_name": name, "selling": 1, "currency": currency}
-                ).insert(ignore_permissions=True)
-        return name
+        """Return an enabled selling Price List IN `currency` (#2766)."""
+        return ensure_selling_price_list(currency)
 
     def create_test_user(self, email, roles=None, **kwargs):
         """Create a test user with specified roles"""

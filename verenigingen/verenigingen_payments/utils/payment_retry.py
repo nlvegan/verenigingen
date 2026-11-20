@@ -330,6 +330,33 @@ def _invoice_in_open_batch(invoice_name):
 DAILY_RETRY_SWEEP_LIMIT = 200
 
 
+def _defer_retry_for_undeterminable_sequence_type(retry_doc, invoice_name, mandate_name):
+    """Skip this retry run without guessing a SeqTp, but do not give the retry up (#2716).
+
+    This is a failure on OUR side (the sequence-type lookup), not a failed collection
+    attempt by the member, so it is NOT charged to the member's retry budget: `retry_count`
+    is left alone and the record is never escalated for it (ruling, 2026-11-18). The record
+    stays Scheduled and is pushed out on the normal schedule via `calculate_next_retry_date`,
+    which is keyed on `retry_count`. Because the count is deliberately unchanged, a deferral
+    waits `retry_intervals[min(retry_count, last)]`, the same wait the schedule applies after
+    an attempt at this stage, so a persistent failure re-runs every few days, not daily.
+    `last_retry_date` = today keeps it from re-running (and re-logging) within today.
+    """
+    from verenigingen.verenigingen_payments.utils.sepa_utilities import BatchLoggingUtilities
+
+    BatchLoggingUtilities.record_undeterminable_sequence_type(None, invoice_name, mandate_name)
+    retry_doc.last_retry_date = today()
+    retry_doc.next_retry_date = PaymentRetryManager().calculate_next_retry_date(retry_doc)
+    retry_doc.add_comment(
+        "Comment",
+        f"The SEPA sequence type (FRST/RCUR) of mandate {mandate_name} could not be determined for "
+        f"invoice {invoice_name}; no batch was created. Not counted as a retry attempt; "
+        f"next try {retry_doc.next_retry_date}. See the Error Log.",
+    )
+    retry_doc.status = "Scheduled"
+    retry_doc.save()
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def execute_payment_retry(retry_record=None):
@@ -415,6 +442,9 @@ def execute_payment_retry(retry_record=None):
         )
 
         sequence_info = get_mandate_sequence_type(mandate.name, invoice.name)
+        if sequence_info.get("error"):
+            _defer_retry_for_undeterminable_sequence_type(retry_doc, invoice.name, mandate.name)
+            return
         sequence_type = sequence_info["sequence_type"]
 
         # Create single invoice batch for retry

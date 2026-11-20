@@ -567,7 +567,7 @@ class PontoPaymentLink(PontoSubmitCompensation, Document):
             "company": self.creditor_name,
         }
 
-        email_service.send_templated_email(
+        result = email_service.send_templated_email(
             template_name="payment_notification",
             recipients=[email],
             context=context,
@@ -576,6 +576,15 @@ class PontoPaymentLink(PontoSubmitCompensation, Document):
             reference_name=self.name,
             notification_key="ponto_payment_link_request",
         )
+
+        # A skipped (disabled key, cooldown, opt-out) or failed mail queued nothing (#2178)
+        if not result.success or result.skip_reason:
+            frappe.throw(
+                _("Payment link was not sent to {0}: {1}").format(
+                    email, result.skip_reason or result.error_message or _("email not queued")
+                ),
+                title=_("Cannot Send"),
+            )
 
         frappe.msgprint(
             _("Payment link sent to {0}").format(email),

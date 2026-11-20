@@ -141,20 +141,23 @@ class MemberEventEmissionService(StatelessService):
         )
 
     def _send_status_notification(self, member_doc: "Document") -> None:
-        """Send notification for membership status change.
+        """Queue the status mail to run after the save commits (#2735).
+
+        Sent inline, EmailService sets the Redis cooldown key at once; a rollback to a savepoint
+        undoes the Email Queue row but not that key, and the later genuine mail was then suppressed
+        as "in cooldown". The job re-checks the member still holds the new status.
 
         Args:
             member_doc: The Member document
         """
-        from verenigingen.services.member.lifecycle.member_status_notification_service import (
-            get_member_status_notification_service,
-        )
-
-        old_status = self._previous_value(member_doc, "status")
-        new_status = member_doc.status
-
-        get_member_status_notification_service().send_status_change_notification(
-            member_doc, old_status, new_status
+        frappe.enqueue(
+            method="verenigingen.services.member.lifecycle.member_status_notification_service."
+            "send_status_change_notification_job",
+            queue="short",
+            enqueue_after_commit=True,
+            member_name=member_doc.name,
+            old_status=self._previous_value(member_doc, "status"),
+            new_status=member_doc.status,
         )
 
 

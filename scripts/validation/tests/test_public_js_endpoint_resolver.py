@@ -205,5 +205,28 @@ class BaselineGrowthGuardTest(unittest.TestCase):
         self.assertIn("verenigingen.api.nope.func", baseline.read_text())
 
 
+class RealTreeEBoekhoudenScopeTest(unittest.TestCase):
+    """#812: doctype JS under e_boekhouden was scanned by nothing and held 4 dead calls."""
+
+    def test_scan_roots_cover_e_boekhouden_doctype_js(self):
+        self.assertIn("verenigingen/e_boekhouden", resolver.SCAN_ROOTS)
+
+    def test_no_e_boekhouden_js_call_target_is_dead(self):
+        targets = list(resolver.find_targets(["verenigingen/e_boekhouden"]))
+        # control: the scan really sees the migration form's calls
+        self.assertTrue(
+            any(rel.endswith("e_boekhouden_migration.js") for rel, _, _ in targets),
+            "scan found no targets in e_boekhouden_migration.js",
+        )
+        dead = [(rel, n, t) for rel, n, t in targets if not resolver.resolve(t)]
+        self.assertEqual(dead, [])
+
+    def test_control_a_dead_target_is_reported_dead(self):
+        self.assertFalse(resolver.resolve("verenigingen.api.test_eboekhouden_connection.test_eboekhouden_connection"))
+        self.assertTrue(
+            resolver.resolve("verenigingen.e_boekhouden.utils.eboekhouden_api.test_api_connection")
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

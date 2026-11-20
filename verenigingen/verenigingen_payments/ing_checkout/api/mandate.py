@@ -13,12 +13,43 @@ Provides whitelisted methods for mandate operations:
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Roles
+from verenigingen.utils.member_utils import get_current_user_member_name, validate_member_ownership
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
     high_security_api,
     standard_api,
 )
+
+
+def _is_staff() -> bool:
+    return bool(set(frappe.get_roles()) & Roles.ADMIN_ROLES)
+
+
+def _refuse_mandate_access():
+    frappe.throw(_("You can only access your own member information"), frappe.PermissionError)
+
+
+def _require_mandate_access(mandate_name: str, sales_invoice: str = None) -> None:
+    """Refuse unless the caller is staff or owns the mandate (#1089, ruling #1101).
+
+    A non-staff caller gets the identical PermissionError for an unknown mandate
+    and for someone else's mandate (#1328): one get_value decides both, so there
+    is no existence oracle. With ``sales_invoice``, the invoice's customer must
+    also be the mandate owner's customer, or the pair is refused the same way.
+    """
+    if _is_staff():
+        return
+    owner = frappe.db.get_value("ING Checkout Mandate", mandate_name, "member")
+    current_member = get_current_user_member_name()
+    if not owner or not current_member or owner != current_member:
+        _refuse_mandate_access()
+    if sales_invoice is not None:
+        member_customer = frappe.db.get_value("Member", owner, "customer")
+        invoice_customer = frappe.db.get_value("Sales Invoice", sales_invoice, "customer")
+        if not member_customer or member_customer != invoice_customer:
+            _refuse_mandate_access()
 
 
 @frappe.whitelist()
@@ -46,6 +77,8 @@ def create_mandate_for_member(
 
     if mandate_type not in ["single", "recurring", "flexible"]:
         return {"success": False, "error": _("Invalid mandate type")}
+
+    validate_member_ownership(member_name, allow_admin=True)
 
     if not frappe.db.exists("Member", member_name):
         return {"success": False, "error": _("Member not found")}
@@ -85,6 +118,8 @@ def execute_debit_for_invoice(
     if not sales_invoice:
         return {"success": False, "error": _("Sales Invoice is required")}
 
+    _require_mandate_access(mandate_name, sales_invoice)
+
     if not frappe.db.exists("ING Checkout Mandate", mandate_name):
         return {"success": False, "error": _("Mandate not found")}
 
@@ -115,6 +150,8 @@ def get_mandate_status(mandate_name: str) -> dict:
     """
     if not mandate_name:
         return {"success": False, "error": _("Mandate name is required")}
+
+    _require_mandate_access(mandate_name)
 
     if not frappe.db.exists("ING Checkout Mandate", mandate_name):
         return {"success": False, "error": _("Mandate not found")}
@@ -147,6 +184,8 @@ def sync_mandate_status(mandate_name: str) -> dict:
     if not mandate_name:
         return {"success": False, "error": _("Mandate name is required")}
 
+    _require_mandate_access(mandate_name)
+
     if not frappe.db.exists("ING Checkout Mandate", mandate_name):
         return {"success": False, "error": _("Mandate not found")}
 
@@ -170,6 +209,8 @@ def cancel_mandate(mandate_name: str) -> dict:
     """
     if not mandate_name:
         return {"success": False, "error": _("Mandate name is required")}
+
+    _require_mandate_access(mandate_name)
 
     if not frappe.db.exists("ING Checkout Mandate", mandate_name):
         return {"success": False, "error": _("Mandate not found")}
@@ -202,6 +243,8 @@ def get_member_mandates(member_name: str) -> dict:
     """
     if not member_name:
         return {"success": False, "error": _("Member name is required")}
+
+    validate_member_ownership(member_name, allow_admin=True)
 
     if not frappe.db.exists("Member", member_name):
         return {"success": False, "error": _("Member not found")}

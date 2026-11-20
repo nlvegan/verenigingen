@@ -1620,6 +1620,9 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                 # Handle pending expense claims via HRMS Expense Claim (linked through employee_id)
                 # Note: Volunteer Expense DocType was deprecated in favor of HRMS Expense Claim
                 if volunteer_doc.employee_id:
+                    # get_all on purpose (#1819): a termination pipeline step that flags the
+                    # TERMINATED volunteer's drafts for HR review; the acting staff member's own
+                    # claim visibility must not decide which drafts get flagged.
                     pending_claims = frappe.get_all(
                         "Expense Claim",
                         filters={

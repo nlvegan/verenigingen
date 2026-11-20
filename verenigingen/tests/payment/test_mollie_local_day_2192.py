@@ -155,6 +155,7 @@ class TestBulkRunWindowLocalDay(_BulkImporterSweepBase):
             fake = MagicMock()
             fake.payments.list.side_effect = lambda **kw: pages[0]
             mc.return_value.sdk_client = fake
+            mc.return_value.list_resource_page.side_effect = lambda name, **kw: getattr(fake, name).list(**kw)
             mm.return_value.find_member_for_payment.return_value = None
             return [p["id"] for p in svc._list_mollie_payments(str(day), str(day))]
 
@@ -189,6 +190,7 @@ class TestAdminWindowLocalDay(_BulkImporterSweepBase):
         ), system_timezone(zone):
             page = _FakePage(batch=[payment])
             mc.return_value.sdk_client.payments.list.side_effect = lambda **kw: page
+            mc.return_value.list_resource_page.side_effect = lambda name, **kw: getattr(mc.return_value.sdk_client, name).list(**kw)
             out = admin._retrieve_global_payments_with_orphans(days_back, 10, "all")
         self.assertEqual(out["total_filtered_by_date"], 0, out.get("error"))
         self.assertEqual(out["total_payments_after_filtering"], 1)
@@ -275,6 +277,7 @@ class TestCutoffIsTheSiteDayNotTheProcessDay(_BulkImporterSweepBase):
                 "verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher.get_member_payment_matcher"
             ):
                 mc.return_value.sdk_client.payments.list.side_effect = lambda **kw: page
+                mc.return_value.list_resource_page.side_effect = lambda name, **kw: getattr(mc.return_value.sdk_client, name).list(**kw)
                 out = admin._retrieve_global_payments_with_orphans(self.days_back, 10, "all")
         self.assertEqual(out["total_filtered_by_date"], 1, out.get("error"))
         self.assertEqual(out["total_payments_after_filtering"], 1)
