@@ -69,7 +69,13 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
     @property
     def factory(self):
-        """The test's data factory. ``setUp`` installs a ``CoreTestDataFactory``."""
+        """The test's data factory. ``setUp`` installs a ``CoreTestDataFactory``.
+
+        Note: ``hasattr(cls, "factory")`` is now always True on VereningingenTestCase subclasses
+        (it finds this property object). A teardown that guards with it
+        (test_member_lifecycle_complete.py:133, payment/test_payment_history_scalability.py:427)
+        is safe today only because those classes always set ``cls.factory`` in ``setUpClass``.
+        """
         try:
             return self.__dict__["_factory"]
         except KeyError:
