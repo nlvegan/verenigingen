@@ -321,12 +321,6 @@ class SEPARollbackManager:
             if not step_result["success"]:
                 errors.extend(step_result.get("errors", []))
 
-            # Step 1b: the rows the rollback un-collects must stop claiming Successful (#3021)
-            step_result = self._rollback_batch_invoice_rows(operation)
-            rollback_steps.append({"step": "batch_invoice_rows_rollback", "result": step_result})
-            if not step_result["success"]:
-                errors.extend(step_result.get("errors", []))
-
             # Step 2: Handle invoice status updates
             step_result = self._rollback_invoice_statuses(operation.affected_invoices)
             rollback_steps.append({"step": "invoice_status_rollback", "result": step_result})
@@ -336,6 +330,16 @@ class SEPARollbackManager:
             # Step 3: Reverse payment entries (if any were created)
             step_result = self._rollback_payment_entries(operation.affected_invoices)
             rollback_steps.append({"step": "payment_entries_rollback", "result": step_result})
+            if not step_result["success"]:
+                errors.extend(step_result.get("errors", []))
+
+            # Step 3b (#3021): rows whose Payment Entry could not be cancelled stay as they
+            # are (a live PE still backs them). Placed before step 4 so its commit covers this.
+            payment_failed = step_result.get("failed_invoices")
+            if payment_failed is None and not step_result["success"]:
+                payment_failed = list(operation.affected_invoices)  # step died before reporting
+            step_result = self._rollback_batch_invoice_rows(operation, payment_failed or [])
+            rollback_steps.append({"step": "batch_invoice_rows_rollback", "result": step_result})
             if not step_result["success"]:
                 errors.extend(step_result.get("errors", []))
 
@@ -384,21 +388,26 @@ class SEPARollbackManager:
         except Exception as e:
             return {"success": False, "errors": [f"Failed to update batch status: {str(e)}"]}
 
-    def _rollback_batch_invoice_rows(self, operation: RollbackOperation) -> Dict[str, Any]:
+    def _rollback_batch_invoice_rows(
+        self, operation: RollbackOperation, skip_invoices: List[str]
+    ) -> Dict[str, Any]:
         """Reset the affected rows that were collected to Pending (#3021).
 
         The rollback cancels their Payment Entries, so they are un-collected and
         collectable again (a Pending row is what a freshly batched invoice has: no
         result_code/result_message, the bank has not answered). Rows that are already
-        Pending/Failed are left alone. No commit here: the following steps commit this
-        write together with the invoice status change.
+        Pending/Failed are left alone, and so are rows of ``skip_invoices`` (Payment
+        Entry cancel failed). No commit here: the membership step's commit covers it.
         """
         try:
             rows = frappe.get_all(
                 "Direct Debit Batch Invoice",
                 filters={
                     "parent": operation.batch_name,
-                    "invoice": ["in", operation.affected_invoices or [""]],
+                    "invoice": [
+                        "in",
+                        [i for i in operation.affected_invoices if i not in skip_invoices] or [""],
+                    ],
                     "status": ["in", ["Successful", "Processed"]],
                 },
                 pluck="name",
@@ -454,6 +463,7 @@ class SEPARollbackManager:
         try:
             cancelled_payments = []
             errors = []
+            failed_invoices = []
 
             for invoice_name in invoice_names:
                 try:
@@ -479,9 +489,15 @@ class SEPARollbackManager:
                         cancelled_payments.append(payment_entry.name)
 
                 except Exception as e:
+                    failed_invoices.append(invoice_name)
                     errors.append(f"Failed to rollback payments for invoice {invoice_name}: {str(e)}")
 
-            return {"success": len(errors) == 0, "cancelled_payments": cancelled_payments, "errors": errors}
+            return {
+                "success": len(errors) == 0,
+                "cancelled_payments": cancelled_payments,
+                "failed_invoices": failed_invoices,
+                "errors": errors,
+            }
 
         except Exception as e:
             return {"success": False, "errors": [f"Payment entry rollback failed: {str(e)}"]}
