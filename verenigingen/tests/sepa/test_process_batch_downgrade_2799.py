@@ -119,3 +119,16 @@ class TestProcessBatchDoesNotDowngradeCollectedBatch2799(_SubmittedBatchBase):
         self.assertTrue(process_batch(batch.name))
 
         self.assertEqual(self._status(batch), "Submitted")
+
+    def test_submitted_batch_with_no_rows_is_not_refused_as_collected(self):
+        """Control for the `bool(rows)` clause: `all()` over no rows is True, which
+        would call an empty batch "fully collected". Probe shortcut: the child rows are
+        deleted by hand after submit, because a batch with no rows cannot be built
+        through the real flow (this is only a state-shape control)."""
+        batch = self._submitted_batch(invoice_count=1)
+        frappe.db.delete("Direct Debit Batch Invoice", {"parent": batch.name})
+        self.assertEqual(frappe.get_doc("Direct Debit Batch", batch.name).invoices, [])
+
+        self.assertTrue(process_batch(batch.name))
+
+        self.assertEqual(self._status(batch), "Submitted")
