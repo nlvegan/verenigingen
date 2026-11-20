@@ -381,3 +381,102 @@ class TestVolunteerActivationServiceCoverage(EnhancedTestCase):
         user.insert(ignore_permissions=True)
         self._track_test_document("User", user.name, priority=2)
         return email
+
+
+class TestVolunteerActivationOrphanLookup2784(EnhancedTestCase):
+    """#2784 point 1: the by-email relink must adopt ORPHANS only.
+
+    The attacker is a real, least-privileged board member (`create_test_board_member`),
+    and the call goes through `_activate_volunteer_if_requested`, the approval flow's
+    own caller of `activate_volunteer_record`. Fixture shortcut (stated, per the brief):
+    the victim's volunteer carries member2's email through `db_set`, since the email
+    collision is the precondition under test, not a flow being exercised.
+    """
+
+    def _member_with_email(self, prefix):
+        member = self.create_test_member(first_name="Orph", last_name=prefix.title(), birth_date="1990-01-01")
+        email = f"{prefix}.{frappe.generate_hash(length=8)}@example.invalid"
+        member.db_set("email", email, update_modified=False)
+        member.db_set("interested_in_volunteering", 1, update_modified=False)
+        member.reload()
+        return member, email
+
+    def _volunteer_with_email(self, owner, email, status="New"):
+        volunteer = self.create_test_volunteer(member_name=owner.name, status=status)
+        volunteer.db_set("email", email, update_modified=False)
+        return volunteer
+
+    def _activate_as_board(self, member):
+        from verenigingen.api.membership_application_review import _activate_volunteer_if_requested
+
+        board = self.create_test_board_member(self.create_test_chapter().name)
+        with self.as_user(board.user):
+            _activate_volunteer_if_requested(member, True)
+
+    def test_staff_activation_leaves_a_volunteer_linked_elsewhere_alone(self):
+        """Staff may repoint, so the guard does not save the victim: only the lookup does."""
+        victim_owner, _ = self._member_with_email("victim1")
+        member2, email2 = self._member_with_email("mine2")
+        victim = self._volunteer_with_email(victim_owner, email2)
+
+        activate_volunteer_record(member2)
+
+        self.assertEqual(frappe.db.get_value("Volunteer", victim.name, "member"), victim_owner.name)
+        self.assertEqual(frappe.db.get_value("Volunteer", victim.name, "status"), "New")
+        own = frappe.db.get_value("Volunteer", {"member": member2.name}, ["name", "status"], as_dict=True)
+        self.assertTrue(own, "member2 must get a Volunteer of its own (create fallback)")
+        self.assertNotEqual(own.name, victim.name)
+        self.assertEqual(own.status, "Active")
+
+    def test_board_approver_does_not_lose_activation_to_a_swallowed_refusal(self):
+        """Through the approval flow's own caller, as a real board member.
+
+        On develop the by-email match is repointed, #2752's guard refuses it, the caller
+        swallows the refusal and member2 ends with NO volunteer. After the fix member2
+        gets its own. It stays status New: a chapter-scoped board user cannot save the
+        status flip on a chapterless Volunteer (PermissionError, swallowed; a separate,
+        pre-existing defect that also hits a member with no email collision).
+        """
+        victim_owner, _ = self._member_with_email("victim3")
+        member2, email2 = self._member_with_email("mine3")
+        victim = self._volunteer_with_email(victim_owner, email2)
+
+        self.expectErrorLog("Volunteer activation error")
+        self._activate_as_board(member2)
+
+        self.assertEqual(frappe.db.get_value("Volunteer", victim.name, "member"), victim_owner.name)
+        own = frappe.db.get_value("Volunteer", {"member": member2.name}, "name")
+        self.assertTrue(own, "member2 must end with a Volunteer of its own, not none")
+        self.assertNotEqual(own, victim.name)
+
+    def test_the_lookup_helper_skips_a_linked_volunteer_and_finds_an_orphan(self):
+        from verenigingen.utils.member_utils import get_orphan_volunteer_for_email
+
+        owner, _ = self._member_with_email("linked")
+        member2, email2 = self._member_with_email("probe")
+        linked = self._volunteer_with_email(owner, email2)
+        self.assertIsNone(get_orphan_volunteer_for_email(email2))
+
+        linked.db_set("member", None, update_modified=False)
+        self.assertEqual(get_orphan_volunteer_for_email(email2), linked.name)
+        self.assertIsNone(get_orphan_volunteer_for_email(""))
+
+    def test_a_real_orphan_with_the_matching_email_is_still_adopted(self):
+        old_owner, _ = self._member_with_email("oldowner")
+        member2, email2 = self._member_with_email("adopt")
+        orphan = self._volunteer_with_email(old_owner, email2)
+        orphan.db_set("member", None, update_modified=False)
+
+        activate_volunteer_record(member2)
+
+        self.assertEqual(frappe.db.get_value("Volunteer", orphan.name, "member"), member2.name)
+        self.assertEqual(frappe.db.get_value("Volunteer", orphan.name, "status"), "Active")
+
+    def test_an_already_linked_volunteer_of_this_member_is_still_activated(self):
+        member2, email2 = self._member_with_email("own")
+        own = self._volunteer_with_email(member2, email2)
+
+        activate_volunteer_record(member2)
+
+        self.assertEqual(frappe.db.get_value("Volunteer", own.name, "member"), member2.name)
+        self.assertEqual(frappe.db.get_value("Volunteer", own.name, "status"), "Active")
