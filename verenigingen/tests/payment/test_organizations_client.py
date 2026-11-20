@@ -262,40 +262,34 @@ class TestOrganizationsClient(EnhancedTestCase):
         
         # Phase 4D: Keep legitimate external API mock, test real business logic
         with patch.object(self.client, 'get', return_value=mock_org_response):  # Legitimate external API mock
-            # Create a real test company to update
-            try:
-                # Check if test company already exists
-                if frappe.db.exists("Company", "Existing Company"):
-                    test_company = frappe.get_doc("Company", "Existing Company")
-                else:
-                    # Create test company for update testing
-                    test_company = frappe.get_doc({
-                        "doctype": "Company",
-                        "company_name": "Existing Company",
-                        "email": "old@email.com",
-                        "country": "Netherlands",
-                        "default_currency": "EUR"
-                    })
-                    test_company.insert()
-                    self.track_doc("Company", test_company.name)
-                
-                result = self.client.sync_organization_to_frappe()
-                
-                # Test real business logic results
-                if result and result.get("status") == "success":
-                    # Reload company to check if fields were actually updated
-                    test_company.reload()
-                    self.assertEqual(test_company.email, "updated@email.com")
-                    self.assertEqual(test_company.tax_id, "NL111222333B01")
-                    self.assertEqual(result["company_name"], "Existing Company")
-                    print("✅ Phase 4D: Real company update business logic validated")
-                else:
-                    # Real business logic might require additional setup
-                    self.skipTest("Company update requires additional ERP setup not available in test environment")
-                    
-            except Exception as e:
-                # Real operations may fail due to business rules - that's valuable testing
-                self.skipTest(f"Company operations require ERP setup: {e}")
+            # Create a real test company to update. No try/skip around this or the
+            # assertions: `except Exception: skipTest` swallowed both a failing fixture
+            # and the AssertionErrors below.
+            # Check if test company already exists
+            if frappe.db.exists("Company", "Existing Company"):
+                test_company = frappe.get_doc("Company", "Existing Company")
+            else:
+                # Create test company for update testing
+                test_company = frappe.get_doc({
+                    "doctype": "Company",
+                    "company_name": "Existing Company",
+                    "email": "old@email.com",
+                    "country": "Netherlands",
+                    "default_currency": "EUR"
+                })
+                test_company.insert()
+                self.track_doc("Company", test_company.name)
+
+            result = self.client.sync_organization_to_frappe()
+
+            # Test real business logic results
+            self.assertTrue(result and result.get("status") == "success", f"sync failed: {result}")
+            # Reload company to check if fields were actually updated
+            test_company.reload()
+            self.assertEqual(test_company.email, "updated@email.com")
+            self.assertEqual(test_company.tax_id, "NL111222333B01")
+            self.assertEqual(result["company_name"], "Existing Company")
+            print("✅ Phase 4D: Real company update business logic validated")
 
     def test_sync_organization_to_frappe_error_handling(self):
         """Test error handling during organization sync"""
