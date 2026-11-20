@@ -33,6 +33,7 @@ from typing import Optional
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.query_builder.functions import Coalesce
 from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
@@ -500,9 +501,22 @@ class PontoPaymentLink(PontoSubmitCompensation, Document):
     def increment_payment_count(self):
         """Increment total payments collected for periodic payments."""
         if self.payment_type == "Periodic":
-            self.total_payments_collected = (self.total_payments_collected or 0) + 1
-            # Security: Internal method called from webhook - counter update only
-            self.save(ignore_permissions=True)
+            # total_payments_collected is not allow_on_submit, so saving the submitted row refuses
+            # it (#2974); and Select validation refuses a stored "Periodic" first. Write the column
+            # alone: no document hooks run, so the #1907 guard is not consulted (it guards only
+            # status/entry/invoice/debtor, never this counter). An SQL increment, not a
+            # read-modify-write, so two webhook deliveries racing both count. `modified` is left
+            # alone so the caller's in-memory doc can still be saved afterwards.
+            link = frappe.qb.DocType(self.doctype)
+            (
+                frappe.qb.update(link)
+                .set(link.total_payments_collected, Coalesce(link.total_payments_collected, 0) + 1)
+                .where(link.name == self.name)
+                .run()
+            )
+            self.total_payments_collected = frappe.db.get_value(
+                self.doctype, self.name, "total_payments_collected"
+            )
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
