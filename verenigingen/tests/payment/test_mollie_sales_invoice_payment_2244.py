@@ -47,13 +47,15 @@ class _Si2244MollieHttp:
     def __init__(self):
         self.payments = self
         self.created = []
+        self.idempotency_keys = []
         self.deleted = []
         self.state = "open"
         self.delete_raises = False
 
-    def create(self, data):
+    def create(self, data=None, idempotency_key='', **params):
         payment_id = f"tr_si2244_{len(self.created) + 1}_{frappe.generate_hash(length=6)}"
         self.created.append((payment_id, data))
+        self.idempotency_keys.append(idempotency_key)
         return SimpleNamespace(
             id=payment_id,
             status="open",
@@ -61,22 +63,22 @@ class _Si2244MollieHttp:
             checkout_url=f"https://pay.mollie.test/checkout/{payment_id}",
         )
 
-    def get(self, payment_id):
-        data = dict(self.created)[payment_id]
+    def get(self, resource_id, **params):
+        data = dict(self.created)[resource_id]
         state = self.state
         return SimpleNamespace(
-            id=payment_id,
+            id=resource_id,
             amount=data["amount"],
-            checkout_url=f"https://pay.mollie.test/checkout/{payment_id}",
+            checkout_url=f"https://pay.mollie.test/checkout/{resource_id}",
             is_paid=lambda: state == "paid",
             is_pending=lambda: state == "pending",
             is_open=lambda: state == "open",
         )
 
-    def delete(self, payment_id):
+    def delete(self, resource_id, idempotency_key='', **params):
         if self.delete_raises:
             raise RuntimeError("mollie refuses to cancel")
-        self.deleted.append(payment_id)
+        self.deleted.append(resource_id)
 
 
 def _si2244_member_invoice(case, *, with_member=True, currency=None, grand_total=40.0):
@@ -298,7 +300,7 @@ class TestSalesInvoiceWebhookBooking2244(_GuestDispatchMixin, EnhancedTestCase):
                 self._refunds = refunds
                 self.payments = self
 
-            def get(self, _id):
+            def get(self, _id, **params):
                 return self
 
             @property
@@ -446,7 +448,7 @@ class TestSalesInvoiceWebhookBooking2244(_GuestDispatchMixin, EnhancedTestCase):
             def __init__(s):
                 s.payments = s
 
-            def get(s, _id):
+            def get(s, _id, **params):
                 return s
 
             @property
