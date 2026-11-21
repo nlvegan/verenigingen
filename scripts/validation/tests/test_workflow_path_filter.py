@@ -99,6 +99,7 @@ imports scripts/ code.
 """
 import ast
 import importlib.util
+import os
 import sys
 import tempfile
 import unittest
@@ -137,8 +138,6 @@ _KNOWN_SCRIPTS_FILES_IMPORTED_UNDER_TESTS = {
     # #1528/#1539: added by
     # verenigingen/tests/unit/test_performance_profiler_current_chapter_display.py
     "scripts/performance/performance_profiler.py",
-    # #1357: verenigingen/tests/unit/test_member_performance_analyzer_session_var_1357.py
-    "scripts/member_performance_analyzer.py",
     # #1550: the six entries below were already imported under verenigingen/tests/
     # before this scan could see the `sys.path.insert` + bare-import and
     # `importlib.util.spec_from_file_location` shapes -- they were invisible to the
@@ -633,19 +632,36 @@ class TestExtractTriggerPaths(unittest.TestCase):
         self.assertEqual(wpf.extract_trigger_paths(text, "push"), ["scripts/x.py"])
 
 
+def _import_yaml_or_fail_in_ci(testcase, ci=None, importer=importlib.import_module):
+    """Return the `yaml` module. Where it is missing: FAIL when running under CI
+    (GitHub Actions sets `CI=true`), skip otherwise (#1585).
+
+    The cross-check below used to `skipTest` unconditionally, and a skip reads as
+    neither pass nor fail, so for as long as the Code Validation job lacked PyYAML
+    the check never ran in the one place that gates merges and nobody saw it. The
+    job now installs PyYAML; this makes its removal loud instead of silent. A
+    contributor without PyYAML locally still gets a skip. `ci`/`importer` are
+    parameters only so the guard itself can be tested."""
+    ci = os.environ.get("CI") if ci is None else ci
+    try:
+        return importer("yaml")
+    except ImportError:
+        if ci:
+            testcase.fail(
+                "PyYAML is not installed but CI is set: the YAML cross-check would be "
+                "silently skipped (#1585). Install PyYAML in the Code Validation job."
+            )
+        testcase.skipTest("PyYAML not installed in this environment")
+
+
 class TestExtractTriggerPathsAgainstRealYAML(unittest.TestCase):
     """Cross-check against PyYAML itself rather than a reading of the YAML
-    spec. Skipped where PyYAML is unavailable -- the Code Validation job that
-    runs this test file installs nothing beyond `pathlib` (see the module
-    docstring for why the scanner itself must stay stdlib-only) -- but PyYAML
-    is present in this bench's env, so this is real cross-validation
-    wherever it runs, not a no-op."""
+    spec. The scanner itself stays stdlib-only (see the module docstring), but
+    the Code Validation job installs PyYAML for this test (#1585), so this runs
+    in CI; without PyYAML it skips locally and FAILS under CI=true."""
 
     def _assert_matches_yaml(self, item_line: str):
-        try:
-            import yaml
-        except ImportError:
-            self.skipTest("PyYAML not installed in this environment")
+        yaml = _import_yaml_or_fail_in_ci(self)
         text = f"on:\n  push:\n    paths:\n      {item_line}\n"
         expected = yaml.safe_load(text)[True]["push"]["paths"]
         self.assertEqual(wpf.extract_trigger_paths(text, "push"), expected)
@@ -678,10 +694,7 @@ class TestExtractTriggerPathsAgainstRealYAML(unittest.TestCase):
         did not anticipate. `on:` parses as the boolean key `True` in
         PyYAML, not the string `"on"` -- measured, see this class's
         docstring."""
-        try:
-            import yaml
-        except ImportError:
-            self.skipTest("PyYAML not installed in this environment")
+        yaml = _import_yaml_or_fail_in_ci(self)
         workflows_dir = wpf.REPO_ROOT / ".github" / "workflows"
         for wf_path in sorted(workflows_dir.glob("*.yml")):
             text = wf_path.read_text()
@@ -694,6 +707,32 @@ class TestExtractTriggerPathsAgainstRealYAML(unittest.TestCase):
                 expected = trig.get("paths", []) if isinstance(trig, dict) else []
                 with self.subTest(file=wf_path.name, trigger=trigger):
                     self.assertEqual(wpf.extract_trigger_paths(text, trigger), expected)
+
+
+class TestYamlImportGuard(unittest.TestCase):
+    """#1585: the missing-PyYAML guard of the cross-check class."""
+
+    @staticmethod
+    def _no_yaml(name):
+        raise ImportError(name)
+
+    def test_missing_yaml_fails_under_ci(self):
+        # A SkipTest here must be a RED, not a skip: SkipTest is not a failureException,
+        # so without this wrapper a guard that skips under CI would skip THIS test too.
+        try:
+            with self.assertRaises(self.failureException) as ctx:
+                _import_yaml_or_fail_in_ci(self, ci="true", importer=self._no_yaml)
+        except unittest.SkipTest:
+            self.fail("guard skipped instead of failing under CI")
+        self.assertIn("#1585", str(ctx.exception))
+
+    def test_missing_yaml_skips_outside_ci(self):
+        with self.assertRaises(unittest.SkipTest):
+            _import_yaml_or_fail_in_ci(self, ci="", importer=self._no_yaml)
+
+    def test_present_yaml_is_returned(self):
+        sentinel = object()
+        self.assertIs(_import_yaml_or_fail_in_ci(self, ci="true", importer=lambda n: sentinel), sentinel)
 
 
 class TestSysPathHackAndImportlibDetection(unittest.TestCase):

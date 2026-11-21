@@ -18,11 +18,11 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2 style="margin: 0; color: #0066cc;">{{ company_name }}</h2>
+            <h2 style="margin: 0; color: #0066cc;">{{ company_name|e }}</h2>
         </div>
 
         <div class="content">
-            <h3>Dear {{ member_name }},</h3>
+            <h3>Dear {{ member_name|e }},</h3>
 
             <p>This confirms that your SEPA Direct Debit mandate has been cancelled as requested.</p>
 
@@ -31,19 +31,19 @@
                 <table style="width: 100%;">
                     <tr>
                         <td><strong>Mandate Reference:</strong></td>
-                        <td>{{ mandate_id }}</td>
+                        <td>{{ mandate_id|e }}</td>
                     </tr>
                     <tr>
                         <td><strong>IBAN:</strong></td>
-                        <td>{{ iban }}</td>
+                        <td>{{ iban|e }}</td>
                     </tr>
                     <tr>
                         <td><strong>Cancellation Date:</strong></td>
-                        <td>{{ cancellation_date }}</td>
+                        <td>{{ cancellation_date|e }}</td>
                     </tr>
                     <tr>
                         <td><strong>Reason:</strong></td>
-                        <td>{{ cancellation_reason }}</td>
+                        <td>{{ cancellation_reason|e }}</td>
                     </tr>
                 </table>
             </div>
@@ -61,20 +61,20 @@
             <p>If you cancelled this mandate by mistake or would like to set up a new payment method, please visit your member portal or contact our support team.</p>
 
             <center>
-                <a href="{{ website_url }}/payment_dashboard" class="button">Set Up New Payment Method</a>
+                <a href="{{ website_url|e }}/payment_dashboard" class="button">Set Up New Payment Method</a>
             </center>
 
-            <p>If you have any questions, please don't hesitate to contact us at <a href="mailto:{{ support_email|default('support@example.com') }}">{{ support_email|default('support@example.com') }}</a>.</p>
+            <p>If you have any questions, please don't hesitate to contact us at <a href="mailto:{{ support_email|default('support@example.com')|e }}">{{ support_email|default('support@example.com')|e }}</a>.</p>
 
             <p>Best regards,<br>
-            {{ company_name }} Membership Team</p>
+            {{ company_name|e }} Membership Team</p>
         </div>
 
         <div class="footer">
-            <p>This is an automated message from {{ company_name }}.<br>
+            <p>This is an automated message from {{ company_name|e }}.<br>
             Please do not reply to this email. For support, visit your member portal.<br>
-            © {{ current_year }} {{ company_name }}. All rights reserved.<br>
-            <a href="{{ unsubscribe_link|default('#') }}" style="color: #6c757d;">Manage email preferences</a></p>
+            © {{ current_year|e }} {{ company_name|e }}. All rights reserved.<br>
+            <a href="{{ unsubscribe_link|default('#')|e }}" style="color: #6c757d;">Manage email preferences</a></p>
         </div>
     </div>
 </body>

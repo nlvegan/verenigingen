@@ -495,13 +495,11 @@ class AccountMigrationService:
                         company=account_doc.company,
                     )
 
-                    if bank_account:
-                        frappe.logger().info(
-                            f"Created Bank Account: {bank_account} for account: {account_doc.name}"
-                        )
-                        return bank_account
-                    else:
-                        frappe.logger().warning(f"Failed to create Bank Account for {account_doc.name}")
+                    # create_bank_account_record raises on failure (#2126); the except below returns None.
+                    frappe.logger().info(
+                        f"Created Bank Account: {bank_account} for account: {account_doc.name}"
+                    )
+                    return bank_account
                 else:
                     frappe.logger().info(f"Bank Account already exists for account: {account_name}")
             else:

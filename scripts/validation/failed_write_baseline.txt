@@ -17,7 +17,7 @@
 # change to the validator's own detection rules, which must land in the same
 # commit as the regeneration.
 #
-# Totals at generation: 131 sites across 109 functions -- LOOP_CONTINUES 4, RETURNS_TRUTHY 14, FALLS_THROUGH 113
+# Totals at generation: 130 sites across 108 functions -- LOOP_CONTINUES 4, RETURNS_TRUTHY 14, FALLS_THROUGH 112
 
 scripts/cleanup/robust_cleanup_all_data.py::robust_cleanup_all_imported_data::1
 scripts/debug/board/debug_board_addition.py::debug_board_addition_flow::1
@@ -119,7 +119,6 @@ verenigingen/verenigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.py::pr
 verenigingen/verenigingen_payments/api/dd_batch_optimizer.py::create_dd_batch_document::1
 verenigingen/verenigingen_payments/doctype/direct_debit_batch/sepa_processor.py::_create_monthly_dues_collection_batch_impl::1
 verenigingen/verenigingen_payments/doctype/payment_plan/payment_plan.py::PaymentPlan.cancel_plan::1
-verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::process_failed_payment::1
 verenigingen/verenigingen_payments/mollie/services/complete_payment_service.py::CompletePaymentService._resolve_customer_by_email::1
 verenigingen/verenigingen_payments/mollie/services/dues_payment_processor.py::DuesPaymentProcessor._get_or_create_dues_item::1
 verenigingen/verenigingen_payments/ponto/services/oauth2_service.py::PontoOAuth2Service._store_tokens::1

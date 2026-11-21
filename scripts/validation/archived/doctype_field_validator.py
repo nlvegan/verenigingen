@@ -49,6 +49,7 @@ class AccurateFieldValidator:
         
         # Build comprehensive exclusion patterns
         self.excluded_patterns = self._build_excluded_patterns()
+        self._add_reduced_fp_exclusions()
         self.reduced_fp_mode = False
         
         # Load manager properties
@@ -84,7 +85,13 @@ class AccurateFieldValidator:
             }
             
         return legacy_format
-        
+
+    def _add_reduced_fp_exclusions(self):
+        """Add the query-alias and test-name exclusions that --reduced-fp-mode consults.
+
+        #2934: these were assigned after the `return` of _convert_doctypes_for_compatibility
+        (dead code), and that method runs before excluded_patterns exists, so they never applied.
+        """
         # Add query alias patterns to exclusions
         self.excluded_patterns['query_aliases'] = {
             'membership', 'invoice', 'member_name', 'member_id', 'amount', 

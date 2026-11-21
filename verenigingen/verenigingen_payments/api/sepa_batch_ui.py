@@ -18,7 +18,10 @@ from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     log_ambiguous_mandate_refusal,
     unambiguous_active_mandate,
 )
-from verenigingen.verenigingen_payments.utils.sepa_constants import stranded_batch_exclusion
+from verenigingen.verenigingen_payments.utils.sepa_constants import (
+    ROW_NOT_IN_FILE_CODE,
+    stranded_batch_exclusion,
+)
 from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
 
 
@@ -68,9 +71,10 @@ def get_open_batch_invoice_names():
         JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
         WHERE ddi.docstatus != 2
           AND ddb.status NOT IN ('Cancelled', 'Failed')
+          AND NOT (ddi.status = 'Failed' AND ddi.result_code = %(not_in_file)s)
           AND {stranded_batch_exclusion("ddb")}
         """,
-        {"today": getdate(today())},
+        {"today": getdate(today()), "not_in_file": ROW_NOT_IN_FILE_CODE},
         as_dict=True,
     )
     # Defensive: `ddi.invoice` is a required Link and should never be NULL, but a

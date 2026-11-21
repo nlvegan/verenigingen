@@ -134,45 +134,45 @@
             <div class="col-lg-2 col-md-4 col-sm-6">
                 <div class="metric-card text-center">
                     <div class="metric-label">{{ _("Active Members") }}</div>
-                    <div class="metric-number status-good">{{ system_metrics.members.active }}</div>
-                    <small>{{ _("Total:") }} {{ system_metrics.members.total }}</small>
+                    <div class="metric-number status-good">{{ system_metrics.members.active|e }}</div>
+                    <small>{{ _("Total:") }} {{ system_metrics.members.total|e }}</small>
                 </div>
             </div>
             <div class="col-lg-2 col-md-4 col-sm-6">
                 <div class="metric-card text-center">
                     <div class="metric-label">{{ _("Volunteers") }}</div>
-                    <div class="metric-number status-info">{{ system_metrics.volunteers.active }}</div>
-                    <small>{{ _("of") }} {{ system_metrics.volunteers.total }}</small>
+                    <div class="metric-number status-info">{{ system_metrics.volunteers.active|e }}</div>
+                    <small>{{ _("of") }} {{ system_metrics.volunteers.total|e }}</small>
                 </div>
             </div>
             <div class="col-lg-2 col-md-4 col-sm-6">
                 <div class="metric-card text-center">
                     <div class="metric-label">{{ _("SEPA Mandates") }}</div>
-                    <div class="metric-number status-info">{{ system_metrics.sepa.active_mandates }}</div>
-                    <small>{{ _("{0} recent batches").format(system_metrics.sepa.recent_batches) }}</small>
+                    <div class="metric-number status-info">{{ system_metrics.sepa.active_mandates|e }}</div>
+                    <small>{{ _("{0} recent batches").format(system_metrics.sepa.recent_batches)|e }}</small>
                 </div>
             </div>
             <div class="col-lg-2 col-md-4 col-sm-6">
                 <div class="metric-card text-center">
                     <div class="metric-label">{{ _("Errors (24h)") }}</div>
                     <div class="metric-number {% if system_metrics.errors.last_24h > 10 %}status-danger{% elif system_metrics.errors.last_24h > 5 %}status-warning{% else %}status-good{% endif %}">
-                        {{ system_metrics.errors.last_24h }}
+                        {{ system_metrics.errors.last_24h|e }}
                     </div>
-                    <small>{{ _("{0} in last hour").format(system_metrics.errors.last_hour) }}</small>
+                    <small>{{ _("{0} in last hour").format(system_metrics.errors.last_hour)|e }}</small>
                 </div>
             </div>
             <div class="col-lg-2 col-md-4 col-sm-6">
                 <div class="metric-card text-center">
                     <div class="metric-label">{{ _("Invoices") }}</div>
-                    <div class="metric-number status-info">{{ system_metrics.invoices.paid }}</div>
-                    <small>{{ _("{0} draft, {1} submitted").format(system_metrics.invoices.draft, system_metrics.invoices.submitted) }}</small>
+                    <div class="metric-number status-info">{{ system_metrics.invoices.paid|e }}</div>
+                    <small>{{ _("{0} draft, {1} submitted").format(system_metrics.invoices.draft, system_metrics.invoices.submitted)|e }}</small>
                 </div>
             </div>
             <div class="col-lg-2 col-md-4 col-sm-6">
                 <div class="metric-card text-center">
                     <div class="metric-label">{{ _("Pending Payments") }}</div>
                     <div class="metric-number {% if system_metrics.sepa.pending_payments > 5 %}status-warning{% else %}status-good{% endif %}">
-                        {{ system_metrics.sepa.pending_payments }}
+                        {{ system_metrics.sepa.pending_payments|e }}
                     </div>
                     <small>{{ _("Payment entries") }}</small>
                 </div>
@@ -181,7 +181,7 @@
             <div class="col-12">
                 <div class="alert alert-danger">
                     <i class="fa fa-exclamation-triangle"></i>
-                    {{ _("Failed to load system metrics:") }} {{ system_metrics.error if system_metrics.error else _("Unknown error") }}
+                    {{ _("Failed to load system metrics:") }} {{ (system_metrics.error if system_metrics.error else _("Unknown error"))|e }}
                 </div>
             </div>
             {% endif %}
@@ -207,22 +207,22 @@
                         <tbody>
                             {% for alert in alerts %}
                             <tr>
-                                <td>{{ alert.alert_type }}</td>
+                                <td>{{ alert.alert_type|e }}</td>
                                 <td>
-                                    <span class="alert-badge alert-{{ (alert.severity or 'low').lower() }}">
-                                        {{ alert.severity or _('Unknown') }}
+                                    <span class="alert-badge alert-{{ ((alert.severity or 'low').lower())|e }}">
+                                        {{ (alert.severity or _('Unknown'))|e }}
                                     </span>
                                 </td>
-                                <td>{{ alert.message[:100] if alert.message else '' }}{% if alert.message and alert.message|length > 100 %}...{% endif %}</td>
-                                <td>{{ alert.status }}</td>
-                                <td>{{ frappe.format(alert.timestamp, 'Datetime') if alert.timestamp else '' }}</td>
+                                <td>{{ (alert.message[:100] if alert.message else '')|e }}{% if alert.message and alert.message|length > 100 %}...{% endif %}</td>
+                                <td>{{ alert.status|e }}</td>
+                                <td>{{ (frappe.format(alert.timestamp, 'Datetime') if alert.timestamp else '')|e }}</td>
                                 <td>
                                     {% if alert.status == "Active" %}
-                                    <button class="btn btn-sm btn-warning" onclick="acknowledgeAlert('{{ alert.name }}')">
+                                    <button class="btn btn-sm btn-warning" data-alert="{{ alert.name|e }}" onclick="acknowledgeAlert(this.dataset.alert)">
                                         {{ _("Acknowledge") }}
                                     </button>
                                     {% endif %}
-                                    <button class="btn btn-sm btn-success" onclick="resolveAlert('{{ alert.name }}')">
+                                    <button class="btn btn-sm btn-success" data-alert="{{ alert.name|e }}" onclick="resolveAlert(this.dataset.alert)">
                                         {{ _("Resolve") }}
                                     </button>
                                 </td>
@@ -254,13 +254,13 @@
                             {% for error in recent_errors %}
                             <tr>
                                 <td>
-                                    <code>{{ error.error_summary }}...</code>
+                                    <code>{{ error.error_summary|e }}...</code>
                                 </td>
                                 <td>
-                                    <span class="error-count">{{ error.count }}</span>
+                                    <span class="error-count">{{ error.count|e }}</span>
                                 </td>
-                                <td>{{ frappe.format(error.latest, 'Datetime') }}</td>
-                                <td>{{ frappe.format(error.first_occurrence, 'Datetime') }}</td>
+                                <td>{{ frappe.format(error.latest, 'Datetime')|e }}</td>
+                                <td>{{ frappe.format(error.first_occurrence, 'Datetime')|e }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -294,15 +294,15 @@
                         <tbody>
                             {% for audit in audit_summary %}
                             <tr>
-                                <td><strong>{{ audit.process_type }}</strong></td>
-                                <td>{{ audit.action }}</td>
+                                <td><strong>{{ audit.process_type|e }}</strong></td>
+                                <td>{{ audit.action|e }}</td>
                                 <td>
-                                    <span class="compliance-status compliance-{{ (audit.compliance_status or 'pending').lower() }}">
-                                        {{ audit.compliance_status or _('Unknown') }}
+                                    <span class="compliance-status compliance-{{ ((audit.compliance_status or 'pending').lower())|e }}">
+                                        {{ (audit.compliance_status or _('Unknown'))|e }}
                                     </span>
                                 </td>
-                                <td>{{ audit.count }}</td>
-                                <td>{{ frappe.format(audit.latest, 'Datetime') if audit.latest else '' }}</td>
+                                <td>{{ audit.count|e }}</td>
+                                <td>{{ (frappe.format(audit.latest, 'Datetime') if audit.latest else '')|e }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -324,25 +324,25 @@
             <div class="col-md-4">
                 <div class="metric-card">
                     <h5><i class="fa fa-database"></i> {{ _("Database") }}</h5>
-                    <p><strong>{{ _("Tables:") }}</strong> {{ performance_metrics.database.total_tables }}</p>
-                    <p><strong>{{ _("Error Logs:") }}</strong> {{ performance_metrics.database.error_logs_size }}</p>
-                    <p><strong>{{ _("Recent Query Issues:") }}</strong> {{ performance_metrics.database.recent_queries }}</p>
+                    <p><strong>{{ _("Tables:") }}</strong> {{ performance_metrics.database.total_tables|e }}</p>
+                    <p><strong>{{ _("Error Logs:") }}</strong> {{ performance_metrics.database.error_logs_size|e }}</p>
+                    <p><strong>{{ _("Recent Query Issues:") }}</strong> {{ performance_metrics.database.recent_queries|e }}</p>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="metric-card">
                     <h5><i class="fa fa-users"></i> {{ _("System") }}</h5>
-                    <p><strong>{{ _("Active Users:") }}</strong> {{ performance_metrics.system.active_users }}</p>
-                    <p><strong>{{ _("Background Jobs:") }}</strong> {{ performance_metrics.system.background_jobs }}</p>
-                    <p><strong>{{ _("Cache Status:") }}</strong> {{ performance_metrics.system.cache_status }}</p>
+                    <p><strong>{{ _("Active Users:") }}</strong> {{ performance_metrics.system.active_users|e }}</p>
+                    <p><strong>{{ _("Background Jobs:") }}</strong> {{ performance_metrics.system.background_jobs|e }}</p>
+                    <p><strong>{{ _("Cache Status:") }}</strong> {{ performance_metrics.system.cache_status|e }}</p>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="metric-card">
                     <h5><i class="fa fa-line-chart"></i> {{ _("Business") }}</h5>
-                    <p><strong>{{ _("Daily Transactions:") }}</strong> {{ performance_metrics.business.daily_transactions }}</p>
-                    <p><strong>{{ _("Payment Success Rate:") }}</strong> {{ performance_metrics.business.payment_success_rate }}%</p>
-                    <p><strong>{{ _("Member Growth Today:") }}</strong> {{ "--" if performance_metrics.business.member_growth.error else performance_metrics.business.member_growth.today }}</p>
+                    <p><strong>{{ _("Daily Transactions:") }}</strong> {{ performance_metrics.business.daily_transactions|e }}</p>
+                    <p><strong>{{ _("Payment Success Rate:") }}</strong> {{ performance_metrics.business.payment_success_rate|e }}%</p>
+                    <p><strong>{{ _("Member Growth Today:") }}</strong> {{ ("--" if performance_metrics.business.member_growth.error else performance_metrics.business.member_growth.today)|e }}</p>
                 </div>
             </div>
         </div>

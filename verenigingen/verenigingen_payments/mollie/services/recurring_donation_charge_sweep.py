@@ -20,6 +20,8 @@ from typing import Any, Dict, List
 import frappe
 from frappe.utils import get_datetime
 
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
+
 from ...services.journal_entry_booking_support import (
     mollie_amount_or_none,
     resolve_journal_entry_by_reference,
@@ -61,7 +63,8 @@ _WEBHOOK_RETRY_WINDOW = timedelta(hours=27)
 def sweep_recurring_donation_charges() -> Dict[str, Any]:
     """Scheduled entry point (see hooks/scheduler.py, "daily").
 
-    Never raises: a subscription whose payments cannot be listed, or a charge
+    Never raises, except an RQ job timeout, which it re-raises so the job stops:
+    a subscription whose payments cannot be listed, or a charge
     that fails to book, is recorded in the summary and swept past, so one bad
     row cannot stop every other subscription from being checked.
     """
@@ -85,6 +88,7 @@ def sweep_recurring_donation_charges() -> Dict[str, Any]:
             for payment in _iter_subscription_payments(client, origin):
                 _sweep_one_payment(payment, donation_processor, summary)
         except Exception as e:
+            reraise_if_job_timeout(e)  # #2777: stop the walk; RQ raises the timeout once
             summary["errors"].append(
                 {
                     "donation": origin.name,
@@ -178,6 +182,7 @@ def _sweep_one_payment(payment: Any, donation_processor: DonationProcessor, summ
     try:
         result = donation_processor.process_donation_payment(payment_id, payment)
     except Exception as e:
+        reraise_if_job_timeout(e)  # #2777: stop the walk; RQ raises the timeout once
         summary["errors"].append({"payment_id": payment_id, "error": str(e)})
         return
 

@@ -1,6 +1,6 @@
 {% extends "templates/web.html" %}
 
-{% block title %}{{ title }}{% endblock %}
+{% block title %}{{ title|e }}{% endblock %}
 
 {% block head_include %}
 <meta name="referrer" content="no-referrer">
@@ -9,7 +9,7 @@
 {% block style %}
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
 <style>
-    .wl-button { background: {{ primary_color }}; color: #fff; padding: 0.75rem 1.5rem; border-radius: 0.5rem; font-weight: 600; }
+    .wl-button { background: {{ primary_color|e }}; color: #fff; padding: 0.75rem 1.5rem; border-radius: 0.5rem; font-weight: 600; }
     .wl-button:disabled { opacity: .6; }
 </style>
 {% endblock %}

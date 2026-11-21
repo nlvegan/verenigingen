@@ -67,6 +67,15 @@ if (!window.unwrapOperationResult) {
 		return msg;
 	};
 }
+if (!window.getSuccessMessage) {
+	// Fallback shim; normally set by operation-result-helpers.js (#1490).
+	window.getSuccessMessage = function (msg, defaultMsg) {
+		if (msg && typeof msg === 'object' && msg.meta && typeof msg.meta === 'object') {
+			return msg.meta.message || defaultMsg;
+		}
+		return defaultMsg;
+	};
+}
 if (!window.escapeHtml) {
 	window.escapeHtml = function (str) {
 		if (str == null) {
@@ -1445,10 +1454,9 @@ function create_user_account_dialog(frm) {
 						// to_dict(scrub_sensitive=True) -- the NESTED schema. The
 						// success text lives under r.message.meta.message, never a
 						// top-level "message" (#1452, same bug class as #1420).
-						const meta = r.message.meta || {};
 						frappe.show_alert(
 							{
-								message: meta.message || __('User account created successfully'),
+								message: getSuccessMessage(r.message, __('User account created successfully')),
 								indicator: 'green'
 							},
 							5
@@ -2920,10 +2928,9 @@ function generate_manual_invoice_for_member(frm, _member_info) {
 			// now?" confirm navigated to "Sales Invoice/undefined".
 			const data = unwrapOperationResult(r.message);
 			if (data) {
-				const meta = (r.message && r.message.meta) || {};
 				frappe.show_alert(
 					{
-						message: meta.message || __('Invoice generated successfully'),
+						message: getSuccessMessage(r.message, __('Invoice generated successfully')),
 						indicator: 'green'
 					},
 					5
