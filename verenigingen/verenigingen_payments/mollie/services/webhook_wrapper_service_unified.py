@@ -497,6 +497,18 @@ class UnifiedWebhookWrapperService:
                     result["duration_seconds"] = time.time() - start_time
                     return result
 
+                # SALES INVOICE PAYMENTS (#2244): attributed by the invoice named in the metadata,
+                # not by a customer id. Before classification, whose "donation" description keyword
+                # would otherwise misroute them to the donation lookup. Refunds are discovered as
+                # for dues.
+                if isinstance(_md, dict) and _md.get("reference_doctype") == "Sales Invoice":
+                    from .sales_invoice_payment_handler import handle_sales_invoice_payment
+
+                    result = handle_sales_invoice_payment(payment_id, payment)
+                    result = self._book_dues_reversals(payment_id, payment, result)
+                    result["duration_seconds"] = time.time() - start_time
+                    return result
+
                 # alert_staff: the webhook is the delivery path (#1497 (2)); Mollie redelivers it
                 classification = router.classify_payment(payment, alert_staff=True)
 
