@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import add_months, add_to_date, flt, getdate, nowdate, today
+from frappe.utils import add_months, add_to_date, getdate, nowdate, today
 
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
@@ -607,10 +607,6 @@ class Membership(Document):
         elif self.cancellation_date and DateRangeValidator.is_date_today_or_past(self.cancellation_date):
             # Membership is cancelled
             self.status = "Cancelled"
-        elif hasattr(self, "unpaid_amount") and self.unpaid_amount and flt(self.unpaid_amount) > 0:
-            # Has unpaid invoices - membership inactive
-            # Note: This field may not exist in all installations
-            self.status = "Inactive"
         elif self.renewal_date and DateRangeValidator.is_date_in_past(self.renewal_date):
             # Past renewal date - membership expired
             self.status = "Expired"
