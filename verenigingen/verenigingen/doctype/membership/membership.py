@@ -599,7 +599,7 @@ class Membership(Document):
                 frappe.throw(_("Grace period expiry date cannot be in the past"))
 
     def set_status(self):
-        """Set the status based on dates, payment amount, and cancellation"""
+        """Set the status based on docstatus, dates and cancellation"""
         if self.docstatus == 0:
             self.status = "Draft"
         elif self.docstatus == 2:
