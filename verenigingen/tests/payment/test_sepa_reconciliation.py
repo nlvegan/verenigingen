@@ -972,9 +972,6 @@ class TestReconciledBatchThenMarkProcessed2798(ReconBase):
         self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), status_before)
 
 
-# =============================================================================
-# _validate_batch_reconciliation (helper - read-only validation)
-# =============================================================================
 class TestBatchBookedByMarkAsProcessedIsRefused2937(ReconBase):
     """#2937 (maintainer ruling: refuse clearly, no auto-link): a batch whose rows "Mark as
     Processed" already paid cannot be bank-reconciled. Before, Phase 2 failed on the first row
@@ -1113,7 +1110,27 @@ class TestBatchBookedByMarkAsProcessedIsRefused2937(ReconBase):
 
         self.assertEqual(recon.get_invoices_booked_by_mark_as_processed(batch.name, [items[0]["invoice"].name]), [])
 
+    def test_a_payment_entry_with_an_unrelated_reference_does_not_refuse_the_batch(self):
+        """Control for the discriminator (reference_no == batch): a submitted Receive Payment
+        Entry against a batch invoice that Mark as Processed did NOT book (a partial payment
+        with its own reference) must neither refuse nor hide the batch."""
+        items, batch, _ = self._batch(count=1, prefix="R2937X")
+        _invoice, pe = receive_against_invoice(
+            self, items[0]["invoice"].name, 5.0, mode_of_payment="SEPA Direct Debit"
+        )
+        self.assertNotEqual(pe.reference_no, batch.name, "premise: the reference is unrelated")
+        self.assertEqual(pe.docstatus, 1)
 
+        self.assertEqual(
+            recon.get_invoices_booked_by_mark_as_processed(batch.name, [items[0]["invoice"].name]), []
+        )
+        offer = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="x")
+        self.assertIn(batch.name, [m["batch_name"] for m in recon.find_matching_sepa_batches(offer)])
+
+
+# =============================================================================
+# _validate_batch_reconciliation (helper - read-only validation)
+# =============================================================================
 class TestValidateBatchReconciliation(ReconBase):
     def _batch_items(self, batch_name):
         return frappe.get_all(
