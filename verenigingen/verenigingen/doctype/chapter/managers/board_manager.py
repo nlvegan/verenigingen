@@ -1267,11 +1267,20 @@ class BoardManager(BaseManager):
         self.chapter_doc._pending_board_profile_syncs = []
         departed = sorted(getattr(self.chapter_doc, "_pending_financial_departures", None) or ())
         self.chapter_doc._pending_financial_departures = set()
+        unwithdrawn = []
         for volunteer_name in pending:
             self._sync_role_profile_for_volunteer(volunteer_name)
             self._withdraw_board_role_if_unseated(volunteer_name)
-            self._assert_board_access_withdrawn(volunteer_name)
+            try:
+                self._assert_board_access_withdrawn(volunteer_name)
+            except BoardAccessWithdrawalError as e:
+                # #2959: attempt every volunteer, so the operator sees ALL of them at once.
+                unwithdrawn.append(str(e))
+                continue
             self._refresh_volunteer_status(volunteer_name)
+        if unwithdrawn:
+            # Still ONE abort: no seat may end while its access survives (#738, #1953).
+            raise BoardAccessWithdrawalError("<br>".join(unwithdrawn))
         self._refresh_expense_approvers(departed)
 
     def _refresh_expense_approvers(self, departed_volunteers):
