@@ -111,6 +111,22 @@ class TestSafeChildTableUpdateDecidesFromData(_HistoryCleanupBase):
         self.assertEqual(self._chapters_in(doc), [self.chapter.name])
         self.assertFalse(result.success)
 
+    def test_plain_validation_error_removes_dead_row_and_keeps_original_error(self):
+        """A plain ValidationError (non-link text) with a dead row: the dead row goes, and when
+        the cause persists the ORIGINAL error is still reported."""
+        original = "Status moet ingesteld zijn"
+
+        def always_raise(doc, fieldname, df=None):
+            raise frappe.ValidationError(original)
+
+        doc = self._doc_with_good_and_ghost_row()
+        with patch.object(Document, "update_child_table", always_raise):
+            result = safe_child_table_update(doc, CHILD_TABLE, "2931", "Member:write", auto_cleanup=True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.message, "Update failed even after cleanup")
+        self.assertEqual(result.errors[0], f"Original: {original}")
+        self.assertEqual(self._chapters_in(doc), [self.chapter.name])
+
     def test_non_link_exception_never_triggers_cleanup(self):
         """Control for an 'always clean up' fix: a dead row exists, the failure is not a link error."""
         doc, result, _ = self._run(frappe.DocumentLockedError("locked"))
@@ -142,3 +158,40 @@ class TestFinancialHistoryRetryDecidesFromData(_HistoryCleanupBase):
         doc, saved, _ = self._run(RuntimeError("Could not find Row #2: Chapter: " + GHOST_CHAPTER))
         self.assertTrue(saved)  # plain retry succeeds
         self.assertEqual(self._chapters_in(doc), [self.chapter.name, GHOST_CHAPTER])
+
+    def test_dead_link_in_another_table_does_not_take_the_chapter_cleanup_path(self):
+        """Control for the data check: a LinkValidationError whose cause is NOT a chapter row
+        (every chapter row is alive) must go through the ordinary retry path, with no
+        chapter-validation Error Log entry."""
+        doc = frappe.get_doc("Member", self.member.name)
+        doc.append(
+            CHILD_TABLE,
+            {
+                "chapter_name": self.chapter.name,
+                "assignment_type": "Member",
+                "start_date": frappe.utils.today(),
+                "status": "Active",
+            },
+        )
+
+        def always_raise(d, fieldname, df=None):
+            raise frappe.LinkValidationError("Kon Rij #1: Klantgroep: GONE niet vinden")
+
+        manager = MemberFinancialHistoryManager(doc, "payment_history")
+        real_log_error = frappe.log_error
+        logged = []
+
+        def spy(*args, **kwargs):
+            logged.append(" ".join(str(a) for a in (*args, *kwargs.values())))
+            return real_log_error(*args, **kwargs)
+
+        with (
+            patch.object(Document, "update_child_table", always_raise),
+            patch("time.sleep"),
+            patch.object(frappe, "log_error", spy),
+        ):
+            saved = manager._save_with_retry()
+        self.assertFalse(saved)
+        self.assertFalse([m for m in logged if "Chapter Validation Error" in m], logged)
+        self.assertTrue([m for m in logged if "Financial History Save Error" in m], logged)
+        self.assertEqual(self._chapters_in(doc), [self.chapter.name])
