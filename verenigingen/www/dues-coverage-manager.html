@@ -12,10 +12,10 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
         frappe.call({
             method: 'verenigingen.verenigingen.doctype.brand_settings.brand_settings.get_brand_css_inline',
             callback: function(r) {
-                // Handle OperationResult format - data is in r.message.data
-                if (r.message && r.message.success && r.message.data) {
+                // get_brand_css_inline returns {success, css, timestamp}: css is top-level, no data envelope (#3097)
+                if (r.message && r.message.success && r.message.css) {
                     var style = document.createElement('style');
-                    style.innerHTML = r.message.data.css;
+                    style.innerHTML = r.message.css;
                     document.head.appendChild(style);
                 }
             }
