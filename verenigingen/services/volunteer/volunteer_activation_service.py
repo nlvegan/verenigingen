@@ -12,7 +12,7 @@ Functions:
 import frappe
 from frappe import _
 
-from verenigingen.utils.member_utils import get_volunteer_for_member
+from verenigingen.utils.member_utils import get_orphan_volunteer_for_email, get_volunteer_for_member
 from verenigingen.utils.safe_error_logging import safe_log_error
 
 
@@ -44,7 +44,8 @@ def activate_volunteer_record(member):
 
         # Also check by email in case member record was recreated
         if not volunteer_name:
-            volunteer_name = frappe.db.get_value("Volunteer", {"email": member.email}, "name")
+            # Orphans only (#2784): a Volunteer linked to another Member is not ours to repoint
+            volunteer_name = get_orphan_volunteer_for_email(member.email)
             if volunteer_name:
                 frappe.logger().info(
                     f"Found orphaned volunteer {volunteer_name} by email, relinking to member {member.name}"

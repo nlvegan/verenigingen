@@ -807,9 +807,9 @@ KNOWN_ORPHAN_METADATA_READS = {
     # Read as a first-choice hint before falling back to parsing the payment
     # description. Nothing in this app ever writes it, so the branch is dead.
     "invoice_id": "verenigingen_payments/utils/bank_transaction_reconciliation.py",
-    # PaymentContextResolver._resolve_from_metadata and
-    # PaymentService.process_payment_by_type both dispatch on it; no producer
-    # exists, so both dispatches always fall through.
+    # PaymentService.process_payment_by_type dispatches on it; no producer
+    # exists, so the dispatch always falls through. (PaymentContextResolver, the
+    # other reader, was deleted in #2676.)
     "payment_type": "payment_context_resolver.py / payment_service.py",
     # Read as a fallback for payment_data["subscription_id"] (which IS produced,
     # from Mollie's own subscriptionId). The metadata fallback itself has no

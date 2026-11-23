@@ -35,6 +35,13 @@ from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 @performance_monitor(threshold_ms=500)
 def assign_member_to_chapter(member_name: str, chapter_name: str) -> OperationResult[Dict[str, Any]]:
     """Assign a member to a specific chapter using centralized manager"""
+    return _assign_one_member_to_chapter(member_name, chapter_name)
+
+
+# The body, without the security stack: bulk_assign_members_to_chapters calls this once per assignment
+# (under handle_api_error, so one failing item still becomes a failed result), so a bulk call ticks its
+# own rate-limit bucket once instead of N more of the endpoint's (#2280).
+def _assign_one_member_to_chapter(member_name: str, chapter_name: str) -> OperationResult[Dict[str, Any]]:
     # Validate inputs using standardized validation
     validate_required_fields(
         {"member_name": member_name, "chapter_name": chapter_name}, ["member_name", "chapter_name"]
@@ -253,7 +260,7 @@ def bulk_assign_members_to_chapters(assignments) -> OperationResult[Dict[str, An
             member_name = assignment.get("member_name")
             chapter_name = assignment.get("chapter_name")
 
-            result = assign_member_to_chapter(member_name, chapter_name)
+            result = handle_api_error(_assign_one_member_to_chapter)(member_name, chapter_name)
             # Handle OperationResult from assign_member_to_chapter
             result_dict = (
                 result.to_dict(scrub_sensitive=True) if isinstance(result, OperationResult) else result

@@ -37,7 +37,7 @@ try:
 
     sys.path.append("/home/frappe/frappe-bench/apps/verenigingen")
 
-    from verenigingen.utils.iban_validator import derive_bic_from_iban, validate_iban
+    from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, validate_iban
 
     # Test IBAN validation
     validation_result = validate_iban(test_iban)

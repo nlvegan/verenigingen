@@ -2653,14 +2653,26 @@ class PaymentReconciliationManager:
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.FINANCIAL)
 @require_sepa_permission(SEPAPermissionLevel.CREATE, SEPAOperation.BATCH_VALIDATE)
-def process_sepa_return_file(file_content, file_type="pain.002"):
-    """Process SEPA return/status file from bank"""
+def process_sepa_return_file(file_content=None, file_type="pain.002", file_url=None):
+    """Process SEPA return/status file from bank.
+
+    The bank file arrives either as raw ``file_content`` or, from the Direct Debit Batch
+    dialog, as ``file_url`` (an Attach control yields the uploaded File's URL, never its
+    content, #3031). A ``file_url`` is resolved through its File document, never opened as
+    a path. A file that is not a parseable pain.002 document is refused, not reported as
+    "0 of 0 returns".
+    """
 
     PaymentReconciliationManager()
 
+    if file_url:
+        file_content = _read_uploaded_return_file(file_url)
+    if file_content is None:
+        frappe.throw(_("No return file was provided"))
+
     if file_type == "pain.002":
         # Parse pain.002 status report
-        return_data = parse_pain002_file(file_content)
+        return_data = parse_pain002_file(file_content, strict=True)
     else:
         # Parse other formats (MT940, CAMT, etc.)
         frappe.throw(_("File type {0} not yet supported").format(file_type))
@@ -2683,7 +2695,37 @@ def process_sepa_return_file(file_content, file_type="pain.002"):
     return {"processed": processed_count, "total": len(return_data)}
 
 
-def parse_pain002_file(file_content):
+def _read_uploaded_return_file(file_url):
+    """Return the content of an uploaded File the caller may read, resolved by its File doc.
+
+    The URL is only a lookup key into ``tabFile``: no caller-supplied path is ever opened.
+    An unknown URL, a File the caller may not read and a File that is not a local upload
+    are refused with the SAME exception and message.
+
+    The lookup is a permission-filtered ``get_list``, so an unknown and a forbidden URL both
+    stop after the same single query (equal query count, #3031 review N1). File's
+    ``permission_query_conditions`` mirrors ``File.has_permission`` (owner, public, shares,
+    readable attachment doctype); the one residual difference is a record-level hook on the
+    attached doctype, so a surviving row is re-checked with ``has_permission`` and refused if
+    that disagrees. Only that last case costs extra queries.
+    """
+    refusal = _("Return file not found or not accessible")
+    rows = frappe.get_list("File", filters={"file_url": str(file_url)}, pluck="name", limit_page_length=0)
+    for name in rows:
+        file_doc = frappe.get_doc("File", name)
+        # a remote (http...) url has no local content to read
+        if not (file_doc.file_url or "").startswith(("/files/", "/private/files/")):
+            continue
+        if not frappe.has_permission("File", "read", doc=file_doc):
+            continue
+        try:
+            return file_doc.get_content()
+        except (OSError, frappe.DoesNotExistError):
+            continue
+    frappe.throw(refusal, frappe.PermissionError)
+
+
+def parse_pain002_file(file_content, strict=False):
     """Parse a pain.002 (Customer Payment Status Report) XML file.
 
     Extracts per-transaction status from the OrgnlPmtInfAndSts/TxInfAndSts blocks
@@ -2741,7 +2783,12 @@ def parse_pain002_file(file_content):
         root = ET.fromstring(file_content)
     except ET.ParseError as e:
         _log_error_with_traceback("SEPA Return File Parsing", f"Failed to parse pain.002 file: {str(e)}")
+        if strict:
+            frappe.throw(_("The return file is not a valid pain.002 XML document"))
         return []
+
+    if strict and localname(root.tag) != "Document":
+        frappe.throw(_("The return file is not a valid pain.002 XML document"))
 
     return_data = []
     for element in root.iter():

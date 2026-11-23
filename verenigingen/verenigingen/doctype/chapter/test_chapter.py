@@ -35,19 +35,20 @@ class TestChapter(EnhancedTestCase):
 
     def cleanup_test_data(self):
         """Clean up test data"""
-        # Delete test chapters
-        for chapter in frappe.get_all("Chapter", filters={"name": ["like", f"%{self.base_id}%"]}):
-            try:
-                frappe.delete_doc("Chapter", chapter.name, force=True)
-            except Exception as e:
-                print(f"Error cleaning up chapter {chapter.name}: {str(e)}")
-
         # Delete test members
         for member in frappe.get_all("Member", filters={"email": ["like", f"%{self.base_id}@example.com"]}):
             try:
                 frappe.delete_doc("Member", member.name, force=True)
             except Exception as e:
                 print(f"Error cleaning up member {member.name}: {str(e)}")
+
+        # Chapters last: a Chapter that a Member still references cannot be deleted (#2745)
+        # Delete test chapters
+        for chapter in frappe.get_all("Chapter", filters={"name": ["like", f"%{self.base_id}%"]}):
+            try:
+                frappe.delete_doc("Chapter", chapter.name, force=True)
+            except Exception as e:
+                print(f"Error cleaning up chapter {chapter.name}: {str(e)}")
 
     def create_test_prerequisites(self):
         """Create test prerequisites"""
@@ -272,8 +273,9 @@ class TestChapter(EnhancedTestCase):
                 "Chapter member status should be set to Active when adding board member",
             )
 
-        # Clean up
-        frappe.delete_doc("Chapter", chapter.name, force=True)
+        # Clean up. The Chapter is NOT force-deleted here: the board seat made its Member a
+        # referrer (Chapter Membership History), which a Chapter delete refuses (#2745); the
+        # harness drain removes the Member before the Chapter.
         frappe.delete_doc("Chapter Role", role.name, force=True)
         frappe.delete_doc("Volunteer", volunteer.name, force=True)
 
@@ -640,7 +642,7 @@ class TestChapter(EnhancedTestCase):
         frappe.delete_doc("Volunteer", volunteer.name, force=True)
         if frappe.db.exists("Chapter Role", role_name):
             frappe.delete_doc("Chapter Role", role_name, force=True)
-        frappe.delete_doc("Chapter", chapter.name, force=True)
+        # No Chapter force-delete: its Member still references it (#2745); the drain owns it.
 
     def test_chapter_search_and_filtering(self):
         """Test chapter search and filtering capabilities"""

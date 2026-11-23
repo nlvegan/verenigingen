@@ -88,7 +88,8 @@ def _tested_bare(fn, param):
 
 def _converted_first(fn, param):
     for node in ast.walk(fn):
-        # ``if isinstance(flag, str): flag = <parse>`` (hand-rolled, but it converts before use)
+        # ``if isinstance(flag, str): flag = <parse>`` (hand-rolled, but it converts before use), unless
+        # the parse is ``== "true"`` alone: that reads "1"/"yes"/"on" as False (#2853).
         if (
             isinstance(node, ast.If)
             and isinstance(node.test, ast.Call)
@@ -96,6 +97,8 @@ def _converted_first(fn, param):
             and isinstance(node.test.args[0], ast.Name)
             and node.test.args[0].id == param
         ):
+            if ".lower() == 'true'" in ast.unparse(node):  # unparse writes single quotes
+                continue
             return True
         targets = [e for t in getattr(node, "targets", []) for e in (t.elts if isinstance(t, ast.Tuple) else [t])]
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == param for t in targets):
@@ -157,9 +160,14 @@ class TestNoUnguardedBoolFlagLeft(VereningingenTestCase):
             "@frappe.whitelist()\ndef bad(force=False):\n    if force:\n        pass\n\n"
             "@frappe.whitelist()\ndef annotated(force: bool = False):\n    if force:\n        pass\n\n"
             "@frappe.whitelist()\ndef converted(force=False):\n    force = cbool(force)\n    if force:\n        pass\n\n"
+            "@frappe.whitelist()\ndef hand_rolled_ok(force=False):\n"
+            "    if isinstance(force, str):\n        force = force.lower() in ('true', '1', 'yes')\n    if force:\n        pass\n\n"
+            "@frappe.whitelist()\ndef hand_rolled_true_only(force=False):\n"
+            "    if isinstance(force, str):\n        force = force.lower() == 'true'\n    if force:\n        pass\n\n"
             "def not_whitelisted(force=False):\n    if force:\n        pass\n"
         )
-        self.assertEqual(unguarded_bool_flags(source), [("bad", "force")])
+        # #2853: ``== "true"`` alone is not a conversion ("1" parses to False); an ``in (...)`` parse still is.
+        self.assertEqual(unguarded_bool_flags(source), [("bad", "force"), ("hand_rolled_true_only", "force")])
         # Control: under ``from __future__ import annotations`` the annotation is a string Frappe skips.
         future = "from __future__ import annotations\n" + source.split("@frappe.whitelist()\ndef converted")[0]
         self.assertEqual(unguarded_bool_flags(future), [("bad", "force"), ("annotated", "force")])

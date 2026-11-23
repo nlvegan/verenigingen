@@ -114,9 +114,13 @@ class TestFirstExpenseEmployeeLink2775(_ExpenseFixtureMixin, EnhancedTestCase):
         self.assertEqual(self._employee_count(), before)
 
     def test_another_users_employee_is_not_borrowed(self):
-        # control: an Employee exists, but for a user who is not this member's
+        # control: an Employee exists, but for a user who is not this member's. It carries the
+        # MEMBER'S OWN name, so a name-based reuse would pick it (#2802 item 4)
         _user, other_employee = self._employee_for_user(
             f"link2775-other-{frappe.generate_hash(length=6)}@test.invalid"
+        )
+        frappe.db.set_value(
+            "Employee", other_employee.name, "employee_name", self.member.full_name, update_modified=False
         )
         own_user, _own = self._employee_for_user(
             f"link2775-own-{frappe.generate_hash(length=6)}@test.invalid"

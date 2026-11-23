@@ -230,19 +230,15 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         member1.suspension_reason = "First reason"
         member1.save()
 
-        # Second user tries to terminate (should handle conflict)
-        try:
-            member2.status = "Quit"
-            member2.termination_reason = "Second reason"
+        # Second user tries to terminate from a stale copy: Frappe's optimistic lock
+        # must refuse the write, so the first user's Suspended is what persists.
+        member2.status = "Quit"
+        member2.termination_reason = "Second reason"
+        with self.assertRaises(frappe.TimestampMismatchError):
             member2.save()
 
-            # Should handle gracefully or detect conflict
-            final_member = frappe.get_doc("Member", member.name)
-            self.assertIn(final_member.status, ["Suspended", "Quit"])
-
-        except Exception:
-            # Conflict detection is acceptable
-            pass
+        final_member = frappe.get_doc("Member", member.name)
+        self.assertEqual(final_member.status, "Suspended")
 
         # Cleanup handled automatically by VereningingenTestCase
 
