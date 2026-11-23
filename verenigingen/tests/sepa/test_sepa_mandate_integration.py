@@ -155,6 +155,9 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
         # Validate real status change
         mandate.reload()
         self.assertEqual(mandate.status, "Cancelled")
+        # Read back from the database: reload() alone would not catch a field
+        # the doctype does not have, so check the stored column too.
+        assert_written_today(self, frappe.db.get_value("SEPA Mandate", mandate.name, "cancelled_date"))
         assert_written_today(self, mandate.cancelled_date)
         
         # Test database consistency (no mocks)
@@ -344,6 +347,7 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
         # Verify real mandate status changes
         mandate.reload()
         self.assertEqual(mandate.status, "Cancelled")
+        assert_written_today(self, frappe.db.get_value("SEPA Mandate", mandate.name, "cancelled_date"))
     
     def test_sepa_mandate_types_real_logic(self):
         """Test SEPA mandate type handling with real business logic"""
