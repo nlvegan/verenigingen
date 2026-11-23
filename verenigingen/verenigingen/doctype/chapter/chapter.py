@@ -303,12 +303,13 @@ class Chapter(Document):
         VALIDATED save writes a new doctype. The volunteer history is written through
         ``update_child_table`` (no validation), so after any earlier link check that found no
         Chapter reference the entry omits "Chapter" and the check below misses a real one.
+        Frappe's own eviction drops an entry only when it lacks this doctype, i.e. exactly the
+        stale case, and resets the per-request map.
         """
-        from frappe.model.dynamic_links import _dynamic_link_map_key, get_dynamic_links
+        from frappe.model.dynamic_links import get_dynamic_links, invalidate_distinct_link_doctypes
 
         for df in get_dynamic_links():
-            frappe.cache.delete_value(_dynamic_link_map_key(df.parent, df.options))
-        frappe.local.dynamic_link_map = None
+            invalidate_distinct_link_doctypes(df.parent, df.options, self.doctype)
 
     def after_delete(self):
         """Withdraw the board role and profile of everyone who sat on this chapter's board (#2147).
