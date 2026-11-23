@@ -40,6 +40,7 @@ from verenigingen.utils.auth_monitoring import (
     count_recent_failed_logins,
 )
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.operation_result import OperationResult
 
 CONFIG = "Verenigingen Email Configuration"
 KEY = "auth_monitoring_alert"
@@ -56,7 +57,7 @@ class TestAuthFailedLoginRateAlert2285(EnhancedTestCase):
         frappe.db.delete("Activity Log", {"operation": "Login", "status": "Failed"})
         self.holder = self._make_profile_holder()
         self.mail = MagicMock(name="EmailService")
-        self.mail.send_simple_email.return_value = MagicMock(success=True, error_message=None)
+        self.mail.send_simple_email.return_value = OperationResult.ok({})
         patcher = patch(f"{MODULE}.get_email_service", return_value=self.mail)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -156,7 +157,7 @@ class TestAuthFailedLoginRateAlert2285(EnhancedTestCase):
 
     def test_a_refused_send_is_not_reported_as_sent(self):
         """#2277 item 3: a skipped/failed send result must be recorded, not logged as 'sent'."""
-        self.mail.send_simple_email.return_value = MagicMock(success=False, error_message="key disabled")
+        self.mail.send_simple_email.return_value = OperationResult.fail("key disabled")
         self._failures(FAILED_LOGIN_ALERT_THRESHOLD)
         before = frappe.db.count("Error Log", {"method": ["like", "%auth_monitoring%"]})
         alert_if_auth_issues()

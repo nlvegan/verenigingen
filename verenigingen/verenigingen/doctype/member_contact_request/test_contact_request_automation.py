@@ -103,8 +103,8 @@ class TestContactRequestAutomation(VereningingenTestCase):
             send_follow_up_reminders,
         )
 
-        own_notification_keys(self, "contact_request_assigned")
         ensure_outgoing_email_account(self)
+        own_notification_keys(self, "contact_request_assigned")
         request = self._make_contact_request(
             subject="Needs follow-up",
             status="Open",
@@ -156,8 +156,8 @@ class TestContactRequestAutomation(VereningingenTestCase):
             escalate_overdue_requests,
         )
 
-        own_notification_keys(self, "contact_request_escalated")
         ensure_outgoing_email_account(self)
+        own_notification_keys(self, "contact_request_escalated")
         # Urgent threshold is 1 day; request_date 5 days ago is well past it.
         request = self._make_contact_request(
             subject="Urgent overdue",
@@ -179,9 +179,9 @@ class TestContactRequestAutomation(VereningingenTestCase):
             send_follow_up_reminders,
         )
 
+        ensure_outgoing_email_account(self)
         own_notification_keys(self, "contact_request_assigned")
         configure_notification_key("contact_request_assigned", 0, 0)
-        ensure_outgoing_email_account(self)
         request = self._make_contact_request(
             subject="Skipped follow-up", status="Open", follow_up_date=today(), assigned_to="Administrator"
         )
@@ -202,9 +202,9 @@ class TestContactRequestAutomation(VereningingenTestCase):
             escalate_overdue_requests,
         )
 
+        ensure_outgoing_email_account(self)
         own_notification_keys(self, "contact_request_escalated")
         configure_notification_key("contact_request_escalated", 0, 0)
-        ensure_outgoing_email_account(self)
         request = self._make_contact_request(
             subject="Skipped escalation",
             status="Open",
@@ -225,8 +225,8 @@ class TestContactRequestAutomation(VereningingenTestCase):
             send_follow_up_reminders,
         )
 
-        own_notification_keys(self, "contact_request_assigned")
         ensure_outgoing_email_account(self)
+        own_notification_keys(self, "contact_request_assigned")
         request = self._make_contact_request(
             subject="Unqueued follow-up", status="Open", follow_up_date=today(), assigned_to="Administrator"
         )
@@ -244,8 +244,8 @@ class TestContactRequestAutomation(VereningingenTestCase):
             escalate_overdue_requests,
         )
 
-        own_notification_keys(self, "contact_request_escalated")
         ensure_outgoing_email_account(self)
+        own_notification_keys(self, "contact_request_escalated")
         request = self._make_contact_request(
             subject="Unqueued escalation",
             status="Open",
@@ -266,6 +266,10 @@ class TestContactRequestAutomation(VereningingenTestCase):
             escalate_overdue_requests,
         )
 
+        # With no outgoing account an escalation is refused and never noted, so "not escalated" would
+        # hold vacuously; own the account and key so only the threshold can keep it out (#2820).
+        ensure_outgoing_email_account(self)
+        own_notification_keys(self, "contact_request_escalated")
         # Low urgency threshold is 14 days; 2 days old is NOT overdue yet.
         request = self._make_contact_request(
             subject="Low recent",
@@ -285,6 +289,10 @@ class TestContactRequestAutomation(VereningingenTestCase):
             escalate_contact_request,
         )
 
+        # The note is only written after a real send; without an outgoing account (CI's fresh site)
+        # the send is refused and the note is never appended (#2820).
+        ensure_outgoing_email_account(self)
+        own_notification_keys(self, "contact_request_escalated")
         request = self._make_contact_request(
             subject="Has prior notes",
             status="In Progress",

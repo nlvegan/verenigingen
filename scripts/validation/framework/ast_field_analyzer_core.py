@@ -70,6 +70,7 @@ class ValidationContext:
     imported_modules: Set[str] = field(default_factory=set)
     function_scope_vars: Set[str] = field(default_factory=set)
     parameter_doctype_map: Dict[str, str] = field(default_factory=dict)  # NEW: param_name -> DocType
+    class_objects: Set[str] = field(default_factory=set)  # names bound to a class object, not a doc instance
 
 @dataclass
 class ValidationIssue:
@@ -483,6 +484,30 @@ class ASTFieldAnalyzer:
         else:
             return ConfidenceLevel.INFO
 
+    @staticmethod
+    def _collect_class_object_names(tree: ast.AST) -> Set[str]:
+        """Names that denote a class object (defined here, or imported with a CamelCase
+        name), so `Name.attr` is a class-attribute reference (`DirectDebitBatch.generate_sepa_xml`
+        names a method), never a field on a doc instance (#2970).
+
+        A name that is ALSO assigned or bound as a parameter anywhere in the file is dropped:
+        `Member = DocType("Member")` / `def f(Member)` make it something other than the class.
+        """
+        classes, rebound = set(), set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                classes.add(node.name)
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    bound = alias.asname or alias.name
+                    if bound[:1].isupper() and not bound.isupper():
+                        classes.add(bound)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                rebound.add(node.id)
+            elif isinstance(node, ast.arg):
+                rebound.add(node.arg)
+        return classes - rebound
+
     def analyze_file_context(self, tree: ast.AST, file_path: Path) -> ValidationContext:
         """Analyze entire file context for better understanding"""
         context = ValidationContext()
@@ -504,6 +529,8 @@ class ASTFieldAnalyzer:
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
                     context.imported_modules.add(node.module)
+
+        context.class_objects = self._collect_class_object_names(tree)
 
         # Analyze class and function definitions
         for node in ast.walk(tree):
@@ -1359,6 +1386,12 @@ class ASTFieldAnalyzer:
 
     def _is_false_positive(self, obj_name: str, field_name: str, context_line: str, file_context: ValidationContext) -> bool:
         """Enhanced false positive detection using collected context"""
+
+        # 0. A class object (`DirectDebitBatch.generate_sepa_xml`) has no doc fields (#2970)
+        if obj_name in file_context.class_objects:
+            if self.verbose:
+                print(f"  ✓ Skipped class reference: {obj_name}.{field_name}")
+            return True
 
         # 1. Skip iteration variables from loops and comprehensions
         if obj_name in self.iteration_variables:

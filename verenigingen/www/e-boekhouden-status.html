@@ -1,6 +1,6 @@
 {% extends "templates/web.html" %}
 
-{% block title %}{{ title }}{% endblock %}
+{% block title %}{{ title|e }}{% endblock %}
 
 {% block head_include %}
 <style>
@@ -159,7 +159,7 @@
 
     {% if error %}
         <div class="error-message">
-            <strong>Error:</strong> {{ error }}
+            <strong>Error:</strong> {{ error|e }}
         </div>
     {% else %}
         <!-- Connection Status -->
@@ -169,24 +169,24 @@
                     {% if connection_status == "Connected" %}
                         <span class="status-indicator status-connected">✅ Connected</span>
                     {% else %}
-                        <span class="status-indicator status-disconnected">❌ {{ connection_status }}</span>
+                        <span class="status-indicator status-disconnected">❌ {{ connection_status|e }}</span>
                     {% endif %}
                 </div>
                 <div class="stat-label">API Connection</div>
             </div>
 
             <div class="stat-card">
-                <div class="stat-number">{{ migration_stats.total or 0 }}</div>
+                <div class="stat-number">{{ (migration_stats.total or 0)|e }}</div>
                 <div class="stat-label">Total Migrations</div>
             </div>
 
             <div class="stat-card">
-                <div class="stat-number">{{ migration_stats.completed or 0 }}</div>
+                <div class="stat-number">{{ (migration_stats.completed or 0)|e }}</div>
                 <div class="stat-label">Completed</div>
             </div>
 
             <div class="stat-card">
-                <div class="stat-number">{{ migration_stats.failed or 0 }}</div>
+                <div class="stat-number">{{ (migration_stats.failed or 0)|e }}</div>
                 <div class="stat-label">Failed</div>
             </div>
         </div>
@@ -194,22 +194,22 @@
         <!-- Available Data -->
         <div class="stats-grid">
             <div class="stat-card">
-                <div class="stat-number">{{ available_data.accounts or 0 }}</div>
+                <div class="stat-number">{{ (available_data.accounts or 0)|e }}</div>
                 <div class="stat-label">Chart of Accounts</div>
             </div>
 
             <div class="stat-card">
-                <div class="stat-number">{{ available_data.cost_centers or 0 }}</div>
+                <div class="stat-number">{{ (available_data.cost_centers or 0)|e }}</div>
                 <div class="stat-label">Cost Centers</div>
             </div>
 
             <div class="stat-card">
-                <div class="stat-number">{{ available_data.customers or 0 }}</div>
+                <div class="stat-number">{{ (available_data.customers or 0)|e }}</div>
                 <div class="stat-label">Customers</div>
             </div>
 
             <div class="stat-card">
-                <div class="stat-number">{{ available_data.suppliers or 0 }}</div>
+                <div class="stat-number">{{ (available_data.suppliers or 0)|e }}</div>
                 <div class="stat-label">Suppliers</div>
             </div>
         </div>
@@ -239,20 +239,20 @@
         <div class="migration-item">
             <div>
                 <div class="migration-name">
-                    <a href="/app/e-boekhouden-migration/{{ migration.name }}">
-                        {{ migration.migration_name }}
+                    <a href="/app/e-boekhouden-migration/{{ migration.name|e }}">
+                        {{ migration.migration_name|e }}
                     </a>
                 </div>
                 <small class="text-muted">
-                    {{ frappe.utils.format_datetime(migration.start_time) if migration.start_time else "Not started" }}
+                    {{ (frappe.utils.format_datetime(migration.start_time) if migration.start_time else "Not started")|e }}
                 </small>
             </div>
             <div>
-                <span class="migration-status status-{{ migration.migration_status.lower().replace(' ', '-') }}">
-                    {{ migration.migration_status }}
+                <span class="migration-status status-{{ migration.migration_status.lower().replace(' ', '-')|e }}">
+                    {{ migration.migration_status|e }}
                 </span>
                 {% if migration.progress_percentage %}
-                    <small class="text-muted">{{ migration.progress_percentage }}%</small>
+                    <small class="text-muted">{{ migration.progress_percentage|e }}%</small>
                 {% endif %}
             </div>
         </div>

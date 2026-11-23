@@ -56,7 +56,7 @@ class TestCreateMemberUserAccountWireContract(VereningingenTestCase):
         self.assertIn("@", response["data"])
         self.assertIn("meta", response)
         self.assertTrue(response["meta"].get("message"), "success message must live under meta.message")
-        self.assertIn(response["meta"].get("action"), ["created_new", "linked_existing"])
+        self.assertEqual(response["meta"].get("action"), "created_new")
 
     def test_failure_envelope_nests_the_message_under_error_not_a_bare_string(self):
         member = self.create_test_member(first_name="Wirecontract", last_name="Dupe")

@@ -333,27 +333,22 @@ class TestQueryOptimizationSuite(EnhancedTestCase):
         self.assertFalse(valid)  # Should fail validation
         
         # Test with valid Member fields - read actual DocType to verify
-        try:
-            meta = frappe.get_meta("Member")
-            actual_fields = [f.fieldname for f in meta.fields if f.fieldname]
-            
-            # Use actual fields that exist
-            valid_fields = []
-            test_field_candidates = ["full_name", "email", "status", "first_name", "last_name"]
-            
-            for field in test_field_candidates:
-                if field in actual_fields:
-                    valid_fields.append(field)
-                    
-            if valid_fields:
-                valid = validate_doctype_fields("Member", valid_fields)
-                self.assertTrue(valid, f"Validation should pass for existing fields: {valid_fields}")
-            else:
-                # Skip test if we can't find valid fields
-                self.skipTest("No valid test fields found in Member DocType")
-                
-        except Exception as e:
-            self.skipTest(f"Cannot access Member DocType: {e}")
+        # No try/skip: `except Exception: skipTest` also swallowed the AssertionError
+        # from the validation assertion below.
+        meta = frappe.get_meta("Member")
+        actual_fields = [f.fieldname for f in meta.fields if f.fieldname]
+
+        # Use actual fields that exist
+        valid_fields = []
+        test_field_candidates = ["full_name", "email", "status", "first_name", "last_name"]
+
+        for field in test_field_candidates:
+            if field in actual_fields:
+                valid_fields.append(field)
+
+        self.assertTrue(valid_fields, "Member DocType should expose at least one candidate field")
+        valid = validate_doctype_fields("Member", valid_fields)
+        self.assertTrue(valid, f"Validation should pass for existing fields: {valid_fields}")
             
         # Test consistency between validation functions
         try:

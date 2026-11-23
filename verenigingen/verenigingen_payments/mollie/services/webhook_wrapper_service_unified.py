@@ -1749,6 +1749,10 @@ class UnifiedWebhookWrapperService:
 
         journal_entry_name = book_journal_entry(bank_transaction_name)
         if not journal_entry_name:
+            if self._keep_bank_transaction_for_live_journal_entry(
+                bank_transaction_name, reference, reversal_type, reversal_id, payment_id
+            ):
+                return None
             message = (
                 f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: "
                 f"Journal Entry creation failed after Bank Transaction {bank_transaction_name}; "
@@ -1760,6 +1764,43 @@ class UnifiedWebhookWrapperService:
             return None
 
         return ("Journal Entry", journal_entry_name)
+
+    def _keep_bank_transaction_for_live_journal_entry(
+        self,
+        bank_transaction_name: str,
+        reference: str,
+        reversal_type: str,
+        reversal_id: str,
+        payment_id: str,
+    ) -> bool:
+        """True when a LIVE Journal Entry still books this reversal, so its bank line must stay (#2754).
+
+        The creators return None for every failed booking, a cleanly cancelled entry
+        and one whose discard was blocked alike (a failed ``cancel()`` is only known
+        to have worked by re-reading, #926). In the blocked case the entry is at
+        ``docstatus=1``: withdrawing the Bank Transaction then leaves a posted
+        reversal with no bank line. Asked of the database, not inferred from the
+        creator's return value, so it also covers a creator that raised after its
+        submit landed. A draft is not live (``resolve_journal_entry_by_reference``
+        finishes it on redelivery), so it is not handled here.
+
+        Nothing is reconciled automatically: the entry's submit failed, so its
+        ledger rows are not known to be complete.
+        """
+        live_journal_entry = frappe.db.get_value(
+            "Journal Entry", {"cheque_no": reference, "docstatus": 1}, "name"
+        )
+        if not live_journal_entry:
+            return False
+        message = (
+            f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: its Journal Entry "
+            f"{live_journal_entry} failed to post but could not be cancelled and is still live, so "
+            f"Bank Transaction {bank_transaction_name} was KEPT rather than withdrawn. Check "
+            f"{live_journal_entry}'s ledger rows, then reconcile the two by hand."
+        )
+        self.logger.error(f"❌ {message}")
+        frappe.log_error(title="Mollie Reversal Needs Manual Reconciliation", message=message)
+        return True
 
     def _withdraw_bank_transaction(self, bank_transaction_name: str) -> None:
         """Undo a Bank Transaction whose Journal Entry never arrived.

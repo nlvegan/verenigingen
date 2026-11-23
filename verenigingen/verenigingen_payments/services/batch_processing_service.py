@@ -12,6 +12,7 @@ from frappe import _
 
 from verenigingen.verenigingen_payments.services.batch_validation_service import batch_validation_service
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
+from verenigingen.verenigingen_payments.utils.sepa_constants import row_left_out_of_file
 from verenigingen.verenigingen_payments.utils.sepa_utilities import (
     BatchLoggingUtilities,
     CalculationUtilities,
@@ -58,8 +59,15 @@ class BatchProcessingService:
 
         success_count = 0
         already_collected = 0
+        left_out = 0
 
         for invoice_item in batch_doc.invoices:
+            # #2839: the generated file does not contain this row, so the bank was never asked
+            # for this debit. Booking it would mark the invoice Paid without a collection.
+            if row_left_out_of_file(invoice_item.status, invoice_item.result_code):
+                left_out += 1
+                continue
+
             # #2573: a row is set Successful only after its Payment Entry was created
             # (same transaction), so Successful means "this batch already collected it".
             # Re-entering would make ERPNext reject the duplicate and overwrite the row
@@ -113,11 +121,46 @@ class BatchProcessingService:
         BatchLoggingUtilities.add_to_document_batch_log(
             batch_doc,
             f"Processed {success_count} of {len(batch_doc.invoices)} invoices"
-            + (f" ({already_collected} already collected, skipped)" if already_collected else ""),
+            + (f" ({already_collected} already collected, skipped)" if already_collected else "")
+            + (f" ({left_out} not in the SEPA file, skipped)" if left_out else ""),
         )
         batch_doc.db_set("batch_log", batch_doc.batch_log, update_modified=False)
 
         return success_count
+
+    def record_collected_by_bank_reconciliation(self, row, payment_entry_name: str) -> None:
+        """Record that bank reconciliation booked this row's Payment Entry (#2798).
+
+        Same writes as the success branch of mark_batch_invoices_as_paid, so a later
+        "Mark as Processed" skips the row (#2573) instead of re-booking an invoice that is
+        already paid and flipping row and batch to Failed. db_set only, no commit: the
+        caller's transaction owns atomicity with the Payment Entry.
+
+        A row already Failed (e.g. a bank return code such as AC04) keeps its status, result
+        code and message and its mandate usage stays as it was: reconciliation must not turn
+        a returned collection into a collected one (maintainer ruling on #2798). The persisted
+        status is read, not the in-memory one, which may predate the row's last write.
+        """
+        if frappe.db.get_value("Direct Debit Batch Invoice", row.name, "status") == "Failed":
+            return
+        self._set_invoice_status_after_submit(
+            row, "Successful", "PDNG", f"Payment entry {payment_entry_name} created"
+        )
+        self._mark_mandate_usage_collected(row.invoice)
+
+    def refresh_batch_status_from_rows(self, batch_doc) -> None:
+        """Recompute the batch status from its rows' persisted state (#2798).
+
+        Only a Submitted or Processed batch is refreshed: any other status (Rolled Back,
+        Partially Failed, ...) records a decision this recompute must not overwrite.
+        """
+        persisted = frappe.db.get_value("Direct Debit Batch", batch_doc.name, "status")
+        if persisted not in ("Submitted", "Processed"):
+            return
+        collected = frappe.db.count(
+            "Direct Debit Batch Invoice", {"parent": batch_doc.name, "status": "Successful"}
+        )
+        self._update_batch_status_after_processing(batch_doc, collected)
 
     def calculate_batch_totals_optimized(self, batch_doc) -> None:
         """

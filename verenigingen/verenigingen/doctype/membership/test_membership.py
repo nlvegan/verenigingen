@@ -138,19 +138,17 @@ class TestMembership(EnhancedTestCase):
         membership.insert()
         membership.submit()
 
-        try:
-            membership.flags.ignore_validate_update_after_submit = True
-            membership.docstatus = 2
-            membership.cancellation_date = today()
-            membership.cancellation_reason = "Test cancellation"
-            membership.cancellation_type = "Immediate"
-            membership.db_update()
+        # No try/skip: `except Exception: skipTest` swallowed the AssertionError below
+        # and turned a failed cancellation into a skip.
+        membership.flags.ignore_validate_update_after_submit = True
+        membership.docstatus = 2
+        membership.cancellation_date = today()
+        membership.cancellation_reason = "Test cancellation"
+        membership.cancellation_type = "Immediate"
+        membership.db_update()
 
-            membership.reload()
-            self.assertEqual(membership.docstatus, 2)
-        except Exception as e:
-            print(f"Direct cancellation failed: {str(e)}")
-            self.skipTest("Membership cancellation not working properly")
+        membership.reload()
+        self.assertEqual(membership.docstatus, 2)
 
     def test_validate_dates(self):
         """Test validation of membership dates"""

@@ -34,6 +34,7 @@ from verenigingen.e_boekhouden.utils.eboekhouden_coa_import import (
     validate_bank_account_mappings,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
+from verenigingen.utils.bank_account_creation import BankAccountCreationError
 
 
 # ---------------------------------------------------------------------------
@@ -453,16 +454,17 @@ class TestCreateBankAccountRecord(_BankFlowBase):
         self.assertEqual(frappe.db.get_value("Bank Account", created, "company"), self.company)
         self.assertEqual(frappe.db.get_value("Bank Account", created, "bank_account_no"), "19.83.96.716")
 
-    def test_returns_none_for_nonexistent_coa_account(self):
-        # account.name points at a CoA account that does not exist -> guarded None.
+    def test_raises_for_nonexistent_coa_account(self):
+        # account.name points at a CoA account that does not exist -> refused (#2126: the
+        # shared creator raises instead of returning None; the loop callers catch it).
         fake = frappe._dict({"name": "NO-SUCH-ACCOUNT - TCBF", "account_name": "Ghost"})
-        result = create_bank_account_record(
-            account=fake,
-            bank_name="Unknown Bank",
-            bank_info={"bank_name": "Unknown Bank"},
-            company=self.company,
-        )
-        self.assertIsNone(result)
+        with self.assertRaises(BankAccountCreationError):
+            create_bank_account_record(
+                account=fake,
+                bank_name="Unknown Bank",
+                bank_info={"bank_name": "Unknown Bank"},
+                company=self.company,
+            )
 
 
 class TestFindAndDiscoverBankAccounts(_BankFlowBase):

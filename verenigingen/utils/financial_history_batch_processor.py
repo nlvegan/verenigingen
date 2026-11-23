@@ -428,25 +428,29 @@ def validate_donor_history_integrity(donor_names=None):
     a production run later. The scheduled entry point always omits it and
     sweeps every donor.
 
-    Because the rebuild is total (not a diff against a prior snapshot), one
-    pass catches BOTH a missing entry (lost write) and a stale/orphaned entry
-    (the donation was later deleted) -- unlike the payment/expense validators,
-    which each detect only one direction of drift. Known tradeoff, not fixed
-    here: because the rebuild is unconditional, it deletes and re-inserts
-    every child row (and Donor has ``track_changes=1``) even when nothing was
-    wrong, so a donor with real history accumulates a new Version every week.
-    A follow-up to make the underlying sync a no-op when nothing changed is
-    warranted but out of scope here.
+    The rebuild is total (not a diff against a prior snapshot), so one pass catches
+    BOTH a missing entry (lost write) and a stale/orphaned entry (the donation was
+    later deleted). It only runs for a donor whose history is actually inconsistent:
+    ``DonationHistoryManager.donor_history_is_consistent()`` is a read-only check
+    built from the same row builder the rebuild uses, so a healthy donor gets no
+    write and no Donor Version row (#850; Donor has ``track_changes=1``).
     """
     from verenigingen.utils.donation_history_manager import DonationHistoryManager
 
     donors = donor_names if donor_names is not None else frappe.get_all("Donor", pluck="name")
 
     resynced = 0
+    unchanged = 0
     errors = 0
 
     for donor_name in donors:
         try:
+            # Read-only check first (#850): a rebuild deletes and re-inserts every child
+            # row and Donor has track_changes=1, so rebuilding a consistent donor wrote
+            # a Version row per donor per week for nothing.
+            if DonationHistoryManager.donor_history_is_consistent(donor_name):
+                unchanged += 1
+                continue
             result = DonationHistoryManager.sync_donation_history(donor_name)
             if result.get("success"):
                 frappe.db.commit()
@@ -466,9 +470,10 @@ def validate_donor_history_integrity(donor_names=None):
             )
 
     frappe.logger("financial_batch").info(
-        f"Donor history integrity sweep: {resynced} resynced, {errors} errors, {len(donors)} total"
+        f"Donor history integrity sweep: {resynced} resynced, {unchanged} unchanged, "
+        f"{errors} errors, {len(donors)} total"
     )
-    return {"total": len(donors), "resynced": resynced, "errors": errors}
+    return {"total": len(donors), "resynced": resynced, "unchanged": unchanged, "errors": errors}
 
 
 def validate_fee_change_history_integrity(member_names=None):

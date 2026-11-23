@@ -185,6 +185,25 @@ class TestDonorAutoCreationManagement(VereningingenTestCase):
         self.assertIn("errors", result["data"])
         self.assertIsInstance(result["data"]["errors"], list)
 
+    def test_get_recent_error_logs_returns_full_rows_without_per_row_loads(self):
+        """#1166: the error text comes off the bulk get_all row; no get_doc per Error Log."""
+        markers = [f"1166-marker-{i}-{frappe.generate_hash(length=6)}" for i in range(3)]
+        for marker in markers:
+            frappe.log_error(title="1166 Test Marker", message=marker)
+        frappe.get_meta("Error Log")
+        frappe.db.get_table_columns("Error Log")
+        mgmt.get_recent_error_logs()  # warm any other cache
+
+        with self.assertQueryCount(2):
+            result = mgmt.get_recent_error_logs()
+
+        errors = result["data"]["errors"]
+        self.assertEqual(len(errors), 3)
+        for entry in errors:
+            doc = frappe.get_doc("Error Log", entry["name"])
+            self.assertEqual(entry, {"name": doc.name, "creation": doc.creation, "error": doc.error})
+        self.assertEqual({e["error"] for e in errors}, set(markers))
+
     # ----------------------------------------------------------- test_customer_eligibility
 
     def test_customer_eligibility_disabled_short_circuits(self):
