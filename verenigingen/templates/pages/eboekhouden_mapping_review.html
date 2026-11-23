@@ -461,27 +461,6 @@ frappe.ready(function() {
         );
     });
 
-    // Create default mappings
-    $('#create-defaults').click(function() {
-        const btn = $(this);
-        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Creating...');
-
-        frappe.call({
-            method: 'verenigingen.e_boekhouden.utils_account_analyzer.create_default_range_mappings',
-            callback: function(r) {
-                if (r.message) {
-                    frappe.msgprint({
-                        title: 'Default Mappings Created',
-                        message: r.message.message,
-                        indicator: 'green'
-                    });
-                    loadExistingMappings();
-                }
-                btn.prop('disabled', false).html('<i class="fa fa-magic"></i> Create Default Mappings');
-            }
-        });
-    });
-
     // Load existing mappings
     function loadExistingMappings() {
         frappe.call({
