@@ -151,6 +151,12 @@ def send_volunteer_email(
 
         return result
 
+    except frappe.QueryDeadlockError:
+        # The only callers are ChapterBoardMember.after_insert / on_trash, which discard the
+        # result: a returned failure would let the hook carry on after the server rolled the
+        # transaction back (#2996). 1213 ONLY, as in EmailService: a 1205 undoes just the failed
+        # statement, so a lock wait on a notification lookup is not worth aborting the insert.
+        raise
     except frappe.DoesNotExistError as e:
         frappe.logger().warning(f"send_volunteer_email: Document not found - {str(e)}")
         return OperationResult.fail(f"Document not found: {str(e)}")
