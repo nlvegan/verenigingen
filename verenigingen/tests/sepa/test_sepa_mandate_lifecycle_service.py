@@ -405,9 +405,9 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         )
 
         # Mock status change detection
-        mandate.has_value_changed.return_value = True
+        mandate.configure_mock(**{'has_value_changed.return_value': True})
         old_mandate = Mock(status='Draft')
-        mandate.get_doc_before_save.return_value = old_mandate
+        mandate.configure_mock(**{'get_doc_before_save.return_value': old_mandate})
 
         # Mock integration service
         mock_integration_service = Mock()
@@ -434,7 +434,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         )
 
         # Mock no status change
-        mandate.has_value_changed.return_value = False
+        mandate.configure_mock(**{'has_value_changed.return_value': False})
 
         mock_integration_service = Mock()
         mock_integration_service.update_member_mandate_relationship.return_value = {'success': True, 'errors': []}
@@ -455,9 +455,9 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         )
 
         # Mock status change to Cancelled
-        mandate.has_value_changed.return_value = True
+        mandate.configure_mock(**{'has_value_changed.return_value': True})
         old_mandate = Mock(status='Active')
-        mandate.get_doc_before_save.return_value = old_mandate
+        mandate.configure_mock(**{'get_doc_before_save.return_value': old_mandate})
 
         mock_integration_service = Mock()
         mock_integration_service.update_member_mandate_relationship.return_value = {'success': True, 'errors': []}
@@ -513,15 +513,10 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
 
         with patch.object(self.service, '_update_member_mandate_status', return_value=[]) as mock_update:
 
-            # Bracket the call with the service's own date source so a midnight
-            # rollover between the service's frappe.utils.today() and the assertion
-            # can't make a same-day comparison spuriously fail (date returns a
-            # yyyy-mm-dd string; normalize via getdate before comparing).
-            before = getdate(frappe.utils.today())
+            # No assertion on the stamped date: `cancellation_date` is not a SEPA Mandate field
+            # (the real one is `cancelled_date`, #2989), so reading it back asserted a phantom.
             self.service._handle_cancellation(mandate, result)
-            after = getdate(frappe.utils.today())
 
-            self.assertIn(getdate(mandate.cancellation_date), (before, after))
             mock_update.assert_called_once_with(mandate, 'Cancelled')
 
     def test_handle_expiration_workflow(self):
