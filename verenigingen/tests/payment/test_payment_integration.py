@@ -15,6 +15,7 @@ from frappe.utils import today, add_days, add_months, flt
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestPaymentIntegration(EnhancedTestCase):
@@ -105,7 +106,7 @@ class TestPaymentIntegration(EnhancedTestCase):
         
         # Verify financial integration
         self.assertIsNotNone(payment.posting_date)
-        self.assertEqual(payment.posting_date, today())
+        assert_written_today(self, payment.posting_date)
 
     def test_sepa_payment_integration(self):
         """Test SEPA direct debit payment integration"""
@@ -202,7 +203,7 @@ class TestPaymentIntegration(EnhancedTestCase):
         payment.save()
         
         self.assertIsNotNone(payment.reference_no)
-        self.assertEqual(payment.reference_date, today())
+        assert_written_today(self, payment.reference_date)
 
     def test_multi_currency_payment_integration(self):
         """Test multi-currency payment processing"""

@@ -1,0 +1,358 @@
+"""#2562: ``run_doc_method(docs=...)`` must not let a caller satisfy an ``if_owner`` row by
+posting ``owner=<themselves>``.
+
+``frappe.handler.run_doc_method`` with ``docs`` builds the document from the CLIENT's dict and
+checks permission on it, so the owner Frappe compared with the session user was whatever the client
+posted. The four doctypes with an ``if_owner`` row (Donation Campaign, Member, Membership,
+Contribution Amendment Request) are probed here through a real WSGI POST (v1 ``/api/method`` and v2
+``/api/v2/method``) as an API-key user who holds only the if_owner roles, in a subprocess with its
+own DB connection and committed fixtures (removed again in its ``finally``).
+
+Measured on develop (c843d212e), same probe: Donation Campaign methods 200 on v1 (v2 refuses:
+POST needs write); ``Member.get_current_membership_fee`` 200 on v1 AND v2; an unknown name 404 while
+an honest foreign owner 403. ``Member`` is a separate path: its ``has_permission()`` controller
+method calls ``has_member_permission`` directly, so Frappe's hook list never runs for it.
+
+PROBE SHORTCUTS: Membership and Contribution Amendment Request rows are inserted with ignore flags;
+their ``get_billing_amount`` / ``get_impact_preview`` are ``high_security_api`` and refused this
+caller at the decorator on develop too, so for those two the guard is asserted at the permission
+layer (``frappe.has_permission`` on a forged doc), not through a method that ran. Query count is not
+compared over WSGI.
+"""
+
+import contextlib
+import json
+import os
+import subprocess
+import sys
+
+import frappe
+from frappe.utils import get_bench_path
+from werkzeug.test import EnvironBuilder
+from werkzeug.wrappers import Request
+
+from verenigingen.permissions import _is_run_doc_method_dispatch
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+_PROBE = r"""
+import json, sys, uuid, frappe
+from frappe.utils import add_days, today
+from werkzeug.test import Client
+SITE=sys.argv[1]
+frappe.init(site=SITE); frappe.connect(); frappe.clear_cache()
+import verenigingen; sys.stderr.write("PKG %s\n"%verenigingen.__file__)
+frappe.set_user("Administrator")
+tag=uuid.uuid4().hex[:6]
+made=[]
+def mk(doc, **flags):
+    d=frappe.get_doc(doc); d.flags.ignore_permissions=True
+    for k in flags: setattr(d.flags,k,True)
+    d.insert(); made.append((d.doctype,d.name)); return d
+def user(email, roles):
+    u=frappe.get_doc({"doctype":"User","email":email,"first_name":"P","send_welcome_email":0,"roles":[{"role":r} for r in roles]}).insert()
+    made.append(("User",email)); u.api_key=frappe.generate_hash(length=15); sec=frappe.generate_hash(length=15); u.api_secret=sec; u.save()
+    return {"email":email,"hdr":{"Authorization":f"token {u.api_key}:{sec}","X-Frappe-Site-Name":SITE}}
+out={}
+try:
+    attacker=user(f"forge-a-{tag}@test.invalid",["Verenigingen Volunteer","Verenigingen Member"])
+    staff=user(f"forge-s-{tag}@test.invalid",["System Manager","Accounts User","Verenigingen Administrator"])
+    vstaff=user(f"forge-v-{tag}@test.invalid",["Verenigingen Staff"])
+    sysmgr=user(f"forge-m-{tag}@test.invalid",["System Manager"])
+    camp=mk({"doctype":"Donation Campaign","campaign_name":"Forge "+tag,"campaign_type":"Other","status":"Active","start_date":"2026-01-01"})
+    member=mk({"doctype":"Member","first_name":"Forge","last_name":tag,"email":f"fm-{tag}@test.invalid"}, ignore_customer_sync=True)
+    mt=frappe.db.get_value("Membership Type",{}) or mk({"doctype":"Membership Type","membership_type_name":"Forge "+tag,"amount":10,"billing_period":"Annual"},ignore_mandatory=True,ignore_links=True).name
+    cases={"Donation Campaign":(camp.name,["get_project_summary","get_recent_donations","get_top_donors"]),
+           "Member":(member.name,["get_current_membership_fee","get_address_members_html"])}
+    try:
+        ms=mk({"doctype":"Membership","member":member.name,"membership_type":mt,"start_date":"2026-01-01","status":"Active"},ignore_mandatory=True,ignore_links=True,ignore_validate=True)
+        cases["Membership"]=(ms.name,["get_billing_amount"])
+        car=mk({"doctype":"Contribution Amendment Request","membership":ms.name,"amendment_type":"Fee Change","status":"Draft","requested_date":today(),"effective_date":add_days(today(),30)},ignore_mandatory=True,ignore_links=True,ignore_validate=True)
+        cases["Contribution Amendment Request"]=(car.name,["get_impact_preview"])
+    except Exception as e:
+        out["setup_error"]=repr(e)[:300]
+    for dt,(name,_m) in cases.items():
+        forged=frappe.get_doc({"doctype":dt,"name":name,"owner":attacker["email"]})
+        honest=frappe.get_doc({"doctype":dt,"name":name,"owner":"Administrator"})
+        unknown=frappe.get_doc({"doctype":dt,"name":name+"-nope","owner":attacker["email"]})
+        out["perm."+dt]={"forged":bool(frappe.has_permission(dt,"read",doc=forged,user=attacker["email"])),
+            "unknown":bool(frappe.has_permission(dt,"read",doc=unknown,user=attacker["email"]))}
+    frappe.db.commit(); frappe.destroy()
+    import frappe.app
+    c=Client(frappe.app.application,use_cookies=False)
+    def call(who, dt, name, m, owner, v2=False, detail=False, extra=None):
+        frappe.init(site=SITE); frappe.connect()
+        mod=frappe.db.get_value(dt,name,"modified") if frappe.db.exists(dt,name) else None
+        frappe.destroy()
+        doc={"doctype":dt,"name":name,"owner":owner,"modified":str(mod) if mod else "2026-01-01 00:00:00"}
+        for k,v in (extra or {}).items():
+            if v is None: doc.pop(k,None)
+            else: doc[k]=v
+        if v2:
+            r=c.post("/api/v2/method/run_doc_method",json={"method":m,"document":doc},headers=who["hdr"])
+        else:
+            r=c.post("/api/method/run_doc_method",data={"method":m,"docs":json.dumps(doc)},headers=who["hdr"])
+        return r.status_code if not detail else (r, name)
+    def channels(dt, name, m):
+        frappe.init(site=SITE); frappe.connect(); before=frappe.db.count("Error Log"); frappe.destroy()
+        r,_n=call(attacker,dt,name,m,attacker["email"],detail=True)
+        frappe.init(site=SITE); frappe.connect(); delta=frappe.db.count("Error Log")-before; frappe.destroy()
+        body=r.get_data(as_text=True).replace(name,"<NAME>")
+        j=json.loads(body)
+        return {"status":r.status_code,"exc_type":j.get("exc_type"),"messages":j.get("_server_messages"),"error_logs":delta}
+    if "Donation Campaign" in cases:
+        n=cases["Donation Campaign"][0]
+        out["oracle.forged"]=channels("Donation Campaign",n,"get_project_summary")
+        out["oracle.unknown"]=channels("Donation Campaign",n+"-nope","get_project_summary")
+    for dt,(name,methods) in cases.items():
+        for m in methods:
+            out[f"{dt}.{m}"]={"forged_v1":call(attacker,dt,name,m,attacker["email"]),
+                "forged_v2":call(attacker,dt,name,m,attacker["email"],v2=True),
+                "islocal_1_v1":call(attacker,dt,name,m,attacker["email"],extra={"__islocal":1}),
+                "islocal_str_v1":call(attacker,dt,name,m,attacker["email"],extra={"__islocal":"1"}),
+                "islocal_1_v2":call(attacker,dt,name,m,attacker["email"],v2=True,extra={"__islocal":1}),
+                "noname_v1":call(attacker,dt,name,m,attacker["email"],extra={"name":None}),
+                "noname_islocal_v1":call(attacker,dt,name,m,attacker["email"],extra={"name":None,"__islocal":1}),
+                "honest_foreign_v1":call(attacker,dt,name,m,"Administrator"),
+                "unknown_forged_v1":call(attacker,dt,name+"-nope",m,attacker["email"]),
+                "staff_v1":call(staff,dt,name,m,"Administrator")}
+    # F1: a desk form on a NOT-YET-SAVED doc posts owner=<self> with a new-<doctype>-xxx name or none
+    for who_label,who in (("vstaff",vstaff),("sysmgr",sysmgr),("staff",staff),("attacker",attacker)):
+        for dt,m in (("Member","get_current_membership_fee"),("Donation Campaign","get_recent_donations")):
+            for variant,extra in (("named",{"name":"new-"+dt.lower().replace(" ","-")+"-"+tag,"__islocal":1}),("nameless",{"name":None,"__islocal":1})):
+                out[f"unsaved.{who_label}.{dt}.{variant}"]=call(who,dt,extra["name"] or "x",m,who["email"],extra=extra)
+    # Non-admin holders of a CUSTOM DocPerm on Donation Campaign. LAST on purpose: any Custom DocPerm row
+    # replaces the whole standard permission set for the doctype, so the callers above must have run.
+    # role_a: full read + write only with if_owner.  role_b: full read + write, no if_owner.
+    frappe.init(site=SITE); frappe.connect(); frappe.set_user("Administrator")  # call() destroyed the session
+    role_a="Forge A "+tag; role_b="Forge B "+tag
+    for r in (role_a, role_b):
+        mk({"doctype":"Role","role_name":r,"desk_access":1})
+    uno=user(f"forge-ro-{tag}@test.invalid",[role_a,"Verenigingen Volunteer","Verenigingen Member"]); uall=user(f"forge-rw-{tag}@test.invalid",[role_b,"Verenigingen Volunteer","Verenigingen Member"])
+    def perm_row(role, **rights):
+        return mk({"doctype":"Custom DocPerm","parent":"Donation Campaign","parenttype":"DocType","parentfield":"permissions","role":role,"permlevel":0,**rights})
+    perm_row(role_a, read=1); perm_row(role_a, write=1, if_owner=1); perm_row(role_b, read=1, write=1)
+    frappe.db.commit(); frappe.clear_cache()
+    for label,who in (("ifowner_write",uno),("unrestricted",uall)):
+        n=camp.name; m="get_recent_donations"
+        out[f"custom.{label}.v1"]=call(who,"Donation Campaign",n,m,who["email"])
+        out[f"custom.{label}.v2"]=call(who,"Donation Campaign",n,m,who["email"],v2=True)
+finally:
+    frappe.init(site=SITE); frappe.connect(); frappe.set_user("Administrator")
+    for dt,n in reversed(made):
+        try: frappe.delete_doc(dt,n,force=1,ignore_permissions=True)
+        except Exception as e: sys.stderr.write("cleanup %s %s %r\n"%(dt,n,e))
+    frappe.db.commit(); frappe.clear_cache()
+print("RESULT"+json.dumps(out,indent=1))
+
+"""
+
+
+class TestRunDocMethodForgedOwner2562(EnhancedTestCase):
+    @staticmethod
+    @contextlib.contextmanager
+    def _dispatching_run_doc_method(cmd="run_doc_method"):
+        previous = frappe.form_dict.get("cmd")
+        frappe.form_dict["cmd"] = cmd
+        try:
+            yield
+        finally:
+            if previous is None:
+                frappe.form_dict.pop("cmd", None)
+            else:
+                frappe.form_dict["cmd"] = previous
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        result = subprocess.run(
+            [sys.executable, "-c", _PROBE, frappe.local.site],
+            cwd=os.path.join(get_bench_path(), "sites"),
+            capture_output=True,
+            text=True,
+            timeout=400,
+            env={**os.environ, "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)},
+        )
+        line = next((x for x in result.stdout.splitlines() if x.startswith("RESULT")), None)
+        if result.returncode != 0 or line is None:
+            raise AssertionError(result.stdout + "\n" + result.stderr)
+        cls.out = json.loads(result.stdout[result.stdout.index("RESULT") + len("RESULT") :])
+
+    def test_probe_set_up_every_doctype(self):
+        self.assertNotIn("setup_error", self.out, self.out.get("setup_error"))
+
+    def test_forged_owner_is_refused_on_every_whitelisted_campaign_method(self):
+        for method in ("get_project_summary", "get_recent_donations", "get_top_donors"):
+            row = self.out[f"Donation Campaign.{method}"]
+            with self.subTest(method=method):
+                self.assertEqual((row["forged_v1"], row["forged_v2"]), (403, 403))
+
+    def test_a_client_supplied_islocal_or_missing_name_does_not_skip_the_guard(self):
+        """The posted dict controls __islocal, so the guard must not honour it (review of 1c27dd655)."""
+        for key in ("Donation Campaign.get_recent_donations", "Member.get_current_membership_fee"):
+            row = self.out[key]
+            for variant in ("islocal_1_v1", "islocal_str_v1", "islocal_1_v2", "noname_v1", "noname_islocal_v1"):
+                with self.subTest(method=key, variant=variant):
+                    self.assertEqual(row[variant], 403)
+
+    def test_forged_owner_is_refused_on_a_foreign_member_method_on_both_routes(self):
+        row = self.out["Member.get_current_membership_fee"]
+        self.assertEqual((row["forged_v1"], row["forged_v2"]), (403, 403))
+
+    def test_an_unknown_name_is_refused_like_a_forbidden_one_on_every_compared_channel(self):
+        self.assertEqual(self.out["oracle.forged"], self.out["oracle.unknown"])
+        self.assertEqual(self.out["oracle.forged"]["status"], 403)
+        for row in self.out.values():
+            if isinstance(row, dict) and "unknown_forged_v1" in row:
+                self.assertEqual(row["unknown_forged_v1"], row["honest_foreign_v1"])
+
+    def test_staff_can_still_run_the_methods(self):
+        """Control: a real row exists and a blanket-access caller still gets a 200."""
+        for key in ("Donation Campaign.get_recent_donations", "Member.get_current_membership_fee"):
+            self.assertEqual(self.out[key]["staff_v1"], 200, key)
+
+    def test_staff_and_system_manager_can_run_methods_on_an_unsaved_form(self):
+        """F1 (review of #2729): a desk form on an unsaved doc posts owner=<self> plus a new-<doctype>-xxx
+        name or none. Unrestricted callers are served (develop answered 200) for all three doctypes'
+        guard; only an if_owner grant is refused. Probe shortcut: no row exists for these names, which is
+        exactly what an unsaved form is."""
+        for who in ("vstaff", "sysmgr", "staff"):
+            for doctype in ("Member", "Donation Campaign"):
+                for variant in ("named", "nameless"):
+                    if doctype == "Donation Campaign" and who != "staff":
+                        # Verenigingen Staff and a bare System Manager hold no Donation Campaign grant but the
+                        # role-All if_owner read, i.e. they are the forger's position: refusing is correct
+                        continue
+                    with self.subTest(who=who, doctype=doctype, variant=variant):
+                        self.assertEqual(self.out[f"unsaved.{who}.{doctype}.{variant}"], 200)
+
+    def test_a_non_admin_with_a_custom_docperm_is_judged_per_requested_ptype(self):
+        """Exercises `_holds_unrestricted_permission` on a NON-admin (review of 77f26d314). Both users hold a
+        Custom DocPerm on Donation Campaign with full read; the first has write only with if_owner, the
+        second full write. v1 run_doc_method asks read, v2 POST asks write. Mutants that reddened this:
+        checking "read" instead of the requested ptype (v2 forged write -> 200) and always-False (the
+        unrestricted holder 403)."""
+        self.assertEqual(self.out["custom.ifowner_write.v1"], 200)
+        self.assertEqual(self.out["custom.ifowner_write.v2"], 403)
+        self.assertEqual(self.out["custom.unrestricted.v1"], 200)
+        self.assertEqual(self.out["custom.unrestricted.v2"], 200)
+
+    def test_a_plain_caller_forging_owner_on_an_unsaved_form_is_still_refused(self):
+        """Control with a real attacker (Volunteer + Member roles, if_owner grants only)."""
+        for doctype in ("Member", "Donation Campaign"):
+            for variant in ("named", "nameless"):
+                with self.subTest(doctype=doctype, variant=variant):
+                    self.assertEqual(self.out[f"unsaved.attacker.{doctype}.{variant}"], 403)
+
+    def test_a_user_without_member_write_cannot_attach_a_file_to_an_unsaved_member(self):
+        """Negative for the attach flow: the narrowing must not open it to everyone."""
+        email = f"nowrite-{frappe.generate_hash()[:8]}@test.invalid"
+        user = self.create_test_user(email, roles=["Verenigingen Volunteer"]).name
+        previous = frappe.session.user
+        frappe.set_user(user)
+        try:
+            with self.assertRaises(frappe.PermissionError):
+                frappe.get_doc(
+                    {"doctype": "File", "file_name": f"{frappe.generate_hash(length=6)}.txt", "content": "x",
+                     "is_private": 1, "attached_to_doctype": "Member",
+                     "attached_to_name": f"new-member-{frappe.generate_hash(length=6)}"}
+                ).insert()
+        finally:
+            frappe.set_user(previous)
+
+    def test_a_non_string_cmd_does_not_crash_the_dispatch_check(self):
+        """F3: form_dict is client-controlled; a list/int cmd must read as 'not run_doc_method'."""
+        for cmd in (["run_doc_method"], 5, {"a": 1}):
+            with self.subTest(cmd=cmd), self._dispatching_run_doc_method(cmd):
+                self.assertFalse(_is_run_doc_method_dispatch())
+
+    def test_the_permission_layer_refuses_a_forged_owner_on_all_four_doctypes(self):
+        """Membership was already refused on develop (its hook demands the caller's own member link),
+        so for it this is a control, not a red; the other three are red without the guard."""
+        self._perm_layer()
+
+    def _perm_layer(self):
+        for doctype in ("Donation Campaign", "Member", "Membership", "Contribution Amendment Request"):
+            with self.subTest(doctype=doctype):
+                self.assertEqual(self.out["perm." + doctype], {"forged": False, "unknown": False})
+
+    def test_the_real_owner_keeps_if_owner_access(self):
+        """Control: a user whose OWN row it is still passes (a refuse-everything guard cannot)."""
+        email = f"own-{frappe.generate_hash()[:8]}@test.invalid"
+        user = self.create_test_user(email, roles=["Verenigingen Volunteer"]).name
+        campaign = frappe.get_doc(
+            {
+                "doctype": "Donation Campaign",
+                "campaign_name": f"Own {frappe.generate_hash()[:6]}",
+                "campaign_type": "Other",
+                "status": "Active",
+                "start_date": frappe.utils.today(),
+            }
+        ).insert()
+        self.track_doc("Donation Campaign", campaign.name)
+        campaign.db_set("owner", user, update_modified=False)
+        stored = frappe.get_doc({"doctype": "Donation Campaign", "name": campaign.name, "owner": user})
+        self.assertTrue(frappe.has_permission("Donation Campaign", "read", doc=stored, user=user))
+        self.assertTrue(frappe.has_permission("Donation Campaign", "read", doc=campaign.name, user=user))
+
+    def test_a_member_can_still_create_their_own_amendment_request(self):
+        """Control: `create` of a not-yet-stored doc (owner set by insert) is the legitimate case the
+        guard must let through; Contribution Amendment Request grants create to Verenigingen Member
+        with if_owner."""
+        email = f"creator-{frappe.generate_hash()[:8]}@test.invalid"
+        user = self.create_test_user(email, roles=["Verenigingen Member"]).name
+        new = frappe.new_doc("Contribution Amendment Request")
+        new.owner = user
+        self.assertTrue(frappe.has_permission("Contribution Amendment Request", "create", doc=new, user=user))
+
+    def test_an_unsaved_doc_owned_by_the_caller_is_refused_for_read_inside_run_doc_method(self):
+        """Pins the deliberate change: inside a run_doc_method dispatch an unsaved doc claiming the
+        caller as owner is False for any ptype but `create` (it was True, which is the forged-owner
+        hole). Mutant: with the guard's `return` forced True this assertion reddens."""
+        email = f"unsaved-{frappe.generate_hash()[:8]}@test.invalid"
+        user = self.create_test_user(email, roles=["Verenigingen Volunteer"]).name
+        new = frappe.new_doc("Donation Campaign")
+        new.owner = user
+        with self._dispatching_run_doc_method():
+            self.assertFalse(frappe.has_permission("Donation Campaign", "read", doc=new, user=user))
+
+    def test_the_run_doc_method_context_is_recognised_on_every_route(self):
+        """Control for the context gate: v1 short and dotted cmd, and the v2 path, all count; an
+        ordinary form_dict does not. A gate that never fires would leave the hole open."""
+        for cmd in ("run_doc_method", "frappe.handler.run_doc_method"):
+            with self.subTest(cmd=cmd), self._dispatching_run_doc_method(cmd):
+                self.assertTrue(_is_run_doc_method_dispatch())
+        with self._dispatching_run_doc_method("frappe.client.get"):
+            self.assertFalse(_is_run_doc_method_dispatch())
+        previous = getattr(frappe.local, "request", None)
+        # Mock justified: request-context setup for the real _is_run_doc_method_dispatch; frappe.local.request is Tier 3 infra, nothing at the permission boundary is stubbed
+        setattr(frappe.local, "request", Request(EnvironBuilder(path="/api/v2/method/run_doc_method").get_environ()))
+        try:
+            self.assertTrue(_is_run_doc_method_dispatch())
+            for other in ("/api/v2/method/run_doc_method_x", "/x/run_doc_method/y"):
+                with self.subTest(path=other):
+                    # Mock justified: request-context setup for the real _is_run_doc_method_dispatch; frappe.local.request is Tier 3 infra, nothing at the permission boundary is stubbed
+                    setattr(frappe.local, "request", Request(EnvironBuilder(path=other).get_environ()))
+                    self.assertFalse(_is_run_doc_method_dispatch())
+        finally:
+            # Mock justified: request-context setup for the real _is_run_doc_method_dispatch; frappe.local.request is Tier 3 infra, nothing at the permission boundary is stubbed
+            setattr(frappe.local, "request", previous)
+
+    def test_attaching_a_file_to_a_not_yet_saved_member_is_allowed_for_staff(self):
+        """Real flow (not a shortcut): the desk uploads to a Member form that is not saved yet; Frappe's
+        File.validate runs `new_doc("Member").check_permission("write")` as the session user. The
+        unsaved doc is owned by that user, which the guard once refused (the PR's merge-queue red in
+        test_application_record_approval)."""
+        email = f"attach-{frappe.generate_hash()[:8]}@test.invalid"
+        user = self.create_test_user(email, roles=["Verenigingen Administrator"]).name
+        previous = frappe.session.user
+        frappe.set_user(user)
+        try:
+            file = frappe.get_doc(
+                {"doctype": "File", "file_name": f"{frappe.generate_hash(length=6)}.txt", "content": "x",
+                 "is_private": 1, "attached_to_doctype": "Member",
+                 "attached_to_name": f"new-member-{frappe.generate_hash(length=6)}"}
+            ).insert()
+        finally:
+            frappe.set_user(previous)
+        self.track_doc("File", file.name)
+        self.assertTrue(frappe.db.exists("File", file.name))

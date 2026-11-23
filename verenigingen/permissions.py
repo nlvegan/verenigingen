@@ -495,6 +495,11 @@ def has_member_permission(doc, user=None, ptype=None):
 
     user_roles = frappe.get_roles(user)
 
+    # #2562: Member.has_permission() calls this directly, so Frappe's hook list never runs for it.
+    # Unrestricted DocPerm holders (staff, System Manager) are let through inside the guard itself.
+    if not has_unforged_owner(doc, user, ptype):
+        return False
+
     # Admin roles always have access
     if _has_admin_access(user_roles):
         return True
@@ -904,6 +909,68 @@ has_sepa_mandate_permission, get_sepa_mandate_permission_query = _make_member_li
 has_membership_permission = _make_member_linked_permission("Membership", include_pending=True)[0]
 
 
+def _is_run_doc_method_dispatch():
+    """True while the request being served is ``run_doc_method`` (v1 ``cmd``, short or dotted, or the v2 path).
+
+    Those are the only routes that build a document from the CLIENT's dict and permission-check it.
+    Elsewhere an unsaved document owned by the caller is server-made (``frappe.new_doc``, e.g. the
+    check File.validate runs for an attachment on a form that is not saved yet), so it is legitimate."""
+    cmd = str(frappe.form_dict.get("cmd") or "")  # str(): a client can post a non-string cmd
+    path = getattr(getattr(frappe.local, "request", None), "path", None) or ""
+    return cmd.rsplit(".", 1)[-1] == "run_doc_method" or path.rstrip("/").endswith("/run_doc_method")
+
+
+def _holds_unrestricted_permission(doctype, user, ptype):
+    """True if one of the user's DocPerm rows grants ``ptype`` WITHOUT ``if_owner`` (Frappe's own notion,
+    ``get_role_permissions``). Only an if_owner grant can be satisfied by posting an owner (#2562).
+
+    Relies on the shape of Frappe's ``get_role_permissions``: ``perms[ptype]`` is 1 for ANY grant,
+    including an if_owner-only one, and ``perms["if_owner"]`` lists the ptypes granted only with
+    if_owner. Staff and a bare System Manager hold only an if_owner read on Donation Campaign, so
+    this returns False for them there and they still get 403 on a forged owner, by design."""
+    perms = frappe.permissions.get_role_permissions(frappe.get_meta(doctype), user)
+    ptype = ptype or "read"
+    # an if_owner-only grant still reads as perms[read] == 1 (list access), but is keyed in perms.if_owner
+    return bool(perms.get(ptype)) and ptype not in perms.get("if_owner", {})
+
+
+def has_unforged_owner(doc, user=None, ptype=None):
+    """has_permission hook: refuse a document whose ``owner`` was posted by the client (#2562).
+
+    ``frappe.handler.run_doc_method`` (and the v2 twin) with ``docs=`` builds the document from the
+    CLIENT's dict and runs the permission check on it, so a role's ``if_owner`` row was satisfied by
+    posting ``owner=<me>``. Frappe's own check cannot tell, so deny here: a document whose
+    claimed owner is the caller but whose stored row says otherwise (or has no stored row) is refused.
+    An unknown name is refused too, so it matches the forbidden one on every channel (a bare 404
+    would tell the caller which ids exist). Only the owner claim is examined, and only when it names
+    the caller, so staff and the real owner pay one lookup and are otherwise untouched.
+
+    Deliberate behaviour change: inside a ``run_doc_method`` request an UNSAVED document owned by the
+    caller now returns False for every ptype except ``create`` (it was True), because "unsaved" is
+    exactly what a forged posted dict looks like. Outside that dispatch the guard stands down for a
+    NAMELESS document only (a named one is always compared with its stored row): a server-built
+    ``new_doc`` is also unsaved and owned by the caller (a File attached to a Member form that is not
+    saved yet checks write on one), and nothing there carries a client-posted owner. Returning True
+    from a has_permission hook never grants access; it only falls through to
+    Frappe's own check. That is why the non-``get`` input path (a bare name) may return True: a name
+    carries no posted owner, so there is nothing to refuse and Frappe's DocPerm/if_owner check decides.
+    """
+    if not hasattr(doc, "get"):  # a bare name or other non-document input: nothing was posted
+        return True
+    user = user or frappe.session.user
+    if _holds_unrestricted_permission(doc.get("doctype"), user, ptype):
+        return True  # a forged owner claim cannot widen a grant that is not if_owner
+    claimed = (doc.get("owner") or "").lower()
+    # `create` is the one verb a not-yet-stored document legitimately asks for (Document.insert sets
+    # the owner itself). `__islocal` and `name` are NOT trusted: the client's posted dict controls both.
+    if claimed != user.lower() or ptype == "create":
+        return True
+    if not doc.get("name") and not _is_run_doc_method_dispatch():
+        return True  # server-built unsaved doc (frappe.new_doc); no client posted this owner
+    stored = frappe.db.get_value(doc.get("doctype"), doc.get("name"), "owner") if doc.get("name") else None
+    return (stored or "").lower() == claimed
+
+
 def has_donation_permission(doc, user=None, ptype=None):
     """Direct permission check for Donation doctype
 
@@ -1082,16 +1149,8 @@ def has_address_permission(doc, user=None, ptype=None):
         if member_primary_address == address_name:
             return True
 
-    # Fall back to standard Contact-based permissions. has_common_link needs the
-    # Address document (it reads doc.links); this function also accepts a bare
-    # address name as `doc`, so load the document in that case rather than handing
-    # a string to has_common_link (which would raise AttributeError).
-    contact_name = frappe.db.get_value("Contact", {"email_id": user}, "name")
-    if contact_name:
-        contact = frappe.get_doc("Contact", contact_name)
-        address_doc = doc if hasattr(doc, "links") else frappe.get_doc("Address", address_name)
-        return contact.has_common_link(address_doc)
-
+    # #2436: no Contact.email_id fallback. A login that merely equals the email of a
+    # Contact linked to the Address is not an owner; identity is Member.user only (#2205).
     return False
 
 
@@ -1159,25 +1218,10 @@ def get_address_permission_query(user):
             """
             )
 
-    # Also check Contact-based addresses (original ERPNext behavior)
-    contact_name = frappe.db.get_value("Contact", {"email_id": user}, "name")
-    if contact_name:
-        escaped_contact_name = frappe.db.escape(contact_name)
-        conditions.append(
-            f"""
-            `tabAddress`.name in (
-                SELECT parent FROM `tabDynamic Link`
-                WHERE parenttype = 'Address'
-                AND link_doctype = 'Contact'
-                AND link_name = {escaped_contact_name}
-            )
-        """
-        )
-
     if conditions:
         return f"({' OR '.join(conditions)})"
 
-    # No member or contact found - no access
+    # No Member.user link (and not a board member): no access
     return "1=0"
 
 

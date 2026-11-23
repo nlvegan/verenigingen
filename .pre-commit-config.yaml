@@ -115,6 +115,8 @@ repos:
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/|archived_.*|archived_unused/|archived_deleted/)'
 
+      # #2323: ratcheted against scripts/validation/field_reference_baseline.txt; fails only on a
+      # finding that is not baselined (regenerate with --update-baseline when one is fixed).
       - id: enhanced-field-validator
         name: Context-aware field reference validator
         entry: python scripts/validation/enhanced_field_reference_validator.py
@@ -250,13 +252,13 @@ repos:
         description: >-
           Frappe renders page AND email templates with Jinja autoescape OFF, so a bare
           `{{ member.full_name }}` prints user-typed text as markup (stored XSS). Every
-          `{{ }}` under verenigingen/templates must end in |e (or |tojson, a numeric
+          `{{ }}` under verenigingen/templates, www and verenigingen_payments/templates must end in |e (or |tojson, a numeric
           filter), be a literal `_("...")`, or carry a reasoned allowlist entry in the
           validator. Needs jinja2 on the PATH python.
         entry: python scripts/validation/template_escaping_validator.py
         language: system
         pass_filenames: true
-        files: '^verenigingen/templates/.*\.html$'
+        files: '^verenigingen/(templates|www|verenigingen_payments/templates)/.*\.html$'
         stages: [pre-commit]
 
       - id: veg11-destructive-command-validator

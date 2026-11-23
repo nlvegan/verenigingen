@@ -38,6 +38,8 @@ RULED = {
     # #2127: dedupe is per door and per reason via a Redis claim (door_alerts docstring), so the key has no
     # per-recipient cooldown of its own.
     "door_unavailable": 0,
+    # #2857: one alert per Chapter Role edit, not a repeating problem report, so no cooldown.
+    "chapter_role_holder_withdrawal_failed": 0,
     # Per-event staff alerts, not throttled (#2174): the default 60 mailed staff about one request an hour.
     "contact_request_new": 0,
     "contact_request_urgent": 0,

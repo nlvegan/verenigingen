@@ -7,7 +7,7 @@ so broken links on unrelated parts of the Donor doc are never validated).
 """
 
 import frappe
-from frappe.utils import getdate
+from frappe.utils import cint, flt, getdate
 
 from verenigingen.utils.base_history_manager import BaseHistoryManager
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
@@ -86,50 +86,34 @@ class DonationHistoryManager(BaseHistoryManager):
         return {"success": True, "message": f"Removed donation {donation_name} from history"}
 
     @staticmethod
+    def donor_history_is_consistent(donor_name: str) -> bool:
+        """Read-only: does ``donor_history`` already equal what a rebuild would write? (#850)
+
+        Compares the child rows to the rows ``sync_donation_history`` would build,
+        taken from the SAME helpers, so the comparison cannot drift from the writer
+        (the fee-change sweep's first draft compared against a string the live writer
+        never produced). Order is ignored and duplicates count, so a missing, orphaned,
+        duplicated or drifted row all read as inconsistent. Writes nothing.
+        """
+        expected = _history_rows_for(_fetch_donations(donor_name))
+        existing = frappe.get_all(
+            "Donation History",
+            filters={"parent": donor_name, "parenttype": "Donor", "parentfield": "donor_history"},
+            fields=list(_HISTORY_FIELDS),
+        )
+        return _comparable_history_rows(existing) == _comparable_history_rows(expected)
+
+    @staticmethod
     def sync_donation_history(donor_name: str) -> dict:
         """Sync donation history from actual donation records."""
 
-        donations = frappe.get_all(
-            "Donation",
-            filters={"donor": donor_name},
-            fields=[
-                "name",
-                "donation_date",
-                "amount",
-                # Donation schema has `mode_of_payment`, not `payment_method`.
-                # `payment_method` is the donor_history CHILD TABLE field name
-                # (see line 121 below — we map mode_of_payment → payment_method
-                # when appending to the child table).
-                "mode_of_payment",
-                "status",
-                "fund_designation",
-                "donation_purpose",
-                "paid",
-                "docstatus",
-                "journal_entry",
-            ],
-            order_by="donation_date desc",
-        )
+        donations = _fetch_donations(donor_name)
 
         def _callback(donor):
             DonationHistoryManager._fix_broken_entries(donor)
             donor.donor_history = []
-            for donation in donations:
-                if donation.docstatus == 1 or (donation.docstatus == 0 and donation.amount):
-                    donor.append(
-                        "donor_history",
-                        {
-                            "donation_reference": donation.name,
-                            "donation_date": donation.donation_date,
-                            "donation_amount": donation.amount,
-                            "payment_method": donation.mode_of_payment,
-                            "donation_status": donation.status,
-                            "fund_designation": donation.fund_designation,
-                            "donation_purpose": donation.donation_purpose,
-                            "paid": donation.paid,
-                            "journal_entry": donation.journal_entry,
-                        },
-                    )
+            for row in _history_rows_for(donations):
+                donor.append("donor_history", row)
             return None  # trigger save
 
         result = DonationHistoryManager._with_doc(
@@ -212,6 +196,79 @@ class DonationHistoryManager(BaseHistoryManager):
 
 
 # --- Private helpers ---
+
+
+_HISTORY_FIELDS = (
+    "donation_reference",
+    "donation_date",
+    "donation_amount",
+    "payment_method",
+    "donation_status",
+    "fund_designation",
+    "donation_purpose",
+    "paid",
+    "journal_entry",
+)
+
+
+def _fetch_donations(donor_name):
+    return frappe.get_all(
+        "Donation",
+        filters={"donor": donor_name},
+        fields=[
+            "name",
+            "donation_date",
+            "amount",
+            # Donation schema has `mode_of_payment`, not `payment_method`.
+            # `payment_method` is the donor_history CHILD TABLE field name; the
+            # mapping happens in _history_rows_for.
+            "mode_of_payment",
+            "status",
+            "fund_designation",
+            "donation_purpose",
+            "paid",
+            "docstatus",
+            "journal_entry",
+        ],
+        order_by="donation_date desc",
+    )
+
+
+def _history_rows_for(donations):
+    """The child rows a rebuild writes: submitted donations, or drafts with an amount."""
+    return [
+        {
+            "donation_reference": d.name,
+            "donation_date": d.donation_date,
+            "donation_amount": d.amount,
+            "payment_method": d.mode_of_payment,
+            "donation_status": d.status,
+            "fund_designation": d.fund_designation,
+            "donation_purpose": d.donation_purpose,
+            "paid": d.paid,
+            "journal_entry": d.journal_entry,
+        }
+        for d in donations
+        if d.docstatus == 1 or (d.docstatus == 0 and d.amount)
+    ]
+
+
+def _comparable_history_rows(rows):
+    """Order-insensitive, type-normalised form of history rows (a multiset)."""
+    return sorted(
+        (
+            row.get("donation_reference") or "",
+            str(getdate(row["donation_date"])) if row.get("donation_date") else "",
+            flt(row.get("donation_amount"), 2),
+            row.get("payment_method") or "",
+            row.get("donation_status") or "",
+            row.get("fund_designation") or "",
+            row.get("donation_purpose") or "",
+            cint(row.get("paid")),
+            row.get("journal_entry") or "",
+        )
+        for row in rows
+    )
 
 
 def _update_entry_fields(entry, donation_doc):

@@ -30,8 +30,8 @@ from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_a
 class TestChapterMemberWelcomeMail(VereningingenTestCase):
     def setUp(self):
         super().setUp()
-        own_notification_keys(self, "chapter_member_joined")
         ensure_outgoing_email_account(self)  # else a send is refused and a "no mail" assertion is vacuous
+        own_notification_keys(self, "chapter_member_joined")
         self._ensure_welcome_template("member_added_to_chapter")
         self._ensure_welcome_template("chapter_member_notification")
         self.chapter = self.create_test_chapter(

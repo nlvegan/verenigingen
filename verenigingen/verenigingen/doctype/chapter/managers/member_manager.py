@@ -1639,16 +1639,32 @@ class MemberManager(BaseManager):
         for member_id in candidates:
             if member_id not in active:
                 continue
-            try:
-                self.chapter_doc.communication_manager.notify_board_of_member_joined(member_id)
-            except NON_RESUMABLE_DB_ERRORS:
-                # a broken transaction must not be logged past and reported as success
-                raise
-            except Exception as e:
-                frappe.log_error(
-                    title=f"Board join notification failed: {self.chapter_name}",
-                    message=f"member={member_id}: {e}\n{frappe.get_traceback()}",
-                )
+            self._send_board_join_notice(member_id)
+
+    def notify_board_of_activated_join(self, member_id):
+        """Tell the board of a join whose row was activated while the Member was still Pending (#2916).
+
+        Application approval activates the applicant's Pending row BEFORE the first invoice, so the
+        Member is not yet Active when Chapter.on_update runs notify_board_of_joins and that sends nothing.
+        The approval calls this once the Member is Active; the same gates apply.
+        """
+        if self._join_notifications_suppressed() or not self._board_join_mail_enabled():
+            return
+        if frappe.db.get_value("Member", member_id, "status") != "Active":
+            return
+        self._send_board_join_notice(member_id)
+
+    def _send_board_join_notice(self, member_id):
+        try:
+            self.chapter_doc.communication_manager.notify_board_of_member_joined(member_id)
+        except NON_RESUMABLE_DB_ERRORS:
+            # a broken transaction must not be logged past and reported as success
+            raise
+        except Exception as e:
+            frappe.log_error(
+                title=f"Board join notification failed: {self.chapter_name}",
+                message=f"member={member_id}: {e}\n{frappe.get_traceback()}",
+            )
 
     @staticmethod
     def _join_notifications_suppressed():

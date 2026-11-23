@@ -585,52 +585,6 @@ def get_member_by_subscription_id(
     return members[0] if members else None
 
 
-def get_member_by_customer_id(customer_id: str, fields: Optional[list] = None) -> Optional[Dict[str, Any]]:
-    """
-    Find member by Mollie customer ID.
-
-    Extracted from duplicated member lookup patterns in payment_gateways.py
-    (line 1488). Consolidates customer-based member queries.
-
-    Args:
-        customer_id: Mollie customer ID (format: cst_xxx)
-        fields: Optional list of fields to retrieve (default: ["name"])
-
-    Returns:
-        Member document as dict if found, None otherwise
-
-    Example:
-        >>> member = get_member_by_customer_id("cst_abc123")
-        >>> if member:
-        ...     print(f"Found member: {member['name']}")
-    """
-    if not customer_id:
-        return None
-
-    # First try to find by mollie_customer_id field
-    if fields is None:
-        fields = ["name"]
-
-    # Member has mollie_customer_id field
-    members = frappe.get_all("Member", filters={"mollie_customer_id": customer_id}, fields=fields, limit=1)
-
-    if members:
-        return members[0]
-
-    # Fallback: Check if customer_id matches a Customer doctype, then find linked Member
-    # This handles the pattern at line 988 where filters={"customer": customer_name}
-    from verenigingen.utils.member_utils import get_member_for_customer
-
-    member_name = get_member_for_customer(customer_id)
-    if member_name:
-        if "name" not in fields:
-            fields = ["name"] + fields
-        member_doc = frappe.get_value("Member", member_name, fields, as_dict=True)
-        return member_doc
-
-    return None
-
-
 def get_members_by_customer(customer_name: str, fields: Optional[list] = None) -> list:
     """
     Find all members linked to a Customer doctype.

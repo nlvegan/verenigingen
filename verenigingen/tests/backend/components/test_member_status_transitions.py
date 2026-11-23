@@ -5,7 +5,7 @@ Tests for member lifecycle, status changes, and state validation
 
 import unittest
 import frappe
-from frappe.utils import add_days, add_months, today
+from frappe.utils import add_months
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -35,9 +35,6 @@ class TestMemberStatusTransitions(VereningingenTestCase):
 
         # Transition to suspended
         member.status = "Suspended"
-        # Check if suspension_reason field exists in Member doctype
-        if hasattr(member, 'suspension_reason'):
-            member.suspension_reason = "Payment overdue"
         member.save()
 
         # Verify status change
@@ -63,25 +60,16 @@ class TestMemberStatusTransitions(VereningingenTestCase):
             email="suspended.test.status@test.com",
             status="Suspended"
         )
-        
-        # Set suspension reason if field exists
-        if hasattr(member, 'suspension_reason'):
-            member.suspension_reason = "Payment overdue"
-            member.save()
 
         # Reload to get latest version before making changes (prevent TimestampMismatchError)
         member.reload()
 
         # Transition back to active
         member.status = "Active"
-        if hasattr(member, 'suspension_reason'):
-            member.suspension_reason = ""  # Clear reason
         member.save()
 
         # Verify status change
         self.assertEqual(member.status, "Active")
-        if hasattr(member, 'suspension_reason'):
-            self.assertEqual(member.suspension_reason, "")
 
         # Cleanup handled automatically by VereningingenTestCase
 
@@ -105,13 +93,10 @@ class TestMemberStatusTransitions(VereningingenTestCase):
 
         # Transition to terminated
         member.status = "Quit"
-        member.termination_reason = "Voluntary resignation"
-        member.termination_date = today()
         member.save()
 
         # Verify status change
         self.assertEqual(member.status, "Quit")
-        self.assertIsNotNone(member.termination_date)
 
         # Verify membership status - check if cascade happened
         updated_membership = frappe.get_doc("Membership", membership.name)
@@ -164,8 +149,6 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         # Current implementation may or may not enforce this restriction
         try:
             member.status = "Quit"
-            member.termination_reason = "Test termination"
-            member.termination_date = today()
             member.save()
             # If save succeeds, the restriction is not enforced
             self.assertEqual(member.status, "Quit")
@@ -187,21 +170,11 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         )
 
         # Perform rapid transitions
-        transitions = [
-            ("Suspended", "Payment issue"),
-            ("Active", ""),
-            ("Suspended", "Behavior issue"),
-            ("Active", ""),
-        ]
+        transitions = ["Suspended", "Active", "Suspended", "Active"]
 
-        for new_status, reason in transitions:
+        for new_status in transitions:
             member.reload()  # Prevent TimestampMismatchError
             member.status = new_status
-            if new_status == "Suspended":
-                member.suspension_reason = reason
-            else:
-                member.suspension_reason = ""
-
             member.save()
 
             # Verify each transition
@@ -227,101 +200,16 @@ class TestMemberStatusTransitions(VereningingenTestCase):
 
         # First user suspends
         member1.status = "Suspended"
-        member1.suspension_reason = "First reason"
         member1.save()
 
-        # Second user tries to terminate (should handle conflict)
-        try:
-            member2.status = "Quit"
-            member2.termination_reason = "Second reason"
+        # Second user tries to terminate from a stale copy: Frappe's optimistic lock
+        # must refuse the write, so the first user's Suspended is what persists.
+        member2.status = "Quit"
+        with self.assertRaises(frappe.TimestampMismatchError):
             member2.save()
 
-            # Should handle gracefully or detect conflict
-            final_member = frappe.get_doc("Member", member.name)
-            self.assertIn(final_member.status, ["Suspended", "Quit"])
-
-        except Exception:
-            # Conflict detection is acceptable
-            pass
-
-        # Cleanup handled automatically by VereningingenTestCase
-
-    # ===== STATUS VALIDATION EDGE CASES =====
-
-    def test_status_with_missing_required_fields(self):
-        """Test status changes behavior with missing fields"""
-        member = self.create_test_member(
-            first_name="Missing",
-            last_name="Fields",
-            email="missing.test.status@test.com",
-            status="Active"
-        )
-
-        # Test suspended without reason - implementation may or may not require it
-        try:
-            member.reload()
-            member.status = "Suspended"
-            member.suspension_reason = ""  # Missing reason
-            member.save()
-            # If save succeeds, suspension_reason is not required
-            self.assertEqual(member.status, "Suspended")
-        except frappe.ValidationError:
-            # If ValidationError, the field is required - reload to reset
-            member.reload()
-
-        # Test terminated without required fields
-        try:
-            member.reload()
-            member.status = "Quit"
-            # Missing termination_reason and termination_date
-            member.save()
-            # If save succeeds, these fields are not strictly required
-            self.assertEqual(member.status, "Quit")
-        except frappe.ValidationError:
-            # If ValidationError, these fields are required
-            pass
-
-        # Cleanup handled automatically by VereningingenTestCase
-
-    def test_status_with_invalid_dates(self):
-        """Test status changes behavior with various dates"""
-        member = self.create_test_member(
-            first_name="Invalid",
-            last_name="Dates",
-            email="dates.test.status@test.com",
-            status="Active"
-        )
-
-        # Test future termination date - implementation may or may not validate this
-        try:
-            member.reload()
-            member.status = "Quit"
-            member.termination_reason = "Test"
-            member.termination_date = add_days(today(), 30)  # Future date
-            member.save()
-            # If save succeeds, future dates are allowed
-            self.assertEqual(member.status, "Quit")
-            # Reset for next test
-            member.reload()
-            member.status = "Active"
-            member.save()
-        except frappe.ValidationError:
-            # If ValidationError, future dates are not allowed
-            member.reload()
-
-        # Test termination date before join date (if join_date exists)
-        if hasattr(member, "join_date") and member.join_date:
-            try:
-                member.reload()
-                member.status = "Quit"
-                member.termination_reason = "Test"
-                member.termination_date = add_days(member.join_date, -1)  # Before join
-                member.save()
-                # If save succeeds, date validation is not enforced
-                self.assertEqual(member.status, "Quit")
-            except frappe.ValidationError:
-                # If ValidationError, date validation is enforced
-                pass
+        final_member = frappe.get_doc("Member", member.name)
+        self.assertEqual(final_member.status, "Suspended")
 
         # Cleanup handled automatically by VereningingenTestCase
 
@@ -348,7 +236,6 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         # Suspend member
         member.reload()  # Prevent TimestampMismatchError
         member.status = "Suspended"
-        member.suspension_reason = "Test suspension"
         member.save()
 
         # Check membership status updates - verify cascade behavior
@@ -364,8 +251,6 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         # Terminate member
         member.reload()  # Prevent TimestampMismatchError
         member.status = "Quit"
-        member.termination_reason = "Test termination"
-        member.termination_date = today()
         member.save()
 
         # Check membership termination - verify cascade behavior
@@ -398,7 +283,6 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         # Suspend member
         member.reload()  # Prevent TimestampMismatchError
         member.status = "Suspended"
-        member.suspension_reason = "Test suspension"
         member.save()
 
         # Check volunteer status (should be updated or remain unchanged based on policy)
@@ -408,8 +292,6 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         # Terminate member
         member.reload()  # Prevent TimestampMismatchError
         member.status = "Quit"
-        member.termination_reason = "Test termination"
-        member.termination_date = today()
         member.save()
 
         # Check volunteer termination
@@ -417,48 +299,6 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         self.assertIn(updated_volunteer.status, ["Active", "Inactive", "Quit"])
 
         # Cleanup handled automatically by VereningingenTestCase
-    # ===== AUDIT TRAIL VALIDATION =====
-
-    def test_status_change_audit_trail(self):
-        """Test audit trail creation for status changes"""
-        member = self.create_test_member(
-            first_name="Audit",
-            last_name="Trail",
-            email="audit.test.status@test.com",
-            status="Active"
-        )
-
-        original_status = member.status
-
-        # Change status
-        member.reload()  # Prevent TimestampMismatchError
-        member.status = "Suspended"
-        member.suspension_reason = "Audit trail test"
-        member.save()
-
-        # Check if audit trail exists (if implemented)
-        try:
-            # Check if Communication History doctype exists first
-            if frappe.db.exists("DocType", "Communication History"):
-                audit_entries = frappe.get_all(
-                    "Communication History",
-                    filters={
-                        "reference_doctype": "Member",
-                        "reference_name": member.name,
-                        "communication_type": "Status Change"},
-                )
-                if audit_entries:
-                    # Verify audit entry contains status change info
-                    audit_entry = frappe.get_doc("Communication History", audit_entries[0].name)
-                    self.assertIn("Suspended", audit_entry.content)
-                    self.assertIn(original_status, audit_entry.content)
-
-        except (frappe.DoesNotExistError, Exception):
-            # Audit system not implemented yet or table structure different
-            pass
-
-        # Cleanup handled automatically by VereningingenTestCase
-
     # ===== BUSINESS RULE VALIDATION =====
 
     def test_payment_status_business_rules(self):
@@ -507,7 +347,6 @@ class TestMemberStatusTransitions(VereningingenTestCase):
         # Suspend member
         member.reload()  # Prevent TimestampMismatchError
         member.status = "Suspended"
-        member.suspension_reason = "Test suspension"
         member.save()
 
         # A Suspended member cannot be assigned: the call refuses (success False) and

@@ -42,7 +42,11 @@ from werkzeug.wrappers import Request
 
 from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
-from verenigingen.tests.utils.force_delete import delete_role_and_grants
+from verenigingen.tests.utils.force_delete import (
+    chapters_last,
+    delete_role_and_grants,
+    release_single_links_to_chapter,
+)
 from verenigingen.tests.utils.form_dict_guard import guard_form_dict
 from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
 from verenigingen.tests.utils.response_guard import guard_local_response
@@ -303,7 +307,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         self._cleanup_member_customers()
 
         # Clean up test docs with retry logic for lock timeouts
-        for doc_info in reversed(self._test_docs):
+        for doc_info in chapters_last(reversed(self._test_docs)):
             self._cleanup_document_with_retry(doc_info)
 
         # Report cleanup summary if there were failures
@@ -516,6 +520,8 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                         # #1856: a bare delete strands `Has Role` rows on surviving users.
                         delete_role_and_grants(doc_info["name"])
                     else:
+                        if doc_info["doctype"] == "Chapter":
+                            release_single_links_to_chapter(doc_info["name"])
                         frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
                     # Commit the deletion to release locks
                     frappe.db.commit()
@@ -991,7 +997,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         the cancel when it says yes, and let the delete fail/report exactly
         as it did before this fix.
         """
-        for doc_info in reversed(cls._track_created_docs):
+        for doc_info in chapters_last(reversed(cls._track_created_docs)):
             try:
                 doctype, name = doc_info["doctype"], doc_info["name"]
                 if frappe.db.exists(doctype, name):
@@ -1011,6 +1017,8 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                         # #1856: a bare delete strands `Has Role` rows on surviving users.
                         delete_role_and_grants(name)
                     else:
+                        if doctype == "Chapter":
+                            release_single_links_to_chapter(name)
                         frappe.delete_doc(doctype, name, force=True)
             except (frappe.DoesNotExistError, frappe.ValidationError, frappe.LinkExistsError) as e:
                 print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")

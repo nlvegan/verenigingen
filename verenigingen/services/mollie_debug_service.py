@@ -544,8 +544,14 @@ class MollieDebugService(StatelessService):
             try:
                 from frappe.utils import getdate
 
+                from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
+                    mollie_signature_date,
+                )
+
                 parsed_date = getdate(signature_date)
-                if parsed_date > getdate():
+                # Mollie 422s on a date after ITS (UTC) today, so compare to UTC, not the
+                # site-local day (#3041).
+                if parsed_date > getdate(mollie_signature_date()):
                     raise ValueError(_("Signature date cannot be in the future"))
                 return str(parsed_date)
             except ValueError:

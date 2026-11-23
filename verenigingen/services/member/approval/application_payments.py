@@ -11,6 +11,7 @@ from frappe.utils import add_days, cint, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.utils.invoice_price_list import get_selling_price_list_for_company
 from verenigingen.utils.secure_operations import follow_on_ignore_permissions, secure_document_operation
 from verenigingen.utils.transaction_errors import rollback_to_savepoint
 
@@ -83,6 +84,8 @@ def create_membership_invoice_with_amount(member, membership, amount, period_sta
         # (services/billing/invoice_generator.py), and required for the
         # membership -> invoices lookup (membership.get_membership_invoices).
         "membership": membership.name,
+        # #2810: price list in the company currency (no live rate fetch).
+        "selling_price_list": get_selling_price_list_for_company(settings.company, member.customer),
         "posting_date": today(),
         "due_date": add_days(today(), 14),
         "custom_coverage_start_date": period_start,  # Set coverage period start

@@ -39,6 +39,7 @@ from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestPeriodicDonationOperations(VereningingenTestCase):
@@ -122,7 +123,7 @@ class TestPeriodicDonationOperations(VereningingenTestCase):
         # The API explicitly sets status="Draft".
         self.assertEqual(agreement.status, "Draft")
         # start_date defaulted to today().
-        self.assertEqual(str(agreement.start_date), today())
+        assert_written_today(self, agreement.start_date)
 
     def test_create_agreement_computes_monthly_payment_amount(self):
         donor = self._make_donor(anbi_consent=1)
