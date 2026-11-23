@@ -109,16 +109,23 @@ class SEPAMandateTestDataFactory:
         if country not in SEPAMandateTestDataFactory.TEST_IBANS:
             country = "NL"  # Default to Dutch IBAN
 
-        available_ibans = SEPAMandateTestDataFactory.TEST_IBANS[country]
+        if country == "NL":
+            # Generated, not pooled: the old pool returned the same element on every call
+            # (#931). `secrets` rather than `random` because SEPAMandateTestMixin.setUp()
+            # reseeds the GLOBAL random to a constant, which would make a random draw
+            # deterministic again (#852). A real Dutch bank code is used so BIC and bank
+            # name derivation still resolve; ABNA is the first pooled bank, kept as default.
+            import secrets
 
-        if bank_code and country == "NL":
-            # Try to find IBAN for specific bank
-            for iban in available_ibans:
-                if bank_code in iban:
-                    return iban
+            from verenigingen.utils.validation.iban_validator import generate_test_iban
 
-        # Return first available IBAN
-        return available_ibans[0]
+            if bank_code not in SEPAMandateTestDataFactory.DUTCH_BANK_BICS:
+                bank_code = "ABNA"
+            account_number = f"{secrets.randbelow(10**10):010d}"
+            return generate_test_iban(bank_code, account_number)
+
+        # No generator exists for other countries; they keep the fixed pool.
+        return SEPAMandateTestDataFactory.TEST_IBANS[country][0]
 
     @staticmethod
     def get_bic_for_iban(iban: str) -> Optional[str]:

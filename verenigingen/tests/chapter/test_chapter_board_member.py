@@ -33,6 +33,9 @@ from verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member
 
 
 BOARD_MEMBER_ROLE = "Verenigingen Chapter Board Member"
+_LIVE_SEAT_HELPER = (
+    "verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.count_live_seats"
+)
 
 
 class TestChapterBoardMemberCountQueries(EnhancedTestCase):
@@ -109,19 +112,23 @@ class TestRemoveBoardMemberRoleLogic(EnhancedTestCase):
     other active board positions the volunteer holds.
     """
 
-    def _patch_db(self, mock_frappe, *, member, user, role_assignment, count_results):
+    def _patch_db(self, mock_frappe, *, member, user, role_assignment, live_seat_count):
         """Wire up the mocked frappe.db calls the method makes in order:
           1. frappe.get_doc('Volunteer', ...)  -> volunteer_doc.member
           2. frappe.db.get_value('Member', ...) -> user
-          3. frappe.db.count(...) twice (open-ended, future)
+          3. count_live_seats(...) once (the shared live-seat helper, #2472).
+             ``frappe`` is mocked only inside the controller module; the helper lives
+             in utils/board_seat.py and would otherwise hit the real DB, so it is
+             patched here and returned for call assertions.
           4. frappe.db.exists('Has Role', ...) -> role_assignment
         """
         volunteer_doc = MagicMock()
         volunteer_doc.member = member
         mock_frappe.get_doc.return_value = volunteer_doc
         mock_frappe.db.get_value.return_value = user
-        mock_frappe.db.count.side_effect = list(count_results)
+        live_seats = self.enterContext(patch(_LIVE_SEAT_HELPER, return_value=live_seat_count))
         mock_frappe.db.exists.return_value = role_assignment
+        return live_seats
 
     @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.secure_document_operation")
     @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.frappe")
@@ -141,7 +148,7 @@ class TestRemoveBoardMemberRoleLogic(EnhancedTestCase):
 
         mock_frappe.get_doc.side_effect = [volunteer_doc, user_doc]
         mock_frappe.db.get_value.return_value = "user@example.test"
-        mock_frappe.db.count.side_effect = [0, 0]
+        self.enterContext(patch(_LIVE_SEAT_HELPER, return_value=0))
         mock_frappe.db.exists.return_value = "HasRole-1"
         mock_secure.return_value = MagicMock(success=True)
 
@@ -170,7 +177,7 @@ class TestRemoveBoardMemberRoleLogic(EnhancedTestCase):
             member="MEM-1",
             user="user@example.test",
             role_assignment="HasRole-1",
-            count_results=[1, 0],  # one open-ended, no future-ending
+            live_seat_count=1,  # one open-ended live seat
         )
 
         _make_board_member_stub().remove_board_member_role()
@@ -186,7 +193,7 @@ class TestRemoveBoardMemberRoleLogic(EnhancedTestCase):
             member="MEM-1",
             user="user@example.test",
             role_assignment="HasRole-1",
-            count_results=[0, 1],
+            live_seat_count=1,  # one future-dated live seat
         )
 
         _make_board_member_stub().remove_board_member_role()
@@ -220,36 +227,26 @@ class TestRemoveBoardMemberRoleLogic(EnhancedTestCase):
 
     @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.secure_document_operation")
     @patch("verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member.frappe")
-    def test_count_filters_use_correct_doctype_and_operator(self, mock_frappe, _mock_secure):
-        """Regression: assert the exact filter shapes the method passes to count.
+    def test_withdrawal_consults_the_live_seat_helper_for_this_volunteer_and_row(self, mock_frappe, _mock_secure):
+        """Contract: the withdrawal asks the shared live-seat helper (#2472) about THIS
+        volunteer and excludes THIS row.
 
-        This is the most direct test of both bugs at once:
-          - DocType must be 'Chapter Board Member' (not the role name).
-          - to_date filter must use 'not set' (not 'null').
+        This used to pin the exact ``frappe.db.count`` filter shapes (doctype and
+        ``["is", "not set"]``), an implementation detail that #2472 moved into
+        ``utils/board_seat.py``. The doctype and operator are now proven against the
+        real DB by TestChapterBoardMemberCountQueries and
+        test_live_seat_honours_to_date_2472; what is left to pin here is the wiring.
         """
-        self._patch_db(
+        live_seats = self._patch_db(
             mock_frappe,
             member="MEM-1",
             user="user@example.test",
             role_assignment=None,
-            count_results=[0, 0],
+            live_seat_count=0,
         )
 
         doc = _make_board_member_stub(volunteer="VOL-X", name="cbm-X")
         doc.remove_board_member_role()
 
-        self.assertEqual(mock_frappe.db.count.call_count, 2)
-
-        first_call = mock_frappe.db.count.call_args_list[0]
-        second_call = mock_frappe.db.count.call_args_list[1]
-
-        # First query: open-ended active positions
-        self.assertEqual(first_call.args[0], "Chapter Board Member")
-        self.assertEqual(first_call.args[1]["to_date"], ["is", "not set"])
-        self.assertEqual(first_call.args[1]["volunteer"], "VOL-X")
-        self.assertEqual(first_call.args[1]["name"], ["!=", "cbm-X"])
-        self.assertEqual(first_call.args[1]["is_active"], 1)
-
-        # Second query: future-ending active positions
-        self.assertEqual(second_call.args[0], "Chapter Board Member")
-        self.assertEqual(second_call.args[1]["to_date"][0], ">=")
+        live_seats.assert_called_once_with("VOL-X", exclude_row="cbm-X")
+        mock_frappe.db.count.assert_not_called()

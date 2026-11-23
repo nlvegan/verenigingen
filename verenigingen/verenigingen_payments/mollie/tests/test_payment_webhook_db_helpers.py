@@ -17,12 +17,9 @@ Targets:
 - update_donation_payment_history        (child-table append + idempotency)
 - create_payment_entry_for_donation      (PE creation + idempotency + guest customer)
 - check_payment_processing_status_by_id  (idempotency status probe)
-- find_member_for_payment                (member matching strategies)
 - _get_subscription_failure_count        (atomic failure counting)
 - _validate_webhook_signature            (HMAC validation, PermissionError path)
 """
-
-import types
 
 import frappe
 from frappe.utils import getdate
@@ -33,7 +30,6 @@ from verenigingen.verenigingen_payments.mollie.api.payment_webhook import (
     _validate_webhook_signature,
     check_payment_processing_status_by_id,
     create_payment_entry_for_donation,
-    find_member_for_payment,
     get_appropriate_cost_center,
     update_donation_payment_history,
     update_donation_with_mollie_data,
@@ -259,31 +255,6 @@ class TestCheckPaymentProcessingStatusById(EnhancedTestCase):
         status = check_payment_processing_status_by_id("tr_does_not_exist_999")
         self.assertFalse(status["all_complete"])
         self.assertIn("No donation found", status["message"])
-
-
-class TestFindMemberForPayment(EnhancedTestCase):
-    def test_find_by_customer_id(self):
-        member = self.create_test_member(
-            first_name="Find", last_name="ByCustomer", email="find.bycustomer@example.com"
-        )
-        member.mollie_customer_id = f"cst_find_{frappe.generate_hash()[:8]}"
-        member.save()
-
-        payment = types.SimpleNamespace(
-            id="tr_find_1",
-            subscription_id=None,
-            customer_id=member.mollie_customer_id,
-            metadata={},
-        )
-        found = find_member_for_payment("tr_find_1", payment)
-        self.assertIsNotNone(found)
-        self.assertEqual(found.name, member.name)
-
-    def test_no_match_returns_none(self):
-        payment = types.SimpleNamespace(
-            id="tr_find_none", subscription_id=None, customer_id="cst_nobody", metadata={}
-        )
-        self.assertIsNone(find_member_for_payment("tr_find_none", payment))
 
 
 class TestSubscriptionFailureCount(EnhancedTestCase):

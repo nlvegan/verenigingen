@@ -29,6 +29,10 @@ import warnings
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.site_file_snapshot import (
+    brand_colors_css_path,
+    restore_file_state_on_class_cleanup,
+)
 from verenigingen.verenigingen.doctype.brand_settings.brand_settings import (
     check_owl_theme_integration,
     create_default_brand_settings,
@@ -42,6 +46,12 @@ OWL_INSTALLED = frappe.db.exists("DocType", "Owl Theme Settings")
 
 
 class TestBrandCSSEndpoints(EnhancedTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # #2963: saving Brand Settings writes brand_colors.css, which a DB rollback cannot undo.
+        restore_file_state_on_class_cleanup(cls, brand_colors_css_path())
+
     def setUp(self):
         super().setUp()
         frappe.set_user("Administrator")
@@ -125,6 +135,12 @@ class TestBrandOwlThemeSync(EnhancedTestCase):
 
 
 class TestBrandDefaultsAndDerivation(EnhancedTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # #2963: saving Brand Settings writes brand_colors.css, which a DB rollback cannot undo.
+        restore_file_state_on_class_cleanup(cls, brand_colors_css_path())
+
     def setUp(self):
         super().setUp()
         frappe.set_user("Administrator")

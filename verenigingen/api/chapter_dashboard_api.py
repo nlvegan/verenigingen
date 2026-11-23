@@ -21,6 +21,8 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.security.audit_emitter import get_audit_emitter
+from verenigingen.utils.security.types import SecurityLevel
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.utils.validation.api_validators import APIValidator
 
@@ -141,8 +143,8 @@ def quick_approve_application(application_name: str):
     Returns the dict `approve_application` returns (`success`, `member`, `application`, ...).
     """
     from verenigingen.api.membership_application_review import (
+        _approve_application,
         _sanitize_application_name,
-        approve_application,
     )
     from verenigingen.services.chapter.chapter_security import validate_application_permission_or_throw
     from verenigingen.templates.pages.chapter_dashboard import get_user_board_role
@@ -150,7 +152,7 @@ def quick_approve_application(application_name: str):
     validate_required_fields({"application_name": application_name}, ["application_name"])
     application_name = _sanitize_application_name(application_name, "dashboard approval")
 
-    # approve_application repeats this check; it comes first here so the dashboard's own gate below
+    # _approve_application repeats this check; it comes first here so the dashboard's own gate below
     # never runs for an application the caller may not even see (an unknown and a foreign application
     # are refused identically, #1765 Ruling M).
     validate_application_permission_or_throw(application_name, "approve")
@@ -163,10 +165,32 @@ def quick_approve_application(application_name: str):
     if not (user_role and user_role.get("permissions", {}).get("can_approve_members", False)):
         frappe.throw(_("You don't have permission to approve members"))
 
-    return approve_application(
-        application_name=application_name,
-        notes=f"Approved via chapter dashboard by {frappe.session.user}",
-    )
+    try:
+        return _approve_application(
+            application_name,
+            None,
+            None,
+            f"Approved via chapter dashboard by {frappe.session.user}",
+            True,
+            False,
+        )
+    except NON_RESUMABLE_DB_ERRORS:
+        # handle_api_error re-raises these, so the decorator below audits the call itself: no second row.
+        raise
+    except Exception as e:
+        # handle_api_error below turns this into a returned failure, so high_security_api would audit
+        # the call as a success. Before #2280 the nested approve_application audited the refusal as
+        # api_call_failed (the #352 N1 class); record it here, through the emitter the decorators use.
+        get_audit_emitter().log_api_call(
+            func=quick_approve_application,
+            security_level=SecurityLevel.HIGH,
+            success=False,
+            error=str(e),
+            user=frappe.session.user,
+            args_count=0,
+            kwargs_keys=["application_name"],
+        )
+        raise
 
 
 @frappe.whitelist()

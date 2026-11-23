@@ -10,7 +10,7 @@ Reachability (traced on develop, not assumed):
 * ``get_member_by_subscription_id``: whitelisted ``cancel_mollie_subscription_by_id`` and
   ``update_mollie_subscription_amount`` act on the returned Member.
 * ``validate_csv_members``: whitelisted admin CSV check validated against the last row of a shared id.
-Not fixed (no production caller): ``payment_webhook.find_member_for_payment``,
+Not fixed (no production caller; deleted in #2676): ``payment_webhook.find_member_for_payment``,
 ``get_member_by_customer_id``.
 
 Probe shortcut, stated: shared ids are put on Members with ``db.set_value`` (as the #1497 module

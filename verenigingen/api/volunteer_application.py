@@ -98,7 +98,7 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
 
         # Check for existing volunteer with same email
         existing_volunteer = frappe.db.get_value(
-            "Volunteer", {"email": data.get("email")}, ["name", "status"], as_dict=True
+            "Volunteer", {"email": data.get("email")}, ["name", "status", "member"], as_dict=True
         )
 
         # An Inactive/Retired volunteer is allowed to re-apply: those are
@@ -132,6 +132,23 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
             existing_member = frappe.db.get_value("Member", filters, "name")
             if existing_member:
                 member_link = existing_member
+
+        # A dormant Volunteer linked to ANOTHER Member must not be repointed to this
+        # applicant's Member (#3026, as #2784): the reactivation runs as the system user,
+        # so the #2752 repoint guard would not stop it. An orphan is still adopted and the
+        # applicant's own Volunteer reactivated. Volunteer.email is unique, so a second
+        # record cannot be created; refuse, with one message that does not say whose
+        # Volunteer it is. (An applicant with no Member repoints nothing; unchanged.)
+        if (
+            is_reactivation
+            and member_link
+            and existing_volunteer.member
+            and existing_volunteer.member != member_link
+        ):
+            return OperationResult.fail(
+                _("We cannot process this application with this email address. Please contact us."),
+                error_code="VOLUNTEER_EMAIL_IN_USE",
+            )
 
         # Create (or reactivate) the volunteer record using a secure user context
         # (same pattern as the membership application).

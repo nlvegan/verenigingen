@@ -65,6 +65,10 @@ jobs:
         # test_workflow_ci_syntax_gates (#2399) runs flake8 against a scratch tree; without it
         # that test skips
         pip install flake8
+        # test_workflow_path_filter's YAML cross-check (#1585) compares the stdlib scanner
+        # against yaml.safe_load. It skipped here for as long as PyYAML was absent, and
+        # now FAILS under CI=true if PyYAML goes missing. The scanner itself stays stdlib-only.
+        pip install PyYAML==6.0.3
 
     # #2190: no `|| echo`. continue-on-error keeps this job green (the other validators here
     # are advisory too) but, unlike the `|| echo`, leaves the step's `outcome` real, so the
@@ -307,6 +311,57 @@ jobs:
         if [ "$after" -gt "$before" ]; then
           echo "::error file=$BASELINE::Baseline grew from $before to $after without a validator change."
           echo "A new submittability-drift site was recorded into the baseline instead of fixed."
+          exit 1
+        fi
+        echo "Baseline did not grow."
+
+    # The field-reference validator (#2323) was blind until child_table_patterns and
+    # property_patterns became reachable; the 170 findings it then reported are recorded in
+    # field_reference_baseline.txt so the REQUIRED fast-validation check fails only on NEW ones.
+    # Its own run is the `--pre-commit` step in `validation` and `fast-validation`; the two
+    # steps below are the same sync / did-not-grow pair as the ratchets above. The validator
+    # records only this app's own doctypes, so the baseline is the same here (151 doctypes
+    # loaded, no frappe/erpnext) as on a bench.
+    - name: Field-reference baseline is in sync with the tree
+      env:
+        # merge_group: push semantics ON PURPOSE (#2184), as the sibling steps.
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        # #1641: on a PR, fail the shrink this PR itself caused (not drift already at the base).
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
+      run: |
+        python scripts/validation/enhanced_field_reference_validator.py --update-baseline
+        python scripts/validation/baseline_shrink_gate.py \
+          scripts/validation/field_reference_baseline.txt \
+          "python scripts/validation/enhanced_field_reference_validator.py --update-baseline" \
+          --already-regenerated \
+          $FAIL_ON_SHRINK \
+          $BASE_SHA_ARG
+
+    - name: Field-reference baseline did not grow
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      run: |
+        BASELINE=scripts/validation/field_reference_baseline.txt
+        VALIDATOR=scripts/validation/enhanced_field_reference_validator.py
+        total() { grep -v -e '^#' -e '^$' | awk -F'::' '{s+=$NF} END {print s+0}'; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Validator changed in this PR, so a larger baseline is expected."
+          echo "Review the added entries by hand — they are new DETECTIONS, not new code."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | total)
+        after=$(total < "$BASELINE")
+        echo "baseline findings: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Baseline grew from $before to $after without a validator change."
+          echo "A new field-reference finding was recorded into the baseline instead of fixed."
           exit 1
         fi
         echo "Baseline did not grow."
@@ -1514,6 +1569,59 @@ jobs:
         if [ "$after" -gt "$before" ]; then
           echo "::error file=$BASELINE::Clone-family copies grew from $before to $after without a validator change."
           echo "A near-identical helper was recorded into the baseline instead of consolidated."
+          exit 1
+        fi
+        echo "Clone-family copies did not grow."
+
+    # scripts/ is a SECOND population (#1044/#1100): every validator and gate this repo runs,
+    # kept in its OWN baseline so it does not fold into the verenigingen one above. Nothing
+    # invoked it until #1429, and it drifted (a clone family went 7 -> 12 copies unseen).
+    # The three steps below mirror the verenigingen-root ones with --root scripts.
+    - name: Scripts population ratchet check
+      run: |
+        python scripts/validation/duplicate_helper_validator.py --root scripts \
+          --baseline scripts/validation/duplicate_helper_scripts_baseline.txt
+
+    - name: Scripts population baseline is in sync with the tree
+      env:
+        # merge_group: push semantics ON PURPOSE, same as the verenigingen-root step (#2184).
+        FAIL_ON_SHRINK: ${{ github.event_name != 'pull_request' && '--fail-on-shrink' || '' }}
+        BASE_SHA_ARG: ${{ github.event_name == 'pull_request' && format('--base-sha {0}', github.event.pull_request.base.sha) || '' }}
+      run: |
+        python scripts/validation/duplicate_helper_validator.py --root scripts \
+          --baseline scripts/validation/duplicate_helper_scripts_baseline.txt --update-baseline
+        python scripts/validation/baseline_shrink_gate.py \
+          scripts/validation/duplicate_helper_scripts_baseline.txt \
+          "python scripts/validation/duplicate_helper_validator.py --root scripts --baseline scripts/validation/duplicate_helper_scripts_baseline.txt --update-baseline" \
+          --require-marker "# clone family" \
+          --already-regenerated \
+          $FAIL_ON_SHRINK \
+          $BASE_SHA_ARG
+
+    - name: Scripts population clone-family copies did not grow
+      if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      run: |
+        BASELINE=scripts/validation/duplicate_helper_scripts_baseline.txt
+        VALIDATOR=scripts/validation/duplicate_helper_validator.py
+        total() { grep -e '# clone family' | awk -F'::' '{s+=$2+0} END {print s+0}'; }
+
+        if ! git cat-file -e "$BASE_SHA:$BASELINE" 2>/dev/null; then
+          echo "No baseline on the base branch yet — nothing to compare."
+          exit 0
+        fi
+        if ! git diff --quiet "$BASE_SHA" HEAD -- "$VALIDATOR"; then
+          echo "Validator changed in this PR, so a different baseline is expected."
+          exit 0
+        fi
+
+        before=$(git show "$BASE_SHA:$BASELINE" | total)
+        after=$(total < "$BASELINE")
+        echo "scripts clone-family copies: base=$before  head=$after"
+        if [ "$after" -gt "$before" ]; then
+          echo "::error file=$BASELINE::Clone-family copies grew from $before to $after without a validator change."
+          echo "A near-identical scripts/ helper was recorded into the baseline instead of consolidated."
           exit 1
         fi
         echo "Clone-family copies did not grow."

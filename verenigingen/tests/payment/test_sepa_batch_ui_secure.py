@@ -27,6 +27,7 @@ from frappe.utils import add_days, getdate, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.payment.sepa_batch_loader_test_helpers import (
+    BatchRowBankDataFromMandateMixin,
     customer_only_invoice,
     put_invoice_in_batch,
 )
@@ -685,6 +686,10 @@ class TestCreateSepaBatchValidatedSecure(SecureBase):
         )
         self.assertFalse(result["success"])
         self.assertIn("not in EUR", " ".join(result.get("errors", [])))
+
+
+class TestCreateSepaBatchValidatedSecureBankDataFromMandate(BatchRowBankDataFromMandateMixin, SecureBase):
+    _create_endpoint = staticmethod(s.create_sepa_batch_validated_secure)
 
 
 class TestLoadUnpaidInvoicesSecureResolvesRealMembership(SecureBase):

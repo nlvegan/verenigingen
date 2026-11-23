@@ -1,6 +1,6 @@
 # Makefile for Verenigingen app development
 
-.PHONY: help test test-quick test-all coverage lint format install clean check-imports test-mollie test-mollie-core test-mollie-performance test-mollie-security
+.PHONY: help test test-quick test-all coverage lint format install clean check-imports
 
 # Dynamic paths - works on any server.
 # The app is usually at <bench>/apps/verenigingen, but a git worktree lives outside
@@ -31,7 +31,6 @@ ifeq ($(strip $(SITE)),)
 SITE := veg11.veganisme.org
 endif
 APP=verenigingen
-MOLLIE_ORCHESTRATOR=verenigingen/tests/mollie_test_orchestrator.py
 
 help:
 	@echo "Verenigingen Development Commands:"
@@ -39,12 +38,6 @@ help:
 	@echo "  make test-quick   - Run quick validation tests"
 	@echo "  make test-all     - Run all test categories"
 	@echo "  make coverage     - Run tests with coverage report"
-	@echo ""
-	@echo "Mollie-specific tests:"
-	@echo "  make test-mollie         - Run all Mollie test categories"
-	@echo "  make test-mollie-core    - Run core consolidated Mollie tests"
-	@echo "  make test-mollie-performance - Run Mollie performance benchmarks"
-	@echo "  make test-mollie-security    - Run Mollie security tests"
 	@echo ""
 	@echo "Code quality:"
 	@echo "  make lint           - Run code linting"
@@ -118,34 +111,3 @@ clean:
 check-imports:
 	@echo "Running runtime import validation..."
 	@$(BENCH_DIR)/env/bin/python $(MAKEFILE_DIR)/scripts/validation/check_all_imports.py
-
-# Mollie Test Orchestrator Commands
-test-mollie:
-	@echo "Running all Mollie test categories..."
-	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --all
-
-test-mollie-core:
-	@echo "Running core Mollie integration tests..."
-	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category core --verbose
-
-test-mollie-performance:
-	@echo "Running Mollie performance benchmarks..."
-	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category performance --verbose
-
-test-mollie-security:
-	@echo "Running Mollie security tests..."
-	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category security --verbose
-
-test-mollie-integration:
-	@echo "Running Mollie integration tests..."
-	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category integration --verbose
-
-test-mollie-specialized:
-	@echo "Running specialized Mollie tests..."
-	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category specialized --verbose
-
-mollie-test-status:
-	@echo "Mollie test configuration status..."
-	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --list-categories
-	@echo ""
-	@cd $(BENCH_DIR) && $(BENCH_DIR)/env/bin/python $(PWD)/$(MOLLIE_ORCHESTRATOR) --validate

@@ -4,6 +4,7 @@ import frappe.utils
 from frappe.model.document import Document
 
 from verenigingen.permissions import clear_permission_cache
+from verenigingen.utils.board_seat import count_live_seats
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
@@ -323,19 +324,7 @@ def withdraw_board_member_role_if_unseated(volunteer: str, exclude_row: str = No
     if not user:
         return
 
-    # Frappe's "is" filter operator accepts only "set" / "not set"; "null"
-    # was rejected with `'is' operator only supports 'set' and 'not set'`.
-    # The DocType is "Chapter Board Member" — "Verenigingen Chapter Board
-    # Member" is the role name, not the DocType.
-    open_ended = {"volunteer": volunteer, "is_active": 1, "to_date": ["is", "not set"]}
-    future_dated = {"volunteer": volunteer, "is_active": 1, "to_date": [">=", frappe.utils.today()]}
-    if exclude_row:
-        open_ended["name"] = ["!=", exclude_row]
-        future_dated["name"] = ["!=", exclude_row]
-
-    total_active_positions = frappe.db.count("Chapter Board Member", open_ended) + frappe.db.count(
-        "Chapter Board Member", future_dated
-    )
+    total_active_positions = count_live_seats(volunteer, exclude_row=exclude_row)
 
     # Only remove the role if they are not on any other active board
     if total_active_positions:

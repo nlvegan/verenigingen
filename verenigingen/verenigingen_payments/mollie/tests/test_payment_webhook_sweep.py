@@ -1,35 +1,23 @@
 """
 Coverage sweep for verenigingen_payments/mollie/api/payment_webhook.py
 
-Targets the two highest-value uncovered clusters:
-
-1. ``_validate_webhook_signature()`` -- the STRICT HMAC-SHA256 webhook signature
-   validator. This is security-critical: a test that passes regardless of the
-   signature would be worthless, so every assertion below pins a real
-   accept/reject decision against a genuine HMAC computed with the configured
-   webhook secret (no mocking of the comparison logic).
-
-2. ``process_failed_payment()`` -- failure recording for donations and member
-   subscriptions, including the member non-subscription commit path, the
-   "no associated record" warning path, and the outer error-handling path.
+Targets ``_validate_webhook_signature()`` -- the STRICT HMAC-SHA256 webhook
+signature validator. This is security-critical: a test that passes regardless of
+the signature would be worthless, so every assertion below pins a real
+accept/reject decision against a genuine HMAC computed with the configured
+webhook secret (no mocking of the comparison logic).
 
 Only true external boundaries are stubbed (the HTTP request context via the
 shared ``install_fake_request`` fixture, and the Mollie Settings secret via
-``mollie_settings_override``). The signature logic and the failure-handling
-logic themselves run for real.
+``mollie_settings_override``). The signature logic itself runs for real.
 
-We deliberately do NOT re-test the member subscription-failure early-return path
-(payment.status == "failed" + subscription_id), which is already covered by
-test_failed_payment_processing.TestFailedPaymentProcessing.test_real_failed_payment_workflow.
+(``process_failed_payment()`` and its tests were deleted in #2676: dead code.)
 """
 
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.verenigingen_payments.mollie.api.payment_webhook import (
-    _validate_webhook_signature,
-    process_failed_payment,
-)
+from verenigingen.verenigingen_payments.mollie.api.payment_webhook import _validate_webhook_signature
 from verenigingen.verenigingen_payments.mollie.tests.fixtures.webhook_fixtures import (
     install_fake_request,
     make_webhook_payload,
@@ -38,19 +26,6 @@ from verenigingen.verenigingen_payments.mollie.tests.fixtures.webhook_fixtures i
 )
 
 SECRET = "whsec_payment_webhook_sweep_secret"
-
-
-class _FakePayment:
-    """Minimal Mollie payment stand-in (the webhook code only reads attributes)."""
-
-    def __init__(self, payment_id, status="failed", amount="25.00", **extra):
-        self.id = payment_id
-        self.status = status
-        self.amount = {"value": amount, "currency": "EUR"}
-        self.method = "directdebit"
-        self.created_at = "2024-01-15T10:00:00+00:00"
-        for k, v in extra.items():
-            setattr(self, k, v)
 
 
 class TestValidateWebhookSignature(EnhancedTestCase):
@@ -145,135 +120,3 @@ class TestValidateWebhookSignature(EnhancedTestCase):
             with install_fake_request(self.PAYLOAD, "sha256=not-a-real-digest"):
                 with self.assertRaises(frappe.PermissionError):
                     _validate_webhook_signature()
-
-
-class TestProcessFailedPayment(EnhancedTestCase):
-    """Failure-recording side effects of process_failed_payment()."""
-
-    def setUp(self):
-        super().setUp()
-        self.member = self.create_test_member(
-            first_name="FailSweep",
-            last_name="Member",
-            email="failsweep.member@example.com",
-            payment_method="Mollie",
-        )
-        self.member.mollie_customer_id = "cst_fail_sweep_001"
-        self.member.mollie_subscription_id = "sub_fail_sweep_001"
-        self.member.save()
-
-    def _make_draft_donation(self, payment_id, amount=25.0):
-        """Insert a NON-submitted Donation carrying the given Mollie payment_id.
-
-        A draft is required because process_failed_payment appends to the
-        Donation 'payments' child table and saves; that table is not
-        allow_on_submit, so the side effect is only observable on a draft doc.
-        """
-        donor = self.create_test_donor(donor_name="Fail Sweep Donor")
-        company = frappe.get_list("Company", limit=1)[0].name
-        donation = frappe.get_doc(
-            {
-                "doctype": "Donation",
-                "company": company,
-                "donor": donor.name,
-                "amount": amount,
-                "donation_date": frappe.utils.today(),
-                "currency": "EUR",
-                "paid": 0,
-                "mode_of_payment": "Bank Transfer",
-                "payment_id": payment_id,
-            }
-        )
-        donation.insert()
-        self.factory.track_document("Donation", donation.name, priority=4)
-        return donation
-
-    def test_failed_payment_recorded_on_donation(self):
-        """A failed payment matched to a donation appends a Cancelled history row."""
-        payment_id = "tr_fail_donation_001"
-        donation = self._make_draft_donation(payment_id, amount=42.0)
-        # No customer_id/subscription_id => no member match, isolate the donation path.
-        payment = _FakePayment(payment_id, status="failed", amount="42.00")
-
-        result = process_failed_payment(payment_id, payment)
-
-        self.assertEqual(result["payment_id"], payment_id)
-        self.assertEqual(result["status"], "failed")
-        donation_records = [r for r in result["processed_records"] if r["type"] == "donation"]
-        self.assertEqual(len(donation_records), 1)
-        self.assertEqual(donation_records[0]["id"], donation.name)
-        self.assertEqual(donation_records[0]["status"], "failed_payment_recorded")
-
-        # Verify the real side effect persisted on the donation child table.
-        donation.reload()
-        cancelled = [
-            p
-            for p in (donation.payments or [])
-            if p.get("mollie_payment_id") == payment_id and p.get("payment_status") == "Cancelled"
-        ]
-        self.assertEqual(len(cancelled), 1, "Expected exactly one Cancelled payment history row")
-
-    def test_failed_payment_recorded_on_member_non_subscription(self):
-        """A non-subscription failure matched only to a member commits via the
-        second save path (not the subscription early-return) and records history."""
-        payment_id = "tr_fail_member_nonsub_001"
-        # customer_id matches the member; NO subscription_id attribute at all so the
-        # subscription branch is skipped and the trailing member.save()+commit runs.
-        payment = _FakePayment(
-            payment_id,
-            status="expired",
-            amount="25.00",
-            customer_id=self.member.mollie_customer_id,
-        )
-        self.assertFalse(hasattr(payment, "subscription_id"))
-
-        result = process_failed_payment(payment_id, payment)
-
-        member_records = [r for r in result["processed_records"] if r["type"] == "member"]
-        self.assertEqual(len(member_records), 1)
-        self.assertEqual(member_records[0]["id"], self.member.name)
-        self.assertEqual(member_records[0]["status"], "failed_payment_recorded")
-
-        # Real side effect: a Cancelled subscription-payment history row exists.
-        self.member.reload()
-        cancelled = [
-            h
-            for h in (self.member.payment_history or [])
-            if h.get("payment_status") == "Cancelled" and payment_id in (h.get("notes") or "")
-        ]
-        self.assertEqual(len(cancelled), 1)
-
-    def test_no_associated_record_warning(self):
-        """A failed payment matching neither donation nor member yields a warning."""
-        payment_id = "tr_fail_orphan_001"
-        payment = _FakePayment(payment_id, status="failed", amount="10.00")
-
-        result = process_failed_payment(payment_id, payment)
-
-        self.assertEqual(result["processed_records"], [])
-        self.assertEqual(result["warning"], "No associated record found")
-        self.assertEqual(result["status"], "failed")
-
-    def test_processing_error_path_returns_acknowledgement(self):
-        """An unexpected error is caught and acknowledged (so Mollie won't retry).
-
-        We trigger it by passing a payment object missing the .status attribute,
-        which raises inside results-dict construction. The handler must return a
-        processing_error envelope rather than propagate.
-        """
-
-        class StatuslessPayment:
-            def __init__(self, payment_id):
-                self.id = payment_id
-                self.amount = {"value": "25.00", "currency": "EUR"}
-
-        payment_id = "tr_fail_error_001"
-        # The handler logs the failure to Error Log by design; mark it expected.
-        self.expectErrorLog("Failed Payment Processing")
-
-        result = process_failed_payment(payment_id, StatuslessPayment(payment_id))
-
-        self.assertEqual(result["payment_id"], payment_id)
-        self.assertEqual(result["status"], "processing_error")
-        self.assertIn("error", result)
-        self.assertIn("manual review", result["message"])

@@ -1189,6 +1189,7 @@ class MolliePaymentOrchestrator:
         """Create a Sales Invoice for an orphaned payment."""
         try:
             from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+            from verenigingen.utils.invoice_price_list import get_selling_price_list_for_currency
 
             settings = frappe.get_single("Verenigingen Settings")
             company = settings.company or frappe.defaults.get_global_default("company")
@@ -1213,6 +1214,9 @@ class MolliePaymentOrchestrator:
             # currency, e.g. an INR system default against a EUR company) -- the
             # mismatch otherwise fails Sales Invoice validation.
             invoice.currency = frappe.get_cached_value("Company", company, "default_currency")
+            # #2810: pin a price list in that currency, else the site default (possibly
+            # another currency) triggers a live rate fetch a webhook user is refused.
+            invoice.selling_price_list = get_selling_price_list_for_currency(invoice.currency, customer)
             invoice.posting_date = payment_date
             invoice.due_date = payment_date
             invoice.is_membership_invoice = 1

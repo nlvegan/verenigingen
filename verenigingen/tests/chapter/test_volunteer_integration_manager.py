@@ -15,6 +15,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestVolunteerIntegrationManager(VereningingenTestCase):
@@ -108,7 +109,7 @@ class TestVolunteerIntegrationManager(VereningingenTestCase):
         history = self.manager.get_volunteer_assignment_history(vol.name)
         completed = [h for h in history if h["status"] == "Completed"]
         self.assertEqual(len(completed), 1)
-        self.assertEqual(str(completed[0]["end_date"]), today())
+        assert_written_today(self, completed[0]["end_date"])
 
     def test_get_history_only_returns_this_chapters_assignments(self):
         _m, vol = self._make_volunteer(first="Scoped")

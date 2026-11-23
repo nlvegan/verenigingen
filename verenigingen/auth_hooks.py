@@ -85,13 +85,10 @@ from verenigingen.utils.member_utils import (
 # setting it to "Guest", but this created a race condition where normal session
 # initialization was interrupted.
 #
-# KEY DISTINCTION: This is different from the enforce_member_portal_access()
-# function below, which handles portal access rules without session validation.
-#
 # PROPER ALTERNATIVES:
 # - Session cleanup: Use utils/session_cleanup.py background jobs
 # - Role checking: Use frappe.get_roles() directly, after validating the user
-# - Portal access: Use enforce_member_portal_access() function
+# - Portal redirect: member_portal_redirect.js + get_member_home_page()
 
 
 def has_member_role(user):
@@ -201,88 +198,6 @@ def on_logout(login_manager):
         pass
     except Exception as e:
         frappe.logger().error(f"Error in logout hook: {str(e)}")
-
-
-def validate_auth_via_api(user, password):
-    """
-    Custom authentication validation if needed
-    This can be used to add additional auth checks for members
-    """
-    # For now, use default Frappe authentication
-    # Could add member-specific validation here if needed
-    return True
-
-
-def enforce_member_portal_access():
-    """
-    Hook called before each request to enforce member portal access rules
-
-    This function is different from the REMOVED validate_session_before_request()
-    function. This one handles portal access enforcement, while the removed one
-    was attempting session validation and causing race conditions.
-
-    IMPORTANT: This function does NOT validate sessions - it only handles access control.
-    Session validation must be complete before this function runs.
-    """
-    try:
-        # Skip for non-web requests to avoid interfering with system operations
-        if not hasattr(frappe, "local") or not frappe.local:
-            return
-
-        if not hasattr(frappe.local, "request") or not frappe.local.request:
-            return
-
-        # Skip for API requests to avoid breaking API functionality
-        request_path = getattr(frappe.local.request, "path", "")
-        if request_path.startswith("/api/"):
-            return
-
-        # CRITICAL: Enhanced session validation to prevent "User None is disabled" errors
-        if not hasattr(frappe, "session") or not frappe.session:
-            frappe.logger().debug("Portal access: No session available, skipping")
-            return
-
-        user = getattr(frappe.session, "user", None)
-
-        # Comprehensive user validation - more defensive
-        if user is None:
-            frappe.logger().debug(
-                "Portal access: User is None, skipping (may be during session initialization)"
-            )
-            return
-
-        if not isinstance(user, str):
-            frappe.logger().error(f"Portal access: User is not string: {type(user)} = {repr(user)}")
-            return
-
-        if user in ["", "None", "null", "undefined"]:
-            frappe.logger().error(f"Portal access: User has invalid value: {repr(user)}")
-            return
-
-        if len(user.strip()) == 0:
-            frappe.logger().error("Portal access: User is empty string")
-            return
-
-        # Skip for admin/system users (this is normal and expected)
-        if user in ["Administrator", "Guest"]:
-            return
-
-        # Check if member is trying to access restricted areas
-
-        # If user is a member but trying to access /app (backend)
-        # and doesn't have system roles, redirect to member portal
-        if (
-            frappe.local.request.path.startswith("/app")
-            and has_member_role(user)
-            and not has_system_access(user)
-        ):
-            frappe.local.response = frappe.utils.response.Response()
-            frappe.local.response.status_code = 302
-            frappe.local.response.headers["Location"] = "/member_portal"
-
-    except Exception as e:
-        # Don't break the request flow
-        frappe.logger().error(f"Error in before_request hook: {str(e)}")
 
 
 def has_system_access(user):
