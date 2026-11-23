@@ -1147,8 +1147,9 @@ def get_brand_css_inline():
             with open(css_path, "r") as f:
                 css = f.read()
         else:
-            # Fallback to generating inline if file doesn't exist
-            css = generate_brand_css()
+            # Fallback if the file doesn't exist. Not generate_brand_css(): that endpoint is
+            # admin-only and refused every non-admin caller here (#2962).
+            css = render_public_brand_css()
 
         return {"success": True, "css": css, "timestamp": frappe.utils.now()}
     except Exception as e:
