@@ -10,7 +10,6 @@ Exercises the reusable approval-workflow utilities against real DB documents:
 """
 
 import frappe
-from frappe.utils import today
 
 from verenigingen.services.member.approval.member_approval_service import (
     create_member_iban_history,
@@ -19,6 +18,7 @@ from verenigingen.services.member.approval.member_approval_service import (
     validate_membership_type_for_approval,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestResolveMembershipType(VereningingenTestCase):
@@ -90,7 +90,7 @@ class TestCreateMemberIbanHistory(VereningingenTestCase):
         self.assertTrue(active_rows)
         row = active_rows[0]
         self.assertEqual(row.iban, normalized_iban)
-        self.assertEqual(str(row.from_date), today())
+        assert_written_today(self, row.from_date)
         self.assertEqual(row.change_reason, "Application Approval")
 
     def test_duplicate_iban_history_not_recreated(self):

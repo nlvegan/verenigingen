@@ -95,6 +95,19 @@ RECURRING_COLLECTION_MIN_OFFSET = 2  # D+2 for RCUR
 VALID_BATCH_TYPES = ["CORE", "B2B", "COR1"]
 VALID_SEQUENCE_TYPES = ["FRST", "RCUR", "OOFF", "FNAL"]
 
+# A Direct Debit Batch Invoice row the XML generator left out of the pain.008 file
+# (#2839: undeterminable SeqTp; also an invalid debtor IBAN). It is written as
+# status "Failed" with this result_code, so it is told apart from a row that
+# failed while being booked (also "Failed", but retryable) and from one a bank
+# returned. Nothing was sent to the bank for such a row: it must never be booked
+# as paid, and its invoice is collectable again.
+ROW_NOT_IN_FILE_CODE = "NOT_IN_FILE"
+
+
+def row_left_out_of_file(status, result_code) -> bool:
+    """True for a batch row the generated SEPA file does not contain."""
+    return status == "Failed" and result_code == ROW_NOT_IN_FILE_CODE
+
 
 # =============================================================================
 # Currency

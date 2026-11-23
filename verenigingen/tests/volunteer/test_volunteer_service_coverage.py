@@ -1126,16 +1126,12 @@ class TestVolunteerActivationService(EnhancedTestCase):
         volunteer = self.create_test_volunteer(member_name=member.name, status="New")
         member.reload()
 
-        try:
-            activate_volunteer_record(member)
-        except Exception:
-            # Permission or dependency issues are acceptable in test env
-            pass
+        # No try/except: a refused permission or a dependency error must fail the
+        # test, not leave the volunteer at "New" unnoticed.
+        activate_volunteer_record(member)
 
-        # Check status was updated
         volunteer.reload()
-        # May or may not have changed depending on permissions
-        self.assertIn(volunteer.status, ["Active", "New"])
+        self.assertEqual(volunteer.status, "Active")
 
     def test_activate_volunteer_creates_new_volunteer(self):
         """activate_volunteer_record creates volunteer when none exists."""

@@ -55,15 +55,18 @@ class TestSEPAXMLAdapter(FrappeTestCase):
             ("RCUR", SEPASequenceType.RCUR),
             ("OOFF", SEPASequenceType.OOFF),
             ("FNAL", SEPASequenceType.FNAL),
-            ("CORE", SEPASequenceType.RCUR),  # CORE defaults to RCUR
-            ("", SEPASequenceType.RCUR),  # Empty defaults to RCUR
-            (None, SEPASequenceType.RCUR),  # None defaults to RCUR
-            ("INVALID", SEPASequenceType.RCUR),  # Unknown defaults to RCUR
         ]
 
         for type_str, expected in test_cases:
             result = self.adapter._get_sequence_type(type_str)
             self.assertEqual(result, expected, f"Expected {expected} for '{type_str}', got {result}")
+
+    def test_sequence_type_blank_unknown_and_scheme_values_are_refused(self):
+        """#2839: no default. The message names the invoice."""
+        for bad in ("CORE", "", None, "INVALID", "rcur"):
+            with self.assertRaises(frappe.ValidationError, msg=repr(bad)) as ctx:
+                self.adapter._get_sequence_type(bad, "INV-S2839-X")
+            self.assertIn("INV-S2839-X", str(ctx.exception))
 
     def test_mandate_sign_date_from_invoice_item(self):
         """Test mandate sign date extraction from invoice item field"""
@@ -143,7 +146,7 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         mock_invoice.member = "MEM-001"
         mock_invoice.sequence_type = "RCUR"
 
-        transaction = self.adapter._build_transaction(mock_invoice, SEPASequenceType.RCUR)
+        transaction = self.adapter._build_transaction(mock_invoice)
 
         self.assertIsNotNone(transaction)
         # EndToEndId should NOT double-prefix if invoice already has INV- prefix
@@ -174,7 +177,7 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         mock_invoice.member = "MEM-002"
         mock_invoice.sequence_type = "RCUR"
 
-        transaction = self.adapter._build_transaction(mock_invoice, SEPASequenceType.RCUR)
+        transaction = self.adapter._build_transaction(mock_invoice)
 
         self.assertEqual(transaction.currency, "", "a blank currency must not become 'EUR'")
 
@@ -192,11 +195,9 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         mock_invoice.member = None
         mock_invoice.sequence_type = "FRST"  # Invoice has FRST
 
-        transaction = self.adapter._build_transaction(
-            mock_invoice, SEPASequenceType.RCUR  # Batch default is RCUR
-        )
+        transaction = self.adapter._build_transaction(mock_invoice)
 
-        # Invoice-level FRST should override batch RCUR
+        # The row's own type is what ships
         self.assertEqual(transaction.sequence_type, SEPASequenceType.FRST)
 
     def test_singleton_instance(self):
@@ -218,10 +219,10 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         mock_invoice.mandate_reference = "MAND-001"
         mock_invoice.mandate_sign_date = date(2024, 1, 15)
         mock_invoice.member = None
-        mock_invoice.sequence_type = None
+        mock_invoice.sequence_type = "RCUR"
 
         self.adapter._validation_summary = None  # Reset
-        transaction = self.adapter._build_transaction(mock_invoice, SEPASequenceType.RCUR)
+        transaction = self.adapter._build_transaction(mock_invoice)
 
         # Should NOT be INV-INV-2024-001
         self.assertEqual(transaction.end_to_end_id, "INV-2024-001")
@@ -238,10 +239,10 @@ class TestSEPAXMLAdapter(FrappeTestCase):
         mock_invoice.mandate_reference = "MAND-001"
         mock_invoice.mandate_sign_date = date(2024, 1, 15)
         mock_invoice.member = None
-        mock_invoice.sequence_type = None
+        mock_invoice.sequence_type = "RCUR"
 
         self.adapter._validation_summary = None  # Reset
-        transaction = self.adapter._build_transaction(mock_invoice, SEPASequenceType.RCUR)
+        transaction = self.adapter._build_transaction(mock_invoice)
 
         # Should add prefix
         self.assertEqual(transaction.end_to_end_id, "INV-2024-001")
@@ -699,6 +700,142 @@ class TestStrictModeRefusesUnresolvableMandateSignDates(FrappeTestCase):
         message = str(ctx.exception)
         self.assertIn("INV-STRICT-MISSING-002", message)
         self.assertIn("MAND-DOES-NOT-EXIST-631", message)
+
+class TestAdapterNeverGuessesASequenceType(FrappeTestCase):
+    """#2839: the adapter used to turn a blank/unknown row SeqTp into the batch's
+    type, and a blank/unknown batch type into RCUR -- so whatever wrote the row
+    (direct DB write, import, an old batch) could put a GUESSED SeqTp in a file
+    sent to the bank. FRST vs RCUR is not a free choice: the bank rejects or
+    mis-processes a collection under the wrong one.
+
+    Real (unsaved) Direct Debit Batch documents go through the real
+    ``generate_xml_for_batch``. The batch carries the schema default
+    (sequence_type == "RCUR"), which is exactly what a blank row used to inherit.
+    The good row is FRST and the guess would be RCUR, so a leftover guess shows.
+    """
+
+    GOOD_IBAN = "NL91ABNA0417164300"
+
+    def setUp(self):
+        super().setUp()
+        self.adapter = SEPAXMLAdapter()
+
+    def tearDown(self):
+        self.adapter.clear_cache()
+        super().tearDown()
+
+    def _s2839_batch(self, row_types):
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.batch_date = today()
+        batch.batch_type = "CORE"
+        for index, seq in enumerate(row_types):
+            batch.append(
+                "invoices",
+                {
+                    "invoice": f"INV-S2839-{index}",
+                    "member_name": f"Member {index}",
+                    "amount": 50,
+                    "currency": "EUR",
+                    "iban": self.GOOD_IBAN,
+                    "bic": "ABNANL2A",
+                    "mandate_reference": f"MAND-S2839-{index}",
+                    "mandate_sign_date": date(2024, 6, 15),
+                    "sequence_type": seq,
+                },
+            )
+        batch.name = "BATCH-S2839"
+        return batch
+
+    def _s2839_generate(self, batch):
+        from verenigingen.verenigingen_payments.services.sepa_configuration_service import (
+            sepa_config_service,
+        )
+
+        settings = {
+            "organization_name": "Test Vereniging",
+            "iban": self.GOOD_IBAN,
+            "bic": "ABNANL2A",
+            "creditor_id": "NL12ZZZ123456789",
+        }
+        with patch.object(sepa_config_service, "get_sepa_settings", return_value=settings):
+            return self.adapter.generate_xml_for_batch(batch, "MSG-S2839", "PMT-S2839")
+
+    def _s2839_seqtps(self, xml_string):
+        ns = "{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}"
+        return [e.text for e in ET.fromstring(xml_string).iter(f"{ns}SeqTp")]
+
+    def test_premise_batch_default_is_rcur_and_valid_rows_ship_their_own_type(self):
+        batch = self._s2839_batch(["FRST"])
+        self.assertEqual(batch.sequence_type, "RCUR")  # the schema default a blank row inherited
+        self.assertEqual(self._s2839_seqtps(self._s2839_generate(batch)), ["FRST"])
+
+    def test_blank_row_type_is_skipped_not_given_the_batch_type(self):
+        batch = self._s2839_batch(["FRST", ""])
+        xml_string = self._s2839_generate(batch)
+        self.assertEqual(self._s2839_seqtps(xml_string), ["FRST"])
+        self.assertNotIn("INV-S2839-1", xml_string)
+        skipped = self.adapter._validation_summary.skipped_invoice_details
+        self.assertEqual([d["invoice"] for d in skipped], ["INV-S2839-1"])
+        self.assertIn("sequence type", skipped[0]["reason"].lower())
+
+    def test_none_row_type_is_skipped_too(self):
+        batch = self._s2839_batch(["FRST", None])
+        self.assertEqual(self._s2839_seqtps(self._s2839_generate(batch)), ["FRST"])
+        self.assertEqual(self.adapter._validation_summary.skipped_transactions, 1)
+
+    def test_unknown_row_type_is_skipped_not_turned_into_rcur(self):
+        batch = self._s2839_batch(["FRST", "INVALID"])
+        self.assertEqual(self._s2839_seqtps(self._s2839_generate(batch)), ["FRST"])
+        self.assertEqual(self.adapter._validation_summary.skipped_transactions, 1)
+
+    def test_scheme_value_in_a_sequence_field_is_not_turned_into_rcur(self):
+        batch = self._s2839_batch(["FRST", "CORE"])
+        self.assertEqual(self._s2839_seqtps(self._s2839_generate(batch)), ["FRST"])
+        self.assertEqual(self.adapter._validation_summary.skipped_transactions, 1)
+
+    def test_refusal_alerts_staff_and_writes_an_error_log_row(self):
+        """The refusal must be visible: one alert for the batch and one Error Log row per refused row."""
+        title = "SEPA XML Adapter - Transaction Build Error"
+        logs_before = frappe.db.count("Error Log", {"method": title})
+        batch = self._s2839_batch(["FRST", ""])
+        with patch.object(self.adapter, "_send_validation_alert") as alert:
+            self._s2839_generate(batch)
+        alert.assert_called_once()
+        self.assertEqual(alert.call_args.args[0], "BATCH-S2839")
+        self.assertEqual(alert.call_args.args[1].skipped_invoice_details[0]["invoice"], "INV-S2839-1")
+        self.assertEqual(frappe.db.count("Error Log", {"method": title}), logs_before + 1)
+
+    def test_refusal_message_is_plain_text_and_not_logged_to_the_message_log(self):
+        batch = self._s2839_batch(["FRST", ""])
+        before = len(frappe.local.message_log)
+        self._s2839_generate(batch)
+        self.assertEqual(len(frappe.local.message_log), before, "a refused row must not add a message")
+        reason = self.adapter._validation_summary.skipped_invoice_details[0]["reason"]
+        self.assertNotIn("<", reason)
+        self.assertTrue(reason.startswith("Invoice INV-S2839-1"), reason)
+
+    def test_a_refused_row_without_a_sign_date_does_not_trip_strict_mode(self):
+        """The row is refused before its mandate date is looked up, so it adds nothing to the
+        missing-sign-date count that aborts the whole file under strict mode."""
+        original = frappe.db.get_single_value("Verenigingen Settings", "sepa_strict_mandate_validation")
+        frappe.db.set_single_value("Verenigingen Settings", "sepa_strict_mandate_validation", 1)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "sepa_strict_mandate_validation", original or 0
+        )
+        batch = self._s2839_batch(["FRST", ""])
+        batch.invoices[1].mandate_sign_date = None
+        self.assertEqual(self._s2839_seqtps(self._s2839_generate(batch)), ["FRST"])
+        self.assertEqual(self.adapter._validation_summary.missing_mandate_dates, 0)
+
+    def test_a_batch_of_only_undeterminable_rows_produces_no_file(self):
+        batch = self._s2839_batch(["", "INVALID"])
+        with self.assertRaises(frappe.ValidationError):
+            self._s2839_generate(batch)
+
+    def test_blank_batch_type_does_not_matter_when_every_row_has_its_own(self):
+        batch = self._s2839_batch(["FRST", "OOFF"])
+        batch.sequence_type = None
+        self.assertEqual(sorted(self._s2839_seqtps(self._s2839_generate(batch))), ["FRST", "OOFF"])
 
 
 if __name__ == "__main__":

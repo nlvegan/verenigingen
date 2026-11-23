@@ -91,9 +91,10 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         """Set up test environment with realistic Dutch association data"""
         super().setUp()
 
-        # Track created documents for cleanup
-        self.test_documents = []
-        
+        # No per-test cleanup list here: EnhancedTestCase's captured-insert drain
+        # owns teardown of every row inserted below (#1159). Do not add a site-wide
+        # delete in tearDown; it removes other tests' rows.
+
         # Initialize bulk importer for testing
         self.bulk_importer = BulkTransactionImporter()
         
@@ -104,26 +105,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         # Create test members with SEPA mandates for matching tests
         self.test_members = self._create_test_members_with_sepa()
         
-    def tearDown(self):
-        """Clean up test data"""
-        super().tearDown()
-        
-        # Additional cleanup for bulk transaction test data
-        try:
-            # Clean up any Bank Transactions created during testing
-            test_transactions = frappe.get_all(
-                "Bank Transaction",
-                filters={"description": ["like", "%TEST%"]},
-                fields=["name"]
-            )
-            for tx in test_transactions:
-                try:
-                    frappe.delete_doc("Bank Transaction", tx.name, force=True)
-                except Exception:
-                    pass  # May already be deleted by rollback
-        except Exception:
-            pass  # Database may already be rolled back
-
     def _validate_iban_format(self, iban):
         """Boolean IBAN validity check.
 
@@ -140,6 +121,38 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
             return bool(validate_iban(iban).get("valid"))
         except Exception:
             return False
+
+    def test_teardown_does_not_delete_foreign_test_bank_transactions(self):
+        """#1159 tripwire: this class must not re-add a site-wide delete as a tearDown override.
+
+        The old tearDown deleted EVERY Bank Transaction whose description matched
+        %TEST% site-wide. This is NOT a behaviour test of the drain: it would not
+        catch the same delete added via addCleanup, tearDownClass or setUp. The
+        no-leak claim rests on the module-level row-count delta (see the PR body),
+        not on this test. The harness tearDown is stubbed because it ends in a
+        rollback that would hide the uncommitted foreign row; only the class-owned
+        tearDown logic runs.
+        """
+        from unittest import mock
+
+        from verenigingen.tests.fixtures.enhanced_test_factory import suspend_insert_capture
+
+        with suspend_insert_capture():
+            foreign = frappe.get_doc(
+                {
+                    "doctype": "Bank Transaction",
+                    "date": getdate(),
+                    "bank_account": self.test_bank_account.name,
+                    "deposit": 1,
+                    "currency": "EUR",
+                    "description": "TEST foreign row owned by another suite",
+                }
+            ).insert(ignore_permissions=True)
+
+        with mock.patch.object(EnhancedTestCase, "tearDown"):
+            type(self).tearDown(self)
+
+        self.assertTrue(frappe.db.exists("Bank Transaction", foreign.name))
 
     # ============================================================================
     # 1. Consumer Data Extraction Testing
@@ -185,8 +198,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         self.assertEqual(bank_transaction.get("custom_mollie_payment_id"), "tr_TEST_ideal_001")
         self.assertEqual(bank_transaction.get("custom_mollie_method"), "ideal")
         self.assertEqual(bank_transaction.get("custom_mollie_status"), "paid")
-        
-        self.test_documents.append(("Bank Transaction", bank_transaction.name))
     
     def test_bank_transfer_consumer_data_extraction(self):
         """Test extraction of consumer data from bank transfer payments"""
@@ -218,8 +229,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         self.assertEqual(bank_transaction.bank_party_name, "Maria de Jong-van Aalst")
         self.assertEqual(bank_transaction.bank_party_iban, "NL20INGB0001234567")
         self.assertEqual(bank_transaction.bank_party_account_number, "NL20INGB0001234567")
-        
-        self.test_documents.append(("Bank Transaction", bank_transaction.name))
     
     def test_direct_debit_consumer_data_extraction(self):
         """Test extraction of consumer data from direct debit payments"""
@@ -249,8 +258,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         self.assertEqual(bank_transaction.bank_party_name, "Pieter van den Heuvel")
         self.assertEqual(bank_transaction.bank_party_iban, "NL44RABO0123456789")
         self.assertEqual(bank_transaction.bank_party_account_number, "NL44RABO0123456789")
-        
-        self.test_documents.append(("Bank Transaction", bank_transaction.name))
     
     def test_consumer_data_extraction_edge_cases(self):
         """Test consumer data extraction with edge cases (missing fields, special chars, etc.)"""
@@ -310,8 +317,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                 self.assertIsNotNone(bank_transaction)
                 # Should still create transaction even with missing consumer data
                 self.assertEqual(bank_transaction.get("custom_mollie_payment_id"), payment["id"])
-                
-                self.test_documents.append(("Bank Transaction", bank_transaction.name))
     
     # ============================================================================
     # 2. IBAN Validation Testing
@@ -513,11 +518,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         
         # Should return None when multiple matches found (ambiguous)
         self.assertIsNone(matched_member, "Should return None for ambiguous name matches")
-        
-        self.test_documents.extend([
-            ("Member", similar_member1.name),
-            ("Member", similar_member2.name)
-        ])
     
     def test_member_matching_dutch_tussenvoegsel_handling(self):
         """Test proper handling of Dutch name particles (tussenvoegsel)"""
@@ -546,8 +546,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                     )
                     self.assertEqual(matched_member, dutch_member.name, 
                                    f"Should match member with exact tussenvoegsel format: {name_variation}")
-        
-        self.test_documents.append(("Member", dutch_member.name))
     
     def test_member_matching_priority_iban_over_name(self):
         """Test that IBAN matching takes priority over name matching"""
@@ -576,12 +574,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         
         self.assertEqual(matched_member, priority_member.name, 
                         "IBAN matching should take priority over name matching")
-        
-        self.test_documents.extend([
-            ("Member", priority_member.name),
-            ("Member", duplicate_name_member.name),
-            ("SEPA Mandate", sepa_mandate.name)
-        ])
     
     def test_member_matching_inactive_sepa_mandate(self):
         """Test that inactive SEPA mandates are not used for matching"""
@@ -604,11 +596,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         
         # Should not match inactive mandates
         self.assertIsNone(matched_member, "Should not match members with inactive SEPA mandates")
-        
-        self.test_documents.extend([
-            ("Member", inactive_member.name),
-            ("SEPA Mandate", inactive_sepa.name)
-        ])
     
     # ============================================================================
     # 4. Bank Transaction Field Mapping Testing
@@ -646,8 +633,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         self.assertEqual(bank_transaction.reference_number, "tr_TEST_field_mapping")
         # NOTE: the importer does not set Bank Transaction.transaction_type
         # (it is left blank), so that assertion was removed.
-
-        self.test_documents.append(("Bank Transaction", bank_transaction.name))
     
     def test_party_assignment_for_matched_member(self):
         """Test party_type and party assignment when member is matched"""
@@ -677,8 +662,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         # Validate party assignment
         self.assertEqual(bank_transaction.party_type, "Member")
         self.assertEqual(bank_transaction.party, test_member.name)
-        
-        self.test_documents.append(("Bank Transaction", bank_transaction.name))
     
     def test_bank_party_fields_population(self):
         """Test population of bank_party_name, bank_party_iban, bank_party_account_number fields"""
@@ -749,8 +732,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                 self.assertEqual(bank_transaction.bank_party_name, case["expected_name"])
                 self.assertEqual(bank_transaction.bank_party_iban, case["expected_iban"])
                 self.assertEqual(bank_transaction.bank_party_account_number, case["expected_account"])
-                
-                self.test_documents.append(("Bank Transaction", bank_transaction.name))
     
     def test_custom_mollie_fields_population(self):
         """Test population of custom Mollie fields for audit trail"""
@@ -784,8 +765,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                 actual_value = getattr(bank_transaction, field_name)
                 self.assertEqual(actual_value, expected_value, 
                                f"Custom field {field_name} should be {expected_value}")
-        
-        self.test_documents.append(("Bank Transaction", bank_transaction.name))
     
     # ============================================================================
     # 5. Security & Data Quality Testing
@@ -860,7 +839,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                     
                     # Consumer name should be stored (potentially sanitized)
                     self.assertIsNotNone(bank_transaction.bank_party_name)
-                    self.test_documents.append(("Bank Transaction", bank_transaction.name))
                     
                 except Exception as e:
                     # Should not fail due to SQL injection
@@ -909,7 +887,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                     if bank_transaction:
                         # Should have default/fallback values for missing data
                         self.assertIsNotNone(bank_transaction.name)
-                        self.test_documents.append(("Bank Transaction", bank_transaction.name))
                         
                 except (ValueError, TypeError) as e:
                     # Expected for invalid data
@@ -974,10 +951,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         # Quality assertions
         self.assertEqual(len(created_transactions), batch_size, 
                         "All transactions should be created successfully")
-        
-        # Add to cleanup list
-        for tx in created_transactions:
-            self.test_documents.append(("Bank Transaction", tx.name))
     
     def test_member_matching_performance(self):
         """Test performance of member matching with various scenarios"""
@@ -990,12 +963,10 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                 email=self.factory.generate_test_email(f"perf{i}")
             )
             performance_members.append(member)
-            self.test_documents.append(("Member", member.name))
             
             # Create SEPA mandate for some members
             if i % 3 == 0:
                 sepa = self._create_test_sepa_mandate(member.name)
-                self.test_documents.append(("SEPA Mandate", sepa.name))
         
         # Test IBAN matching performance
         start_time = time.time()
@@ -1108,8 +1079,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
             if payment["method"] in ["ideal", "directdebit"]:
                 self.assertEqual(bank_transaction.bank_party_iban, 
                                payment["details"].get("consumerAccount") or payment["details"].get("bankAccount"))
-            
-            self.test_documents.append(("Bank Transaction", bank_transaction.name))
         
         # Integration assertions
         self.assertEqual(len(created_transactions), len(realistic_payments), 
@@ -1163,8 +1132,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         # Verify the SEPA mandate is accessible and active
         sepa_doc = frappe.get_doc("SEPA Mandate", test_sepa.name)
         self.assertEqual(sepa_doc.status, "Active")
-        
-        self.test_documents.append(("Bank Transaction", bank_transaction.name))
     
     # ============================================================================
     # Helper Methods
@@ -1186,7 +1153,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                 "valuation_method": "FIFO"
             })
             company.insert()
-            self.test_documents.append(("Company", company.name))
             return company
         return frappe.get_doc("Company", company_name)
     
@@ -1210,7 +1176,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                 "bank_name": bank_name
             })
             bank.insert()
-            self.test_documents.append(("Bank", bank.name))
         
         # Create bank account. A company bank account (is_company_account=1)
         # requires a linked GL Account; create a dedicated Bank-type GL account
@@ -1229,7 +1194,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                 "is_company_account": 1
             })
             bank_account.insert()
-            self.test_documents.append(("Bank Account", bank_account.name))
             return bank_account
         return frappe.get_doc("Bank Account", account_name)
 
@@ -1268,7 +1232,6 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
             "is_group": 0,
         })
         account.insert()
-        self.test_documents.append(("Account", account.name))
         return account.name
     
     def _create_test_members_with_sepa(self):
@@ -1294,11 +1257,9 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
                 email=self.factory.generate_test_email(f"sepa_member_{i}")
             )
             members.append(member)
-            self.test_documents.append(("Member", member.name))
 
             # Create SEPA mandate with a unique, factory-generated IBAN
             sepa = self._create_test_sepa_mandate(member.name, iban=self.factory.create_test_iban())
-            self.test_documents.append(("SEPA Mandate", sepa.name))
         
         return members
     

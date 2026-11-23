@@ -471,8 +471,60 @@ class GetValueReuseTest(unittest.TestCase):
                 tmp,
                 "import frappe\n\n\nclass T:\n"
                 "    def setUp(self):\n"
-                "        self.x = frappe.db.get_value(\"System Settings\")\n",
+                "        self.x = frappe.db.get_value(\"Customer\")\n",
             )
+        self.assertIn("REUSE=1", result.stdout, result.stdout)
+
+    def _setup_body(self, call):
+        return "import frappe\n\n\nclass T:\n    def setUp(self):\n        self.x = " + call + "\n"
+
+    def test_single_doctype_read_with_none_filter_is_not_flagged(self):
+        # #1338: get_value("<Single>", None, field) is THE way to read a Single. A
+        # Single has exactly one row, so it cannot depend on what a neighbour left.
+        # "Ponto Settings" is issingle=1 in this repo's own doctype JSON.
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._scan(
+                tmp, self._setup_body('frappe.db.get_value("Ponto Settings", None, "enabled")')
+            )
+        self.assertIn("REUSE=0", result.stdout, result.stdout)
+
+    def test_single_doctype_read_other_unscoped_shapes_are_not_flagged(self):
+        for call in (
+            'frappe.db.get_value("Ponto Settings", {}, "enabled")',
+            'frappe.db.get_value("Ponto Settings", fieldname="enabled")',
+            'frappe.get_value("Ponto Settings", None, "enabled")',
+            'frappe.db.get_value(doctype="Ponto Settings", filters=None, fieldname="enabled")',
+        ):
+            with self.subTest(call=call), tempfile.TemporaryDirectory() as tmp:
+                result = self._scan(tmp, self._setup_body(call))
+                self.assertIn("REUSE=0", result.stdout, result.stdout)
+
+    def test_non_single_doctype_with_none_filter_is_still_flagged(self):
+        # CONTROL for the Single exemption: same shape, a doctype that is NOT a Single
+        # (Member is a regular doctype in this repo's JSON), so a "never flag None" or
+        # an always-exempt fix both fail here.
+        for call in (
+            'frappe.db.get_value("Member", None, "name")',
+            'frappe.db.get_value("Customer", None, "name")',
+            'frappe.db.get_value(doctype="Member", filters=None, fieldname="name")',
+        ):
+            with self.subTest(call=call), tempfile.TemporaryDirectory() as tmp:
+                result = self._scan(tmp, self._setup_body(call))
+                self.assertIn("REUSE=1", result.stdout, result.stdout)
+
+    def test_unresolved_settings_named_doctype_is_still_flagged(self):
+        # Control against a "name ends in Settings" shortcut, and the determinism
+        # decision: only THIS app's JSON is consulted, so another app's Single
+        # (System Settings) and an unknown "... Settings" are both still REUSE.
+        for dt in ("Imaginary Widget Settings", "System Settings"):
+            with self.subTest(dt=dt), tempfile.TemporaryDirectory() as tmp:
+                result = self._scan(tmp, self._setup_body(f'frappe.db.get_value("{dt}", None, "x")'))
+                self.assertIn("REUSE=1", result.stdout, result.stdout)
+
+    def test_non_literal_doctype_with_none_filter_is_still_flagged(self):
+        # The scanner cannot tell what a variable names, so it keeps flagging it.
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._scan(tmp, self._setup_body('frappe.db.get_value(self.doctype, None, "name")'))
         self.assertIn("REUSE=1", result.stdout, result.stdout)
 
     def test_scoped_dict_filters_in_setup_is_not_flagged(self):

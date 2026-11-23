@@ -640,7 +640,7 @@ def _is_structural_swallow(node: ast.AST, *, require_log: bool = True) -> bool:
     return True
 
 
-def scan_file(path: Path):
+def scan_file(path: Path, unscannable: list[str] | None = None):
     """Return (findings, bad_pragmas) for one file.
 
     findings: list of (qualified_function, lineno)
@@ -649,7 +649,11 @@ def scan_file(path: Path):
     try:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
-    except (OSError, SyntaxError):
+    except (OSError, SyntaxError) as exc:
+        # #2815: a file we could not examine must not count as clean. The tree-scan
+        # caller passes `unscannable` and fails the run naming it.
+        if unscannable is not None:
+            unscannable.append(f"{path}: {type(exc).__name__}: {exc}")
         return [], []
 
     lines = source.splitlines()
@@ -1096,16 +1100,21 @@ def _iter_py(paths: list[str]):
         yield path
 
 
+# #2815: a file the scan could not read or parse is reported, not treated as clean.
+UNSCANNABLE_PREFIX = "UNSCANNABLE (the count would understate the tree): "
+
+
 def _counts(paths: list[str]) -> tuple[Counter, list[str]]:
     """Map 'path::qualname' -> number of swallow sites; plus bad-pragma messages."""
     counts: Counter = Counter()
     problems: list[str] = []
+    unscannable: list[str] = []
     for path in _iter_py(paths):
         rel = _rel(path)
         # Tests may legitimately swallow while probing failure paths.
         if "/tests/" in "/" + rel or path.name.startswith("test_"):
             continue
-        findings, bad = scan_file(path)
+        findings, bad = scan_file(path, unscannable)
         for qualname, _lineno in findings:
             counts[f"{rel}::{qualname}"] += 1
         for lineno, reason in bad:
@@ -1113,6 +1122,7 @@ def _counts(paths: list[str]) -> tuple[Counter, list[str]]:
                 f"{rel}:{lineno}: invalid `swallow-ok` reason {reason!r}; "
                 f"use one of {sorted(VALID_REASONS)}"
             )
+    problems.extend(f"{UNSCANNABLE_PREFIX}{msg}" for msg in unscannable)
     return counts, problems
 
 
@@ -1319,7 +1329,12 @@ def main(argv: list[str]) -> int:
         return 1
 
     if args.update_baseline:
-        counts, _ = _counts([str(REPO_ROOT / root) for root in SCAN_ROOTS])
+        counts, regen_problems = _counts([str(REPO_ROOT / root) for root in SCAN_ROOTS])
+        skipped = [m for m in regen_problems if m.startswith(UNSCANNABLE_PREFIX)]
+        if skipped:
+            # Writing now would drop the unreadable file's entries from the baseline.
+            print("\n".join(skipped), file=sys.stderr)
+            return 1
         write_baseline(args.baseline, counts)
         print(f"baseline written: {len(counts)} functions, {sum(counts.values())} sites")
         return 0

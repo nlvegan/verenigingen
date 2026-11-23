@@ -36,8 +36,9 @@ class TestCalculateNextInvoiceDate(unittest.TestCase):
     def test_monthly_frequency_end_of_month(self):
         """Monthly billing should handle end-of-month dates"""
         result = calculate_next_invoice_date("Monthly", date(2025, 1, 31))
-        # frappe.utils.add_months handles this, should go to Feb 28 or last day
-        self.assertIn(result.month, [2, 3])
+        # add_months clamps to the last day of the shorter month: 31 Jan -> 28 Feb 2025
+        # (not 2 Mar, which a "+30 days" implementation would give).
+        self.assertEqual(result, date(2025, 2, 28))
 
     def test_quarterly_frequency(self):
         """Quarterly billing should add 3 months"""

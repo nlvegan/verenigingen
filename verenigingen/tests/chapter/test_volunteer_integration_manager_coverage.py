@@ -24,6 +24,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestVolunteerIntegrationManagerCoverage(VereningingenTestCase):
@@ -108,7 +109,7 @@ class TestVolunteerIntegrationManagerCoverage(VereningingenTestCase):
         history = mgr.get_volunteer_assignment_history(vol.name)
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0]["status"], "Completed")
-        self.assertEqual(str(history[0]["end_date"]), today())
+        assert_written_today(self, history[0]["end_date"])
 
     def test_cleanup_leaves_on_board_volunteer_untouched(self):
         # A volunteer currently seated (active) on the board should NOT have their

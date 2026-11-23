@@ -477,23 +477,32 @@ runs:
       shell: bash
       run: |
         source ${GITHUB_WORKSPACE}/env/bin/activate
+        # Registry/network failures are retried and, if they persist, reported as an
+        # infrastructure failure, like the apt-get and wkhtmltopdf steps (#853). A real
+        # dependency error is not retried. The install itself is unchanged.
+        source "${{ github.action_path }}/retry-js-install.sh"
+
+        install_js_deps() {
+          # Pick the package manager per app, not globally: frappe/erpnext/
+          # hrms/builder ship a committed yarn.lock and are yarn-managed;
+          # this app dropped its yarn.lock in 1ed8cd0d and is npm-managed.
+          # Runners have REAL yarn 1.22.22 (unlike the broken cmdtest stub
+          # on dev boxes), and yarn reads `resolutions` while npm reads
+          # `overrides` -- an unconditional `yarn --check-files` here ran
+          # real yarn for this app too and pinned from the wrong block
+          # (#272).
+          if [ -f "yarn.lock" ]; then
+            yarn --check-files || npm install
+          else
+            npm install
+          fi
+        }
+
         for app in ${GITHUB_WORKSPACE}/apps/*/; do
           if [ -f "${app}package.json" ]; then
             echo "Installing JS dependencies for $(basename $app)"
             pushd "$app"
-            # Pick the package manager per app, not globally: frappe/erpnext/
-            # hrms/builder ship a committed yarn.lock and are yarn-managed;
-            # this app dropped its yarn.lock in 1ed8cd0d and is npm-managed.
-            # Runners have REAL yarn 1.22.22 (unlike the broken cmdtest stub
-            # on dev boxes), and yarn reads `resolutions` while npm reads
-            # `overrides` -- an unconditional `yarn --check-files` here ran
-            # real yarn for this app too and pinned from the wrong block
-            # (#272).
-            if [ -f "yarn.lock" ]; then
-              yarn --check-files || npm install
-            else
-              npm install
-            fi
+            ci_retry_js_install "$(basename $app)" install_js_deps
             popd
           fi
         done

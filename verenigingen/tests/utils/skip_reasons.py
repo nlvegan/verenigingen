@@ -6,19 +6,6 @@ file. See `docs/plans/2026-05-27-test-failure-triage-plan.md` for the rubric.
 """
 
 
-DUES_SCHEMA_GONE = (
-    "Membership Type schema migrated to Membership Dues Schedule templates (the v2_0 migration patch "
-    "was retired 2026-07-31; value mapping now lives in patches/v2_1/migrate_contribution_mode_values.py): "
-    "predefined_tiers, contribution_mode, enable_income_calculator, income_percentage_rate, "
-    "suggested_contribution moved to Membership Dues Schedule templates. On the new target doctype, "
-    "contribution_mode is `Fixed|Income-Based|Flexible` - the affected tests write 'Tier', 'Tiers', "
-    "'Calculator', 'Custom', 'Both' which are not valid Select options. Tests also reference the "
-    "removed verenigingen.api.enhanced_membership_application module from inside their create_test_* "
-    "helpers and test bodies. Re-enable after rewriting against the new template-based schema. See "
-    "docs/plans/2026-05-27-test-failure-triage-plan.md (Bucket B - schema dead). G3 sweep deferral from PR #98."
-)
-
-
 VOLUNTEER_EXPENSE_ARCHIVED = (
     "Volunteer Expense DocType was archived in commit 1a8e5fa2; "
     "patches/v2_2/drop_volunteer_expense_archived_doctype.py drops the table. "

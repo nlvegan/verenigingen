@@ -699,20 +699,20 @@ def _scan_mollie_resource_stubs():
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
-            for member in node.body:
-                if not isinstance(member, ast.FunctionDef) or member.name != "create":
+            for func in node.body:
+                if not isinstance(func, ast.FunctionDef) or func.name != "create":
                     continue
-                positional = [arg.arg for arg in member.args.posonlyargs + member.args.args]
+                positional = [arg.arg for arg in func.args.posonlyargs + func.args.args]
                 if len(positional) < 2 or positional[1] != "data":
                     continue  # not a Mollie resource stub
-                accepted = set(positional[1:]) | {arg.arg for arg in member.args.kwonlyargs}
+                accepted = set(positional[1:]) | {arg.arg for arg in func.args.kwonlyargs}
                 stubs.append(
                     SimpleNamespace(
                         rel=rel,
                         cls=node.name,
-                        lineno=member.lineno,
+                        lineno=func.lineno,
                         accepted=accepted,
-                        has_catch_all=member.args.kwarg is not None,
+                        has_catch_all=func.args.kwarg is not None,
                     )
                 )
     return stubs
@@ -807,9 +807,9 @@ KNOWN_ORPHAN_METADATA_READS = {
     # Read as a first-choice hint before falling back to parsing the payment
     # description. Nothing in this app ever writes it, so the branch is dead.
     "invoice_id": "verenigingen_payments/utils/bank_transaction_reconciliation.py",
-    # PaymentContextResolver._resolve_from_metadata and
-    # PaymentService.process_payment_by_type both dispatch on it; no producer
-    # exists, so both dispatches always fall through.
+    # PaymentService.process_payment_by_type dispatches on it; no producer
+    # exists, so the dispatch always falls through. (PaymentContextResolver, the
+    # other reader, was deleted in #2676.)
     "payment_type": "payment_context_resolver.py / payment_service.py",
     # Read as a fallback for payment_data["subscription_id"] (which IS produced,
     # from Mollie's own subscriptionId). The metadata fallback itself has no

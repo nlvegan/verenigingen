@@ -29,6 +29,7 @@ from frappe.utils import today, add_days, getdate
 from unittest.mock import patch
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestSEPAMandateIntegration(EnhancedTestCase):
@@ -156,8 +157,8 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
         self.assertEqual(mandate.status, "Cancelled")
         # Read back from the database: reload() alone would not catch a field
         # the doctype does not have, so check the stored column too.
-        self.assertEqual(frappe.db.get_value("SEPA Mandate", mandate.name, "cancelled_date"), getdate(today()))
-        self.assertEqual(mandate.cancelled_date, getdate(today()))
+        assert_written_today(self, frappe.db.get_value("SEPA Mandate", mandate.name, "cancelled_date"))
+        assert_written_today(self, mandate.cancelled_date)
         
         # Test database consistency (no mocks)
         cancelled_mandates = frappe.get_all(
@@ -346,7 +347,7 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
         # Verify real mandate status changes
         mandate.reload()
         self.assertEqual(mandate.status, "Cancelled")
-        self.assertEqual(frappe.db.get_value("SEPA Mandate", mandate.name, "cancelled_date"), getdate(today()))
+        assert_written_today(self, frappe.db.get_value("SEPA Mandate", mandate.name, "cancelled_date"))
     
     def test_sepa_mandate_types_real_logic(self):
         """Test SEPA mandate type handling with real business logic"""

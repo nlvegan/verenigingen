@@ -36,7 +36,13 @@ permission_query_conditions = {
 # Each function receives (doc, user, ptype) and returns True/False. The parameter MUST be
 # named `ptype`: frappe.call drops undeclared keywords (#1778).
 has_permission = {
-    "Member": "verenigingen.permissions.has_member_permission",
+    # #2562: Donation Campaign and Contribution Amendment Request (if_owner rows) carry
+    # has_unforged_owner, which refuses an owner the client posted through
+    # run_doc_method(docs=...). Member's own
+    # has_permission() controller method bypasses this hook, so has_member_permission calls it.
+    "Member": "verenigingen.permissions.has_member_permission",  # carries the guard itself, below
+    "Donation Campaign": "verenigingen.permissions.has_unforged_owner",
+    "Contribution Amendment Request": "verenigingen.permissions.has_unforged_owner",
     "Employee": "verenigingen.permissions.has_employee_permission",
     "Membership": "verenigingen.permissions.has_membership_permission",
     "Membership Termination Request": "verenigingen.permissions.has_membership_termination_request_permission",

@@ -12,47 +12,15 @@ from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def complete_sepa_integration_setup():
-    """Complete setup of SEPA integration including test data"""
+    """Smoke-check the SEPA integration: reconciliation dashboard and transaction identification.
+
+    #2641: the custom-field and test-data steps imported modules that do not exist and always
+    reported an ImportError. The Bank Transaction custom_sepa_batch field ships in
+    fixtures/custom_field.json; the only test-scenario factory lives under tests/."""
     try:
         setup_results = []
 
-        # Step 1: Ensure custom fields are created (skip SEPA Direct Debit Batch fields for now)
-        try:
-            # Dead reference: verenigingen.setup.sepa_custom_fields does not exist, so this step
-            # always reports an ImportError (unchanged behaviour). Resolved dynamically only
-            # because the import-path pre-commit hook rejects the static form on any edit of
-            # this file; see the issue filed from #681.
-            import importlib
-
-            create_custom_fields = importlib.import_module(
-                "verenigingen.setup.sepa_custom_fields"
-            ).create_custom_fields
-
-            # Bank Transaction fields
-            bank_transaction_fields = [
-                {
-                    "fieldname": "custom_sepa_batch",
-                    "label": "SEPA Batch",
-                    "fieldtype": "Link",
-                    "options": "Direct Debit Batch",
-                    "insert_after": "bank_account",
-                }
-            ]
-
-            # Only create if not exists
-            existing = frappe.db.exists(
-                "Custom Field", {"dt": "Bank Transaction", "fieldname": "custom_sepa_batch"}
-            )
-            if not existing:
-                create_custom_fields("Bank Transaction", bank_transaction_fields)
-                setup_results.append("Created Bank Transaction custom fields")
-            else:
-                setup_results.append("Bank Transaction custom fields already exist")
-
-        except Exception as e:
-            setup_results.append(f"Custom fields setup error: {str(e)}")
-
-        # Step 2: Test the SEPA reconciliation functions
+        # Step 1: Test the SEPA reconciliation functions
         try:
             from verenigingen.api.sepa_reconciliation import get_sepa_reconciliation_dashboard
 
@@ -66,27 +34,7 @@ def complete_sepa_integration_setup():
         except Exception as e:
             setup_results.append(f"SEPA API test error: {str(e)}")
 
-        # Step 3: Create minimal test data
-        try:
-            # Dead reference, same as above: verenigingen.api.sepa_test_data does not exist.
-            create_sepa_test_scenario = importlib.import_module(
-                "verenigingen.api.sepa_test_data"
-            ).create_sepa_test_scenario
-
-            test_result = create_sepa_test_scenario()
-
-            if test_result.get("success"):
-                setup_results.append("Test data created successfully")
-                setup_results.append(f"Created test SEPA batch: {test_result['test_data']['sepa_batch']}")
-            else:
-                setup_results.append(
-                    f"Test data creation failed: {test_result.get('error', 'Unknown error')}"
-                )
-
-        except Exception as e:
-            setup_results.append(f"Test data creation error: {str(e)}")
-
-        # Step 4: Test identification workflow
+        # Step 2: Test identification workflow
         try:
             from verenigingen.api.sepa_reconciliation import identify_sepa_transactions
 

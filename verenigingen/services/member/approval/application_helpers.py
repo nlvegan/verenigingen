@@ -11,6 +11,7 @@ from frappe.utils import flt, now_datetime, today
 
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name
+from verenigingen.utils.member_utils import get_orphan_volunteer_for_email
 from verenigingen.utils.select_options import coerce_select_option
 
 
@@ -938,9 +939,7 @@ def create_volunteer_record(member):
             # Restricted to UNLINKED volunteers so this can only adopt an orphan, never
             # steal another member's record. Volunteer.email is unique, so the match is
             # deterministic.
-            existing_volunteer = frappe.db.get_value(
-                "Volunteer", {"email": member.email, "member": ["in", (None, "")]}, "name"
-            )
+            existing_volunteer = get_orphan_volunteer_for_email(member.email)
 
         if existing_volunteer:
             # Relink existing volunteer to new member record

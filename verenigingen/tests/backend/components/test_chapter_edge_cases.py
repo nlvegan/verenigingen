@@ -4,21 +4,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 import unittest
 
 
-def get_member_primary_chapter(member_name):
-    """Helper function to get member's primary chapter from Chapter Member table"""
-    try:
-        chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-            limit=1,
-        )
-        return chapters[0].parent if chapters else None
-    except Exception:
-        return None
-
-
 class TestChapterEdgeCases(EnhancedTestCase):
     """Comprehensive edge case tests for Chapter doctype"""
 
