@@ -2702,7 +2702,7 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
     """Create Journal Entry from mutation"""
     mutation_id = mutation.get("id")
     mutation_type = mutation.get("type", 0)
-    description = mutation.get("description", "eBoekhouden Import {mutation_id}")
+    description = mutation.get("description", f"eBoekhouden Import {mutation_id}")
 
     # Handle both detailed data format ("Regels") and summary data format ("rows")
     rows = mutation.get("Regels", []) or mutation.get("rows", [])

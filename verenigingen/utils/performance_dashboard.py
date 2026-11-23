@@ -43,7 +43,7 @@ class PerformanceMetrics:
         }
 
         self.api_calls.append(call_data)
-        self.metrics["api_{endpoint}_time"].append(execution_time_ms)
+        self.metrics[f"api_{endpoint}_time"].append(execution_time_ms)
 
         # Log slow operations
         threshold = ConfigManager.get("slow_query_threshold_ms", 1000)
@@ -65,8 +65,8 @@ class PerformanceMetrics:
             "timestamp": now_datetime(),
         }
 
-        self.metrics["db_{query_type}_time"].append(execution_time_ms)
-        self.metrics["db_{query_type}_rows"].append(row_count)
+        self.metrics[f"db_{query_type}_time"].append(execution_time_ms)
+        self.metrics[f"db_{query_type}_rows"].append(row_count)
 
         # Log slow queries
         threshold = ConfigManager.get("slow_query_threshold_ms", 1000)
@@ -307,7 +307,7 @@ class PerformanceDashboard:
         slow_ops = report.get("slow_operations", [])
         if slow_ops:
             recommendations.append(
-                "Found {len(slow_ops)} slow operations. "
+                f"Found {len(slow_ops)} slow operations. "
                 "Consider optimizing queries or adding performance monitoring."
             )
 
@@ -371,7 +371,7 @@ class PerformanceDashboard:
         if slow_queries:
             suggestions["query_optimizations"].extend(
                 [
-                    "Optimize {op['query_type']} query (took {op['execution_time_ms']:.2f}ms)"
+                    f"Optimize {op['query_type']} query (took {op['execution_time_ms']:.2f}ms)"
                     for op in slow_queries[:5]
                 ]
             )
@@ -382,12 +382,12 @@ class PerformanceDashboard:
             for endpoint, stats in api_summary["endpoints"].items():
                 if stats["success_rate"] < 95:
                     suggestions["api_improvements"].append(
-                        "Improve reliability of {endpoint} (success rate: {stats['success_rate']:.1f}%)"
+                        f"Improve reliability of {endpoint} (success rate: {stats['success_rate']:.1f}%)"
                     )
 
                 if stats["p95_time_ms"] > 2000:
                     suggestions["api_improvements"].append(
-                        "Optimize {endpoint} performance (95th percentile: {stats['p95_time_ms']:.2f}ms)"
+                        f"Optimize {endpoint} performance (95th percentile: {stats['p95_time_ms']:.2f}ms)"
                     )
 
         # Monitoring enhancement suggestions
