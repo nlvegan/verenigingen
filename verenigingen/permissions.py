@@ -1915,7 +1915,8 @@ def has_membership_termination_request_permission(doc, user=None, ptype=None):
 
 def get_user_chapter_board_positions(user_member):
     """
-    Get all active board positions for a user across all chapters
+    Get all active board positions for a user across all chapters.
+    A seat on a deactivated Chapter Role confers nothing (#2958).
     Returns list of dicts with chapter_name, chapter_role, and permissions_level
     """
     try:
@@ -1931,6 +1932,7 @@ def get_user_chapter_board_positions(user_member):
             JOIN `tabVolunteer` v ON cbm.volunteer = v.name
             WHERE v.member = %s
             AND cbm.is_active = 1
+            AND cr.is_active = 1
             ORDER BY cbm.parent, cr.permissions_level
         """,
             user_member,
