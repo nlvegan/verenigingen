@@ -666,15 +666,30 @@ class SEPAMandateManager(StatelessService):
             # Step 6: Link mandate to member's sepa_mandates child table
             self._link_mandate_to_member(member_doc, mandate)
 
+            data = {
+                "mandate_name": mandate.name,
+                "mandate_id": mandate_id,
+                "iban": validated_iban,
+                "bic": validated_bic,
+                "status": mandate.status,
+            }
+
+            # The after_insert/on_update hooks contain a failed member-integration step (they
+            # only msgprint it). The mandate row and its member link are persisted by now
+            # (Step 6 raises if the link is missing), so this stays a success, but a caller
+            # must not be told "created successfully" with the failure invisible (#2992).
+            warnings = list(mandate.flags.get("lifecycle_errors") or [])
+            if warnings:
+                data["warnings"] = warnings
+                return ValidationResult.success(
+                    _("SEPA mandate {0} created, but follow-up steps reported errors: {1}").format(
+                        mandate_id, "; ".join(warnings)
+                    ),
+                    data=data,
+                )
+
             return ValidationResult.success(
-                _("SEPA mandate {0} created successfully").format(mandate_id),
-                data={
-                    "mandate_name": mandate.name,
-                    "mandate_id": mandate_id,
-                    "iban": validated_iban,
-                    "bic": validated_bic,
-                    "status": mandate.status,
-                },
+                _("SEPA mandate {0} created successfully").format(mandate_id), data=data
             )
 
         except NON_RESUMABLE_DB_ERRORS:

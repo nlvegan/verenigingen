@@ -343,6 +343,7 @@ class SEPAMandate(Document):
     def after_insert(self):
         """Handle mandate creation using lifecycle service"""
         result = sepa_mandate_lifecycle_service.handle_mandate_creation(self)
+        self._record_lifecycle_errors(result)
 
         if not result["success"]:
             for error in result["errors"]:
@@ -359,6 +360,7 @@ class SEPAMandate(Document):
     def on_update(self):
         """Handle mandate update using lifecycle service"""
         result = sepa_mandate_lifecycle_service.handle_mandate_update(self)
+        self._record_lifecycle_errors(result)
 
         if not result["success"]:
             for error in result["errors"]:
@@ -373,6 +375,17 @@ class SEPAMandate(Document):
         # Invalidate cache for this member to ensure fresh data on next lookup
         if self.member:
             invalidate_mandate_cache_for_member(self.member)
+
+    def _record_lifecycle_errors(self, result):
+        """Keep the lifecycle hooks' errors on the doc so the caller of insert()/save() can see them.
+
+        The hooks only msgprint a failed member-integration step (#2992); without this the
+        caller (SEPAMandateManager.create_mandate) reports a clean success. Errors can arrive
+        from both after_insert and on_update, hence the accumulating list.
+        """
+        errors = [e for e in result.get("errors") or [] if e]
+        if errors:
+            self.flags.lifecycle_errors = list(self.flags.get("lifecycle_errors") or []) + errors
 
     def update_member_sepa_mandates_table(self):
         """Update the member's SEPA mandates child table using member integration service"""
