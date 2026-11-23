@@ -296,6 +296,22 @@ class TestVolunteerEmailDeadlock2996(VereningingenTestCase):
             "tabcommunication",
         )
 
+    def test_deadlock_on_the_failed_insert_diagnostic_read_escapes(self):
+        """A WARM table-metadata cache is what CI has. This Communication insert is refused by
+        validation (communication_type "Email" is not a legal option), so the first
+        `tabCommunication` query is the best-effort docstatus read made while handling that
+        failure. A deadlock there used to be swallowed into a failure result (merge-group job
+        137114749903); on a cold cache the first match was an unrelated information_schema read,
+        which is why the test above passed locally."""
+        self._as_administrator_2996()
+        self.expectErrorLog("Secure Operation Failed")
+        warm = self.service._create_communication_record([self.recipient], "s", "c")
+        self.assertIsNone(warm, "premise: the insert is refused, so no INSERT can be the injection point")
+        self._assert_deadlock_2996(
+            lambda: self.service._create_communication_record([self.recipient], "s", "c"),
+            "from `tabcommunication`",
+        )
+
     def test_an_ordinary_config_read_error_still_degrades(self):
         """Control: an ordinary error on the config read keeps the fail-open behaviour."""
         self._account_stub.start()

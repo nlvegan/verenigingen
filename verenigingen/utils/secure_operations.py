@@ -978,6 +978,10 @@ def _read_persisted_docstatus_best_effort(doctype, name):
         if not frappe.db.exists(doctype, name):
             return None
         return frappe.db.get_value(doctype, name, "docstatus")
+    except NON_RESUMABLE_DB_ERRORS:
+        # A deadlock here (#2996) means the transaction is gone; returning None would let the
+        # caller's failure handler report success=False and carry on over discarded state.
+        raise
     except Exception:  # swallow-ok: best-effort
         return None
 
