@@ -178,3 +178,14 @@ class TestLifecycleStatusSyncFailure3101(EnhancedTestCase):
             result = self.service.handle_mandate_creation(self.mandate)
         self.assertTrue(any(FAULT_TEXT in e for e in result["errors"]), result)
         self.assertFalse(result["success"])
+
+    def test_handle_mandate_update_reports_one_failure_once(self):
+        """The integration runs in the transition AND in the trailing link sync."""
+        self._expect_logs()
+        self.mandate.status = "Active"
+        self.mandate.load_doc_before_save()
+        self.mandate._doc_before_save.status = "Draft"
+        with self._driver_fails_member_update_3101():
+            result = self.service.handle_mandate_update(self.mandate)
+        self.assertTrue(result["errors"], result)
+        self.assertEqual(len(set(result["errors"])), len(result["errors"]), result["errors"])

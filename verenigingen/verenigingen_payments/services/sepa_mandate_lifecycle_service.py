@@ -658,7 +658,6 @@ class SEPAMandateLifecycleService:
                 transition_result = self.handle_status_transition(mandate_doc, old_status)
                 if not transition_result["success"]:
                     event_result["errors"].extend(transition_result["errors"])
-                    event_result["success"] = False
 
                 # Send notifications based on status changes
                 try:
@@ -697,6 +696,9 @@ class SEPAMandateLifecycleService:
                     event_result["errors"].extend(member_result["errors"])
                     event_result["success"] = False
 
+            # The integration runs in the transition and again here, so one failure can
+            # arrive twice; report it once.
+            event_result["errors"] = list(dict.fromkeys(event_result["errors"]))
             return event_result
 
         except NON_RESUMABLE_DB_ERRORS:
