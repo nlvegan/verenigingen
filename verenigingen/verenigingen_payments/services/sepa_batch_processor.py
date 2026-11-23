@@ -795,9 +795,6 @@ class SEPABatchProcessor:
                 frappe.db.release_savepoint("handle_failed_payment")
                 schedule_updated = True
 
-            except NON_RESUMABLE_DB_ERRORS:
-                # A 1213 destroys the savepoint with the transaction: nothing to roll back to
-                raise
             except Exception:
                 # Rollback schedule changes on any error (#3094: frappe.db has no
                 # rollback_savepoint, and the AttributeError replaced the real error)

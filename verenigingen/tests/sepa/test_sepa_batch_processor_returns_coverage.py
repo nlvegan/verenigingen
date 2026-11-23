@@ -211,7 +211,6 @@ class TestHandleFailedPaymentSavepointRollback(_ReturnsBase):
         self.assertIn("boom-3094-original", error[0].error)
         self.assertNotIn("rollback_savepoint", error[0].error)
 
-
     def test_deadlock_in_save_propagates_instead_of_being_swallowed(self):
         """A 1213 destroys the transaction; the handler must not log-and-return as if the
         schedule update were merely refused."""
