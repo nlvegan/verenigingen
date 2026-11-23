@@ -20,7 +20,9 @@
 # optimizer fix); eboekhouden_mapping_review's get_transaction_type_mapping
 # (likewise a rename, to utils.eboekhouden_transaction_type_mapper); and one
 # whole dev-tool page (generate_test_data) deleted outright, since its module
-# never existed anywhere. These 8 remain, in two pages:
+# never existed anywhere. The eboekhouden_mapping_review page's remaining calls were
+# unreachable handlers for markup the page no longer has; #2919 deleted them. Only
+# the mt940_import page remains:
 #
 # /mt940_import (templates/pages/mt940_import.html) -- three "debug" buttons
 # layered on an otherwise-working MT940 bank-statement import page. The page's
@@ -28,13 +30,6 @@
 # import_mt940_improved, etc.) all resolve and are whitelisted; only the
 # diagnostic buttons call a module that was never shipped.
 #
-# /eboekhouden_mapping_review (templates/pages/eboekhouden_mapping_review.html)
-# -- also linked from verenigingen/public/js/eboekhouden_migration_config.js and
-# verenigingen/e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.js,
-# both outside this fix's owned territory (templates/, www/, api/, and
-# verenigingen_payments/api/sepa_reconciliation.py) -- left for a follow-up that
-# can review those callers too. Its remaining four calls are genuinely absent
-# (not renames): verified by grepping the whole tree for each function name.
 
 verenigingen.api.member_management_debug.debug_mt940_import	MISSING
 verenigingen.api.member_management_debug.debug_mt940_import_detailed	MISSING
