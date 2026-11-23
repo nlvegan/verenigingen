@@ -125,6 +125,27 @@ class TestChapterDeleteRefusedWhileReferenced2745(VereningingenTestCase):
         self.assertEqual(len(self._history_rows_2745(volunteer, chapter)), 1)
         frappe.get_doc("Volunteer", volunteer.name).save()
 
+    def test_a_stale_dynamic_link_cache_does_not_hide_a_volunteers_reference_3116(self):
+        """#3116: Frappe caches, for 12h in Redis, the doctypes each Dynamic Link field points at.
+
+        Only a validated save of the referencing row evicts it, and the history manager writes
+        through ``update_child_table``, which validates nothing. A cache filled while no Volunteer
+        Assignment named a Chapter (any earlier link check in the shard) therefore made the guard
+        miss a real reference. Probe shortcut: the stale entry is planted directly; in CI it is
+        left by an earlier test's link check.
+        """
+        key = "dynamic_link_map::Volunteer Assignment::reference_doctype"
+        chapter, volunteer = self._chapter_2745(), self.create_test_volunteer(member_name=self._member_2745().name)
+        AssignmentHistoryManager.add_assignment_history(
+            volunteer.name, "Committee", "Chapter", chapter.name, "Helper", today()
+        )
+        self.assertEqual(len(self._history_rows_2745(volunteer, chapter)), 1, "control: the row exists")
+        frappe.cache.set_value(key, ["Team"], expires_in_sec=3600)
+        self.addCleanup(frappe.cache.delete_value, key)
+        self.assertNotIn("Chapter", frappe.cache.get_value(key), "control: the cache is stale")
+
+        self._assert_refused_2745(chapter, force=1)
+
     def test_an_unreferenced_chapter_is_deletable_with_and_without_force(self):
         for force in (0, 1):
             chapter = self._chapter_2745()
