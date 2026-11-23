@@ -699,20 +699,20 @@ def _scan_mollie_resource_stubs():
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
-            for member in node.body:
-                if not isinstance(member, ast.FunctionDef) or member.name != "create":
+            for func in node.body:
+                if not isinstance(func, ast.FunctionDef) or func.name != "create":
                     continue
-                positional = [arg.arg for arg in member.args.posonlyargs + member.args.args]
+                positional = [arg.arg for arg in func.args.posonlyargs + func.args.args]
                 if len(positional) < 2 or positional[1] != "data":
                     continue  # not a Mollie resource stub
-                accepted = set(positional[1:]) | {arg.arg for arg in member.args.kwonlyargs}
+                accepted = set(positional[1:]) | {arg.arg for arg in func.args.kwonlyargs}
                 stubs.append(
                     SimpleNamespace(
                         rel=rel,
                         cls=node.name,
-                        lineno=member.lineno,
+                        lineno=func.lineno,
                         accepted=accepted,
-                        has_catch_all=member.args.kwarg is not None,
+                        has_catch_all=func.args.kwarg is not None,
                     )
                 )
     return stubs
