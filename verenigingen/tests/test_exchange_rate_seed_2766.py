@@ -92,7 +92,14 @@ class TestExchangeRateSeed2766(EnhancedTestCase):
                 self.assertGreater(get_exchange_rate(from_currency, to_currency, getdate()), 0)
 
     def test_control_without_the_rows_the_live_fetch_is_refused(self):
-        """The simulation is real: with the rows gone the same call raises."""
+        """The simulation is real: with the rows gone the same call raises.
+
+        allow_stale is switched off so that only a row within `stale_days` of the posting
+        date can answer. With it on (this bench's sites), an INR->EUR row left on an
+        EARLIER date by a previous run still satisfies `date <= posting` and the lookup
+        never reaches the provider; CI's fresh database has no such row.
+        """
+        self._set_allow_stale(0)
         self._delete_seeded_rows()
         with _live_fetch_refused():
             with self.assertRaises(frappe.PermissionError) as ctx:
