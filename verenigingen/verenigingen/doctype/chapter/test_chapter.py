@@ -313,17 +313,16 @@ class TestChapter(EnhancedTestCase):
                 "region": self.test_region,
                 "status": "Active",
                 "introduction": "Test chapter",
-                "email": f"chapter{unique_id}@example.org",
-                "phone": "+31612345678",
-                "website": "https://example.org",
+                "contact_email": f"chapter{unique_id}@example.org",
             }
         )
         chapter.insert()  # EnhancedTestCase handles permissions
 
-        # Verify contact information
-        self.assertEqual(chapter.email, f"chapter{unique_id}@example.org")
-        self.assertEqual(chapter.phone, "+31612345678")
-        self.assertEqual(chapter.website, "https://example.org")
+        # Read back from the DB, not the in-memory doc: reload() keeps attributes that are
+        # not fields, so an in-memory assertion passes for a field that does not exist (#3098).
+        self.assertEqual(
+            frappe.db.get_value("Chapter", chapter.name, "contact_email"), f"chapter{unique_id}@example.org"
+        )
 
     def test_chapter_publication_status(self):
         """Test chapter publication status"""
@@ -351,28 +350,6 @@ class TestChapter(EnhancedTestCase):
         # Verify published status
         chapter.reload()
         self.assertEqual(chapter.published, 1)
-
-    def test_chapter_location_info(self):
-        """Test chapter location information"""
-        unique_id = self.get_unique_id()
-        chapter = frappe.get_doc(
-            {
-                "doctype": "Chapter",
-                "name": f"Test Chapter {unique_id}",
-                "region": self.test_region,
-                "status": "Active",
-                "introduction": "Test chapter",
-                "city": "Amsterdam",
-                "state": "North Holland",
-                "country": "Netherlands",
-            }
-        )
-        chapter.insert()  # EnhancedTestCase handles permissions
-
-        # Verify location information
-        self.assertEqual(chapter.city, "Amsterdam")
-        self.assertEqual(chapter.state, "North Holland")
-        self.assertEqual(chapter.country, "Netherlands")
 
     def test_chapter_matching_by_postal_code(self):
         """Test chapter matching functionality by postal code"""
