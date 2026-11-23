@@ -27,7 +27,7 @@ import json
 from datetime import datetime
 
 import frappe
-from frappe.utils import add_days, now, today
+from frappe.utils import add_days, flt, getdate, now, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
@@ -214,6 +214,9 @@ class EBoekhoudenImportManager:
 
     def _needs_update(self, doc_info, mutation_detail):
         """Check if document needs updating based on E-Boekhouden data"""
+        if doc_info["doctype"] == "Payment Entry":
+            return self._payment_entry_changed(doc_info, mutation_detail)
+
         # Check key fields that might change
         checks = []
 
@@ -236,6 +239,37 @@ class EBoekhoudenImportManager:
                 checks.append(len(doc.items) != len(mutation_detail["Regels"]))
 
         return any(checks)
+
+    def _payment_entry_changed(self, doc_info, mutation_detail):
+        """Has the mutation moved away from what the importer stored on this Payment Entry?
+
+        The generic ``remarks != description`` check is wrong here (#3104): a Payment Entry's
+        remarks is never the bare description (ERPNext's generated text, or the importer's
+        multi-line audit text), so it was true for every imported Payment Entry and each run
+        cancelled, deleted and re-imported all of them. Compare the fields the importer
+        derives from the mutation and that identify a change: posting date and paid amount.
+        """
+        doc = frappe.get_doc(doc_info["doctype"], doc_info["name"])
+        checks = []
+
+        if mutation_detail.get("date"):
+            checks.append(getdate(doc.posting_date) != getdate(mutation_detail["date"]))
+
+        amount = self._payment_entry_amount(mutation_detail)
+        if amount is not None:
+            checks.append(abs(flt(doc.paid_amount) - amount) > 0.01)
+
+        return any(checks)
+
+    @staticmethod
+    def _payment_entry_amount(mutation_detail):
+        """The amount PaymentEntryHandler._create_payment_entry stores: the row total, else the top-level amount."""
+        rows = mutation_detail.get("rows")
+        if rows:
+            return flt(sum(abs(flt(row.get("amount", 0), 2)) for row in rows), 2)
+        if "amount" in mutation_detail:
+            return abs(flt(mutation_detail["amount"], 2))
+        return None
 
     def _update_document(self, doc_info, mutation_detail):
         """Update existing document with new data"""
