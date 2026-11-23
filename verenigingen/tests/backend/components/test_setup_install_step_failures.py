@@ -263,11 +263,10 @@ class TestRemainingSwallowersReachTheRunner(FrappeTestCase):
 
         return mock.patch.object(Document, "load_from_db", load_from_db)
 
-    # -- setup_workspace and its three helpers
+    # -- setup_workspace and its helpers
     def test_each_workspace_helper_raises(self):
         for helper in (
             setup_mod.cleanup_workspace_links,
-            setup_mod.update_workspace_links,
             setup_mod.install_and_link_onboarding,
         ):
             with self.subTest(helper=helper.__name__), self._refusing_workspace_get_doc():

@@ -196,7 +196,9 @@ def _enclosing_qualname(lineno: int, scopes: list[tuple[str, int, int]]) -> str:
     return best
 
 
-def scan_file(path: Path) -> tuple[list[tuple[str, int]], list[tuple[int, str]]]:
+def scan_file(
+    path: Path, unscannable: list[str] | None = None
+) -> tuple[list[tuple[str, int]], list[tuple[int, str]]]:
     """Return (findings, bad_pragmas) for one file.
 
     findings: list of (qualified_function, lineno)
@@ -204,7 +206,12 @@ def scan_file(path: Path) -> tuple[list[tuple[str, int]], list[tuple[int, str]]]
     """
     try:
         source = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as exc:
+        # #2815: an unreadable file must not count as having no findings. (A
+        # SyntaxError below is different: the scan is line-based and complete, and
+        # only the qualname degrades to <module>, which reads as growth.)
+        if unscannable is not None:
+            unscannable.append(f"{path}: {type(exc).__name__}: {exc}")
         return [], []
 
     lines = source.splitlines()
@@ -291,10 +298,15 @@ def _iter_py(paths: list[str]):
         yield path
 
 
+# #2815: a file the scan could not read is reported, not treated as clean.
+UNSCANNABLE_PREFIX = "UNSCANNABLE (the count would understate the tree): "
+
+
 def _counts(paths: list[str]) -> tuple[Counter, list[str]]:
     """Map 'path::qualname' -> number of finding sites; plus bad-pragma messages."""
     counts: Counter = Counter()
     problems: list[str] = []
+    unscannable: list[str] = []
     for path in _iter_py(paths):
         rel = _rel(path)
         # Tests may legitimately construct the bad shape to probe the defect itself.
@@ -305,7 +317,7 @@ def _counts(paths: list[str]) -> tuple[Counter, list[str]]:
         # "prose describing the pattern" from "the pattern" within its own file).
         if path.name == "db_clock_date_window_validator.py":
             continue
-        findings, bad = scan_file(path)
+        findings, bad = scan_file(path, unscannable)
         for qualname, _lineno in findings:
             counts[f"{rel}::{qualname}"] += 1
         for lineno, reason in bad:
@@ -313,6 +325,7 @@ def _counts(paths: list[str]) -> tuple[Counter, list[str]]:
                 f"{rel}:{lineno}: invalid `db-clock-window-ok` reason {reason!r}; "
                 f"use one of {sorted(VALID_REASONS)}"
             )
+    problems.extend(f"{UNSCANNABLE_PREFIX}{msg}" for msg in unscannable)
     return counts, problems
 
 
@@ -506,7 +519,12 @@ def main(argv: list[str]) -> int:
         return 1
 
     if args.update_baseline:
-        counts, _ = _counts([str(REPO_ROOT / root) for root in SCAN_ROOTS])
+        counts, regen_problems = _counts([str(REPO_ROOT / root) for root in SCAN_ROOTS])
+        skipped = [m for m in regen_problems if m.startswith(UNSCANNABLE_PREFIX)]
+        if skipped:
+            # Writing now would drop the unreadable file's entries from the baseline.
+            print("\n".join(skipped), file=sys.stderr)
+            return 1
         write_baseline(args.baseline, counts)
         print(f"baseline written: {len(counts)} functions, {sum(counts.values())} sites")
         return 0

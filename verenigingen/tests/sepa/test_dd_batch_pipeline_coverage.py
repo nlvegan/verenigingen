@@ -53,6 +53,7 @@ from verenigingen.verenigingen_payments.services.batch_processing_service import
     batch_processing_service,
 )
 from verenigingen.verenigingen_payments.services.sepa_batch_processor import SEPABatchProcessor
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class _BatchPipelineBase(EnhancedTestCase):
@@ -694,7 +695,7 @@ class TestSEPAProcessorAPIEntrypoints(_BatchPipelineBase):
 
         result = get_sepa_batch_preview(today())
         self.assertTrue(result["success"])
-        self.assertEqual(result["collection_date"], today())
+        assert_written_today(self, result["collection_date"])
         # sample is a prefix of the found invoices.
         self.assertLessEqual(len(result["sample_invoices"]), 5)
         self.assertLessEqual(len(result["sample_invoices"]), result["unpaid_invoices_found"])

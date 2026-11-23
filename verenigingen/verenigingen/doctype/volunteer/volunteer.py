@@ -242,6 +242,12 @@ class Volunteer(Document):
 
         invalidate_volunteer_lookup_memo()  # #1902
 
+        # A staff re-link of a seated volunteer must move its board access (#2615).
+        # A failed withdrawal raises and aborts the save, as for Member.user (#702).
+        from verenigingen.services.chapter.chapter_role_events import on_volunteer_member_relinked
+
+        on_volunteer_member_relinked(self)
+
         # Auto-queue activation if transitioning from New to Active with assignments
         # but without an employee record yet. Done in on_update to ensure
         # the save is committed before background job processes.

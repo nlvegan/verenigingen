@@ -18,15 +18,11 @@ def get_context(context):
 
     context.css_content = css_content
 
-    # Set headers. frappe.init() binds response = {"docs": []}, so on a real request
-    # `headers` is absent (measured via a WSGI request: the page 500'd with
-    # "'NoneType' object does not support item assignment"); create it first, as
-    # brand_css.py does.
-    frappe.response.content_type = "text/css; charset=utf-8"
-    if not hasattr(frappe.response, "headers") or frappe.response.headers is None:
-        frappe.response.headers = {}
-    frappe.response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    frappe.response.headers["Pragma"] = "no-cache"
-    frappe.response.headers["Expires"] = "0"
+    # Headers go in frappe.local.response_headers, the only dict app.py applies to the
+    # HTTP response. frappe.response is the body dict and ignores content_type here (#2779).
+    frappe.local.response_headers["Content-Type"] = "text/css; charset=utf-8"
+    frappe.local.response_headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    frappe.local.response_headers["Pragma"] = "no-cache"
+    frappe.local.response_headers["Expires"] = "0"
 
     return context

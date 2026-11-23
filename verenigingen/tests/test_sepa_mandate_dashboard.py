@@ -134,7 +134,9 @@ class TestSepaMandateDashboard(EnhancedTestCase):
 
         # #1318: Payment Entry was mapped via free-text `remarks` (always 0).
         self.assertNotIn("Payment Entry", found_doctypes)
-        self.assertEqual(found_doctypes, set())
+        # #2738: Donation is the one real connection (it holds the mandate's docname in
+        # `sepa_mandate`); everything else stays absent, so the set is exactly this.
+        self.assertEqual(found_doctypes, {"Donation"})
 
         # #1261's fix: these three had no field that could ever hold this
         # mandate's docname, so they are no longer offered as connections at all.
@@ -146,3 +148,89 @@ class TestSepaMandateDashboard(EnhancedTestCase):
         """#1318: dropping the dead Payment Entry item must leave the working
         Mandate Usage Report link in place."""
         self.assertTrue(get_data()["reports"])
+
+    # --- #2738: Donation.sepa_mandate is a real Link, so Donations are a connection -----
+
+    def _mandate_with_linked_donation(self):
+        """A real mandate plus a real Donation pointing at it, and a second Donation
+        that points at a DIFFERENT mandate (the control: it must not be counted).
+
+        Probe shortcut, stated: the test factory does not accept `sepa_mandate`, so the
+        link is written with `db.set_value` on the Donation, standing in for whoever
+        fills the field on the form."""
+        mandate = self._insert_minimal_test_mandate()
+        other_mandate = self._insert_minimal_test_mandate()
+        donation = self.create_test_donation(donor_name="Mandate Dash Donor")
+        other_donation = self.create_test_donation(donor_name="Mandate Dash Other Donor")
+        frappe.db.set_value("Donation", donation.name, "sepa_mandate", mandate.name)
+        frappe.db.set_value("Donation", other_donation.name, "sepa_mandate", other_mandate.name)
+        return mandate, donation
+
+    def _donation_connection(self, mandate_name):
+        from frappe.desk.notifications import get_open_count
+
+        original_timeout = frappe.db.sql("SELECT @@session.max_statement_time")[0][0]
+        self.addCleanup(frappe.db.sql, f"SET SESSION max_statement_time = {int(original_timeout)}")
+        found = get_open_count("SEPA Mandate", mandate_name)["count"]["external_links_found"]
+        return [d for d in found if d["doctype"] == "Donation"]
+
+    def test_dashboard_offers_donation_through_the_default_fieldname(self):
+        """#2738: Donation has a `sepa_mandate` field, which is the dashboard's default
+        `fieldname`, so no `non_standard_fieldnames` entry may be needed or present."""
+        data = get_data()  # as the harness user, who can read Donation
+        self.assertIn("Donation", _referenced_doctypes(data))
+        self.assertEqual(data["fieldname"], "sepa_mandate")
+        self.assertNotIn("Donation", data.get("non_standard_fieldnames", {}))
+
+    def test_get_open_count_counts_only_donations_linked_to_this_mandate(self):
+        mandate, donation = self._mandate_with_linked_donation()
+
+        connections = self._donation_connection(mandate.name)
+
+        self.assertEqual(len(connections), 1, connections)
+        self.assertEqual(connections[0]["fieldname"], "sepa_mandate")
+        self.assertEqual(connections[0]["count"], 1)
+
+    def test_donation_count_is_not_shown_to_a_user_who_cannot_read_donations(self):
+        """A Verenigingen Staff user can read SEPA Mandate but has no Donation permission.
+        The connections panel must not tell them how many Donations a mandate has."""
+        mandate, _donation = self._mandate_with_linked_donation()
+        email = f"mandate-dash-{frappe.generate_hash(length=8)}@example.com"
+        self.create_test_user_with_roles(email=email, roles=["Verenigingen Staff"])
+
+        original_user = frappe.session.user
+        self.addCleanup(frappe.set_user, original_user)
+        frappe.set_user(email)
+        self.assertTrue(frappe.has_permission("SEPA Mandate", "read", doc=mandate.name))
+        self.assertFalse(frappe.has_permission("Donation", "read"))
+
+        connections = self._donation_connection(mandate.name)
+
+        self.assertEqual([c for c in connections if c["count"]], [], connections)
+
+    def _switch_to_dashboard_viewer(self, email):
+        original_user = frappe.session.user
+        self.addCleanup(frappe.set_user, original_user)
+        frappe.set_user(email)
+
+    def test_reader_still_sees_the_count_and_the_dashboard_is_not_cached_across_users(self):
+        """Both call orders in one process: a Donation reader then Staff, then Staff then
+        the reader. A dashboard cached by the first caller would serve the second."""
+        mandate, _donation = self._mandate_with_linked_donation()
+        staff = f"mandate-dash-{frappe.generate_hash(length=8)}@example.com"
+        self.create_test_user_with_roles(email=staff, roles=["Verenigingen Staff"])
+        reader = "Administrator"
+
+        for order in ([reader, staff, reader], [staff, reader, staff]):
+            for user in order:
+                self._switch_to_dashboard_viewer(user)
+                counts = [c["count"] for c in self._donation_connection(mandate.name)]
+                expected = [1] if user == reader else []
+                self.assertEqual(counts, expected, f"user={user} order={order}")
+
+    def test_a_failing_permission_check_withholds_the_group(self):
+        from unittest import mock
+
+        with mock.patch.object(frappe, "has_permission", side_effect=RuntimeError("boom")):
+            data = get_data()
+        self.assertEqual(data["transactions"], [])

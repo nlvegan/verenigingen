@@ -36,12 +36,14 @@ expression in ``|e`` instead.
 ## Scope
 
 ``verenigingen/templates/**/*.html`` (pages, emails, includes, macros, donation, the base
-portal template). Jinja comments and ``{% raw %}`` blocks are skipped by the lexer, which
+portal template), plus ``verenigingen/www/*.html`` and
+``verenigingen/verenigingen_payments/templates/**/*.html`` (#1897: same jenv, same autoescape-off).
+The Mollie checkout page and the three SEPA mandate emails live in the latter. Jinja comments and ``{% raw %}`` blocks are skipped by the lexer, which
 is why this uses jinja2's own tokenizer rather than a regex.
 
 ## Not covered (deliberately)
 
-* ``.py`` code that builds HTML strings, and ``www/`` pages.
+* ``.py`` code that builds HTML strings.
 * Context: ``|e`` is HTML-escaping. Inside a JS string it blocks a ``</script>`` or a quote
   breakout but not a backslash; use ``|tojson`` for a value placed in JS source.
 
@@ -66,7 +68,12 @@ from pathlib import Path
 from jinja2 import Environment, nodes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TEMPLATE_ROOT = "verenigingen/templates"
+# Every directory whose .html files Frappe renders with the autoescape-off jenv (#1890, #1897).
+TEMPLATE_ROOTS = (
+    "verenigingen/templates",
+    "verenigingen/www",
+    "verenigingen/verenigingen_payments/templates",
+)
 
 ESCAPING_FILTERS = {"e", "escape", "forceescape", "tojson"}
 NUMERIC_FILTERS = {"int", "float", "abs", "length", "count"}
@@ -120,6 +127,16 @@ ALLOWED_EXPRESSIONS = {
         "verenigingen/templates/pages/my_teams.html",
         "team.info.description",
     ): "the same Team.description Text Editor field, read through the team-info dict",
+    (
+        "verenigingen/www/word-lid.html",
+        "d.card_html | safe",
+    ): "Door.card_text is a Text Editor field; word_lid._editor_html() runs it through "
+    "sanitize_html(always_sanitize=True) with form controls and links disallowed, and escaping "
+    "would print the tags",
+    (
+        "verenigingen/www/word-lid.html",
+        "intro_html | safe",
+    ): "Door.intro_text, sanitised by word_lid._editor_html() as card_html (always_sanitize=True)",
 }
 
 _ENV = Environment()
@@ -266,12 +283,12 @@ def find_unescaped(source, relpath):
 
 
 def template_files():
-    return sorted((REPO_ROOT / TEMPLATE_ROOT).rglob("*.html"))
+    return sorted(p for root in TEMPLATE_ROOTS for p in (REPO_ROOT / root).rglob("*.html"))
 
 
 def check_file(path):
     rel = Path(path).resolve().relative_to(REPO_ROOT).as_posix()
-    if not rel.startswith(TEMPLATE_ROOT + "/"):
+    if not rel.startswith(tuple(root + "/" for root in TEMPLATE_ROOTS)):
         return []
     return [(rel, ln, text) for ln, text in find_unescaped(Path(path).read_text(encoding="utf-8"), rel)]
 

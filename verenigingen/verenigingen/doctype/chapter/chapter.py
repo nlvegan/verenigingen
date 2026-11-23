@@ -275,12 +275,22 @@ class Chapter(Document):
         # architecture in _emit_chapter_change_events above (2025-11-18), not here.
 
     def on_trash(self):
-        """Remember who sits on the board; ``after_delete`` withdraws their access (#2147).
+        """Refuse while anything references this Chapter (#2745), then remember who sits on the board (#2147).
 
         Frappe removes a parent's child rows without running the child controller, so
         Chapter Board Member's own hooks (#1922/#1953) never fire for a Chapter delete.
         The names must be read here: after the delete the rows are gone.
+
+        ``on_trash`` also runs under ``force=1``, which skips Frappe's own link checks and
+        leaves dangling references: a Volunteer Assignment history Dynamic Link (the Volunteer
+        can no longer be saved) or a Member Chapter Membership History Link (the Member can no
+        longer be saved, #2773). So Frappe's two checks run here unconditionally; no history is
+        completed, unlinked or cleared. A merge rename repoints the links first, so it passes.
         """
+        from frappe.model.delete_doc import check_if_doc_is_dynamically_linked, check_if_doc_is_linked
+
+        check_if_doc_is_linked(self)
+        check_if_doc_is_dynamically_linked(self)
         self.flags.board_volunteers_2147 = list(
             dict.fromkeys(row.volunteer for row in self.get("board_members") or [] if row.volunteer)
         )

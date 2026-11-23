@@ -206,8 +206,10 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
             mandate.status = "Cancelled"
             mandate.save()
 
-            # Should either prevent cancellation or handle gracefully
-            self.assertIn(mandate.status, ["Cancelled", "Active"])
+            # No pending-payment guard exists, so the cancellation persists. Read the
+            # stored row back: the in-memory doc would still say "Cancelled" even if a
+            # hook had reverted the value on its way to the database.
+            self.assertEqual(frappe.db.get_value("SEPA Mandate", mandate.name, "status"), "Cancelled")
         finally:
             self._cleanup_mandate(mandate)
 

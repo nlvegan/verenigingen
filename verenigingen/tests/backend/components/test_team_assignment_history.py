@@ -3,6 +3,7 @@ from frappe.utils import today
 
 from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestTeamAssignmentHistory(EnhancedTestCase):
@@ -88,7 +89,7 @@ class TestTeamAssignmentHistory(EnhancedTestCase):
                 break
 
         self.assertIsNotNone(found_completed, "Should find the completed assignment")
-        self.assertEqual(str(found_completed.end_date), today())
+        assert_written_today(self, found_completed.end_date)
 
         # Clean up - remove assignment history references first
         volunteer_doc.reload()

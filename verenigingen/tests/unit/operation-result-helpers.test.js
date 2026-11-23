@@ -109,6 +109,53 @@ describe('OperationResult helpers', () => {
 		});
 	});
 
+	describe('getSuccessMessage (#1490)', () => {
+		test('reads the success text from the nested schema meta.message', () => {
+			const msg = { success: true, data: 'u@example.com', meta: { message: 'User account created' } };
+			expect(utils.getSuccessMessage(msg, 'default')).toBe('User account created');
+		});
+
+		test('does not return the data payload or the default when meta.message is present', () => {
+			const msg = { success: true, data: { message: 'from data' }, meta: { message: 'from meta' } };
+			expect(utils.getSuccessMessage(msg, 'default')).toBe('from meta');
+		});
+
+		test('falls back to the default when meta.message is missing or empty', () => {
+			expect(utils.getSuccessMessage({ success: true, data: 1 }, 'default')).toBe('default');
+			expect(utils.getSuccessMessage({ success: true, meta: {} }, 'default')).toBe('default');
+			expect(utils.getSuccessMessage({ success: true, meta: { message: '' } }, 'default')).toBe('default');
+			expect(utils.getSuccessMessage({ success: true, meta: { action: 'created' } }, 'default')).toBe('default');
+		});
+
+		test('ignores the flat legacy schema (top-level message), as the inlined reads did', () => {
+			expect(utils.getSuccessMessage({ success: true, data: 1, message: 'flat' }, 'default')).toBe('default');
+			expect(
+				utils.getSuccessMessage({ success: true, data: 1, message: 'flat', meta: { action: 'x' } }, 'default')
+			).toBe('default');
+			expect(utils.getSuccessMessage({ success: true, data: { message: 'from data' } }, 'default')).toBe(
+				'default'
+			);
+		});
+
+		test('returns the default for null, undefined, strings and a non-object meta', () => {
+			expect(utils.getSuccessMessage(null, 'default')).toBe('default');
+			expect(utils.getSuccessMessage(undefined, 'default')).toBe('default');
+			expect(utils.getSuccessMessage('plain text', 'default')).toBe('default');
+			expect(utils.getSuccessMessage({ success: true, meta: 'text' }, 'default')).toBe('default');
+			expect(utils.getSuccessMessage({ success: true, meta: null }, 'default')).toBe('default');
+		});
+
+		test('does not read the failure text: a failed envelope with no meta.message gets the default', () => {
+			const failure = { success: false, error: { message: 'boom' }, meta: { user: 'x' } };
+			expect(utils.getSuccessMessage(failure, 'default')).toBe('default');
+		});
+
+		test('is exposed as a window global for non-module callers', () => {
+			expect(typeof window.getSuccessMessage).toBe('function');
+			expect(window.getSuccessMessage).toBe(utils.getSuccessMessage);
+		});
+	});
+
 	describe('getErrorMessage', () => {
 		test('prefers error_message on a failed envelope', () => {
 			const msg = { success: false, error_message: 'IBAN invalid', message: 'generic' };

@@ -549,6 +549,10 @@ class TestQualityEnforcer:
     def __init__(self):
         self.errors = []
         self.warnings = []
+        # #2815: files the scan could not read or parse. Every AST-based check
+        # (patch targets, reassignments, scopes) silently yields nothing for such a
+        # file, so main() must fail on it rather than read it as clean.
+        self.unscannable = []
         # Structured twin of self.errors, carrying the baseline key. self.errors
         # stays the human-readable channel; nothing downstream parses it.
         self.findings: List[Finding] = []
@@ -672,6 +676,8 @@ class TestQualityEnforcer:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
+            self._record_if_unparseable(file_path, content)
+
             # Resolved once per file: both are needed by every check below.
             self._scopes = _scope_map(content)
             self._protected = _protected_spans(content)
@@ -708,7 +714,16 @@ class TestQualityEnforcer:
 
         except Exception as e:
             self.errors.append(f"{file_path}: Error reading file - {str(e)}")
+            self.unscannable.append(f"{file_path}: {type(e).__name__}: {e}")
             return False
+
+    def _record_if_unparseable(self, file_path: str, content: str) -> None:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                ast.parse(content)
+        except (SyntaxError, ValueError) as exc:
+            self.unscannable.append(f"{file_path}: {type(exc).__name__}: {exc}")
 
     def _is_test_file(self, file_path: str) -> bool:
         """Check if file is a test file that should be validated"""
@@ -1374,6 +1389,16 @@ class TestQualityEnforcer:
             print("See docs/testing/TESTING_STANDARDS.md for correct patterns")
 
 
+def _fail_if_unscannable(enforcer) -> None:
+    """Exit non-zero naming every file the scan could not examine (#2815)."""
+    if enforcer.unscannable:
+        sys.exit(
+            "TEST-QUALITY SCAN FAILED: could not examine "
+            f"{len(enforcer.unscannable)} file(s), so the findings would understate the tree:\n  "
+            + "\n  ".join(sorted(enforcer.unscannable))
+        )
+
+
 def main():
     """Main entry point for pre-commit hook"""
     parser = argparse.ArgumentParser(
@@ -1410,6 +1435,7 @@ def main():
     # in the last commit.
     if args.update_baseline:
         enforcer.validate_files(sorted(iter_test_files(str(REPO_ROOT))))
+        _fail_if_unscannable(enforcer)  # writing now would drop that file's entries
         counts = counts_of(enforcer.findings)
         write_baseline(args.baseline, counts)
         print(
@@ -1424,6 +1450,7 @@ def main():
         files_to_check = sorted(iter_test_files(str(REPO_ROOT)))
 
     enforcer.validate_files(files_to_check)
+    _fail_if_unscannable(enforcer)
 
     baseline = load_baseline(args.baseline)
     new = regressions(counts_of(enforcer.findings), baseline)

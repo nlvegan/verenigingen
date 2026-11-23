@@ -27,7 +27,6 @@ from ..utils.common_helpers import (
     create_success_response,
     format_mollie_amount,
     format_mollie_amount_string,
-    get_member_by_customer_id,
     is_valid_mollie_interval,
     merge_metadata_safely,
     mollie_signature_date,

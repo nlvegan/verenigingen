@@ -10,6 +10,7 @@ This utility applies code quality improvements to API endpoints:
 - Caching optimization
 """
 
+import ast
 import os
 import re
 from pathlib import Path
@@ -82,25 +83,49 @@ class APIEndpointOptimizer:
             else:
                 self.logger.info(f"Would optimize {file_path.name}")
 
-    def _add_imports(self, content: str) -> str:
-        """Add necessary imports for optimization utilities"""
+    # (statement, names it binds). Every name here is used by a decorator or rewrite this
+    # tool emits, so each statement is needed unless the file already binds all its names.
+    _REQUIRED_IMPORTS = (
+        (
+            "from verenigingen.utils.error_handling import (\n"
+            "    handle_api_error, ValidationError, PermissionError,\n"
+            "    validate_required_fields, log_error\n)",
+            (
+                "handle_api_error",
+                "ValidationError",
+                "PermissionError",
+                "validate_required_fields",
+                "log_error",
+            ),
+        ),
+        (
+            "from verenigingen.utils.performance_utils import performance_monitor, QueryOptimizer, cached",
+            ("performance_monitor", "QueryOptimizer", "cached"),
+        ),
+        (
+            "from verenigingen.utils.validation.api_validators import (\n"
+            "    validate_api_input, APIValidator, require_roles\n)",
+            ("validate_api_input", "APIValidator", "require_roles"),
+        ),
+        ("from frappe.rate_limiter import rate_limit", ("rate_limit",)),
+        ("from verenigingen.utils.config_manager import ConfigManager", ("ConfigManager",)),
+        # @require_roles(list(Roles.ADMIN_PAIR)) is emitted for admin-style endpoints.
+        ("from verenigingen.utils.constants import Roles", ("Roles",)),
+    )
 
-        # Check if imports already exist
-        if "from verenigingen.utils.error_handling import" in content:
+    def _add_imports(self, content: str) -> str:
+        """Add the imports the generated decorators need, skipping names the file already binds.
+
+        Decided per name, not per module: a file that imports only get_logger from
+        error_handling still needs handle_api_error (#2896).
+        """
+
+        bound = self._module_level_bound_names(content)
+        statements = [stmt for stmt, names in self._REQUIRED_IMPORTS if not set(names) <= bound]
+        if not statements:
             return content
 
-        import_block = """
-# Import enhanced utilities
-from verenigingen.utils.error_handling import (
-    handle_api_error, ValidationError, PermissionError,
-    validate_required_fields, log_error
-)
-from verenigingen.utils.performance_utils import performance_monitor, QueryOptimizer, cached
-from verenigingen.utils.validation.api_validators import (
-    validate_api_input, APIValidator, require_roles, rate_limit
-)
-from verenigingen.utils.config_manager import ConfigManager
-"""
+        import_block = "\n# Import enhanced utilities\n" + "\n".join(statements) + "\n"
 
         # Find a good place to insert imports (after existing imports)
         lines = content.split("\n")
@@ -114,6 +139,20 @@ from verenigingen.utils.config_manager import ConfigManager
 
         lines.insert(insert_index, import_block)
         return "\n".join(lines)
+
+    @staticmethod
+    def _module_level_bound_names(content: str) -> set:
+        """Names a file's top-level imports bind (a file that does not parse binds none)."""
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return set()
+        return {
+            (alias.asname or alias.name).split(".")[0]
+            for node in tree.body
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+            for alias in node.names
+        }
 
     def _optimize_endpoints(self, content: str) -> str:
         """Add decorators to API endpoints"""
@@ -146,9 +185,9 @@ from verenigingen.utils.config_manager import ConfigManager
 
             # Add rate limiting for resource-intensive operations
             if any(keyword in function_def.lower() for keyword in ["export", "bulk", "send", "process"]):
-                decorators.append("@rate_limit(max_requests=5, window_minutes=60)")
+                decorators.append("@rate_limit(limit=5, seconds=3600)")
             elif "validate" in function_def.lower():
-                decorators.append("@rate_limit(max_requests=30, window_minutes=60)")
+                decorators.append("@rate_limit(limit=30, seconds=3600)")
 
             # Add caching for read-only operations
             if any(keyword in function_def.lower() for keyword in ["get_", "list_", "fetch_"]):

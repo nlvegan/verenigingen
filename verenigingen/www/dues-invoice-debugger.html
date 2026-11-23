@@ -1,10 +1,10 @@
 {% extends "templates/web.html" %}
 
-{% block title %}{{ title }}{% endblock %}
+{% block title %}{{ title|e }}{% endblock %}
 
 {% block page_content %}
 <div class="container">
-    <h1>{{ title }}</h1>
+    <h1>{{ title|e }}</h1>
 
     <div class="card">
         <div class="card-header">
@@ -12,15 +12,15 @@
         </div>
         <div class="card-body">
             <p><strong>{{ _("User Roles:") }}</strong>
-                {% if user_roles %}{{ user_roles|join(", ") }}{% else %}None{% endif %}</p>
+                {% if user_roles %}{{ user_roles|join(", ")|e }}{% else %}None{% endif %}</p>
             <p><strong>{{ _("Active Members:") }}</strong>
-                {% if workflow_status and workflow_status.members_analysis %}{{ workflow_status.members_analysis.total_active_members }}{% else %}0{% endif %}</p>
+                {% if workflow_status and workflow_status.members_analysis %}{{ workflow_status.members_analysis.total_active_members|e }}{% else %}0{% endif %}</p>
             <p><strong>{{ _("Pending Invoices:") }}</strong>
-                {% if workflow_status %}{{ workflow_status.pending_invoices }}{% else %}0{% endif %}</p>
+                {% if workflow_status %}{{ workflow_status.pending_invoices|e }}{% else %}0{% endif %}</p>
             <p><strong>{{ _("Missing Invoices:") }}</strong>
-                {% if workflow_status and workflow_status.members_analysis %}{{ workflow_status.members_analysis.members_missing_invoices }}{% else %}0{% endif %}</p>
+                {% if workflow_status and workflow_status.members_analysis %}{{ workflow_status.members_analysis.members_missing_invoices|e }}{% else %}0{% endif %}</p>
             <p><strong>{{ _("SEPA Eligible:") }}</strong>
-                {% if workflow_status and workflow_status.members_analysis %}{{ workflow_status.members_analysis.sepa_eligible }}{% else %}0{% endif %}</p>
+                {% if workflow_status and workflow_status.members_analysis %}{{ workflow_status.members_analysis.sepa_eligible|e }}{% else %}0{% endif %}</p>
         </div>
     </div>
 

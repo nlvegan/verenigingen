@@ -836,6 +836,68 @@ class TestSubmittedPontoPaymentLink(_PontoUsers, EnhancedTestCase):
     def _read_link(self, link, *fields):
         return frappe.db.get_value("Ponto Payment Link", link.name, list(fields), as_dict=True)
 
+    def _submitted_legacy_periodic_link(self):
+        """A REALLY submitted link whose stored payment_type is "Periodic" (#2974).
+
+        PROBE SHORTCUT: ``validate_periodic_settings`` and the Select's single "One-Time" option
+        stop a new "Periodic" row, so the state is reachable only for a legacy row. It is stood in
+        for with ``db.set_value`` on the stored column, AFTER a real ``submit()``."""
+        member, invoice = self._member_and_invoice()
+        link = self._make_submitted_link(member, invoice)
+        frappe.db.set_value("Ponto Payment Link", link.name, "payment_type", "Periodic")
+        return link.name
+
+    def test_increment_payment_count_persists_on_a_submitted_link(self):
+        """#2974: the counter is not allow_on_submit, so saving the submitted row raised
+        UpdateAfterSubmitError. It must be written without saving the document."""
+        name = self._submitted_legacy_periodic_link()
+        frappe.db.set_value("Ponto Payment Link", name, "total_payments_collected", 4)
+        status_before = frappe.db.get_value("Ponto Payment Link", name, "status")
+        link = frappe.get_doc("Ponto Payment Link", name)
+
+        link.increment_payment_count()
+
+        row = frappe.db.get_value(
+            "Ponto Payment Link", name, ["total_payments_collected", "docstatus", "status"], as_dict=True
+        )
+        self.assertEqual((row.total_payments_collected, row.docstatus, row.status), (5, 1, status_before))
+        self.assertEqual(link.total_payments_collected, 5, "the in-memory value feeds the handler's log line")
+
+    def test_increment_payment_count_leaves_a_one_time_link_alone(self):
+        """Control: only a Periodic row counts. This row is real and submitted, so an
+        always-increment implementation finds something to bump."""
+        member, invoice = self._member_and_invoice()
+        link = self._make_submitted_link(member, invoice)
+
+        frappe.get_doc("Ponto Payment Link", link.name).increment_payment_count()
+
+        self.assertEqual(self._read_link(link, "total_payments_collected").total_payments_collected, 0)
+
+    def test_increment_payment_count_does_not_use_the_stale_in_memory_value(self):
+        """Two docs loaded at the same count: both increments must land. This proves the write does not
+        compute from the in-memory value; it does NOT prove atomicity under true concurrency (the SQL
+        increment's shape provides that, and no test here exercises two connections)."""
+        name = self._submitted_legacy_periodic_link()
+        first = frappe.get_doc("Ponto Payment Link", name)
+        second = frappe.get_doc("Ponto Payment Link", name)
+
+        first.increment_payment_count()
+        second.increment_payment_count()
+
+        self.assertEqual(frappe.db.get_value("Ponto Payment Link", name, "total_payments_collected"), 2)
+
+    def test_increment_payment_count_does_not_move_modified(self):
+        """The caller keeps using its in-memory doc (the periodic handler goes on to save debtor
+        details), so a counter write that bumped ``modified`` would leave it stale."""
+        name = self._submitted_legacy_periodic_link()
+        modified_before = frappe.db.get_value("Ponto Payment Link", name, "modified")
+        link = frappe.get_doc("Ponto Payment Link", name)
+
+        link.increment_payment_count()
+
+        self.assertEqual(frappe.db.get_value("Ponto Payment Link", name, "modified"), modified_before)
+        self.assertEqual(link.modified, modified_before)
+
     def test_webhook_authorizes_with_debtor_then_executes_with_invoice_and_payment_entry(self):
         member, invoice = self._member_and_invoice()
         link = self._make_submitted_link(member, invoice)

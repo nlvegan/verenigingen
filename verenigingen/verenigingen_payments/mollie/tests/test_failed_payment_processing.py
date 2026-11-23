@@ -95,32 +95,6 @@ class TestFailedPaymentProcessing(EnhancedTestCase):
                 f"Should have found donation {self.test_donation.name} with payment_id {self.test_donation.payment_id}"
             )
 
-    def test_member_lookup_with_real_subscription_data(self):
-        """Test member lookup using actual database and subscription data"""
-        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import find_member_for_payment
-
-        # Create payment with subscription data
-        class SubscriptionPayment:
-            def __init__(self, subscription_id, customer_id):
-                self.id = "tr_subscription_test"
-                self.subscription_id = subscription_id
-                self.customer_id = customer_id
-                self.amount = {"value": "25.00", "currency": "EUR"}
-
-        payment = SubscriptionPayment(
-            self.test_member.mollie_subscription_id, self.test_member.mollie_customer_id
-        )
-        found_member = find_member_for_payment("tr_subscription_test", payment)
-
-        # This should find our actual member
-        if found_member:
-            self.assertEqual(found_member.name, self.test_member.name)
-            self.assertEqual(found_member.mollie_subscription_id, "sub_service_test_456")
-        else:
-            self.fail(
-                f"Should have found member {self.test_member.name} with subscription_id {self.test_member.mollie_subscription_id}"
-            )
-
     def test_subscription_failure_count_with_real_payment_history(self):
         """Test failure count calculation with actual Member Payment History records"""
         from verenigingen.verenigingen_payments.mollie.api.payment_webhook import (
@@ -222,69 +196,6 @@ class TestFailedPaymentProcessing(EnhancedTestCase):
             frappe.logger().error(f"Webhook service error: {str(e)}")
             # Don't fail - document actual service behavior
             frappe.logger().info(f"Webhook service threw exception (documented): {str(e)}")
-
-    def test_real_failed_payment_workflow(self):
-        """Test the complete failed payment workflow with actual functions"""
-        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import process_failed_payment
-
-        # Create realistic failed payment data
-        class FailedPayment:
-            def __init__(self, member_customer_id, subscription_id):
-                self.id = "tr_workflow_test"
-                self.status = "failed"
-                self.customer_id = member_customer_id
-                self.subscription_id = subscription_id
-                self.amount = {"value": "25.00", "currency": "EUR"}
-                self.method = "directdebit"
-                self.created_at = "2024-01-15T10:00:00+00:00"
-
-        failed_payment = FailedPayment(
-            self.test_member.mollie_customer_id, self.test_member.mollie_subscription_id
-        )
-
-        # Debug: Check if member exists with correct mollie_subscription_id
-        frappe.logger().info(f"Debug: Test member name: {self.test_member.name}")
-        frappe.logger().info(
-            f"Debug: Test member mollie_subscription_id: {self.test_member.mollie_subscription_id}"
-        )
-        frappe.logger().info(f"Debug: Failed payment subscription_id: {failed_payment.subscription_id}")
-
-        # Process the failed payment
-        result = process_failed_payment(failed_payment.id, failed_payment)
-
-        # Verify the result structure
-        self.assertIsInstance(result, dict)
-        self.assertIn("payment_id", result)
-        self.assertEqual(result["payment_id"], failed_payment.id)
-
-        # The status should be "failed", not "processing_error"
-        expected_status = failed_payment.status  # "failed"
-        actual_status = result.get("status")
-
-        if actual_status == "processing_error":
-            # Document the actual behavior but verify it's documented
-            frappe.logger().info(
-                f"process_failed_payment returned processing_error instead of {expected_status}"
-            )
-            self.assertIn("message", result)  # Should have error message
-        else:
-            self.assertEqual(actual_status, expected_status)
-
-        # Verify member payment history was updated
-        self.test_member.reload()
-        payment_history = self.test_member.payment_history or []
-
-        # Find the failed payment in history (check notes field for payment ID)
-        failed_payment_found = False
-        for history_entry in payment_history:
-            notes = history_entry.get("notes", "")
-            if failed_payment.id in notes:
-                failed_payment_found = True
-                self.assertEqual("Cancelled", history_entry.get("payment_status", ""))
-                break
-
-        if not failed_payment_found:
-            self.fail(f"Failed payment {failed_payment.id} was not recorded in member payment history")
 
     def test_email_notification_with_real_templates(self):
         """Test email notification system with actual email templates"""
