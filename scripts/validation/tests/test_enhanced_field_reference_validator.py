@@ -156,6 +156,13 @@ class NonPythonArgumentsTests(_AppCase):
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("zzz_no_such_field not in Member", result.stdout)
 
+    def test_update_baseline_with_a_non_python_argument_still_writes_the_baseline(self):
+        # Pins the `passed_files = []` line in the update branch: without it the html argument
+        # would short-circuit to "nothing to check" and the baseline would never be written.
+        result = _run(self.root, "--update-baseline", "verenigingen/templates/x.html")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("zzz_no_such_field", self.baseline.read_text())
+
 
 if __name__ == "__main__":
     unittest.main()
