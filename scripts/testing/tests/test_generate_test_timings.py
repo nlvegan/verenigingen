@@ -33,13 +33,13 @@ def _ts(seconds):
     return f"2026-11-07T10:{m:02d}:{s:02d}.0000000Z"
 
 
-def _log(*events):
+def _shard_log_text_2184(*events):
     """Job-log text from (seconds, line) pairs, timestamped like GitHub's."""
     return "".join(f"{_ts(t)} {line}\n" for t, line in events)
 
 
 class TestElapsedFromTimestamps(unittest.TestCase):
-    def _write(self, text):
+    def _write_shard_log_2184(self, text):
         f = tempfile.NamedTemporaryFile("w", suffix=".log", delete=False)
         f.write(text)
         f.close()
@@ -47,8 +47,8 @@ class TestElapsedFromTimestamps(unittest.TestCase):
         return f.name
 
     def test_a_module_is_charged_until_the_next_module_header(self):
-        path = self._write(
-            _log(
+        path = self._write_shard_log_2184(
+            _shard_log_text_2184(
                 (0, f"{MOD_A}.TestA"),
                 (100, f"{MOD_B}.TestB"),
                 (130, "Tests: 12, Failing: 0, Errors: 0"),
@@ -57,33 +57,33 @@ class TestElapsedFromTimestamps(unittest.TestCase):
         self.assertEqual(gtt.measured_elapsed_seconds([path]), {MOD_A: 100.0, MOD_B: 30.0})
 
     def test_a_class_not_named_test_star_still_keys_by_module(self):
-        path = self._write(_log((0, f"{MOD_A}.BackgroundJobScalabilityTest"), (50, "Tests: 1")))
+        path = self._write_shard_log_2184(_shard_log_text_2184((0, f"{MOD_A}.BackgroundJobScalabilityTest"), (50, "Tests: 1")))
         self.assertEqual(gtt.measured_elapsed_seconds([path]), {MOD_A: 50.0})
 
     def test_several_classes_of_one_module_are_summed(self):
-        path = self._write(
-            _log((0, f"{MOD_A}.TestOne"), (40, f"{MOD_A}.TestTwo"), (100, "Tests: 4"))
+        path = self._write_shard_log_2184(
+            _shard_log_text_2184((0, f"{MOD_A}.TestOne"), (40, f"{MOD_A}.TestTwo"), (100, "Tests: 4"))
         )
         self.assertEqual(gtt.measured_elapsed_seconds([path]), {MOD_A: 100.0})
 
     def test_the_max_across_logs_is_kept(self):
-        fast = self._write(_log((0, f"{MOD_A}.TestA"), (20, "Tests: 1")))
-        slow = self._write(_log((0, f"{MOD_A}.TestA"), (70, "Tests: 1")))
+        fast = self._write_shard_log_2184(_shard_log_text_2184((0, f"{MOD_A}.TestA"), (20, "Tests: 1")))
+        slow = self._write_shard_log_2184(_shard_log_text_2184((0, f"{MOD_A}.TestA"), (70, "Tests: 1")))
         self.assertEqual(gtt.measured_elapsed_seconds([fast, slow]), {MOD_A: 70.0})
 
     def test_nothing_after_the_summary_line_is_charged(self):
-        path = self._write(_log((0, f"{MOD_A}.TestA"), (10, "Tests: 1"), (500, f"{MOD_B}.TestB"), (900, "x")))
+        path = self._write_shard_log_2184(_shard_log_text_2184((0, f"{MOD_A}.TestA"), (10, "Tests: 1"), (500, f"{MOD_B}.TestB"), (900, "x")))
         self.assertEqual(gtt.measured_elapsed_seconds([path]), {MOD_A: 10.0})
 
     def test_a_dotted_line_not_ending_in_a_class_does_not_start_a_span(self):
         # e.g. a logger or traceback line naming a module: it must not steal the module's time.
-        path = self._write(
-            _log((0, f"{MOD_A}.TestA"), (30, "verenigingen.tests.test_beta.helper"), (60, "Tests: 1"))
+        path = self._write_shard_log_2184(
+            _shard_log_text_2184((0, f"{MOD_A}.TestA"), (30, "verenigingen.tests.test_beta.helper"), (60, "Tests: 1"))
         )
         self.assertEqual(gtt.measured_elapsed_seconds([path]), {MOD_A: 60.0})
 
     def test_a_log_without_timestamps_measures_nothing(self):
-        path = self._write(f"{MOD_A}.TestA\n(12.50s)\nTests: 1\n")
+        path = self._write_shard_log_2184(f"{MOD_A}.TestA\n(12.50s)\nTests: 1\n")
         self.assertEqual(gtt.measured_elapsed_seconds([path]), {})
 
 
@@ -115,7 +115,7 @@ class TestMainUsesRealElapsedTime(unittest.TestCase):
         os.chdir(self.root)
         self.addCleanup(os.chdir, self.cwd)
 
-    def _run(self, log_text):
+    def _run_generator_2184(self, log_text):
         log = Path(self.root, "shard.log")
         log.write_text(log_text)
         self.assertEqual(gtt.main([str(log)]), 0)
@@ -123,13 +123,13 @@ class TestMainUsesRealElapsedTime(unittest.TestCase):
 
     def test_setup_heavy_module_gets_its_real_time_not_its_printed_durations(self):
         # 800s spent in setUpClass: no test prints a duration, exactly the shard-5 case.
-        weights = self._run(_log((0, f"{MOD_A}.TestA"), (800, f"{MOD_B}.TestB"), (805, "Tests: 11")))
+        weights = self._run_generator_2184(_shard_log_text_2184((0, f"{MOD_A}.TestA"), (800, f"{MOD_B}.TestB"), (805, "Tests: 11")))
         self.assertEqual(weights[MOD_A], 800)
         self.assertEqual(weights[MOD_B], 5)
 
     def test_without_timestamps_the_old_formula_still_applies(self):
         # Control: a log with no timestamps keeps the slow-seconds + count allowance.
-        weights = self._run(f"{MOD_A}.TestA\n   test_0 (12.00s)\nTests: 10\n")
+        weights = self._run_generator_2184(f"{MOD_A}.TestA\n   test_0 (12.00s)\nTests: 10\n")
         self.assertEqual(weights[MOD_A], round(12.0 + gtt.FAST_TEST_COST * 9))
 
 
