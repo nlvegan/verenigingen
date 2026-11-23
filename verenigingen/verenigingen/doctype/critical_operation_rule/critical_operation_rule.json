@@ -120,7 +120,7 @@
       "fieldtype": "Small Text",
       "label": "Required Roles",
       "read_only": 1,
-      "description": "For information only; this field and the Security Level text on a row are not enforced. Access is decided by the API security decorators (critical_api, high_security_api, ...) and the user's Role Profiles, so a role listed here can still be refused (#3058)."
+      "description": "For information only; this field and the Security Level text on a row are not enforced. Access is decided by the security level set on each API endpoint in the code and the user's Role Profiles, so a role listed here can still be refused."
     },
     {
       "fieldname": "required_permissions",
