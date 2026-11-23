@@ -960,7 +960,10 @@ def follow_on_ignore_permissions():
 
 def _read_persisted_docstatus_best_effort(doctype, name):
     """Best-effort read of a document's current DB docstatus, for the #385
-    partial-write comparison. MUST NOT raise: this is a diagnostic signal,
+    partial-write comparison. Raises ONLY the non-resumable DB errors (1213/1205,
+    #2996): those mean the unit of work is dead or half-applied, and swallowing one
+    here would let the caller report success=False and carry on. Anything else MUST
+    NOT raise: this is a diagnostic signal,
     not the operation itself, and a caller can legitimately pass a doc whose
     `.doctype`/`.name` are not real strings (a test double standing in for a
     real document -- see test_setup_password_policy_new, which regressed
@@ -979,8 +982,9 @@ def _read_persisted_docstatus_best_effort(doctype, name):
             return None
         return frappe.db.get_value(doctype, name, "docstatus")
     except NON_RESUMABLE_DB_ERRORS:
-        # A deadlock here (#2996) means the transaction is gone; returning None would let the
-        # caller's failure handler report success=False and carry on over discarded state.
+        # 1213 rolled the transaction back; 1205 left it half-applied (transaction_errors.py).
+        # Either way returning None would let the caller's failure handler report
+        # success=False and carry on over discarded or partial state (#2996).
         raise
     except Exception:  # swallow-ok: best-effort
         return None
