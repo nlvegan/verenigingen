@@ -290,10 +290,25 @@ class Chapter(Document):
         from frappe.model.delete_doc import check_if_doc_is_dynamically_linked, check_if_doc_is_linked
 
         check_if_doc_is_linked(self)
+        self._forget_cached_dynamic_link_doctypes_3116()
         check_if_doc_is_dynamically_linked(self)
         self.flags.board_volunteers_2147 = list(
             dict.fromkeys(row.volunteer for row in self.get("board_members") or [] if row.volunteer)
         )
+
+    def _forget_cached_dynamic_link_doctypes_3116(self):
+        """Make the dynamic-link check see the database, not a Redis entry up to 12h old (#3116).
+
+        Frappe caches which doctypes each Dynamic Link field names, and evicts that only when a
+        VALIDATED save writes a new doctype. The volunteer history is written through
+        ``update_child_table`` (no validation), so after any earlier link check that found no
+        Chapter reference the entry omits "Chapter" and the check below misses a real one.
+        """
+        from frappe.model.dynamic_links import _dynamic_link_map_key, get_dynamic_links
+
+        for df in get_dynamic_links():
+            frappe.cache.delete_value(_dynamic_link_map_key(df.parent, df.options))
+        frappe.local.dynamic_link_map = None
 
     def after_delete(self):
         """Withdraw the board role and profile of everyone who sat on this chapter's board (#2147).
