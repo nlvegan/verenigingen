@@ -246,8 +246,11 @@ class EBoekhoudenImportManager:
         The generic ``remarks != description`` check is wrong here (#3104): a Payment Entry's
         remarks is never the bare description (ERPNext's generated text, or the importer's
         multi-line audit text), so it was true for every imported Payment Entry and each run
-        cancelled, deleted and re-imported all of them. Compare the fields the importer
-        derives from the mutation and that identify a change: posting date and paid amount.
+        cancelled, deleted and re-imported all of them. Compare only posting date and paid
+        amount: a cheap, stable pair, NOT the full set of fields that could change. Party,
+        bank ledger, invoice number/allocation, row ledgers, sign (Pay vs Receive), type and
+        description changes are deliberately not detected here; ``force_update=True`` is the
+        explicit refresh for those.
         """
         doc = frappe.get_doc(doc_info["doctype"], doc_info["name"])
         checks = []

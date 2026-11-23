@@ -83,3 +83,56 @@ class TestNeedsUpdatePaymentEntry3104(_PaymentTestBase):
         self.assertFalse(self._needs(no_rows))
         no_rows["amount"] = 130.0
         self.assertTrue(self._needs(no_rows))
+
+
+class TestNeedsUpdatePaymentEntryMultiRow3104(_PaymentTestBase):
+    """Rows are summed as abs() values by the importer: [100, -30] is stored as 130."""
+
+    def setUp(self):
+        super().setUp()
+        self._orig_default_company = frappe.db.get_single_value("E-Boekhouden Settings", "default_company")
+        frappe.db.set_single_value("E-Boekhouden Settings", "default_company", self.company)
+        self.mutation = {
+            "id": self._uid(),
+            "type": 3,
+            "date": today(),
+            "amount": 70.0,
+            "ledgerId": BANK_LEDGER,
+            "relationId": "REL-CUST-1",
+            "invoiceNumber": "",
+            "description": "needs-update 3104 multi-row",
+            "rows": [
+                {"ledgerId": INCOME_LEDGER, "amount": 100.0, "description": "a"},
+                {"ledgerId": INCOME_LEDGER, "amount": -30.0, "description": "b"},
+            ],
+        }
+        pe = _create_payment_entry(self.mutation, self.company, self.cost_center, [])
+        self.stored_paid_amount = frappe.db.get_value("Payment Entry", pe.name, "paid_amount")
+        self.doc_info = {"doctype": "Payment Entry", "name": pe.name}
+
+    def tearDown(self):
+        frappe.db.set_single_value("E-Boekhouden Settings", "default_company", self._orig_default_company)
+        super().tearDown()
+
+    def _needs(self, mutation):
+        return EBoekhoudenImportManager()._needs_update(self.doc_info, mutation)
+
+    def test_fixture_stores_the_abs_row_sum(self):
+        self.assertEqual(self.stored_paid_amount, 130.0)
+
+    def test_unchanged_mixed_sign_rows_are_not_a_needs_update(self):
+        self.assertFalse(self._needs(copy.deepcopy(self.mutation)))
+
+    def test_change_in_a_later_row_needs_update(self):
+        changed = copy.deepcopy(self.mutation)
+        changed["rows"][1]["amount"] = -40.0
+        self.assertTrue(self._needs(changed))
+
+    def test_date_absent_does_not_by_itself_need_update(self):
+        no_date = copy.deepcopy(self.mutation)
+        del no_date["date"]
+        self.assertFalse(self._needs(no_date))
+
+    def test_neither_rows_nor_amount_does_not_need_update(self):
+        bare = {"id": self.mutation["id"], "description": "changed text only"}
+        self.assertFalse(self._needs(bare))
