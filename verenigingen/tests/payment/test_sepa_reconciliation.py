@@ -975,6 +975,145 @@ class TestReconciledBatchThenMarkProcessed2798(ReconBase):
 # =============================================================================
 # _validate_batch_reconciliation (helper - read-only validation)
 # =============================================================================
+class TestBatchBookedByMarkAsProcessedIsRefused2937(ReconBase):
+    """#2937 (maintainer ruling: refuse clearly, no auto-link): a batch whose rows "Mark as
+    Processed" already paid cannot be bank-reconciled. Before, Phase 2 failed on the first row
+    ("already fully paid"), rolled back and answered atomic_failure (and the outer call said
+    success True). Now it is refused up front, writes nothing, and is no longer offered.
+
+    Real flows: a real batch, then the real `mark_batch_invoices_as_paid`. The partial case
+    books ONE row through `payment_entry_service.create_payment_entry_from_invoice` (the exact
+    call Mark as Processed makes per row) because the real flow books every row."""
+
+    def _batch(self, count=2, prefix="R2937"):
+        self.expectErrorLog("Fiscal Year")
+        items = [
+            self._make_member_with_invoice(first_name=f"{prefix}{i}", grand_total=25.0 + i)
+            for i in range(count)
+        ]
+        batch = self._make_batch(items)
+        bt = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="SEPA DD")
+        return items, batch, bt
+
+    def _mark_processed(self, batch):
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        batch.reload()
+        batch_processing_service.mark_batch_invoices_as_paid(batch)
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Processed")
+
+    def _pe_count(self, items):
+        return sum(
+            frappe.db.count(
+                "Payment Entry Reference",
+                {"reference_name": it["invoice"].name, "reference_doctype": "Sales Invoice"},
+            )
+            for it in items
+        )
+
+    def _recon_errors(self):
+        return frappe.db.count("Error Log", {"method": "SEPA Batch Reconciliation"})
+
+    def test_reconciling_a_processed_batch_is_refused_early_and_writes_nothing(self):
+        items, batch, bt = self._batch()
+        self._mark_processed(batch)
+        pe_before, errors_before = self._pe_count(items), self._recon_errors()
+        self.assertEqual(pe_before, len(items), "premise: Mark as Processed booked one PE per row")
+
+        result = recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(result["type"], "validation_failed", msg=result)
+        self.assertEqual(result["reason"], "already_booked_by_mark_as_processed")
+        self.assertIn("Mark as Processed", result["error"])
+        self.assertIn(batch.name, result["error"])
+        self.assertEqual(
+            sorted(e["invoice"] for e in result["validation_errors"]),
+            sorted(it["invoice"].name for it in items),
+        )
+        self.assertEqual(self._pe_count(items), pe_before, "no Payment Entry written")
+        self.assertEqual(self._recon_errors(), errors_before, "refused up front, not a rolled-back failure")
+
+    def test_the_outer_call_reports_failure_and_leaves_the_bank_transaction_alone(self):
+        items, batch, _ = self._batch(count=1)
+        self._mark_processed(batch)
+        bt = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="SEPA DD")
+        before = frappe.db.get_value(
+            "Bank Transaction", bt.name, ["custom_sepa_batch", "custom_processing_status"], as_dict=True
+        )
+
+        result = recon._process_sepa_transaction_conservative_internal(bt.name, batch.name)
+
+        self.assertFalse(result["success"], msg=result)
+        self.assertIn("Mark as Processed", result["error"])
+        after = frappe.db.get_value(
+            "Bank Transaction", bt.name, ["custom_sepa_batch", "custom_processing_status"], as_dict=True
+        )
+        self.assertEqual(after, before, "the Bank Transaction must not be tagged SEPA Identified")
+
+    def test_a_partly_booked_batch_is_refused_whole(self):
+        """Decision: ONE booked row refuses the whole batch. The bank credit is the batch's
+        control sum, so a mixed batch cannot be settled by booking the rest alone, and linking
+        the booked rows is the manual step the ruling leaves to staff."""
+        from decimal import Decimal
+
+        from verenigingen.verenigingen_payments.services.payment import payment_entry_service
+
+        items, batch, bt = self._batch()
+        booked, unbooked = items
+        payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=booked["invoice"].name,
+            amount=Decimal(str(booked["invoice"].outstanding_amount)),
+            posting_date=batch.batch_date,
+            reference_no=batch.name,
+            reference_date=batch.batch_date,
+            mode_of_payment="SEPA Direct Debit",
+            payment_type="Receive",
+        )
+        pe_before = self._pe_count(items)
+
+        result = recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(result["reason"], "already_booked_by_mark_as_processed", msg=result)
+        self.assertEqual([e["invoice"] for e in result["validation_errors"]], [booked["invoice"].name])
+        self.assertEqual(self._pe_count([unbooked]), 0, "the unbooked row was not reconciled either")
+        self.assertEqual(self._pe_count(items), pe_before)
+
+    def test_a_batch_marked_as_processed_is_not_offered_but_an_unprocessed_one_is(self):
+        items, batch, bt = self._batch(prefix="R2937M")
+        other_items = [self._make_member_with_invoice(first_name="R2937U", grand_total=25.0)]
+        other = self._make_batch(other_items)
+        self._mark_processed(batch)
+        # Same amount and date for both, so only the booked-by-Mark state can tell them apart.
+        offer = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="x")
+        other.db_set("total_amount", batch.total_amount, update_modified=False)
+
+        offered = [m["batch_name"] for m in recon.find_matching_sepa_batches(offer)]
+
+        self.assertNotIn(batch.name, offered)
+        self.assertIn(other.name, offered, "control: an unprocessed batch is still offered")
+
+    def test_an_unprocessed_batch_still_reconciles_next_to_a_processed_one(self):
+        items, batch, bt = self._batch(prefix="R2937P")
+        self._mark_processed(batch)
+        fresh_items, fresh, fresh_bt = self._batch(prefix="R2937F")
+
+        result = recon.reconcile_full_sepa_batch(fresh_bt, fresh)
+
+        self.assertEqual(result["type"], "full_reconciliation", msg=result)
+        self.assertEqual(result["reconciled_count"], len(fresh_items))
+
+    def test_a_rolled_back_booking_no_longer_refuses_the_batch(self):
+        """A cancelled Mark-as-Processed Payment Entry is not a booking (#3021 rollback)."""
+        items, batch, bt = self._batch(count=1, prefix="R2937C")
+        self._mark_processed(batch)
+        for pe in frappe.get_all("Payment Entry", filters={"reference_no": batch.name}, pluck="name"):
+            frappe.get_doc("Payment Entry", pe).cancel()
+
+        self.assertEqual(recon.get_invoices_booked_by_mark_as_processed(batch.name, [items[0]["invoice"].name]), [])
+
+
 class TestValidateBatchReconciliation(ReconBase):
     def _batch_items(self, batch_name):
         return frappe.get_all(
