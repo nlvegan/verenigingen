@@ -223,8 +223,15 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
     # ===== CONCURRENT TERMINATION SCENARIOS =====
 
 
-    def test_termination_during_member_modification(self):
-        """Test termination execution during member record modification"""
+    def test_member_save_is_forced_to_quit_while_executed_termination_exists(self):
+        """A Member save while an Executed termination request exists ends as Quit.
+
+        Probe shortcut, declared: the request is a DRAFT whose status is set to
+        "Executed" directly. That does not run the execution service (it only fires
+        on a submitted request), so this test does NOT exercise a termination
+        racing a concurrent member edit. It pins only the Member before_save
+        doc_event update_termination_status_display (hooks/doc_events.py).
+        """
         termination = frappe.get_doc(
             {
                 "doctype": "Membership Termination Request",
@@ -238,27 +245,25 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
         )
         termination.insert()
 
-        # Simulate concurrent member modification
+        # A second in-memory copy of the member, loaded before the request is saved
         member_copy = frappe.get_doc("Member", self.member1.name)
 
-        # Start termination execution
+        # Mark the request Executed (probe shortcut, see docstring)
         termination.status = "Executed"
         termination.execution_date = today()
         termination.save()
 
-        # Try to modify member concurrently
-        try:
-            member_copy.status = "Suspended"
-            member_copy.suspension_reason = "Concurrent modification"
-            member_copy.save()
+        # Saving the draft request as "Executed" does not touch the Member row, so the
+        # copy is still current and its save goes through; the before_save doc_event
+        # update_termination_status_display (member_utils.py) reflects the Executed
+        # request onto the member, so the attempted "Suspended" ends as "Quit".
+        # Nothing here may swallow an exception, or a regression would pass silently.
+        member_copy.status = "Suspended"
+        member_copy.suspension_reason = "Concurrent modification"
+        member_copy.save()
 
-            # Should handle gracefully or detect conflict
-            final_member = frappe.get_doc("Member", self.member1.name)
-            self.assertIn(final_member.status, ["Quit", "Suspended"])
-
-        except Exception:
-            # Conflict detection is acceptable
-            pass
+        final_member = frappe.get_doc("Member", self.member1.name)
+        self.assertEqual(final_member.status, "Quit")
 
         # Clean up
         termination.delete()

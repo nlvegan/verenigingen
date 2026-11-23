@@ -29,6 +29,7 @@ from frappe.utils import today, add_days, getdate
 from unittest.mock import patch
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestSEPAMandateIntegration(EnhancedTestCase):
@@ -154,7 +155,7 @@ class TestSEPAMandateIntegration(EnhancedTestCase):
         # Validate real status change
         mandate.reload()
         self.assertEqual(mandate.status, "Cancelled")
-        self.assertEqual(mandate.cancellation_date, today())
+        assert_written_today(self, mandate.cancellation_date)
         
         # Test database consistency (no mocks)
         cancelled_mandates = frappe.get_all(

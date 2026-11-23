@@ -187,7 +187,7 @@ class Member(
 
         get_member_fee_validation_service().validate_fee_override_permissions(self)
 
-    def has_permission(self, ptype="read", user=None):
+    def has_permission(self, permtype="read", *, debug=False, user=None):
         """
         Override permission check to bypass User Permission restrictions for VBCM users.
 
@@ -195,8 +195,12 @@ class Member(
         It allows Chapter Board Members to access Member records in their chapters even if
         those members are linked to Employee records the board member doesn't have User Permission for.
 
+        The signature mirrors ``frappe.model.document.Document.has_permission``: callers such
+        as ``File.has_permission`` pass ``debug=`` (#3040). ``debug`` is accepted and unused.
+
         Args:
-            ptype: Permission type (read, write, etc.)
+            permtype: Permission type (read, write, etc.)
+            debug: Accepted for signature parity with the base class; unused
             user: User to check permissions for
 
         Returns:
@@ -211,7 +215,7 @@ class Member(
         # Use our custom permission function which handles chapter-based access
         # This will return True for VBCM users who have access to this member's chapter
         # regardless of Employee User Permission restrictions
-        return has_member_permission(self, user, ptype)
+        return has_member_permission(self, user, permtype)
 
     @staticmethod
     def has_query_permission(user):

@@ -6,8 +6,11 @@ run. The seats vanished and the holder kept ``Verenigingen Chapter Board Member`
 board role profile.
 
 Real flows: seats are added through a Chapter save, then a real ``frappe.delete_doc("Chapter")``.
-Probe shortcut (same as the #1922/#1953 suites): ``Member.user`` is set with ``db_set``, which is
-what account creation writes.
+Probe shortcuts: ``Member.user`` is set with ``db_set`` (what account creation writes, same as
+the #1922/#1953 suites); and since #2745 a Chapter that anything still references cannot be
+deleted, so ``_delete_chapter_2147`` first removes the seat holders' history rows that name it
+(raw deletes, standing in for "history already gone"). The board rows stay, so the withdrawal
+under test still has seats to withdraw.
 """
 
 import frappe
@@ -59,6 +62,13 @@ class TestChapterDeleteWithdrawsBoardAccess2147(VereningingenTestCase):
         chapter = frappe.get_doc("Chapter", (chapter or self.chapter).name)
         self.add_board_member_to_chapter(chapter, person.volunteer, self.chapter_role, email=person.email)
 
+    def _delete_chapter_2147(self, chapter=None):
+        """Delete the Chapter after clearing the history rows that reference it (#2745 refuses otherwise)."""
+        name = (chapter or self.chapter).name
+        frappe.db.delete("Volunteer Assignment", {"reference_doctype": "Chapter", "reference_name": name})
+        frappe.db.delete("Chapter Membership History", {"chapter_name": name})
+        frappe.delete_doc("Chapter", name, force=1)
+
     def _roles_2147(self, user):
         return set(frappe.get_all("Has Role", filters={"parent": user, "parenttype": "User"}, pluck="role"))
 
@@ -77,7 +87,7 @@ class TestChapterDeleteWithdrawsBoardAccess2147(VereningingenTestCase):
         self._assert_seated_2147(first.user)
         self._assert_seated_2147(second.user)
 
-        frappe.delete_doc("Chapter", self.chapter.name, force=1)
+        self._delete_chapter_2147()
 
         self.assertFalse(frappe.db.exists("Chapter", self.chapter.name), "control: really deleted")
         self._assert_withdrawn_2147(first.user)
@@ -90,7 +100,7 @@ class TestChapterDeleteWithdrawsBoardAccess2147(VereningingenTestCase):
         self._seat_2147(keeper, other_chapter)
         self._seat_2147(leaver)
 
-        frappe.delete_doc("Chapter", self.chapter.name, force=1)
+        self._delete_chapter_2147()
 
         self._assert_seated_2147(keeper.user)
         self._assert_withdrawn_2147(leaver.user)
@@ -102,7 +112,7 @@ class TestChapterDeleteWithdrawsBoardAccess2147(VereningingenTestCase):
         bystander = self._person_2147("Bystander")
         self._seat_2147(bystander, other_chapter)
 
-        frappe.delete_doc("Chapter", self.chapter.name, force=1)
+        self._delete_chapter_2147()
 
         self._assert_seated_2147(bystander.user)
 
@@ -117,7 +127,7 @@ class TestChapterDeleteWithdrawsBoardAccess2147(VereningingenTestCase):
 
         self.addCleanup(frappe.set_user, frappe.session.user)
         frappe.set_user(admin.name)
-        frappe.delete_doc("Chapter", self.chapter.name, force=1)  # force: skips only the Member link check
+        self._delete_chapter_2147()
 
         self.assertFalse(frappe.db.exists("Chapter", self.chapter.name))
         self._assert_withdrawn_2147(person.user)
@@ -129,6 +139,6 @@ class TestChapterDeleteWithdrawsBoardAccess2147(VereningingenTestCase):
         self._seat_2147(person)
 
         frappe.delete_doc("Volunteer", person.volunteer, force=1)
-        frappe.delete_doc("Chapter", self.chapter.name, force=1)
+        self._delete_chapter_2147()
 
         self.assertFalse(frappe.db.exists("Chapter", self.chapter.name))

@@ -349,15 +349,70 @@ class TestMollieDebugServiceValidation(EnhancedTestCase):
         self.assertIsNone(result)
 
     def test_validate_mandate_rejects_future_signature_date(self):
-        future = frappe.utils.add_days(frappe.utils.today(), 5)
+        # Future relative to Mollie's UTC clock, which is what Mollie 422s on (#3041);
+        # the old site-local `today()` baseline was the premise that was wrong.
+        from verenigingen.verenigingen_payments.mollie.utils.common_helpers import mollie_signature_date
+
+        future = frappe.utils.add_days(mollie_signature_date(), 5)
         with self.assertRaises(ValueError) as ctx:
             self._validate_mandate(signature_date=future)
         self.assertIn("future", str(ctx.exception))
 
     def test_validate_mandate_normalizes_past_signature_date(self):
-        past = frappe.utils.add_days(frappe.utils.today(), -5)
+        from verenigingen.verenigingen_payments.mollie.utils.common_helpers import mollie_signature_date
+
+        past = frappe.utils.add_days(mollie_signature_date(), -5)
         result = self._validate_mandate(signature_date=past)
         self.assertEqual(result, str(frappe.utils.getdate(past)))
+
+    def _with_site_a_day_ahead_of_mollie_utc(self):
+        """Site-local day = Mollie's UTC day + 1, pinned.
+
+        The lever pins the site to Pacific/Kiritimati (UTC+14), which is a calendar day
+        ahead of UTC only from 10:00-24:00 UTC. The UTC clock read by
+        `mollie_signature_date` is therefore stubbed to the day before site-local today,
+        so the red test holds all day rather than only in that window.
+        """
+        import contextlib
+        import datetime as dt
+
+        from verenigingen.tests.test_site_timezone_today import site_a_day_ahead_of_process
+        from verenigingen.verenigingen_payments.mollie.utils import common_helpers
+
+        @contextlib.contextmanager
+        def _ctx():
+            with site_a_day_ahead_of_process() as site_today:
+                utc_today = site_today - dt.timedelta(days=1)
+
+                class _UtcClock(dt.datetime):
+                    @classmethod
+                    def now(cls, tz=None):
+                        return dt.datetime.combine(utc_today, dt.time(20, 0), tzinfo=tz)
+
+                # Mock justified: the wall clock is an execution-context input, not business logic
+                with patch.object(common_helpers, "datetime", _UtcClock):
+                    yield site_today, utc_today
+
+        return _ctx()
+
+    def test_validate_mandate_rejects_site_local_today_when_it_is_future_in_utc(self):
+        with self._with_site_a_day_ahead_of_mollie_utc() as (site_today, utc_today):
+            self.assertGreater(site_today, utc_today)
+            with self.assertRaises(ValueError) as ctx:
+                self._validate_mandate(signature_date=str(site_today))
+        self.assertIn("future", str(ctx.exception))
+
+    def test_validate_mandate_accepts_utc_today_and_past_when_site_is_ahead(self):
+        import datetime as dt
+
+        with self._with_site_a_day_ahead_of_mollie_utc() as (site_today, utc_today):
+            self.assertEqual(self._validate_mandate(signature_date=str(utc_today)), str(utc_today))
+            past = utc_today - dt.timedelta(days=3)
+            self.assertEqual(self._validate_mandate(signature_date=str(past)), str(past))
+
+    def test_validate_mandate_blank_signature_date_is_returned_unchanged(self):
+        self.assertIsNone(self._validate_mandate(signature_date=None))
+        self.assertEqual(self._validate_mandate(signature_date=""), "")
 
     def test_validate_mandate_rejects_unparseable_signature_date(self):
         with self.assertRaises(ValueError) as ctx:
