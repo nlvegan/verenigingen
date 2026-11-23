@@ -289,7 +289,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
             member='MEMBER-001'
         )
 
-        with patch.object(self.service, '_update_member_mandate_status') as mock_update:
+        with patch.object(self.service, '_update_member_mandate_status', return_value=[]) as mock_update:
             with patch('frappe.utils.today', return_value=date.today()):
 
                 result = self.service.process_mandate_cancellation(mandate, "Member request")
@@ -315,7 +315,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
 
         mock_notification_manager = Mock()
         with patch('verenigingen.verenigingen_payments.utils.sepa_notifications.SEPAMandateNotificationManager', return_value=mock_notification_manager):
-            with patch.object(self.service, '_update_member_mandate_status'):
+            with patch.object(self.service, '_update_member_mandate_status', return_value=[]):
 
                 result = self.service.process_mandate_cancellation(mandate)
 
@@ -327,7 +327,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         mandate = self._create_mock_mandate(status='Active')
 
         with patch('verenigingen.verenigingen_payments.utils.sepa_notifications.SEPAMandateNotificationManager', side_effect=Exception("Notification error")):
-            with patch.object(self.service, '_update_member_mandate_status'):
+            with patch.object(self.service, '_update_member_mandate_status', return_value=[]):
 
                 result = self.service.process_mandate_cancellation(mandate)
 
@@ -486,7 +486,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         )
         result = {'success': True, 'warnings': [], 'errors': []}
 
-        with patch.object(self.service, '_update_member_mandate_status') as mock_update:
+        with patch.object(self.service, '_update_member_mandate_status', return_value=[]) as mock_update:
 
             self.service._handle_activation(mandate, result)
 
@@ -511,7 +511,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         mandate = self._create_mock_mandate()
         result = {'success': True, 'warnings': [], 'errors': []}
 
-        with patch.object(self.service, '_update_member_mandate_status') as mock_update:
+        with patch.object(self.service, '_update_member_mandate_status', return_value=[]) as mock_update:
 
             # Bracket the call with the service's own date source so a midnight
             # rollover between the service's frappe.utils.today() and the assertion
@@ -529,7 +529,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         mandate = self._create_mock_mandate()
         result = {'success': True, 'warnings': [], 'errors': []}
 
-        with patch.object(self.service, '_update_member_mandate_status') as mock_update:
+        with patch.object(self.service, '_update_member_mandate_status', return_value=[]) as mock_update:
 
             self.service._handle_expiration(mandate, result)
 
@@ -554,13 +554,16 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
 
             # 1. Draft -> Active (activation)
             mandate.status = 'Active'
-            with patch.object(self.service, '_update_member_mandate_status'):
+            with patch.object(self.service, '_update_member_mandate_status', return_value=[]):
                 result = self.service.handle_status_transition(mandate, 'Draft')
                 self.assertTrue(result['success'])
                 self.assertEqual(mandate.is_active, 1)
 
             # 2. Active -> Cancelled (cancellation)
-            result = self.service.process_mandate_cancellation(mandate, "Member terminated")
+            # (patched like step 1: MEMBER-001 does not exist, so the real member sync fails, and
+            # since #3101 that failure is reported instead of swallowed)
+            with patch.object(self.service, '_update_member_mandate_status', return_value=[]):
+                result = self.service.process_mandate_cancellation(mandate, "Member terminated")
             self.assertTrue(result['success'])
             self.assertEqual(mandate.status, 'Cancelled')
             self.assertEqual(mandate.is_active, 0)

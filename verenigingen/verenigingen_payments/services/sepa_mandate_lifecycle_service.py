@@ -374,7 +374,9 @@ class SEPAMandateLifecycleService:
                 mandate_doc.cancellation_reason = reason
 
             # Handle member integration
-            self._update_member_mandate_status(mandate_doc, "Cancelled")
+            sync_failed = self._record_member_sync_errors(
+                cancellation_result, self._update_member_mandate_status(mandate_doc, "Cancelled")
+            )
 
             # Send notifications if configured
             try:
@@ -392,7 +394,8 @@ class SEPAMandateLifecycleService:
             except Exception as e:
                 cancellation_result["warnings"].append(f"Failed to send notification: {str(e)}")
 
-            cancellation_result["warnings"].append(_("Mandate cancelled successfully"))
+            if not sync_failed:
+                cancellation_result["warnings"].append(_("Mandate cancelled successfully"))
             return cancellation_result
 
         except NON_RESUMABLE_DB_ERRORS:
@@ -449,7 +452,10 @@ class SEPAMandateLifecycleService:
                 return
 
             # Update member integration
-            self._update_member_mandate_status(mandate_doc, "Active")
+            if self._record_member_sync_errors(
+                result, self._update_member_mandate_status(mandate_doc, "Active")
+            ):
+                return
 
             result["warnings"].append(_("Mandate activated successfully"))
 
@@ -469,7 +475,10 @@ class SEPAMandateLifecycleService:
                 mandate_doc.cancellation_date = today()
 
             # Update member integration
-            self._update_member_mandate_status(mandate_doc, "Cancelled")
+            if self._record_member_sync_errors(
+                result, self._update_member_mandate_status(mandate_doc, "Cancelled")
+            ):
+                return
 
             result["warnings"].append(_("Mandate cancelled successfully"))
 
@@ -485,7 +494,10 @@ class SEPAMandateLifecycleService:
         """Handle mandate expiration workflow"""
         try:
             # Update member integration
-            self._update_member_mandate_status(mandate_doc, "Expired")
+            if self._record_member_sync_errors(
+                result, self._update_member_mandate_status(mandate_doc, "Expired")
+            ):
+                return
 
             result["warnings"].append(_("Mandate expired"))
 
@@ -497,7 +509,14 @@ class SEPAMandateLifecycleService:
             result["errors"].append(f"Expiration error: {str(e)}")
             result["success"] = False
 
-    def _update_member_mandate_status(self, mandate_doc, status: str) -> None:
+    def _record_member_sync_errors(self, result: Dict, errors: list) -> bool:
+        """Copy a failed member sync into a handler's result; True when there was one."""
+        if errors:
+            result["errors"].extend(errors)
+            result["success"] = False
+        return bool(errors)
+
+    def _update_member_mandate_status(self, mandate_doc, status: str) -> list:
         """
         Update mandate status in member's mandate table and invalidate caches.
 
@@ -507,12 +526,18 @@ class SEPAMandateLifecycleService:
         Args:
             mandate_doc: SEPA Mandate document
             status: New status to set
+
+        Returns:
+            The errors of a failed sync (empty list on success). A failure is both written
+            to the Error Log and returned, so the handlers can report it instead of claiming
+            success (#3101). `frappe.logger()` output is not readable in CI/production.
         """
         metrics = get_mandate_metrics_collector()
+        errors = []
 
         try:
             if not mandate_doc.member:
-                return
+                return errors
 
             # Use the integration service for actual member updates
             from verenigingen.verenigingen_payments.services.sepa_mandate_member_integration_service import (
@@ -522,16 +547,17 @@ class SEPAMandateLifecycleService:
             result = sepa_mandate_member_integration_service.update_member_mandate_relationship(mandate_doc)
 
             if not result["success"]:
-                for error in result.get("errors", []):
+                errors = list(result.get("errors") or ["Member mandate update failed"])
+                for error in errors:
                     metrics.record_error("member_mandate_update", error, mandate_doc.mandate_id)
-                frappe.logger().warning(
-                    f"Member mandate update had errors for {mandate_doc.name}: {result['errors']}"
-                )
+                self._log_member_sync_failure(mandate_doc, status, errors)
+                return errors
 
             # Log the status change
             frappe.logger().info(
                 f"Mandate {mandate_doc.name} status changed to {status} for member {mandate_doc.member}"
             )
+            return errors
 
         except NON_RESUMABLE_DB_ERRORS:
             # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
@@ -539,9 +565,18 @@ class SEPAMandateLifecycleService:
             raise
         except Exception as e:
             metrics.record_error("member_mandate_update", str(e), mandate_doc.mandate_id)
-            frappe.log_error(
-                title="SEPA Mandate Lifecycle", message=f"Error updating member mandate status: {str(e)}"
-            )
+            errors = [str(e)]
+            self._log_member_sync_failure(mandate_doc, status, errors)
+            return errors
+
+    def _log_member_sync_failure(self, mandate_doc, status: str, errors: list) -> None:
+        frappe.log_error(
+            title="SEPA Mandate Lifecycle",
+            message=(
+                f"Member mandate link sync to {status} failed for {mandate_doc.name} "
+                f"(member {mandate_doc.member}): {errors}"
+            ),
+        )
 
     def handle_mandate_creation(self, mandate_doc) -> Dict[str, any]:
         """
@@ -566,6 +601,7 @@ class SEPAMandateLifecycleService:
             )
             if not member_result["success"]:
                 event_result["errors"].extend(member_result["errors"])
+                event_result["success"] = False
 
             # Send notifications if mandate is active
             if mandate_doc.status == "Active":
@@ -622,6 +658,7 @@ class SEPAMandateLifecycleService:
                 transition_result = self.handle_status_transition(mandate_doc, old_status)
                 if not transition_result["success"]:
                     event_result["errors"].extend(transition_result["errors"])
+                    event_result["success"] = False
 
                 # Send notifications based on status changes
                 try:
@@ -658,6 +695,7 @@ class SEPAMandateLifecycleService:
                 )
                 if not member_result["success"]:
                     event_result["errors"].extend(member_result["errors"])
+                    event_result["success"] = False
 
             return event_result
 
