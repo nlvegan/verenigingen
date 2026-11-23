@@ -69,6 +69,8 @@ class TestBulkImporterStatusAndNoneRows(_BulkImporterSweepBase):
 
     # ---- #3011 -------------------------------------------------------
     def test_payment_whose_creation_returns_none_is_an_error(self):
+        # The no-Bank-Account company also fails the history-record insert (unknown Company link).
+        self.expectErrorLog("Bulk Import Record")
         pid = f"tr_none_{self.uid}"
         self.imp.payments_client = _StubPaymentsClient([_payment(pid)])
         self.imp.settlements_client = _StubSettlementsClient([])
@@ -80,6 +82,8 @@ class TestBulkImporterStatusAndNoneRows(_BulkImporterSweepBase):
         self.assertTrue(any(pid in e for e in results["errors"]), results["errors"])
 
     def test_settlement_whose_creation_returns_none_is_an_error(self):
+        # The no-Bank-Account company also fails the history-record insert (unknown Company link).
+        self.expectErrorLog("Bulk Import Record")
         sid = f"stl_none_{self.uid}"
         settlement = {
             "id": sid,
