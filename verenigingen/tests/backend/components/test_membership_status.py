@@ -278,12 +278,10 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
 
         # First update: Suspend member
         member1.status = "Suspended"
-        member1.suspension_reason = "Payment issues"
         member1.save()
 
         # Second update: Try to terminate (should handle conflict)
         member2.status = "Quit"
-        member2.termination_reason = "Concurrent termination attempt"
 
         # The stale copy's write is refused by Frappe's optimistic lock, so the
         # first update (Suspended) wins deterministically.

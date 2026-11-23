@@ -200,13 +200,11 @@ class TestMemberStatusTransitions(VereningingenTestCase):
 
         # First user suspends
         member1.status = "Suspended"
-        member1.suspension_reason = "First reason"
         member1.save()
 
         # Second user tries to terminate from a stale copy: Frappe's optimistic lock
         # must refuse the write, so the first user's Suspended is what persists.
         member2.status = "Quit"
-        member2.termination_reason = "Second reason"
         with self.assertRaises(frappe.TimestampMismatchError):
             member2.save()
 
