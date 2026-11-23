@@ -373,7 +373,6 @@ verenigingen/verenigingen_payments/doctype/mollie_settings/mollie_settings.py::M
 verenigingen/verenigingen_payments/doctype/payment_plan/payment_plan.py::process_overdue_installments::1
 verenigingen/verenigingen_payments/doctype/sepa_audit_log/sepa_audit_log.py::SEPAAuditLog.log_sepa_event::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_create_customer_for_donor::1
-verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_get_subscription_failure_count::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::create_payment_entry_for_donation::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::update_donation_payment_history::1
 verenigingen/verenigingen_payments/mollie/services/complete_payment_service.py::CompletePaymentService._find_usable_directdebit_mandate::1

@@ -1,7 +1,7 @@
 """Shipped Email Templates render with the context their REAL senders build (#2018, #2020).
 
-Each test drives a real sender (``send_payment_reminder_email``, the Mollie payment-failure
-notifier, the Mollie subscription-status notifier) with the stock row from
+Each test drives a real sender (``send_payment_reminder_email``, the Mollie subscription-status
+notifier) with the stock row from
 ``fixtures/email_template.json`` and reads the mail handed to ``frappe.sendmail`` (the harness
 captures it; EnhancedTestCase writes no Email Queue row). Only the mail transport is replaced.
 
@@ -15,7 +15,6 @@ the fix (#1984: setup never rewrites an existing row).
 """
 
 import re
-import types
 
 import frappe
 from frappe.utils import getdate
@@ -25,7 +24,6 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.payment import test_payment_reminder_outcomes as _outcomes
 from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates
-from verenigingen.verenigingen_payments.mollie.api.payment_webhook import _notify_member_of_payment_failure
 from verenigingen.verenigingen_payments.mollie.api.sync import _notify_subscription_status_change
 
 REMINDERS = ["payment_reminder_friendly", "payment_reminder_urgent"]
@@ -34,14 +32,6 @@ STATUS = ["subscription_suspended", "subscription_cancelled"]
 STOCK = REMINDERS + FAILURES + STATUS
 
 HREF = re.compile(r"""href=["']([^"']*)["']""")
-
-
-def _failed_mollie_payment_stub(amount="25.00"):
-    return types.SimpleNamespace(
-        id=f"tr_ctx_{frappe.generate_hash(length=8)}",
-        status="failed",
-        amount={"value": amount, "currency": "EUR"},
-    )
 
 
 class TestShippedTemplateContext(EnhancedTestCase):
@@ -124,16 +114,6 @@ class TestShippedTemplateContext(EnhancedTestCase):
         self._assert_reminder_renders_figures("Urgent Notice")
 
     # ---- #2020: dunning / subscription links ----------------------------
-
-    def test_payment_failure_mails_link_to_a_served_absolute_route(self):
-        for count, template in ((1, "payment_failure_first"), (2, "payment_failure_second"),
-                                (3, "payment_failure_final")):
-            with self.subTest(template=template):
-                self.captured_emails.clear()
-                _notify_member_of_payment_failure(self.member, _failed_mollie_payment_stub(), count)
-                message = self._one_mail()
-                self.assertNotIn("{{", message)
-                self._assert_links_are_absolute_and_served(message)
 
     def test_subscription_status_mails_link_to_a_served_absolute_route(self):
         for new_status in ("suspended", "canceled"):
