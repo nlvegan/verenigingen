@@ -33,6 +33,11 @@ from verenigingen.verenigingen_payments.utils.sepa_mandate_service import (
 
 
 class SEPAMandate(Document):
+    def before_validate(self):
+        # Start of every save cycle: errors recorded by an earlier save of this in-memory doc
+        # must not be reported as belonging to this one (#2992).
+        self.flags.lifecycle_errors = []
+
     def validate(self):
         enforce_consent_provenance(self)
         self.set_scheme_default()
@@ -381,11 +386,13 @@ class SEPAMandate(Document):
 
         The hooks only msgprint a failed member-integration step (#2992); without this the
         caller (SEPAMandateManager.create_mandate) reports a clean success. Errors can arrive
-        from both after_insert and on_update, hence the accumulating list.
+        from both after_insert and on_update, so they accumulate, de-duplicated.
         """
         errors = [e for e in result.get("errors") or [] if e]
         if errors:
-            self.flags.lifecycle_errors = list(self.flags.get("lifecycle_errors") or []) + errors
+            recorded = list(self.flags.get("lifecycle_errors") or [])
+            # insert() fires after_insert AND on_update, which report the same failure.
+            self.flags.lifecycle_errors = recorded + [e for e in dict.fromkeys(errors) if e not in recorded]
 
     def update_member_sepa_mandates_table(self):
         """Update the member's SEPA mandates child table using member integration service"""

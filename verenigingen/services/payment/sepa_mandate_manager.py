@@ -682,9 +682,11 @@ class SEPAMandateManager(StatelessService):
             if warnings:
                 data["warnings"] = warnings
                 return ValidationResult.success(
-                    _("SEPA mandate {0} created, but follow-up steps reported errors: {1}").format(
-                        mandate_id, "; ".join(warnings)
-                    ),
+                    # Fixed text: this reaches member-callable endpoints, so the raw driver
+                    # error stays in data["warnings"] and the Error Log row the failing step wrote.
+                    _(
+                        "SEPA mandate {0} created, but some follow-up steps failed; staff have been notified"
+                    ).format(mandate_id),
                     data=data,
                 )
 

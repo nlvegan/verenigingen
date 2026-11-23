@@ -70,6 +70,38 @@ class TestCreateMandateIntegrationFailure2992(EnhancedTestCase):
         self.assertTrue(any("injected at the driver" in w for w in result.data["warnings"]))
         self.assertNotIn("created successfully", result.message)
 
+    def test_warnings_are_not_duplicated_across_after_insert_and_on_update(self):
+        """insert() fires both hooks; the same failure must be reported once."""
+        self.expectErrorLog("SEPA Mandate Member Integration Error")
+        with self._fail_member_update():
+            result = self._create()
+        warnings = result.data["warnings"]
+        self.assertTrue(warnings)
+        self.assertEqual(len(set(warnings)), len(warnings), warnings)
+
+    def test_message_carries_no_raw_error_text_but_the_error_log_does(self):
+        """The message reaches member-callable endpoints; the driver text stays in data + Error Log."""
+        self.expectErrorLog("SEPA Mandate Member Integration Error")
+        filters = {"method": "SEPA Mandate Member Integration Error", "error": ["like", "%injected at the driver%"]}
+        before = frappe.db.count("Error Log", filters)
+        with self._fail_member_update():
+            result = self._create()
+        self.assertNotIn("injected at the driver", result.message)
+        self.assertNotIn("1064", result.message)
+        self.assertIn("injected at the driver", " ".join(result.data["warnings"]))
+        self.assertGreater(frappe.db.count("Error Log", filters), before)
+
+    def test_a_later_clean_save_does_not_carry_the_earlier_failure(self):
+        self.expectErrorLog("SEPA Mandate Member Integration Error")
+        with self._fail_member_update():
+            result = self._create()
+        mandate = frappe.get_doc("SEPA Mandate", result.data["mandate_name"])
+        with self._fail_member_update():
+            mandate.save()
+        self.assertTrue(mandate.flags.get("lifecycle_errors"), "control: the failing save must record")
+        mandate.save()
+        self.assertFalse(mandate.flags.get("lifecycle_errors"))
+
     def test_clean_creation_has_no_warnings_and_keeps_the_success_message(self):
         """Control: no fault, so no warnings key content and the original message."""
         result = self._create()
