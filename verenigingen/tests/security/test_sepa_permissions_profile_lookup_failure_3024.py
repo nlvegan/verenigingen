@@ -18,7 +18,12 @@ from verenigingen.tests.security.test_sepa_authorization_lock_errors_2409 import
     ORDINARY_ERRNO,
     _sepa2409_driver_fault,
 )
-from verenigingen.utils.security.authorization import SEPAAuthorizationManager, SEPAPermissionLevel
+from verenigingen.utils.security.authorization import (
+    SEPAAuthorizationManager,
+    SEPAOperation,
+    SEPAPermissionLevel,
+    require_sepa_permission,
+)
 from verenigingen.utils.security.authorization_engine import get_authorization_engine
 
 PROFILE_TABLE = "tabUser Role Profile"
@@ -82,3 +87,41 @@ class TestSepaPermissionsProfileLookupFailure3024(AuthorizationTestBase):
             perms = set(self.manager.get_user_permissions())
         self.assertIn(SEPAPermissionLevel.PROCESS, perms)
         self.assertNotIn(SEPAPermissionLevel.ADMIN, perms)
+
+    # ---- end to end: the decorated endpoint refuses a failed lookup like a plain no-permission
+
+    @staticmethod
+    @require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.ANALYTICS_VIEW)
+    def _gated_endpoint_3024():
+        return "reached"
+
+    def _refusal_3024(self, user, errno=None):
+        """(exception type, message, new message_log entries) for the gated endpoint, or the result."""
+        get_authorization_engine().invalidate_user_cache(user.name)
+        log_len = len(frappe.local.message_log)
+        try:
+            if errno is None:
+                with self.as_user(user.name):
+                    result = self._gated_endpoint_3024()
+            else:
+                with self.as_user(user.name), _sepa2409_driver_fault(PROFILE_TABLE, errno):
+                    result = self._gated_endpoint_3024()
+        except frappe.PermissionError as exc:
+            # __frappe_exc_id is a per-exception random id, not a channel a caller can compare.
+            entries = [
+                {k: v for k, v in e.items() if k != "__frappe_exc_id"}
+                for e in frappe.local.message_log[log_len:]
+            ]
+            return type(exc), str(exc), entries
+        return result
+
+    def test_endpoint_refuses_failed_lookup_identically_to_no_permission(self):
+        self.expectErrorLog(LOG_PREFIX)
+        member = self._make_user_with_role_profile("Verenigingen Member", prefix="mem3024")
+        no_permission = self._refusal_3024(member)
+        self.assertIsInstance(no_permission, tuple, "control: a plain Member must be refused")
+        failed = self._refusal_3024(self.role_only, ORDINARY_ERRNO)
+        self.assertEqual(failed, no_permission)
+
+    def test_control_endpoint_runs_for_a_healthy_no_profile_role_user(self):
+        self.assertEqual(self._refusal_3024(self.role_only), "reached")
