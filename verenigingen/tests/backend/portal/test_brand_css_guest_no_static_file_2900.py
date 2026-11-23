@@ -231,7 +231,6 @@ class TestBrandCssGuestNoStaticFile2900(EnhancedTestCase):
         self.assertNotIn("brand-primary", self.out["guest_admin_only"]["body"])
 
     def test_public_read_requests_exactly_the_allowlisted_fields(self):
-        # Mock justified: a pass-through spy, not a stub; the real read still happens.
         from unittest.mock import patch
 
         from verenigingen.verenigingen.doctype.brand_settings.brand_settings import (
@@ -247,6 +246,7 @@ class TestBrandCssGuestNoStaticFile2900(EnhancedTestCase):
                 asked.append(fieldname)
             return real(doctype, filters, fieldname, *args, **kwargs)
 
+        # Mock justified: a pass-through spy, not a stub; the real read still happens.
         with patch.object(frappe.db, "get_value", spy):
             get_public_brand_colours()
         self.assertEqual(len(asked), 1)
