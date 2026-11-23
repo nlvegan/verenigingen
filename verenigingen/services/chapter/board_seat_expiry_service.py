@@ -108,7 +108,8 @@ def _end_seats_of_chapter(chapter_name, row_names) -> tuple:
             message=f"Lapsed seat(s) {', '.join(row_names)} of {chapter_name} were not ended: {e}\n\n"
             f"{frappe.get_traceback()}",
         )
-        return 0, str(e) or type(e).__name__
+        error = str(e) or type(e).__name__
+        return 0, error
 
 
 def _alert_staff(failed):
