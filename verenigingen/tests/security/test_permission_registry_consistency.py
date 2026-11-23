@@ -96,6 +96,13 @@ LIST_SCOPE_EXEMPTIONS = {
         "board-member and member branches of has_donation_permission are dead code: a "
         "controller hook can only deny, never grant."
     ),
+    # #2562: the has_permission entry on these two is has_unforged_owner, a guard against an owner
+    # the client posted through run_doc_method(docs=...). It scopes nothing: list views are governed
+    # by the DocPerm rows, where an `if_owner` row already filters a list to the caller's own rows.
+    "Donation Campaign": "has_unforged_owner is a forged-owner guard, not a scope; DocPerm if_owner scopes lists",
+    "Contribution Amendment Request": (
+        "has_unforged_owner is a forged-owner guard, not a scope; DocPerm if_owner scopes lists"
+    ),
 }
 
 # The premise the Donation exemption rests on. Asserted, not trusted: DocPerms are

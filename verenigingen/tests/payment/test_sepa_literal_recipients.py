@@ -229,6 +229,7 @@ class TestBalanceMonitorEmergency(EnhancedTestCase):
         # BalanceMonitor.__init__ builds Mollie API clients; this path needs none of them.
         monitor = BalanceMonitor.__new__(BalanceMonitor)
         email_service = MagicMock()
+        email_service.send_simple_email.return_value = OperationResult.ok({})
         alert = {"type": AlertType.NEGATIVE_BALANCE.value, "severity": "critical", "message": "negative"}
         with patch(BM_EMAIL_SERVICE, return_value=email_service), patch.object(
             notif, "get_financial_admin_emails", return_value=recipients
@@ -284,6 +285,7 @@ class TestAlertingSystemRecipients(EnhancedTestCase):
 
     def test_escalation_mails_resolved_staff_and_nobody_else(self):
         service = MagicMock()
+        service.send_simple_email.return_value = OperationResult.ok({})
         with patch.object(sas, "get_email_service", return_value=service), patch.object(
             notif, "get_financial_admin_emails", return_value=["fin-2002@example.org"]
         ):
@@ -293,6 +295,7 @@ class TestAlertingSystemRecipients(EnhancedTestCase):
 
     def test_escalation_with_nobody_sends_nothing(self):
         service = MagicMock()
+        service.send_simple_email.return_value = OperationResult.ok({})
         with patch.object(sas, "get_email_service", return_value=service), patch.object(
             notif, "get_financial_admin_emails", return_value=[]
         ):

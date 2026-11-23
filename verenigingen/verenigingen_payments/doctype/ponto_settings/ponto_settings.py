@@ -21,6 +21,7 @@ from frappe.utils import get_url, now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.single_check_defaults import apply_safe_default, ponto_has_live_credentials
+from verenigingen.utils.single_writer_fields import keep_stored_single_fields
 from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
     IMPORT_REFUSED,
     PontoConfigurationService,
@@ -30,6 +31,10 @@ from verenigingen.verenigingen_payments.ponto.utils.bank_account_creator import 
     mapping_pause_reason,
     resolve_bank_account_for_ponto_account,
 )
+
+# Written by token refresh / sync with update_modified=False; a stale form must not roll them
+# back (#2739). access_token_expiry decides whether the stored access token is still used.
+BACKGROUND_OWNED_FIELDS = ("access_token_expiry", "last_sync_time")
 
 
 class PontoSettings(Document):
@@ -43,6 +48,7 @@ class PontoSettings(Document):
 
     def validate(self):
         """Validate settings before save."""
+        keep_stored_single_fields(self, BACKGROUND_OWNED_FIELDS)
         self.validate_credentials_configured()
         self.validate_no_test_credentials()
         self.validate_sync_interval()

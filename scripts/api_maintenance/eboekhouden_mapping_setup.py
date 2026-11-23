@@ -30,20 +30,9 @@ def setup_eboekhouden_mapping_fields():
         ).insert(ignore_permissions=True)
         fields_added.append("Journal Entry.eboekhouden_invoice_number")
 
-    # Add custom fields from the original migration
-    from verenigingen.e_boekhouden.utils_soap_migration import add_eboekhouden_custom_fields
-
-    add_eboekhouden_custom_fields()
-
-    # Create default mappings
-    from verenigingen.e_boekhouden.utils_account_analyzer import create_default_range_mappings
-
-    mapping_result = create_default_range_mappings()
-
     return {
         "success": True,
         "fields_added": fields_added,
-        "mappings_created": mapping_result.get("created", 0),
         "message": "E-Boekhouden mapping setup completed",
     }
 

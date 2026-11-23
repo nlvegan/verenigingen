@@ -9,6 +9,7 @@ from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
 import unittest
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestMemberContactRequestIntegration(EnhancedTestCase):
@@ -91,7 +92,7 @@ class TestMemberContactRequestIntegration(EnhancedTestCase):
         self.assertEqual(contact_request.request_type, "General Inquiry")
         self.assertEqual(contact_request.preferred_contact_method, "Email")
         self.assertEqual(contact_request.status, "Open")
-        self.assertEqual(str(contact_request.request_date), today())
+        assert_written_today(self, contact_request.request_date)
 
     def test_contact_request_integration_workflow(self):
         """Test the complete contact request workflow without inappropriate mocking"""

@@ -300,6 +300,27 @@ describe('Member manual invoice + user account OperationResult handling (#1452)'
 			expect(global.frappe.set_route).toHaveBeenCalledWith('Form', 'Sales Invoice', 'ACC-SINV-2026-00006');
 		});
 
+		it('falls back to the default text when the success envelope has no meta.message, or only the flat legacy message (#1490)', async () => {
+			const noMeta = { success: true, data: REAL_GENERATE_INVOICE_SUCCESS.data };
+			const flatLegacy = { success: true, data: REAL_GENERATE_INVOICE_SUCCESS.data, message: 'flat text' };
+			for (const envelope of [noMeta, flatLegacy]) {
+				const onClick = await setupWithScheduleAndClick();
+				global.frappe.show_alert = jest.fn();
+				global.frappe.call = jest.fn(({ method, callback }) => {
+					if (method === GET_INVOICE_INFO_METHOD) {
+						callback({ message: REAL_INVOICE_INFO_SUCCESS });
+					} else if (method === GENERATE_INVOICE_METHOD) {
+						callback({ message: envelope });
+					}
+				});
+				onClick();
+				expect(global.frappe.show_alert).toHaveBeenCalledWith(
+					{ message: 'Invoice generated successfully', indicator: 'green' },
+					5
+				);
+			}
+		});
+
 		it('shows the real server error text on invoice generation failure', async () => {
 			const onClick = await setupWithScheduleAndClick();
 
@@ -380,6 +401,26 @@ describe('Member manual invoice + user account OperationResult handling (#1452)'
 				{ message: 'Linked existing user account to member', indicator: 'green' },
 				5
 			);
+		});
+
+		it('falls back to the default text when the success envelope has no meta.message, or only the flat legacy message (#1490)', async () => {
+			for (const envelope of [
+				{ success: true, data: 'u@example.com' },
+				{ success: true, data: 'u@example.com', message: 'flat text' }
+			]) {
+				const onClick = await setupAndClick();
+				global.frappe.show_alert = jest.fn();
+				global.frappe.call = jest.fn(({ method, callback }) => {
+					if (method === CREATE_USER_ACCOUNT_METHOD) {
+						callback({ message: envelope });
+					}
+				});
+				onClick();
+				expect(global.frappe.show_alert).toHaveBeenCalledWith(
+					{ message: 'User account created successfully', indicator: 'green' },
+					5
+				);
+			}
 		});
 
 		it('shows the real server error text (a string) on failure, not the error object', async () => {

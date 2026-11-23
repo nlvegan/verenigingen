@@ -159,6 +159,80 @@ class CompliantOverrideIsNotFlaggedTest(unittest.TestCase):
         self.assertEqual([], _scan(files))
 
 
+class ExplicitBaseCallTest(unittest.TestCase):
+    """#1348 gap 1: ``Base.setUp(self)`` is an honoured contract, not a skip --
+    but only when Base is really a base of the class and the method name matches."""
+
+    def _violations(self, body: str, extra: str = "", bases: str = "EnhancedTestCase"):
+        # Realistic layout: the harness sits under a SCANNED path and extends
+        # ErrorLogGuardMixin + a FrappeTestCase-like base, as the real one does.
+        files = {
+            "verenigingen/tests/fixtures/enhanced_test_factory.py": (
+                "class ErrorLogGuardMixin:\n    def setUp(self):\n        pass\n"
+                "class FrappeTestCase:\n    def setUp(self):\n        pass\n"
+                "class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):\n"
+                "    def setUp(self):\n        self._test_docs = []\n"
+            ),
+            "verenigingen/tests/test_e.py": (
+                "from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase\n"
+                + extra
+                + f"class TestE({bases}):\n"
+                + body
+            ),
+        }
+        return sorted((v.class_name, v.method) for v in _scan(files))
+
+    def test_explicit_harness_base_call_is_not_flagged(self):
+        self.assertEqual([], self._violations("    def setUp(self):\n        EnhancedTestCase.setUp(self)\n"))
+
+    def test_explicit_call_to_an_intermediate_base_is_not_flagged(self):
+        extra = "class _Mid(EnhancedTestCase):\n    pass\n"
+        body = "    def tearDown(self):\n        _Mid.tearDown(self)\n"
+        self.assertEqual([], self._violations(body, extra, bases="_Mid"))
+
+    def test_explicit_classmethod_base_call_is_not_flagged(self):
+        body = (
+            "    @classmethod\n    def setUpClass(cls):\n        EnhancedTestCase.setUpClass()\n"
+        )
+        self.assertEqual([], self._violations(body))
+
+    def test_explicit_call_to_a_harness_rooted_grandparent_is_not_flagged(self):
+        """Pins transitive ancestry: the callee is two levels up, not a direct base."""
+        extra = "class _Mid(EnhancedTestCase):\n    pass\nclass _Low(_Mid):\n    pass\n"
+        body = "    def setUp(self):\n        EnhancedTestCase.setUp(self)\n"
+        self.assertEqual([], self._violations(body, extra, bases="_Low"))
+
+    def test_control_explicit_call_to_non_harness_ancestor_is_still_flagged(self):
+        """FrappeTestCase/ErrorLogGuardMixin are ancestors of the harness but
+        calling them directly skips the harness setUp (the #1307 defect)."""
+        for callee in ("FrappeTestCase", "ErrorLogGuardMixin"):
+            with self.subTest(callee=callee):
+                body = f"    def setUp(self):\n        {callee}.setUp(self)\n"
+                self.assertEqual([("TestE", "setUp")], self._violations(body))
+
+    def test_control_classmethod_base_call_with_cls_argument_is_still_flagged(self):
+        """``Base.setUpClass(cls)`` raises TypeError at runtime; only the
+        zero-argument form is accepted."""
+        body = "    @classmethod\n    def setUpClass(cls):\n        EnhancedTestCase.setUpClass(cls)\n"
+        self.assertEqual([("TestE", "setUpClass")], self._violations(body))
+
+    def test_control_unrelated_class_call_is_still_flagged(self):
+        extra = "class Unrelated:\n    def setUp(self):\n        pass\n"
+        body = "    def setUp(self):\n        Unrelated.setUp(self)\n"
+        self.assertEqual([("TestE", "setUp")], self._violations(body, extra))
+
+    def test_control_other_lifecycle_method_on_base_is_still_flagged(self):
+        body = "    def setUp(self):\n        EnhancedTestCase.tearDown(self)\n"
+        self.assertEqual([("TestE", "setUp")], self._violations(body))
+
+    def test_control_base_call_without_self_is_still_flagged(self):
+        body = "    def setUp(self):\n        EnhancedTestCase.setUp(object())\n"
+        self.assertEqual([("TestE", "setUp")], self._violations(body))
+
+    def test_control_no_call_at_all_is_still_flagged(self):
+        self.assertEqual([("TestE", "setUp")], self._violations("    def setUp(self):\n        pass\n"))
+
+
 class RealRepoRegressionTest(unittest.TestCase):
     """Scans the actual verenigingen/ tree. With #1307's fix applied this
     must be empty; before the fix (see git history of the three files it

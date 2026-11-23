@@ -300,10 +300,12 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
         member2.status = "Quit"
         member2.termination_reason = "Concurrent termination attempt"
 
-        # In real implementation, this might trigger version conflict handling
-        # For test, just verify final state is consistent
+        # The stale copy's write is refused by Frappe's optimistic lock, so the
+        # first update (Suspended) wins deterministically.
+        with self.assertRaises(frappe.TimestampMismatchError):
+            member2.save()
         member.reload()
-        self.assertIn(member.status, ["Suspended", "Quit"])  # One of the states should win
+        self.assertEqual(member.status, "Suspended")
 
     # Status-Dependent Business Logic Tests
 

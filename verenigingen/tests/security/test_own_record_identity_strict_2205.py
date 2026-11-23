@@ -198,11 +198,6 @@ class TestOwnRecordIdentityStrict2205(EnhancedTestCase):
             errors_before = frappe.db.count("Error Log")
             docs = self._doc_checks(user, self.email_only)
             conds = self._query_conditions(user)
-            # Address's condition also carries the standard Contact.email_id branch (a
-            # separate, unchanged path: the caller's Contact, not the Member), so an
-            # email-matching caller's SQL text legitimately differs there; compare what the
-            # caller can observe instead: whether the Member-linked row is listed.
-            conds["Address"] = self._row_listed_by_2205("Address", conds["Address"], self.email_only)
             outcome[who] = {
                 "docs": docs,
                 "conds": conds,
