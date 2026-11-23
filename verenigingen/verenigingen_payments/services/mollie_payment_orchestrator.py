@@ -22,6 +22,7 @@ from frappe.utils import getdate
 
 from verenigingen.services.billing.invoice_matcher import InvoiceMatchResult, find_matching_invoice
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
@@ -515,6 +516,10 @@ class MolliePaymentOrchestrator:
 
             self._determine_final_status(result)
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             result.status = "error"
             result.error = str(e)
@@ -831,6 +836,10 @@ class MolliePaymentOrchestrator:
             fiscal_year = ensure_fiscal_year_exists(payment_date, company)
             if fiscal_year:
                 result.actions_taken.append(f"Ensured Fiscal Year: {fiscal_year}")
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as fy_error:
             result.actions_taken.append(f"Cannot create invoice: missing fiscal year for {payment_date}")
             frappe.log_error(
@@ -959,6 +968,10 @@ class MolliePaymentOrchestrator:
                 result.status = "error"
                 result.error = "Failed to create Bank Transaction"
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             result.status = "error"
             result.error = str(e)
@@ -1128,6 +1141,10 @@ class MolliePaymentOrchestrator:
                 "REMINDER: This payment requires manual review to identify the member"
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             result.status = "error"
             result.error = str(e)
@@ -1171,6 +1188,10 @@ class MolliePaymentOrchestrator:
             frappe.logger().info(f"Created orphan customer: {customer.name}")
             return customer.name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             frappe.log_error(
                 title="Orphan Customer Creation Error",
@@ -1272,6 +1293,10 @@ class MolliePaymentOrchestrator:
 
             return invoice.name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             frappe.log_error(
                 title="Orphan Invoice Creation Error",
@@ -1350,6 +1375,10 @@ class MolliePaymentOrchestrator:
 
             return payment_entry.name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             frappe.log_error(
                 title="Orphan PE Creation Error",
@@ -1445,6 +1474,10 @@ class MolliePaymentOrchestrator:
                 result.status = "error"
                 result.error = "Failed to create Bank Transaction"
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             result.status = "error"
             result.error = str(e)
@@ -1532,6 +1565,10 @@ class MolliePaymentOrchestrator:
                     return existing_customer
                 raise  # Re-raise if we still can't find it
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             frappe.log_error(
                 title="Mollie Customer Creation Error",
