@@ -25,7 +25,7 @@ import frappe
 
 import verenigingen
 
-_PLACEHOLDER_3096 = re.compile(r"(?<!\{)\{([A-Za-z_][^{}\n]*?)\}(?!\})")
+_PLACEHOLDER_3096 = re.compile(r"(?<!\{)\{([^{}\n]+?)\}(?!\})")
 _OWNED_ELSEWHERE_3096 = ("utils/migration/stock_migration.py",)  # PR #3105
 _FORMAT_NAMES_3096 = ("_", "__", "_lt")
 
@@ -149,6 +149,16 @@ class TestMissingFstringPrefixCensus3096(unittest.TestCase):
         )
         lines = sorted(ln for ln, _ in find_missing_fstring_prefix_3096(seeded))
         self.assertEqual(lines, [2, 3, 4])
+
+    def test_control_scanner_catches_placeholders_starting_with_a_quote(self):
+        # {', '.join(x)} and {','.join(...)} start with a quote, not a letter (review of #3096)
+        seeded = (
+            "def f(slow, names):\n"
+            "    a = \"Optimize: {', '.join(slow)}.\"\n"
+            "    b = \"\"\"DELETE FROM t WHERE name IN ({','.join(['%s'] * len(names))})\"\"\"\n"
+            "    return a, b\n"
+        )
+        self.assertEqual(sorted(ln for ln, _ in find_missing_fstring_prefix_3096(seeded)), [2, 3])
 
     def test_control_scanner_ignores_legitimate_templates(self):
         legit = (

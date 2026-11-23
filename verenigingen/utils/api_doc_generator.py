@@ -609,7 +609,7 @@ class APIDocGenerator:
                     lines.append("**Authentication:** Not required (guest access allowed)\n")
 
                 if endpoint["roles"]:
-                    lines.append("**Required Roles:** {', '.join(endpoint['roles'])}\n")
+                    lines.append(f"**Required Roles:** {', '.join(endpoint['roles'])}\n")
 
                 if endpoint["rate_limit"]:
                     lines.append(f"**Rate Limit:** {endpoint['rate_limit']}\n")

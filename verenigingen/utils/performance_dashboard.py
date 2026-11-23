@@ -291,7 +291,7 @@ class PerformanceDashboard:
 
             if slow_endpoints:
                 recommendations.append(
-                    "Optimize slow endpoints: {', '.join(slow_endpoints)}. "
+                    f"Optimize slow endpoints: {', '.join(slow_endpoints)}. "
                     "Consider adding caching or optimizing database queries."
                 )
 
@@ -320,7 +320,7 @@ class PerformanceDashboard:
 
             if failed_checks:
                 recommendations.append(
-                    "System health issues detected in: {', '.join(failed_checks)}. "
+                    f"System health issues detected in: {', '.join(failed_checks)}. "
                     "Review system resources and dependencies."
                 )
 
