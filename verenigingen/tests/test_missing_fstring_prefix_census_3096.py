@@ -255,9 +255,13 @@ class TestFormattedLiteralBehaviour3096(unittest.TestCase):
         self.assertEqual(reason, f"Group code starts with {prefix}")
 
     def test_dutch_name_self_test_labels_its_inputs(self):
+        import inspect
+
         from verenigingen.utils.dutch_name_utils import test_dutch_name_formatting
 
-        labels = [r["input"] for r in test_dutch_name_formatting()["test_results"]]
+        # The endpoint is @development_only_api (refused when developer_mode=0, as in CI), so
+        # call the undecorated body.
+        labels = [r["input"] for r in inspect.unwrap(test_dutch_name_formatting)()["test_results"]]
         self.assertIn("first='Jan', middle='None', tussen='van', last='Berg'", labels)
 
     def test_missing_transaction_type_error_log_carries_the_mutation_id(self):
