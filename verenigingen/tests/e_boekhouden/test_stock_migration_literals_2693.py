@@ -44,6 +44,20 @@ class TestStockMigrationDocumentLiterals(EnhancedTestCase):
         second, _ = self._item_doc_for("14000", "B")
         self.assertNotEqual(first, second)
 
+    def test_existing_item_is_reused_only_for_the_same_account(self):
+        """The exists() shortcut must look up the per-account code, not one shared literal."""
+        migrator = StockTransactionMigrator(frappe._dict())
+        existing = {"MIGR-13000"}
+        # Mock justified: stands in for the Item table so "exists for 13000 only" is exact.
+        with patch(f"{MOD}.frappe.db.exists", side_effect=lambda dt, name: name in existing):
+            self.assertEqual(migrator.get_or_create_migration_item("13000", "A"), "MIGR-13000")
+            fake_get_doc = lambda d: frappe._dict(insert=lambda **kw: None, item_code=d["item_code"])  # noqa: E731
+            # Mock justified: the absent-item branch would otherwise insert a real Item on the shared site.
+            with patch.object(migrator, "get_or_create_migration_item_group", return_value="IG"), patch(
+                f"{MOD}.frappe.get_doc", side_effect=fake_get_doc
+            ):
+                self.assertEqual(migrator.get_or_create_migration_item("14000", "B"), "MIGR-14000")
+
     def test_stock_entry_remarks_carry_real_values(self):
         migrator = StockTransactionMigrator(frappe._dict())
         settings = frappe._dict(default_company="Stub Co", default_cost_center="Stub CC")
