@@ -79,6 +79,15 @@ class SEPAAuditLogger:
         "batch_generation",
         "bank_submission",
         "payment_processing",
+        # Refusal/failure/read events of the SEPA batch UI endpoints (#3128). They were literals in
+        # neither this set nor the API Audit Log Select, so the audit write was refused. SEPA Audit
+        # Log.action is a free Data field and process_type falls back to "Batch Generation".
+        "sepa_batch_creation_validation_failed",
+        "sepa_batch_creation_duplicate_date",
+        "sepa_batch_creation_invoice_validation_failed",
+        "sepa_batch_creation_system_error",
+        "sepa_invoice_validation_json_error",
+        "sepa_validation_constraints_retrieved",
     }
 
     # Retention policies (days)
