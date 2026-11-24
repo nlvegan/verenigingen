@@ -38,3 +38,16 @@ class TestPartyExtractorResolverCall3063(_TxUtilsBase):
         party = self._resolve_3063("Supplier")
         self.assertTrue(party, "resolver must be reached and return a party")
         self.assertTrue(frappe.db.exists("Supplier", party))
+
+    def test_api_success_creates_the_party_with_the_api_name_and_relation_code(self):
+        relation_id = f"3063{next(self._seq_3063)}{frappe.generate_hash(length=6)}"
+        api_name = f"Probe 3063 API {frappe.generate_hash(length=6)} BV"
+        details = {"id": relation_id, "name": api_name, "type": "B"}
+        # Mock justified: network boundary only (API success branch)
+        with patch.object(EBoekhoudenPartyResolver, "fetch_relation_details", return_value=details):
+            party = EBoekhoudenPartyExtractor(self.company)._resolve_party_by_relation_id(
+                relation_id, "Customer"
+            )
+        self.assertTrue(party)
+        self.assertEqual(frappe.db.get_value("Customer", party, "customer_name"), api_name)
+        self.assertEqual(frappe.db.get_value("Customer", party, "eboekhouden_relation_code"), relation_id)
