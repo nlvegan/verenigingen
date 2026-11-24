@@ -94,6 +94,7 @@ class SEPAAuditLogger:
     # list). The refusal worked as designed, so these are recorded "Compliant" whatever their log
     # severity: "Exception" would raise the HIGH "Critical Security Events" dashboard alert
     # (security_monitoring_dashboard._get_active_security_alerts) for an ordinary user typo (#3128).
+    # "Compliant" here means the validation control worked, NOT that a batch was created.
     SEPA_USER_REFUSAL_EVENT_TYPES = frozenset(
         {
             "sepa_batch_creation_validation_failed",

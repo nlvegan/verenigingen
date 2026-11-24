@@ -152,22 +152,29 @@ class TestAuditEventTypesAreStorable(VereningingenTestCase):
                     f"{event_type} did not land in SEPA Audit Log",
                 )
 
-    def _rows_the_critical_alert_counts(self, since, action):
-        """The rows _get_active_security_alerts turns into the HIGH alert, restricted to this test's own.
+    def _critical_alerts_over_rows_since(self, since):
+        """Run the REAL _get_active_security_alerts over only the SEPA Audit Log rows made since `since`.
 
         The alert query is capped at 5 rows and a long-lived site already holds Exception rows, so the
-        alert itself reads the same before and after; only the rows this test created tell.
+        unscoped alert reads the same before and after. The wrapper only adds the `creation` bound; the
+        dashboard's own predicate (compliance_status == Exception) still decides what alerts.
         """
-        import inspect
+        from unittest import mock
 
-        from verenigingen.api.security_monitoring_dashboard import _get_active_security_alerts
+        from verenigingen.api import security_monitoring_dashboard as dashboard
 
-        source = inspect.getsource(_get_active_security_alerts)
-        self.assertIn('"compliance_status": "Exception"', source, "the alert predicate changed; update this")
-        return frappe.db.count(
-            "SEPA Audit Log",
-            {"action": action, "compliance_status": "Exception", "creation": [">=", since]},
-        )
+        real_get_all = frappe.get_all
+
+        def scoped_get_all(doctype, *args, **kwargs):
+            if doctype == "SEPA Audit Log":
+                kwargs["filters"] = {**kwargs["filters"], "creation": [">=", since]}
+            return real_get_all(doctype, *args, **kwargs)
+
+        # Mock justified: only narrows the query to this test's own rows (the site holds older Exception
+        # rows and the alert query is capped); the real predicate and alert builder still run.
+        with mock.patch.object(dashboard.frappe, "get_all", side_effect=scoped_get_all):
+            alerts = dashboard._get_active_security_alerts()
+        return [a for a in alerts if a["type"] == "Critical Security Events"]
 
     def test_user_input_refusals_do_not_raise_the_critical_alert(self):
         """A bad batch date is the user's typo, not a security event (review of #3128)."""
@@ -178,19 +185,30 @@ class TestAuditEventTypesAreStorable(VereningingenTestCase):
         since = frappe.utils.now_datetime()
         response = create_sepa_batch_validated_secure(batch_date="not-a-date")
         self.assertFalse(response["success"])
-        action = "sepa_batch_creation_validation_failed"
         self.assertEqual(
-            frappe.db.count("SEPA Audit Log", {"action": action, "creation": [">=", since]}),
+            frappe.db.count(
+                "SEPA Audit Log",
+                {"action": "sepa_batch_creation_validation_failed", "creation": [">=", since]},
+            ),
             1,
             "the refusal was not audited at all",
         )
-        self.assertEqual(self._rows_the_critical_alert_counts(since, action), 0)
+        self.assertEqual(self._critical_alerts_over_rows_since(since), [])
 
-    def test_control_an_exception_row_is_counted_by_the_critical_alert(self):
+    def test_control_a_warning_exception_row_does_raise_the_critical_alert(self):
         since = frappe.utils.now_datetime()
-        # a warning on a non-refusal SEPA event still maps to Exception
         log_sepa_event("sepa_batch_validated", details={"probe": 3128}, severity="warning")
-        self.assertEqual(self._rows_the_critical_alert_counts(since, "sepa_batch_validated"), 1)
+        alerts = self._critical_alerts_over_rows_since(since)
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["count"], 1)
+
+    def test_every_refusal_type_is_compliant_and_a_warning_elsewhere_is_exception(self):
+        logger = SEPAAuditLogger()
+        for event_type in sorted(SEPAAuditLogger.SEPA_USER_REFUSAL_EVENT_TYPES):
+            with self.subTest(event_type=event_type):
+                self.assertEqual(logger._sepa_compliance_status(event_type, "warning"), "Compliant")
+        self.assertEqual(len(SEPAAuditLogger.SEPA_USER_REFUSAL_EVENT_TYPES), 3)
+        self.assertEqual(logger._sepa_compliance_status("sepa_batch_validated", "warning"), "Exception")
 
     def test_system_error_stays_failed(self):
         logger = SEPAAuditLogger()
