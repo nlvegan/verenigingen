@@ -489,7 +489,7 @@ class TestCreateFileRecord(_FileStorageIntegrationBase):
         self._created_paths.append(self._abs_from_url(file_doc.file_url))
 
         # It is a Document, not a bare name.
-        self.assertTrue(hasattr(file_doc, "file_url"))
+        self.assertEqual(file_doc.doctype, "File")
         self.assertTrue(file_doc.file_url.startswith("/private/files/"))
         self.assertNotIn("/documents/", file_doc.file_url)
         self.assertTrue(frappe.db.exists("File", file_doc.name))

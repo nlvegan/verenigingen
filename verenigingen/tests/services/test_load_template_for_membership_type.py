@@ -13,6 +13,7 @@ Covers:
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import flt
 
 from verenigingen.services.billing.template_configuration_service import (
     load_template_for_membership_type,
@@ -85,10 +86,14 @@ class TestLoadTemplateForMembershipType(EnhancedTestCase):
         """Returned template document has the key billing fields."""
         template = load_template_for_membership_type(self.membership_type_with_template)
 
-        self.assertTrue(hasattr(template, "suggested_amount"))
-        self.assertTrue(hasattr(template, "dues_rate"))
-        self.assertTrue(hasattr(template, "billing_frequency"))
-        self.assertTrue(hasattr(template, "minimum_amount"))
+        # hasattr on a Document is True for any real field, so check the values the
+        # fixture put there: the template takes the type's minimum_amount.
+        self.assertEqual(template.is_template, 1)
+        self.assertEqual(
+            flt(template.minimum_amount), flt(self.membership_type_with_template.minimum_amount)
+        )
+        self.assertGreater(flt(template.minimum_amount), 0)
+        self.assertTrue(template.billing_frequency)
 
     # --- Error path: required=True (default) ---
 
