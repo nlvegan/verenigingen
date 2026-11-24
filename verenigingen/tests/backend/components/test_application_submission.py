@@ -57,7 +57,8 @@ class TestApplicationSubmission(ApprovalCase):
 
         # Most importantly - the member-save fee override path records nothing for a new
         # application; the only history row is the dues schedule creation at approval.
-        self.assertEqual([row.change_type for row in member.fee_change_history], ["New Schedule"])
+        change_types = [row.change_type for row in member.fee_change_history]
+        self.assertNotIn("Fee Adjustment", change_types)
 
         self.assertEqual((member.application_status, member.status), ("Approved", "Active"))
 

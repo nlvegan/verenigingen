@@ -41,8 +41,14 @@ class TestMemberFeeChangeService(FrappeTestCase):
 
         member_doc = SimpleMemberDoc()
 
-        # Should return early: validate_fee_override_permissions above raises if reached
-        get_member_fee_change_service().handle_fee_override_changes(member_doc)
+        # Mock justified: boundary - the permission validator is a separate service; the
+        # logic under test is only that the skip flags return before reaching it.
+        with patch(
+            "verenigingen.services.member.core.member_fee_change_service.get_member_fee_validation_service"
+        ) as mock_get_validation:
+            get_member_fee_change_service().handle_fee_override_changes(member_doc)
+
+        mock_get_validation.return_value.validate_fee_override_permissions.assert_not_called()
 
 
     def test_system_update_skips_processing(self):
@@ -60,8 +66,14 @@ class TestMemberFeeChangeService(FrappeTestCase):
 
         member_doc = SimpleMemberDoc()
 
-        # Should return early: validate_fee_override_permissions above raises if reached
-        get_member_fee_change_service().handle_fee_override_changes(member_doc)
+        # Mock justified: boundary - the permission validator is a separate service; the
+        # logic under test is only that the skip flags return before reaching it.
+        with patch(
+            "verenigingen.services.member.core.member_fee_change_service.get_member_fee_validation_service"
+        ) as mock_get_validation:
+            get_member_fee_change_service().handle_fee_override_changes(member_doc)
+
+        mock_get_validation.return_value.validate_fee_override_permissions.assert_not_called()
 
 
     def test_new_document_skips_change_tracking(self):
