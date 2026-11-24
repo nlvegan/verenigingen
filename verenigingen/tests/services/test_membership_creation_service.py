@@ -261,12 +261,9 @@ class TestCreateMembershipOnApproval(EnhancedTestCase):
 
 
 class TestEnsureDuesScheduleExistsNonResumableGuard(EnhancedTestCase):
-    """`_ensure_dues_schedule_exists`'s catch-all is deliberately forgiving --
-    "Don't fail approval if dues schedule creation fails" -- but that used to
-    include 1213/1205, so a deadlock during dues-schedule creation was reported
-    to the operator as a mere orange warning while the caller (a CSV import row)
-    moved on to the next row against a transaction the server had discarded.
-    """
+    """A deadlock (1213/1205) during dues-schedule creation must surface with its own type, not be
+    converted to the ValidationError every other failure becomes (#2133: an ordinary failure now FAILS
+    the approval too). Guards keyed on the deadlock TYPE, e.g. the CSV-import row loop, depend on it."""
 
     def setUp(self):
         super().setUp()
@@ -296,10 +293,9 @@ class TestEnsureDuesScheduleExistsNonResumableGuard(EnhancedTestCase):
         with self.assertRaises(frappe.QueryDeadlockError):
             self.service._ensure_dues_schedule_exists(self.member, self.membership, self.mt)
 
-    def test_control_an_ordinary_failure_is_still_a_warning_not_a_raise(self):
-        """Without this, the guard above could be satisfied by a change that
-        made EVERY exception here propagate, not just the non-resumable two --
-        which would turn "don't fail approval" into "always fail approval"."""
+    def test_control_an_ordinary_failure_fails_the_approval_as_a_validation_error(self):
+        """#2133: an ordinary failure raises a ValidationError (not the raw error, not a warning), so the
+        deadlock test above cannot be satisfied by a change that converted everything to one type."""
         original = MembershipDuesSchedule.create_from_template
 
         def _boom(*args, **kwargs):
@@ -309,10 +305,11 @@ class TestEnsureDuesScheduleExistsNonResumableGuard(EnhancedTestCase):
         self.addCleanup(
             setattr, MembershipDuesSchedule, "create_from_template", staticmethod(original)
         )
+        self.expectErrorLog("Dues Schedule Creation Failed")
 
-        # Must not raise -- the whole point of this method is to degrade
-        # gracefully for anything that isn't a destroyed transaction.
-        self.service._ensure_dues_schedule_exists(self.member, self.membership, self.mt)
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self.service._ensure_dues_schedule_exists(self.member, self.membership, self.mt)
+        self.assertIn("ordinary template error", str(refused.exception))
 
 
 class TestResolveDuesTemplate(EnhancedTestCase):
