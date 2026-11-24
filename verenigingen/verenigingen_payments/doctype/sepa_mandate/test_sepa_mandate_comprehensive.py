@@ -413,9 +413,10 @@ class ComprehensiveSEPAMandateTests(EnhancedTestCase):
         self.assertEqual(mandate.status, "Cancelled")
         self.assertEqual(mandate.is_active, 0)
 
-        # Verify Cancelled status cannot be changed
+        # Verify Cancelled status cannot be changed (#3179: refused, no longer silently reset)
         mandate.status = "Active"
-        mandate.save()
+        with self.assertRaises(frappe.ValidationError):
+            mandate.save()
         mandate.reload()
         # Status should remain Cancelled after reload
         self.assertEqual(mandate.status, "Cancelled")
