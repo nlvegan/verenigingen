@@ -269,6 +269,7 @@ def get_payment_references_for_invoice(
                     & (per.reference_name == invoice_name)
                     & (pe.docstatus == 1)
                 )
+                .orderby(pe.posting_date, order=frappe.qb.desc)
             ).run(as_dict=True)
 
         return references or []
