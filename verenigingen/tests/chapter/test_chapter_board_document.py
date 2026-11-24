@@ -154,7 +154,7 @@ class TestChapterBoardDocument(EnhancedTestCase):
         }).insert(ignore_permissions=True)
 
         # Verify upload_date is today
-        assert_written_today(self, doc.upload_date)
+        assert_written_today(self, doc.get("upload_date"))
 
     def test_document_sorting_by_name(self):
         """Test that documents can be sorted by name (for date-based naming)"""
