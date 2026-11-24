@@ -118,8 +118,8 @@ class TestOpeningBalanceLockErrors3060(_OpeningBalanceBase):
         )
 
     def test_account_classification_lock_error_is_not_a_skipped_account(self):
-        """Measured by the reviewer: without the re-raise the import returned success:True
-        with the balance parked in the temporary-difference account."""
+        """A lock error on the Account read must not park the balance in the
+        temporary-difference account and report success."""
         muts = [
             self._mut("asset", 1000.0, amount_field="balance", mid=1, date=today()),
             self._mut("liability", 1000.0, amount_field="balance", mid=2, date=today()),
