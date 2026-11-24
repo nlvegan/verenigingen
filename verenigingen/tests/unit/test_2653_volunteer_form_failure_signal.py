@@ -76,6 +76,10 @@ class TestVolunteerFormFailureSignal2653(VereningingenTestCase):
         real_rollback = frappe.db.rollback
 
         def rollback_to_prestate(*args, **kwargs):
+            # Only the bare (whole-transaction) rollback is redirected; a nested savepoint
+            # rollback inside the code under test keeps its own target.
+            if args or kwargs.get("save_point"):
+                return real_rollback(*args, **kwargs)
             return real_rollback(save_point=savepoint)
 
         with patch.object(frappe.db, "rollback", side_effect=rollback_to_prestate):
