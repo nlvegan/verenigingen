@@ -93,6 +93,33 @@ class TestFlushBoardSyncsCollectsFailures2959(VereningingenTestCase):
         self.assertIn(BOARD_PROFILE, message)
         self.assertEqual(message.count("access was not withdrawn"), 1)
 
+    def test_the_aggregated_message_is_html_escaped_per_part(self):
+        """The message is shown as HTML (parts joined by <br>), so markup in a part must not survive (N4)."""
+        first, second = self._seated_2959("Esc1"), self._seated_2959("Esc2")
+        chapter = frappe.get_doc("Chapter", self.chapter.name)
+        chapter._pending_board_profile_syncs = [first.volunteer, second.volunteer]
+        manager = chapter.board_manager
+        # Mock justified: a real failing part cannot carry markup (names are docnames/emails), so the
+        # post-condition's failure is injected to give the join something hostile to escape.
+        with mock.patch.object(manager, "_sync_role_profile_for_volunteer"), mock.patch.object(
+            manager, "_withdraw_board_role_if_unseated"
+        ), mock.patch.object(
+            manager,
+            "_assert_board_access_withdrawn",
+            side_effect=[
+                BoardAccessWithdrawalError("Ann <b>Bold</b> <a@x.test>"),
+                BoardAccessWithdrawalError("Bob <script>x</script>"),
+            ],
+        ):
+            with self.assertRaises(BoardAccessWithdrawalError) as caught:
+                manager.flush_pending_board_profile_syncs()
+        message = str(caught.exception)
+        self.assertIn("Ann &lt;b&gt;Bold&lt;/b&gt;", message)
+        self.assertIn("Bob &lt;script&gt;", message)
+        self.assertNotIn("<b>", message)
+        self.assertNotIn("<script>", message)
+        self.assertEqual(message.count("<br>"), 1, "the separator itself stays real markup")
+
     def test_no_failure_raises_nothing(self):
         fine = self._seated_2959("Fine")  # still seated: access is earned
         self._flush_2959(fine)

@@ -39,14 +39,14 @@ class TestInactiveChapterRoleConfersNothing2958(VereningingenTestCase):
         self.track_doc("Chapter Role", name)
         return name
 
-    def _holder_2958(self, role_name, label="Holder"):
+    def _holder_2958(self, role_name, label="Holder", chapter_name=None):
         email = f"r2958.{label.lower()}.{frappe.generate_hash(length=6)}@test.invalid"
         user = self.create_test_user(email)
         self.track_doc("User", user.name)
         member = self.create_test_member(first_name=label, last_name="R2958", email=email, status="Active")
         member.db_set("user", user.name, update_modified=False)
         volunteer = self.create_test_volunteer(member=member.name)
-        chapter = frappe.get_doc("Chapter", self.chapter.name)
+        chapter = frappe.get_doc("Chapter", chapter_name or self.chapter.name)
         self.add_board_member_to_chapter(chapter, volunteer, role_name, email=user.name)
         return frappe._dict(user=user.name, member=member.name, volunteer=volunteer.name)
 
@@ -152,6 +152,26 @@ class TestInactiveChapterRoleConfersNothing2958(VereningingenTestCase):
         role = self._role_2958("Admin")
         holder = self._holder_2958(role)
         self.assertTrue(self._can_assign_as_2958(holder), "fixture: an active Admin seat may assign")
+
+        self._set_active_2958(role, 0)
+
+        self.assertFalse(self._can_assign_as_2958(holder))
+
+    def test_a_deactivated_admin_role_on_the_national_chapter_no_longer_lets_its_holder_assign(self):
+        """The NATIONAL-board branch of can_assign_member_to_chapter has its own query (cr.is_active).
+
+        The holder sits only on the national chapter; the target chapter is a different one, so
+        the chapter-level query finds nothing and only the national query can grant.
+        """
+        national = self.create_test_chapter(
+            chapter_name=f"N2958 {frappe.generate_hash(length=6)}", postal_codes="2000-2999", published=1
+        )
+        old = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        self.addCleanup(frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", old)
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", national.name)
+        role = self._role_2958("Admin")
+        holder = self._holder_2958(role, label="National", chapter_name=national.name)
+        self.assertTrue(self._can_assign_as_2958(holder), "fixture: an active national Admin seat may assign")
 
         self._set_active_2958(role, 0)
 

@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 
 import frappe
 from frappe import STANDARD_USERS, _
-from frappe.utils import add_days, getdate, today
+from frappe.utils import add_days, escape_html, getdate, today
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import can_use_bypass_validations, secure_document_operation
@@ -1280,7 +1280,7 @@ class BoardManager(BaseManager):
             self._refresh_volunteer_status(volunteer_name)
         if unwithdrawn:
             # Still ONE abort: no seat may end while its access survives (#738, #1953).
-            raise BoardAccessWithdrawalError("<br>".join(unwithdrawn))
+            raise BoardAccessWithdrawalError("<br>".join(escape_html(part) for part in unwithdrawn))
         self._refresh_expense_approvers(departed)
 
     def _refresh_expense_approvers(self, departed_volunteers):
