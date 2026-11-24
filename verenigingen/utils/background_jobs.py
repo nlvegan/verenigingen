@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe.utils import add_days, get_datetime, now
 
+from verenigingen.events.event_emitter import enqueue_deduplicated
+
 
 class BackgroundJobManager:
     """Manager for background job operations with status tracking and notifications"""
@@ -588,11 +590,12 @@ def enqueue_payment_history_drain_for_customers(customers):
     """
     for customer in customers:
         for member_doc in frappe.get_all("Member", filters={"customer": customer}, fields=["name"]):
-            frappe.enqueue(
+            # enqueue_deduplicated: a dedupe race on one member must not abort the loop and
+            # silently skip every later member (#3186); it retries once and logs.
+            enqueue_deduplicated(
                 "verenigingen.utils.background_jobs.drain_member_payment_history",
                 queue="short",
                 job_id=f"fin_history_payment_{member_doc.name}",
-                deduplicate=True,
                 enqueue_after_commit=True,
                 timeout=300,
                 member=member_doc.name,
