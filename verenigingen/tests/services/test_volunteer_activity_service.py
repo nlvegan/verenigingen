@@ -13,6 +13,7 @@ from frappe.utils import today, add_days
 
 from verenigingen.services.volunteer.activity_service import VolunteerActivityService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestVolunteerActivityService(EnhancedTestCase):
@@ -155,7 +156,7 @@ class TestVolunteerActivityService(EnhancedTestCase):
         # Verify activity was updated
         activity = frappe.get_doc("Volunteer Activity", activity_name)
         self.assertEqual(activity.status, "Completed")
-        self.assertEqual(str(activity.end_date), str(today()))
+        assert_written_today(self, activity.end_date)
 
     def test_end_activity_with_custom_date(self):
         """Test ending activity with custom end date"""
@@ -275,7 +276,7 @@ class TestVolunteerActivityService(EnhancedTestCase):
         # Verify final state
         activity.reload()
         self.assertEqual(activity.status, "Completed")
-        self.assertEqual(str(activity.end_date), str(today()))
+        assert_written_today(self, activity.end_date)
         self.assertIn("Campaign successfully completed", activity.notes)
 
 
@@ -299,7 +300,7 @@ class TestVolunteerActivityServiceEdgeCases(EnhancedTestCase):
         )
 
         activity = frappe.get_doc("Volunteer Activity", activity_name)
-        self.assertEqual(str(activity.start_date), str(today()))
+        assert_written_today(self, activity.start_date)
 
     def test_end_activity_defaults_end_date(self):
         """Test that end_date defaults to today if not provided"""
@@ -320,7 +321,7 @@ class TestVolunteerActivityServiceEdgeCases(EnhancedTestCase):
         service.end_activity(activity_name)
 
         activity = frappe.get_doc("Volunteer Activity", activity_name)
-        self.assertEqual(str(activity.end_date), str(today()))
+        assert_written_today(self, activity.end_date)
 
     def test_add_activity_with_all_fields(self):
         """Test adding activity with all optional fields populated"""
