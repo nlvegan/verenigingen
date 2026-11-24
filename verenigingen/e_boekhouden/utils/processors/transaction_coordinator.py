@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
 from .base_processor import BaseTransactionProcessor
 from .invoice_processor import InvoiceProcessor
 from .journal_processor import JournalProcessor
@@ -173,6 +175,11 @@ class TransactionCoordinator:
 
                     return result
 
+                except NON_RESUMABLE_DB_ERRORS:
+                    # #3061: a 1213/1205 is not a per-mutation failure to count and move past.
+                    # The migration callers (#572) re-raise it and must not fall back to legacy
+                    # processing on a transaction the server may have rolled back.
+                    raise
                 except Exception as e:
                     self.stats["failed"] += 1
                     error_info = processor.format_error(mutation, e)

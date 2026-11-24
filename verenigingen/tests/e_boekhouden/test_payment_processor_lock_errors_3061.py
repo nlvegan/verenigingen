@@ -19,6 +19,8 @@ import frappe
 from frappe.utils import nowdate
 
 from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler import PaymentEntryHandler
+from verenigingen.e_boekhouden.utils.processors.transaction_coordinator import TransactionCoordinator
+from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
 from verenigingen.tests.e_boekhouden.test_party_creation_lock_errors_3029 import _lock_error_at_driver_3029
 from verenigingen.tests.e_boekhouden.test_payment_processor_sweep import _PayProcBase
 from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
@@ -132,6 +134,7 @@ class TestPaymentProcessorLockErrors3061(_PayProcBase):
     # --- _process_money_transfer ------------------------------------------------------------
     def test_a_lock_error_ensuring_the_fiscal_year_does_not_let_the_journal_entry_submit(self):
         self.expectErrorLog("Fiscal Year Auto-Creation Error", "Money Transfer Journal Entry Error")
+
         def call(n):
             mutation = self._money_mutation(5, self._amount_3061(n), "7300008", n)
 
@@ -148,6 +151,7 @@ class TestPaymentProcessorLockErrors3061(_PayProcBase):
 
     def test_a_lock_error_creating_the_bank_transaction_does_not_let_the_journal_entry_submit(self):
         self.expectErrorLog("Money Transfer Journal Entry Error")
+
         def call(n):
             mutation = self._money_mutation(5, self._amount_3061(n), "7300008", n)
 
@@ -243,6 +247,7 @@ class TestPaymentProcessorLockErrors3061(_PayProcBase):
     # --- payment_entry_handler --------------------------------------------------------------
     def test_a_lock_error_ensuring_the_fiscal_year_does_not_let_the_payment_entry_submit(self):
         self.expectErrorLog("Fiscal Year Auto-Creation Error")
+
         def call(n):
             pe = frappe.new_doc("Payment Entry")
             pe.payment_type = "Internal Transfer"
@@ -265,6 +270,46 @@ class TestPaymentProcessorLockErrors3061(_PayProcBase):
             return act
 
         self._reaches_caller_3061("BETWEEN year_start_date AND year_end_date", ("SELECT",), call)
+
+    # --- TransactionCoordinator.process_mutation: the production route (types 3/4/5/6) -------
+    def _coordinator_3061(self):
+        return TransactionCoordinator(self.company, cost_center=self.cost_center, mutation_type=5)
+
+    def test_a_lock_error_creating_the_bank_transaction_reaches_the_caller_through_the_coordinator(self):
+        """The coordinator's ``except Exception`` used to log the lock error and return None, so
+        ``eboekhouden_rest_full_migration``'s ``except NON_RESUMABLE_DB_ERRORS`` (#572) never saw
+        it and the caller fell back to legacy processing on a dead transaction. 1213 only: a 1205
+        cannot reach the processor from the Bank Transaction insert (see above), so the 1205
+        coordinator case drives the fiscal-year SELECT instead."""
+        self.expectErrorLog("Money Transfer Journal Entry Error")
+
+        def call(n):
+            mutation = self._money_mutation(5, self._amount_3061(n), "7300008", n)
+            return lambda: self._coordinator_3061().process_mutation(mutation)
+
+        self._reaches_caller_3061("`tabBank Transaction`", ("INSERT",), call, codes=(1213,))
+
+    def test_a_lock_error_ensuring_the_fiscal_year_reaches_the_caller_through_the_coordinator(self):
+        self.expectErrorLog("Fiscal Year Auto-Creation Error", "Money Transfer Journal Entry Error")
+
+        def call(n):
+            mutation = self._money_mutation(5, self._amount_3061(n), "7300008", n)
+            return lambda: self._coordinator_3061().process_mutation(mutation)
+
+        # 1213 and 1205 both. A 1205 is statement-only (the server keeps the transaction), so a
+        # draft Journal Entry inserted before the failing statement can remain; a 1213 rolls it back.
+        self._reaches_caller_3061("BETWEEN year_start_date AND year_end_date", ("SELECT",), call)
+
+    def test_an_ordinary_error_through_the_coordinator_is_still_counted_and_returns_none(self):
+        """Control: the re-raise is narrow; an ordinary processor failure keeps the old
+        contract (stats failed, error logged, None returned)."""
+        self.expectErrorLog("eBoekhouden Processing Error")
+        coordinator = self._coordinator_3061()
+        mutation = self._money_mutation(5, 130.0, "7300008", next(self._seq_3061))
+        # Mock justified: ordinary-error control; the lock tests above use the real driver path
+        with patch.object(PaymentProcessor, "process", side_effect=ValueError("ordinary")):
+            self.assertIsNone(coordinator.process_mutation(mutation))
+        self.assertEqual(coordinator.stats["failed"], 1)
 
     # --- controls ---------------------------------------------------------------------------
     def test_an_ordinary_fiscal_year_failure_is_still_only_a_warning(self):

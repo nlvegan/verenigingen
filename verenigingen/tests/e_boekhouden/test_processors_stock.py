@@ -21,6 +21,7 @@ Run with:
 import frappe
 
 from verenigingen.e_boekhouden.utils.processors.stock_processor import StockProcessor
+from verenigingen.tests.e_boekhouden.test_party_creation_lock_errors_3029 import _lock_error_at_driver_3029
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
 
 
@@ -410,6 +411,28 @@ class TestStockReconciliationCreateIntegration(EnhancedTestCase):
         account = p._get_difference_account(self.expense_account)
         self.assertNotEqual(account, self.expense_account)
         self.assertTrue(any("no stock ledger yet" in m for m in p.debug_info), p.debug_info)
+
+    def test_a_lock_error_ensuring_the_fiscal_year_is_not_swallowed_into_a_none_result_3061(self):
+        """#3061: the processor's own handlers (fiscal-year step, then the outer
+        ``except Exception``) used to turn a 1213/1205 into a debug line and ``None``. The error
+        is injected at the DRIVER (not provoked); no server ROLLBACK is issued."""
+        self.expectErrorLog("Fiscal Year Auto-Creation Error")
+        for code, error in ((1213, frappe.QueryDeadlockError), (1205, frappe.QueryTimeoutError)):
+            with self.subTest(code=code):
+                mut = {
+                    "id": self._unique_id(),
+                    "type": 7,
+                    "date": frappe.utils.today(),
+                    "description": "lock error 3061",
+                    "ledgerId": self.STOCK_LEDGER_ID,
+                    "rows": [{"ledgerId": self.EXPENSE_LEDGER_ID, "amount": 25.0}],
+                }
+                inject, hits = _lock_error_at_driver_3029(
+                    "BETWEEN year_start_date AND year_end_date", ("SELECT",), code
+                )
+                with inject, self.assertRaises(error):
+                    self._processor().process(mut)
+                self.assertTrue(hits, "the injection must have fired")
 
     def test_stock_reconciliation_created_and_submitted_with_content(self):
         p = self._processor()
