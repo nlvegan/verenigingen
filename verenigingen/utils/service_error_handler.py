@@ -59,7 +59,9 @@ def handle_service_error(
     if propagate_non_resumable and isinstance(error, NON_RESUMABLE_DB_ERRORS):
         # #1190: a 1213/1205 must reach the caller as itself. Wrapping it in a
         # ServiceError made every downstream `except NON_RESUMABLE_DB_ERRORS` dead.
-        # #2817: raise_error=False does not change that; the transaction is gone either way.
+        # #2817: raise_error=False does not change that. 1213 rolled the whole transaction
+        # back; 1205 undoes only the failed statement but leaves the unit of work half-applied,
+        # which is why it propagates too (see transaction_errors.py).
         # Not logged here either: the Error Log insert would be issued on the
         # transaction the server just destroyed (see transaction_errors.py).
         raise error

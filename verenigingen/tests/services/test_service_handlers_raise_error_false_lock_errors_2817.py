@@ -220,28 +220,34 @@ class TestServiceHandlersRaiseErrorFalseLockErrors2817(EnhancedTestCase):
     def test_email_service_still_returns_a_failure_result_for_a_lock_timeout(self):
         """#2996: a best-effort send must not abort its caller on 1205 (deadlock still escapes).
 
-        Pins the ``propagate_non_resumable=False`` opt-out on the handlers reachable by a driver injection (send_templated_email, send_notification;
-        send_bulk_emails and send_simple_email were not reached by one and carry the same clause).
+        The 1205 is injected inside template RENDERING (a cached template whose Jinja reads
+        ``tabTag``). ``_render_template`` re-raises, ``_get_template``/``_get_default_context``/
+        ``_send_email_internal`` do not swallow it past that point, so it reaches the OUTER
+        ``handle_service_error`` of send_templated_email/send_notification, where the
+        ``propagate_non_resumable=False`` opt-out decides its fate. (An injection into a statement
+        a helper swallows itself never reaches the opt-out and proves nothing.)
+        send_bulk_emails and send_simple_email carry the same clause and are not pinned here.
         """
+        self.expectErrorLog("EmailService Error")
         recipient = f"t2817.{frappe.generate_hash(length=8)}@test.invalid"
-        service = EmailService()
-        calls = {
-            "send_templated_email": (
-                lambda: service.send_templated_email("Nope 2817", [recipient], {}),
-                "SELECT",
-                "`tabEmail Template`",
-            ),
-            "send_notification": (
-                lambda: service.send_notification("member_approval", [recipient], {}),
-                "SELECT",
-                "`tabEmail Template`",
-            ),
+        reading_template = {
+            "subject": "s2817",
+            "content": "{{ frappe.db.get_value('Tag', 'no-such-tag-2817', 'name') }}",
         }
-        for name, (call, verb, fragment) in calls.items():
+        for name, template_name, call_name in (
+            ("send_templated_email", "T2817 render", "send_templated_email"),
+            ("send_notification", "membership_application_approved", "send_notification"),
+        ):
             with self.subTest(method=name):
+                service = EmailService()
+                service.template_cache.set(template_name, reading_template)
+                if call_name == "send_templated_email":
+                    call = lambda: service.send_templated_email(template_name, [recipient], {})
+                else:
+                    call = lambda: service.send_notification("member_approval", [recipient], {})
                 hits = []
                 with patch.object(EmailService, "_has_active_email_account", return_value=True):
-                    with self._lock_fault_at_driver_2817(1205, verb, fragment, hits):
+                    with self._lock_fault_at_driver_2817(1205, "SELECT", "`tabTag`", hits):
                         result = call()
                 self.assertTrue(hits, f"{name}: the 1205 injection never fired")
                 self.assertFalse(result.success)
