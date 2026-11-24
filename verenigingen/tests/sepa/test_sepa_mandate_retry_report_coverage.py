@@ -280,10 +280,10 @@ class TestSEPAMandateLifecycleServiceRealDB(EnhancedTestCase):
         return member, mandate
 
     # ---- set_status_based_on_dates against a real persisted mandate ----
-    def test_set_status_future_sign_date_pending(self):
+    def test_set_status_future_sign_date_stays_draft(self):
         _member, mandate = self._make_member_with_mandate(status="Draft")
         mandate.sign_date = add_days(today(), 10)
-        self.assertEqual(self.service.set_status_based_on_dates(mandate), "Pending")
+        self.assertEqual(self.service.set_status_based_on_dates(mandate), "Draft")
 
     def test_set_status_expired_when_past_expiry(self):
         _member, mandate = self._make_member_with_mandate(status="Active")

@@ -85,3 +85,18 @@ class TestSEPAMandateTransitionEnforcement(EnhancedTestCase):
         mandate.notes = "unrelated edit"
         mandate.save()
         self.assertEqual(frappe.db.get_value("SEPA Mandate", mandate.name, "status"), "Expired")
+
+    def test_future_sign_date_keeps_draft_not_pending(self):
+        """Pending is not a SEPA Mandate status option (ruling 2026-11-24): a future
+        sign_date used to force "Pending" through set_status_based_on_dates.
+
+        Service-level on a real persisted mandate: save() refuses a future sign_date
+        ("Sign date cannot be in the future"), so the rule is only reachable directly.
+        """
+        from verenigingen.verenigingen_payments.services.sepa_mandate_lifecycle_service import (
+            SEPAMandateLifecycleService,
+        )
+
+        mandate = self._mandate_in_status("Draft")
+        mandate.sign_date = frappe.utils.add_days(today(), 10)
+        self.assertEqual(SEPAMandateLifecycleService().set_status_based_on_dates(mandate), "Draft")

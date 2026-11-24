@@ -90,8 +90,8 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         with patch('frappe.utils.getdate', side_effect=lambda x: x if x else date.today()):
             result = self.service.set_status_based_on_dates(mandate)
 
-            # Should be Pending when sign date is in future
-            self.assertEqual(result, 'Pending')
+            # Pending is not a SEPA Mandate status (ruling 2026-11-24): stays Draft
+            self.assertEqual(result, 'Draft')
 
     def test_set_status_based_on_dates_expired_mandate(self):
         """Test status calculation for expired mandate"""
@@ -128,7 +128,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
 
     def test_set_status_based_on_dates_preserve_terminal_states(self):
         """Test that terminal states are preserved"""
-        terminal_states = ['Cancelled', 'Rejected', 'Expired']
+        terminal_states = ['Cancelled', 'Expired']
 
         for terminal_status in terminal_states:
             with self.subTest(status=terminal_status):
@@ -263,17 +263,15 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         """Test status transition validation matrix"""
         # Define valid transitions as per service logic
         valid_transitions = {
-            'Draft': ['Pending', 'Active', 'Cancelled'],
-            'Pending': ['Active', 'Cancelled', 'Rejected'],
+            'Draft': ['Active', 'Cancelled'],
             'Active': ['Suspended', 'Cancelled', 'Expired'],
             'Suspended': ['Active', 'Cancelled'],
             'Cancelled': [],  # Terminal state
             'Expired': ['Cancelled'],
-            'Rejected': ['Draft', 'Cancelled']
         }
 
         for from_status, allowed_statuses in valid_transitions.items():
-            for to_status in ['Draft', 'Pending', 'Active', 'Suspended', 'Cancelled', 'Expired', 'Rejected']:
+            for to_status in ['Draft', 'Active', 'Suspended', 'Cancelled', 'Expired']:
                 with self.subTest(from_status=from_status, to_status=to_status):
                     expected = to_status in allowed_statuses
                     result = self.service._is_valid_status_transition(from_status, to_status)
@@ -568,7 +566,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         """Test automatic status transitions based on dates"""
         today = date.today()
 
-        # Test future sign date -> Pending
+        # Test future sign date -> stays Draft
         mandate = self._create_mock_mandate(
             sign_date=today + timedelta(days=10),
             status='Draft'
@@ -576,7 +574,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
 
         with patch('frappe.utils.getdate', side_effect=lambda x: x if x else today):
             status = self.service.set_status_based_on_dates(mandate)
-            self.assertEqual(status, 'Pending')
+            self.assertEqual(status, 'Draft')
 
         # Test expired mandate -> Expired
         mandate.sign_date = today - timedelta(days=100)

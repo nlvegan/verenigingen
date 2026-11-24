@@ -70,7 +70,7 @@ class TestSEPAProcessingPipeline(VereningingenTestCase):
         mandate.bic = self.factory.derive_bic_from_test_iban(mandate.iban)
         mandate.mandate_type = "RCUR"  # Recurring
         mandate.sign_date = today()
-        mandate.status = "Pending"
+        mandate.status = "Draft"
         mandate.save()
         self.track_doc("SEPA Mandate", mandate.name)
 

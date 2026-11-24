@@ -345,7 +345,7 @@ class TestDataFactory {
 			iban: this.generateDutchIBAN(),
 			bank_account_name: 'Test Account Holder',
 			mandate_date: this.generateRecentDate(30),
-			status: this.randomChoice(['Active', 'Pending', 'Cancelled']),
+			status: this.randomChoice(['Active', 'Draft', 'Cancelled']),
 			mandate_type: 'RCUR',
 			sequence_type: 'FRST',
 			creditor_id: 'NL98ZZZ999999999999',

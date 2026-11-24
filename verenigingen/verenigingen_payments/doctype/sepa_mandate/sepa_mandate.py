@@ -278,7 +278,12 @@ class SEPAMandate(Document):
         sepa_mandate_lifecycle_service.sync_status_and_active_flag(self)
 
     def set_status_based_on_dates(self):
-        """Set status based on dates using lifecycle service"""
+        """Set status based on dates using lifecycle service.
+
+        Date-derived changes are exempt from the transition map (#3179 ruling
+        2026-11-24); only the caller-requested status is checked, in
+        ``validate_status_transition``.
+        """
         self.status = sepa_mandate_lifecycle_service.set_status_based_on_dates(self)
 
     def set_value(self, fieldname, value):

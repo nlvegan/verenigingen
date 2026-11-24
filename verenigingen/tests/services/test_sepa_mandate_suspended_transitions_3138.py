@@ -1,7 +1,7 @@
 """#3138: Suspended must be a reachable state in the SEPA mandate lifecycle.
 
 Maintainer ruling 2026-11-24: allow exactly Active->Suspended, Suspended->Active and
-Suspended->Cancelled. Draft and Pending cannot be suspended, and Suspended->Draft stays invalid.
+Suspended->Cancelled. Draft cannot be suspended, and Suspended->Draft stays invalid.
 ``SEPAMandate`` itself sets Suspended whenever ``is_active`` is cleared, so the lifecycle map
 reporting those moves as "Invalid status transition" was a false alarm waiting for a caller
 that surfaces it.
@@ -67,12 +67,11 @@ class TestSuspendedTransitions3138(EnhancedTestCase):
         # result["success"] is True and result["errors"] == [] here.
         self._assert_allowed("Suspended", "Cancelled")
 
-    def test_control_draft_and_pending_cannot_be_suspended(self):
+    def test_control_draft_cannot_be_suspended(self):
         self._assert_refused("Draft", "Suspended")
-        self._assert_refused("Pending", "Suspended")
 
-    def test_control_suspended_cannot_return_to_draft_or_pending_or_expire(self):
-        for target in ("Draft", "Pending", "Expired", "Rejected"):
+    def test_control_suspended_cannot_return_to_draft_or_expire(self):
+        for target in ("Draft", "Expired"):
             with self.subTest(target=target):
                 self._assert_refused("Suspended", target)
 
