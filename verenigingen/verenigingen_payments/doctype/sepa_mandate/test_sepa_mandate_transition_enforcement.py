@@ -69,10 +69,11 @@ class TestSEPAMandateTransitionEnforcement(EnhancedTestCase):
         """A status the DATE rules derive is not a caller-requested transition.
 
         Probe shortcut: the past expiry_date is written with db.set_value to stand
-        in for time passing. Active -> Expired is valid anyway; the control is that
-        the save is not blocked and the derived status persists.
+        in for time passing. Starts from Draft because Draft -> Expired is NOT in the
+        transition map: that makes the test fail if the check ever runs after the
+        date derivation (Active -> Expired is valid and would hide it).
         """
-        mandate = self._mandate_in_status("Active")
+        mandate = self._mandate_in_status("Draft")
         frappe.db.set_value(
             "SEPA Mandate",
             mandate.name,
