@@ -81,7 +81,7 @@ class SEPAMandateIdentityService:
                         f"Mandate ID duplicate key error, retrying (attempt {attempt + 1}/{max_retries})"
                     )
                     continue
-                # For other errors, log and try fallback
+                # For other errors, log and refuse
                 break
 
         # All retries exhausted or non-recoverable error. #2627 (maintainer ruling

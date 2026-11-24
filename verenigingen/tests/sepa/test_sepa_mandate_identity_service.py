@@ -104,12 +104,14 @@ class TestSEPAMandateIdentityService(EnhancedTestCase):
         """#2627 (maintainer ruling 2026-11-24): a non-duplicate failure must refuse,
         never fall back to the default pattern. Replaces the old fallback test, which
         encoded the behaviour the ruling removed."""
+        self.expectErrorLog("SEPA Mandate ID Generation")
         with patch.object(self.service, '_get_settings', side_effect=Exception("Settings error")):
             with self.assertRaises(frappe.ValidationError):
                 self.service.generate_mandate_id()
 
     def test_generate_mandate_id_refuses_when_collisions_exhaust_retries(self):
         """#2627: three collisions leave last_error None; that path must refuse too."""
+        self.expectErrorLog("SEPA Mandate ID Generation")
         settings = Mock(sepa_mandate_naming_pattern="VEG-.####", sepa_mandate_starting_counter=1)
         with patch.object(self.service, '_get_settings', return_value=settings):
             with patch.object(self.service, '_generate_mandate_id_with_counter', return_value="VEG-0001"):
@@ -118,19 +120,34 @@ class TestSEPAMandateIdentityService(EnhancedTestCase):
                         self.service.generate_mandate_id()
 
     def test_sepa_mandate_save_path_refuses_when_id_cannot_be_generated(self):
-        """#2627: SEPAMandate.validate() is the only production caller. The refusal
-        must propagate out of it and leave mandate_id unset (the insert is aborted
-        before any row is written)."""
+        """#2627: a real SEPAMandate.insert() with no mandate_id must refuse and
+        write no SEPA Mandate row when the configured id cannot be generated."""
         from verenigingen.verenigingen_payments.services import sepa_mandate_identity_service as svc_module
 
+        self.expectErrorLog("SEPA Mandate ID Generation")
+        member = self.create_test_member(
+            first_name="Refuse", last_name="Mandate", email="refuse.mandate.2627@example.com"
+        )
         mandate = frappe.new_doc("SEPA Mandate")
+        mandate.update(
+            {
+                "member": member.name,
+                "iban": "NL91ABNA0417164300",
+                "status": "Active",
+                "sign_date": frappe.utils.add_days(frappe.utils.today(), -30),
+                "account_holder_name": "Refuse Mandate",
+                "bic": "ABNANL2A",
+                "mandate_type": "RCUR",
+            }
+        )
         self.assertFalse(mandate.mandate_id)
+        count_before = frappe.db.count("SEPA Mandate")
         with patch.object(
-            svc_module.sepa_mandate_identity_service, '_get_settings', side_effect=Exception("Settings error")
+            svc_module.sepa_mandate_identity_service, "_get_settings", side_effect=Exception("Settings error")
         ):
             with self.assertRaises(frappe.ValidationError):
-                mandate.auto_generate_mandate_id()
-        self.assertFalse(mandate.mandate_id)
+                mandate.insert()
+        self.assertEqual(frappe.db.count("SEPA Mandate"), count_before)
 
     def test_generate_mandate_id_with_mandate_doc(self):
         """Test mandate ID generation with mandate document context"""

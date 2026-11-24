@@ -306,6 +306,7 @@ class TestSEPAMandateServiceIntegration(VereningingenTestCase):
         """Test error handling across all services"""
 
         # Test identity service error handling
+        self.expectErrorLog("SEPA Mandate ID Generation")
         with patch('frappe.get_single', side_effect=Exception("Settings error")):
             # #2627: refuses instead of falling back to the default pattern
             with self.assertRaises(frappe.ValidationError):
