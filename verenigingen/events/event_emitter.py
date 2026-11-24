@@ -6,6 +6,28 @@ chapter_events and team_events.
 """
 
 import frappe
+from rq.exceptions import InvalidJobOperation
+
+
+def enqueue_deduplicated(*args, **enqueue_kwargs):
+    """``frappe.enqueue(..., deduplicate=True)`` that a dedupe race cannot turn into a failed save (#2505).
+
+    With ``deduplicate=True`` frappe fetches the job by id and, when it is not queued or
+    started, deletes it. ``Job.delete`` re-reads the job's status, and when a concurrent
+    enqueue or worker removed the hash in between, rq raises ``InvalidJobOperation``. Called
+    from a document hook, that aborted the business save. The job id names a job that is
+    already handled, so the race is logged and treated as done.
+
+    Arguments are forwarded unchanged, so callers keep their positional/keyword shape.
+    Only ``InvalidJobOperation`` is caught: a lock or deadlock error must still propagate.
+    """
+    try:
+        return frappe.enqueue(*args, deduplicate=True, **enqueue_kwargs)
+    except InvalidJobOperation as e:
+        frappe.log_error(
+            title="Event dedupe enqueue race (InvalidJobOperation)",
+            message=f"job_id={enqueue_kwargs.get('job_id')} method={args[0] if args else enqueue_kwargs.get('method')}: {e}",
+        )
 
 
 def emit_event(
@@ -80,7 +102,7 @@ def emit_event(
         # (verified with scripts/testing/order_dependence_detector.py against the
         # bulk-account-creation suite). The read-stale race it would guard against is
         # low-frequency and already handled by idempotent, retrying subscribers. See #168.
-        frappe.enqueue(
+        enqueue_deduplicated(
             method=subscriber,
             queue="short",
             job_id="_".join(
@@ -88,7 +110,6 @@ def emit_event(
                 + [str(event_data.get(k)) for k in job_id_keys]
                 + [subscriber]
             ),
-            deduplicate=True,
             enqueue_after_commit=after_commit,
             timeout=300,
             **extra_kwargs,
