@@ -19,8 +19,10 @@ from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migra
     import_opening_balances_only,
 )
 from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+    _get_or_create_temporary_diff_account,
     _import_opening_balances,
     _import_opening_balances_from_data,
+    get_erpnext_account_from_ledger_id,
 )
 from verenigingen.e_boekhouden.utils.stock_account_handler import (
     import_opening_balances_with_stock_handling,
@@ -115,7 +117,49 @@ class TestOpeningBalanceLockErrors3060(_OpeningBalanceBase):
             "`tabJournal Entry`", ("UPDATE",), call, before=self._seed_existing_ob_je_3060
         )
 
+    def test_account_classification_lock_error_is_not_a_skipped_account(self):
+        """Measured by the reviewer: without the re-raise the import returned success:True
+        with the balance parked in the temporary-difference account."""
+        muts = [
+            self._mut("asset", 1000.0, amount_field="balance", mid=1, date=today()),
+            self._mut("liability", 1000.0, amount_field="balance", mid=2, date=today()),
+        ]
+        self._reaches_caller_3060(
+            "`tabAccount`",
+            ("SELECT",),
+            lambda: _import_opening_balances_from_data(muts, self.company, self.cost_center, [], False),
+        )
+
+    def test_missing_ledger_mapping_fetch_lock_error_reaches_caller(self):
+        def call():
+            with patch(
+                "verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.EBoekhoudenRESTIterator"
+            ) as iterator:
+                iterator.return_value._get_session_token.return_value = "t"
+                iterator.return_value.base_url = "http://stub.invalid"
+                with patch("requests.get") as get:
+                    get.return_value.status_code = 200
+                    get.return_value.json.return_value = {"code": "99999", "description": "x"}
+                    get_erpnext_account_from_ledger_id(987654, self.company, [], auto_create=True)
+
+        self._reaches_caller_3060("`tabAccount`", ("SELECT",), call)
+
+    def test_temporary_difference_account_create_lock_error_reaches_caller(self):
+        from verenigingen.tests.e_boekhouden.test_opening_balance_import import (
+            TestTemporaryAccounts as _Temp,
+        )
+
+        # A company with NO Temporary account, so the create branch (and its handler) runs.
+        company = _Temp._ensure_clean_temp_company()
+        self._reaches_caller_3060(
+            "`tabAccount`",
+            ("INSERT",),
+            lambda: _get_or_create_temporary_diff_account(company, []),
+            before=lambda: _Temp._ensure_clean_temp_company(),
+        )
+
     def test_fiscal_year_lookup_lock_error_reaches_caller(self):
+        self.expectErrorLog("Fiscal Year Auto-Creation")
         muts = [
             self._mut("asset", 1000.0, amount_field="balance", mid=1, date=today()),
             self._mut("liability", 1000.0, amount_field="balance", mid=2, date=today()),

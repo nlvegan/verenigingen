@@ -681,6 +681,10 @@ def _classify_opening_balance_account(account, company, debug_info):
         result["skip"] = True
         result["skip_reason"] = "not_found"
         return result
+    except NON_RESUMABLE_DB_ERRORS:
+        # #3060: a lock error is not "skip this account"; the import would succeed with the
+        # balance parked in the temporary-difference account.
+        raise
     except Exception as e:
         debug_info.append(f"Error accessing account {account}: {str(e)}, skipping")
         result["skip"] = True
@@ -1298,6 +1302,8 @@ def _get_or_create_temporary_diff_account(company, debug_info):
         debug_info.append(f"Created temporary difference account: {account.name}")
         return account.name
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #3060: the fallbacks below would carry on against a rolled-back transaction
     except Exception as e:
         debug_info.append(f"Failed to create temporary difference account: {str(e)}")
 
@@ -2079,6 +2085,8 @@ def _fetch_and_create_missing_ledger_mapping(ledger_id, company, debug_info):
         else:
             debug_info.append(f"API error fetching ledger {ledger_id}: {response.status_code}")
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #3060: None here reads as "skipping" in _build_opening_balance_je
     except Exception as e:
         debug_info.append(f"Error fetching ledger {ledger_id}: {str(e)}")
 
