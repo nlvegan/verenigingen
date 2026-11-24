@@ -790,6 +790,8 @@ class InvoiceGenerator(StatelessService):
         Returns:
             Sales Invoice document (not yet submitted)
         """
+        from verenigingen.utils.invoice_price_list import get_selling_price_list_for_currency
+
         settings = frappe.get_single("Verenigingen Settings")
 
         # Create invoice document
@@ -813,6 +815,11 @@ class InvoiceGenerator(StatelessService):
         if company_currency:
             invoice.currency = company_currency
             invoice.conversion_rate = 1.0
+            # #2810: a price list in the company currency, so the site's default list
+            # (possibly another currency) cannot trigger a live exchange-rate fetch.
+            invoice.selling_price_list = get_selling_price_list_for_currency(
+                company_currency, member_doc.customer
+            )
 
         # Set coverage dates
         invoice.custom_coverage_start_date = coverage_start

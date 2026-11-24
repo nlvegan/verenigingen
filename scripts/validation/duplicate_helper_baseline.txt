@@ -122,7 +122,6 @@ _create_mandate::2
 _create_member::7  # clone family, 3 near-identical pair(s)
 _create_member_with_volunteer::2  # clone family, 1 near-identical pair(s)
 _create_membership_invoice::2
-_create_mock_gateway::2  # clone family, 1 near-identical pair(s)
 _create_mock_mandate::2
 _create_mock_settings::2
 _create_own_address::2  # clone family, 1 near-identical pair(s)
@@ -141,7 +140,7 @@ _create_test_account::4  # clone family, 1 near-identical pair(s)
 _create_test_batch_with_invoices::2
 _create_test_chapter::2
 _create_test_cor::2
-_create_test_invoice::8  # clone family, 1 near-identical pair(s)
+_create_test_invoice::7
 _create_test_item::3  # clone family, 1 near-identical pair(s)
 _create_test_mandate::4
 _create_test_member::2
@@ -439,7 +438,6 @@ _map_ledger::3  # clone family, 1 near-identical pair(s)
 _mapper::2  # clone family, 1 near-identical pair(s)
 _mask_iban::2
 _matched_member::2
-_measure_memory_usage::2  # clone family, 1 near-identical pair(s)
 _member::18  # clone family, 2 near-identical pair(s)
 _member_csv_row::2
 _member_in_chapter::2
@@ -486,7 +484,7 @@ _pay_invoice::4  # clone family, 1 near-identical pair(s)
 _payload::2
 _payment::19  # clone family, 1 near-identical pair(s)
 _pdf::3  # clone family, 3 near-identical pair(s)
-_percentile::4  # clone family, 2 near-identical pair(s)
+_percentile::3  # clone family, 1 near-identical pair(s)
 _persist_account::9  # clone family, 6 near-identical pair(s)
 _persist_bank_gl_account::2
 _persist_company::9  # clone family, 9 near-identical pair(s)
@@ -630,7 +628,6 @@ _validate_role_assignment_inputs::3  # clone family, 1 near-identical pair(s)
 _validate_table_name::2
 _validate_type::2
 _validate_unique_roles::2
-_validate_volunteer_created::2  # clone family, 1 near-identical pair(s)
 _validator::5  # clone family, 1 near-identical pair(s)
 _verify::2
 _volunteer::2

@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 import frappe
-from frappe.utils import today
+from frappe.utils import flt, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -965,10 +965,13 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             self.assertGreaterEqual(len(expense_claim_names), 2)
 
             # Verify all expenses were created correctly
-            for expense_claim_name in expense_claim_names:
+            # Claims were appended in submission order, so each claim must carry exactly
+            # the amount of the expense it was created from (not merely "some" amount).
+            self.assertEqual(len(expense_claim_names), len(test_expenses))
+            for expense_claim_name, expense_data in zip(expense_claim_names, test_expenses):
                 expense_claim = frappe.get_doc("Expense Claim", expense_claim_name)
                 self.assertEqual(expense_claim.docstatus, 0)  # Draft
-                self.assertIn(expense_claim.total_claimed_amount, [40.00, 35.00])
+                self.assertEqual(flt(expense_claim.total_claimed_amount), flt(expense_data["amount"]))
 
         finally:
             frappe.set_user(original_user)

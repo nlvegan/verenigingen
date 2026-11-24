@@ -439,9 +439,8 @@ def get_recent_error_logs() -> OperationResult[Dict[str, Any]]:
 
         detailed_errors = []
         for error_info in recent_errors:
-            error_doc = frappe.get_doc("Error Log", error_info.name)
             detailed_errors.append(
-                {"name": error_info.name, "creation": error_info.creation, "error": error_doc.error}
+                {"name": error_info.name, "creation": error_info.creation, "error": error_info.error}
             )
 
         return OperationResult.ok(

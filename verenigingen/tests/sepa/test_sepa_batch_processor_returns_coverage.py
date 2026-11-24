@@ -20,6 +20,9 @@ All real-DB; the only seam is an intentionally-inactive mandate used to force th
 usage-record failure for the compensation test (no mocks).
 """
 
+import ast
+import os
+
 import frappe
 from frappe.utils import add_days, today
 
@@ -28,6 +31,7 @@ from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.select_options import get_select_options
 from verenigingen.verenigingen_payments.services.sepa_batch_processor import SEPABatchProcessor
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class _ReturnsBase(EnhancedTestCase):
@@ -279,7 +283,102 @@ class TestScheduleHelpers(_ReturnsBase):
         # The coverage window and last_invoice_date are now populated.
         self.assertIsNotNone(schedule.last_invoice_coverage_start)
         self.assertIsNotNone(schedule.last_invoice_coverage_end)
-        self.assertEqual(str(schedule.last_invoice_date), today())
+        assert_written_today(self, schedule.last_invoice_date)
+
+
+_DD_BATCH_RECEIVERS = ("batch", "batch_doc", "sepa_batch")
+
+
+def _dd_batch_status_literals_in_production_code():
+    """{(relative path, line, literal)} for every string literal written to Direct Debit
+    Batch.status in non-test code under verenigingen/ (#1237 class sweep).
+
+    Shapes: `<batch>.status = "x"`, `<batch>.db_set/set("status", "x")`,
+    `frappe.db.set_value("Direct Debit Batch", n, "status", "x")`, a `{"doctype": "Direct Debit
+    Batch", "status": "x"}` dict, and a Name argument (`new_status`) resolved to the string
+    constants assigned to it in the same function. The receiver is matched by name, so a child
+    row (`batch_invoice.status`) is not a batch."""
+    # Derived from __file__ (not get_app_path) so a PYTHONPATH worktree scans its own tree.
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    found = set()
+
+    def is_batch(node, path):
+        if not isinstance(node, ast.Name):
+            return False
+        # `self` is the batch only inside the Direct Debit Batch controller itself.
+        return node.id in _DD_BATCH_RECEIVERS or (
+            node.id == "self" and path.endswith("direct_debit_batch.py")
+        )
+
+    def literals(value, consts):
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            return [value.value]
+        if isinstance(value, ast.Name):
+            return consts.get(value.id, [])
+        return []
+
+    def scan_function(fn, rel):
+        consts = {}
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and isinstance(node.value.value, str):
+                        consts.setdefault(t.id, []).append(node.value.value)
+        for node in ast.walk(fn):
+            value = None
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if (
+                        isinstance(t, ast.Attribute)
+                        and t.attr == "status"
+                        and is_batch(t.value, rel)
+                        and isinstance(node.value, ast.Constant)
+                    ):
+                        value = node.value
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                args = node.args
+                if (
+                    node.func.attr in ("db_set", "set")
+                    and is_batch(node.func.value, rel)
+                    and len(args) >= 2
+                    and isinstance(args[0], ast.Constant)
+                    and args[0].value == "status"
+                ):
+                    value = args[1]
+                elif (
+                    node.func.attr == "set_value"
+                    and len(args) >= 4
+                    and isinstance(args[0], ast.Constant)
+                    and args[0].value == "Direct Debit Batch"
+                    and isinstance(args[2], ast.Constant)
+                    and args[2].value == "status"
+                ):
+                    value = args[3]
+            elif isinstance(node, ast.Dict):
+                keys = {k.value: v for k, v in zip(node.keys, node.values) if isinstance(k, ast.Constant)}
+                doctype = keys.get("doctype")
+                if isinstance(doctype, ast.Constant) and doctype.value == "Direct Debit Batch":
+                    value = keys.get("status")
+            if value is not None:
+                for lit in literals(value, consts):
+                    found.add((rel, node.lineno, lit))
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in ("tests", "node_modules", "__pycache__")]
+        for name in filenames:
+            if not name.endswith(".py") or name.startswith("test_"):
+                continue
+            path = os.path.join(dirpath, name)
+            rel = os.path.relpath(path, root)
+            with open(path, encoding="utf-8") as handle:
+                text = handle.read()
+            if "status" not in text or "atch" not in text:
+                continue
+            tree = ast.parse(text)
+            for fn in ast.walk(tree):
+                if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    scan_function(fn, rel)
+    return found
 
 
 class TestBatchStatusLiteralsAreDeclaredOptions(VereningingenTestCase):
@@ -308,3 +407,33 @@ class TestBatchStatusLiteralsAreDeclaredOptions(VereningingenTestCase):
         options = get_select_options("Direct Debit Batch", "status")
         for status in sorted(assigned):
             self.assertIn(status, options)
+
+    # Known gap, filed as #2946: a literal not in the options that nobody has decided how to
+    # fix. Listed here so the sweep is green, and pinned by the control below so it cannot
+    # outlive its fix.
+    _KNOWN_UNDECLARED = {"Validation Failed"}
+
+    def test_every_status_literal_written_to_a_batch_anywhere_is_an_option(self):
+        """#1237 class sweep: batch_processing_service wrote 'Partially Processed' through
+        `new_status`, a shape the processor-only scan above cannot see. This scans every
+        non-test module under verenigingen/ for any literal written to the batch's status."""
+        options = set(get_select_options("Direct Debit Batch", "status"))
+        written = _dd_batch_status_literals_in_production_code()
+        self.assertTrue(written, "the scan found no status writes at all, so it proves nothing")
+        undeclared = sorted(
+            (path, line, lit)
+            for path, line, lit in written
+            if lit not in options and lit not in self._KNOWN_UNDECLARED
+        )
+        self.assertEqual(undeclared, [], "status literal(s) written but not declared as options")
+
+    def test_control_the_sweep_sees_the_new_status_shape_and_the_known_gap(self):
+        written = _dd_batch_status_literals_in_production_code()
+        by_literal = {(path.rsplit("/", 1)[-1], lit) for path, _line, lit in written}
+        # #1237's own shape: assigned to `new_status`, then db_set("status", new_status).
+        self.assertIn(("batch_processing_service.py", "Partially Processed"), by_literal)
+        # The exemption must still match a real write; when #2946 is fixed this fails and
+        # the entry has to be deleted.
+        options = set(get_select_options("Direct Debit Batch", "status"))
+        still_undeclared = {lit for _p, _l, lit in written if lit not in options}
+        self.assertEqual(still_undeclared, self._KNOWN_UNDECLARED)

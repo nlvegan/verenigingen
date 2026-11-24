@@ -475,20 +475,17 @@ class SEPAMandateIntegrationTests(EnhancedTestCase, SEPAMandateTestMixin):
             }]
         }
         
-        try:
-            # Try to create invoice (may fail if Customer doesn't exist)
-            invoice = frappe.get_doc(invoice_data)
-            # Don't submit, just test structure
-            
-            # Test mandate usage tracking would happen here
-            # This is a placeholder for actual payment processing integration
-            self.assertEqual(mandate.status, "Active")
-            self.assertLessEqual(50.00, mandate.maximum_amount, 
-                               "Invoice amount should not exceed mandate maximum")
-                               
-        except Exception:
-            # Skip if customer/invoice creation fails in test environment
-            self.skipTest("Sales Invoice creation skipped - customer setup required")
+        # Not inside a try/skip: a blanket `except Exception: skipTest` also swallowed the
+        # AssertionErrors below, so they could never fail (and a broken fixture read as a skip).
+        # Building the (unsaved) invoice and the assertions both run unguarded.
+        frappe.get_doc(invoice_data)
+        # Don't submit, just test structure
+
+        # Test mandate usage tracking would happen here
+        # This is a placeholder for actual payment processing integration
+        self.assertEqual(mandate.status, "Active")
+        self.assertLessEqual(50.00, mandate.maximum_amount,
+                           "Invoice amount should not exceed mandate maximum")
             
     def test_performance_with_multiple_mandates(self):
         """
