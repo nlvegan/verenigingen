@@ -59,6 +59,12 @@ class TestFieldSyncFailureVisibility(EnhancedTestCase):
             any(self.fs_member.name in r.method and "User" in r.method for r in rows),
             f"title must name source and target; got {[r.method for r in rows]}",
         )
+        # Keyword form: title in `method`, diagnostics in `error`. A swapped
+        # (message, title) call would put the label in `error` instead.
+        row = next(r for r in rows if self.fs_member.name in r.method)
+        self.assertIn("Field sync failed", row.method)
+        self.assertIn("max characters allowed is 140", row.error)
+        self.assertIn("Traceback", row.error)
 
     def test_successful_sync_writes_no_error_log(self):
         member = self._fs_change_first_name("Renamed")
