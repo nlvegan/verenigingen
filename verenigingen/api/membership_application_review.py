@@ -587,22 +587,11 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
                     user_account_error_code
                 )
 
-    # The dues schedule step swallows its own failure (the membership stands), so the response must say so
-    # instead of claiming a complete approval (#1930).
-    dues_schedule_failed = not frappe.db.exists(
-        "Membership Dues Schedule", {"member": member.name, "is_template": 0}
-    )
-    if dues_schedule_failed:
-        message += _(
-            " Note: the dues schedule could NOT be created. See the Error Log, then create it manually."
-        )
-
     response = {
         "success": True,
         "message": message,
         "invoice": invoice.name if invoice else None,
         "invoice_failed": invoice_failed,
-        "dues_schedule_failed": dues_schedule_failed,
         "amount": billing_amount,
         "user_account": user_creation_result,
         "user_account_status": user_account_status,

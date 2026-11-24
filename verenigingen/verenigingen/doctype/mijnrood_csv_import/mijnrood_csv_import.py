@@ -1102,10 +1102,12 @@ class MijnroodCSVImport(Document):
         """Detect a below-minimum dues rate for an imported row and record it.
 
         The dues-schedule validation that enforces the minimum runs deep inside
-        membership creation and its error is swallowed (MembershipCreationService
-        logs "Failed to create dues schedule" and continues), so we compare the
-        row's dues_rate against the resolved Membership Type minimum directly --
-        the same value (Membership Type.minimum_amount) that validation uses.
+        membership creation and its error aborts that creation (#2133: the
+        membership is rolled back and the failure surfaces as a failed
+        "membership" operation), so we compare the row's dues_rate against the
+        resolved Membership Type minimum directly for the validation-warning
+        summary -- the same value (Membership Type.minimum_amount) that
+        validation uses.
         """
         raw_rate = row.get("dues_rate")
         if raw_rate is None or (isinstance(raw_rate, str) and not raw_rate.strip()):
@@ -1319,16 +1321,14 @@ class MijnroodCSVImport(Document):
         # Membership creation via service
         if self._should_create_membership(member_doc, row_data):
             # Proactively flag a below-minimum dues rate for the validation-warning
-            # summary. The dues-schedule validation error is swallowed several
-            # layers deep (MembershipCreationService logs "Failed to create dues
-            # schedule" and continues), so we detect the condition directly here
-            # rather than trying to catch a deeply-suppressed exception.
+            # summary, with the row's actual dues_rate and the type minimum.
+            # The creation itself fails and rolls back below (#2133).
             self._check_dues_rate_below_minimum(row_data)
             try:
                 membership_service = get_membership_import_service()
                 membership_service.create_membership_from_csv(member_doc, row_data)
             except NON_RESUMABLE_DB_ERRORS:
-                # create_membership_from_csv now re-raises this class instead of
+                # create_membership_from_csv re-raises this class instead of
                 # swallowing it (see membership_import_service.py) precisely so
                 # a deadlock is not reported as one failed operation among many
                 # -- catching it as a bare Exception here would put it right

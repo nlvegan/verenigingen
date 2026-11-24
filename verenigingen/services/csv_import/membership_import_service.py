@@ -20,7 +20,12 @@ from verenigingen.utils.csv.data_transformers import (
     determine_membership_type_for_csv_import,
     get_dues_schedule_template_from_payment_period,
 )
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+    safe_savepoint_name,
+)
 
 
 class MembershipImportService(StatelessService):
@@ -53,10 +58,17 @@ class MembershipImportService(StatelessService):
                 - payment_period: Payment frequency
 
         Returns:
-            Membership name if created, None if skipped or failed
+            Membership name if created, None if the approval pipeline produced no Membership
+
+        Raises:
+            Whatever the approval pipeline raised (#2133: e.g. the dues schedule cannot be
+            created). Everything this call wrote is rolled back to a savepoint first, so a
+            refused row leaves no Membership behind; callers must record the row as failed.
         """
         lock_name = f"membership_create_{member_doc.name}"
         lock_acquired = False
+        savepoint = safe_savepoint_name("csv_membership", member_doc.name)
+        frappe.db.savepoint(savepoint)
 
         try:
             # Acquire advisory lock
@@ -94,6 +106,7 @@ class MembershipImportService(StatelessService):
                 member_doc._system_update = True
                 member_doc.save()
 
+            release_savepoint_if_present(savepoint)
             return membership_name
 
         except NON_RESUMABLE_DB_ERRORS:
@@ -104,11 +117,15 @@ class MembershipImportService(StatelessService):
             raise
         except Exception as e:
             frappe.log_error(
-                f"ERROR in create_membership_from_csv for {member_doc.name}: {str(e)}\n"
+                title="CSV Import - Membership Creation Failed",
+                message=f"ERROR in create_membership_from_csv for {member_doc.name}: {str(e)}\n"
                 f"{frappe.get_traceback()}",
-                "CSV Import - Membership Creation Failed",
             )
-            return None
+            # #2133: roll back what the pipeline wrote (the Membership is submitted before the
+            # dues schedule step runs) and re-raise, so no caller can mistake a refused row for
+            # "nothing to do". Procurios and MijnRood already handle a raised error per row.
+            rollback_to_savepoint(savepoint)
+            raise
 
         finally:
             if lock_acquired:

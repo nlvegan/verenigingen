@@ -1100,7 +1100,6 @@ class TestApproveApplicationBoard(ApprovalCase):
         self.assertTrue(admin_state[2], "control: the Administrator approval creates a dues schedule")
         self.assertTrue(admin_state[3], "control: the Administrator approval queues an account request")
         self.assertTrue(board_result["success"], board_result)
-        self.assertFalse(board_result.get("dues_schedule_failed"), board_result)
         self.assertTrue(board_state[1], f"board approval created no invoice: {board_result} {board_errors}")
         self.assertTrue(board_state[2], f"board approval created no dues schedule: {board_errors}")
         self.assertTrue(board_state[3], f"board approval queued no account request: {board_errors}")

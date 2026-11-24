@@ -1,7 +1,7 @@
 /**
  * @fileoverview The review page's BULK approve buckets each approve_application response (#2560).
  * Bulk approve is a client loop over the same server call the single approve uses, so every
- * response already carries `invoice_failed` / `dues_schedule_failed` (#1774, #1930); the loop must
+ * response already carries `invoice_failed` (#1774); the loop must
  * count each apart from a clean approval. The real page class runs in a vm context; only the
  * framework edge (frappe.call, msgprint, confirm) is stubbed.
  */
@@ -48,35 +48,6 @@ function loadPage(responses) {
 const ok = (message) => ({ message: { success: true, message } });
 
 describe('bulk approve buckets', () => {
-	test('an approval without a dues schedule is listed apart, not counted as a clean approval', async () => {
-		const { page, shown, done } = loadPage({
-			'APP-CLEAN': ok('fine'),
-			'APP-NODUES': { message: { success: true, dues_schedule_failed: true, message: 'schedule missing' } }
-		});
-		page.bulk_approve();
-		await done();
-		const html = shown[0].message;
-		expect(html).toContain('Approved: 1');
-		expect(html).toContain('Approved, but the dues schedule could NOT be created: 1');
-		expect(html).toContain('APP-NODUES: schedule missing');
-		expect(html).not.toContain('APP-CLEAN:');
-		expect(shown[0].indicator).toBe('orange');
-	});
-
-	test('both flags on one item: it is listed once, under the invoice bucket, with the dues note kept', async () => {
-		const { page, shown, done } = loadPage({
-			'APP-BOTH': {
-				message: { success: true, invoice_failed: true, dues_schedule_failed: true, message: 'both' }
-			}
-		});
-		page.bulk_approve();
-		await done();
-		const html = shown[0].message;
-		expect(html).toContain('Approved: 0');
-		expect(html.match(/APP-BOTH/g)).toHaveLength(1);
-		expect(html).toContain('Approved, but the invoice could NOT be created: 1');
-	});
-
 	test('control: all clean approvals stay green with no failure sections', async () => {
 		const { page, shown, done } = loadPage({ 'APP-A': ok('a'), 'APP-B': ok('b') });
 		page.bulk_approve();
@@ -107,7 +78,7 @@ describe('bulk approve buckets', () => {
 	test('control: application names and server messages are escaped in every list', async () => {
 		const evil = '<img src=x onerror=alert(1)>';
 		const { page, shown, done } = loadPage({
-			[evil]: { message: { success: true, dues_schedule_failed: true, message: evil } }
+			[evil]: { message: { success: true, invoice_failed: true, message: evil } }
 		});
 		page.bulk_approve();
 		await done();
