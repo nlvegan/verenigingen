@@ -61,12 +61,25 @@ class TestVolunteerFormFailureSignal2653(VereningingenTestCase):
 
     def test_a_rolled_back_reactivation_is_reported_as_a_failure(self):
         """The rollback reverts the in-place reactivation to its committed Inactive state."""
+        # The uncommitted fixture Volunteer is invisible to the Account Creation Request job that
+        # create_test_volunteer enqueues, which logs "Source Volunteer ... not found". Not under test.
+        self.expectErrorLog("Account Creation Request failed")
         existing = self.create_test_volunteer()
         email = f"ria.2653r.{self._uniq}@example.com"
         frappe.db.set_value("Volunteer", existing.name, {"email": email, "status": "Inactive"})
-        frappe.db.commit()
 
-        result = self._vol2653_submit_with_membership_fault(self._vol2653_payload(email))
+        # No commit: the Inactive pre-state is made the rollback target with a savepoint, and the
+        # code under test's bare frappe.db.rollback() is redirected to it. The real submit_application
+        # rollback path still runs and still reverts the DB rows; only its target is moved.
+        savepoint = "vol2653_prestate"
+        frappe.db.savepoint(savepoint)
+        real_rollback = frappe.db.rollback
+
+        def rollback_to_prestate(*args, **kwargs):
+            return real_rollback(save_point=savepoint)
+
+        with patch.object(frappe.db, "rollback", side_effect=rollback_to_prestate):
+            result = self._vol2653_submit_with_membership_fault(self._vol2653_payload(email))
 
         self.assertEqual(frappe.db.get_value("Volunteer", existing.name, "status"), "Inactive")
         self.assertFalse(result["success"], f"reported success over a reverted reactivation: {result}")
