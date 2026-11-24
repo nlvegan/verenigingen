@@ -18,6 +18,7 @@ import tempfile
 
 import frappe
 
+from verenigingen.tests.security.test_log_security_event_valid_types import _load_valid_event_types
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.security.audit_logging import SEPAAuditLogger, log_sepa_event
 from verenigingen.utils.security.types import AuditEventType
@@ -38,14 +39,6 @@ _PIPELINE_IMPORT_MARKERS = (
     "verenigingen.utils.security.audit_emitter",
     "verenigingen.services.chapter.chapter_security",
 )
-
-
-def _api_audit_event_type_options():
-    path = frappe.get_app_path("verenigingen", "verenigingen", "doctype", "api_audit_log")
-    with open(os.path.join(path, "api_audit_log.json")) as fh:
-        fields = json.load(fh)["fields"]
-    options = next(f["options"] for f in fields if f["fieldname"] == "event_type")
-    return set(options.split("\n"))
 
 
 def _audit_event_type_literals_3128(app_root):
@@ -94,7 +87,7 @@ def _resolve_event_type_3128(arg):
 
 class TestAuditEventTypesAreStorable(VereningingenTestCase):
     def _storable(self):
-        return _api_audit_event_type_options() | SEPAAuditLogger.SEPA_EVENT_TYPES
+        return _load_valid_event_types()
 
     def test_every_literal_event_type_is_storable(self):
         storable = self._storable()
@@ -158,3 +151,75 @@ class TestAuditEventTypesAreStorable(VereningingenTestCase):
                     frappe.db.exists("SEPA Audit Log", {"event_id": event_id, "action": event_type}),
                     f"{event_type} did not land in SEPA Audit Log",
                 )
+
+    def _rows_the_critical_alert_counts(self, since, action):
+        """The rows _get_active_security_alerts turns into the HIGH alert, restricted to this test's own.
+
+        The alert query is capped at 5 rows and a long-lived site already holds Exception rows, so the
+        alert itself reads the same before and after; only the rows this test created tell.
+        """
+        import inspect
+
+        from verenigingen.api.security_monitoring_dashboard import _get_active_security_alerts
+
+        source = inspect.getsource(_get_active_security_alerts)
+        self.assertIn('"compliance_status": "Exception"', source, "the alert predicate changed; update this")
+        return frappe.db.count(
+            "SEPA Audit Log",
+            {"action": action, "compliance_status": "Exception", "creation": [">=", since]},
+        )
+
+    def test_user_input_refusals_do_not_raise_the_critical_alert(self):
+        """A bad batch date is the user's typo, not a security event (review of #3128)."""
+        from verenigingen.verenigingen_payments.api.sepa_batch_ui_secure import (
+            create_sepa_batch_validated_secure,
+        )
+
+        since = frappe.utils.now_datetime()
+        response = create_sepa_batch_validated_secure(batch_date="not-a-date")
+        self.assertFalse(response["success"])
+        action = "sepa_batch_creation_validation_failed"
+        self.assertEqual(
+            frappe.db.count("SEPA Audit Log", {"action": action, "creation": [">=", since]}),
+            1,
+            "the refusal was not audited at all",
+        )
+        self.assertEqual(self._rows_the_critical_alert_counts(since, action), 0)
+
+    def test_control_an_exception_row_is_counted_by_the_critical_alert(self):
+        since = frappe.utils.now_datetime()
+        # a warning on a non-refusal SEPA event still maps to Exception
+        log_sepa_event("sepa_batch_validated", details={"probe": 3128}, severity="warning")
+        self.assertEqual(self._rows_the_critical_alert_counts(since, "sepa_batch_validated"), 1)
+
+    def test_system_error_stays_failed(self):
+        logger = SEPAAuditLogger()
+        self.assertEqual(logger._sepa_compliance_status("sepa_batch_creation_system_error", "error"), "Failed")
+
+    def test_api_classifier_events_keep_their_name_in_details(self):
+        """The 3 classifier events are mapped to existing options; the original name must survive."""
+        from verenigingen.utils.security.api_classifier import APIClassifier, setup_api_classifier
+
+        def newest(name):
+            rows = frappe.get_all(
+                "API Audit Log",
+                filters={"details": ["like", f'%"event": "{name}"%'], "creation": [">=", since]},
+                fields=["event_type", "details"],
+                order_by="creation desc",
+                limit=1,
+            )
+            return rows[0] if rows else None
+
+        since = frappe.utils.now_datetime()
+        APIClassifier().classify_all_endpoints()
+        setup_api_classifier()
+        for name, option in (
+            ("api_classification_started", "other"),
+            ("api_classification_completed", "other"),
+            ("api_classifier_initialized", "security_system_initialized"),
+        ):
+            with self.subTest(event=name):
+                row = newest(name)
+                self.assertIsNotNone(row, f"no API Audit Log row carries details.event == {name}")
+                self.assertEqual(row.event_type, option)
+                self.assertEqual(json.loads(row.details)["event"], name)

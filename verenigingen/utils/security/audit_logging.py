@@ -90,6 +90,18 @@ class SEPAAuditLogger:
         "sepa_validation_constraints_retrieved",
     }
 
+    # User-input refusals of the SEPA batch UI (a bad date, a duplicate batch date, an invalid invoice
+    # list). The refusal worked as designed, so these are recorded "Compliant" whatever their log
+    # severity: "Exception" would raise the HIGH "Critical Security Events" dashboard alert
+    # (security_monitoring_dashboard._get_active_security_alerts) for an ordinary user typo (#3128).
+    SEPA_USER_REFUSAL_EVENT_TYPES = frozenset(
+        {
+            "sepa_batch_creation_validation_failed",
+            "sepa_batch_creation_duplicate_date",
+            "sepa_batch_creation_invoice_validation_failed",
+        }
+    )
+
     # Retention policies (days)
     RETENTION_POLICIES = {
         AuditSeverity.INFO: 30,
@@ -162,6 +174,11 @@ class SEPAAuditLogger:
         }
         return severity_mapping.get(severity, "Pending Review")
 
+    def _sepa_compliance_status(self, event_type: str, severity: str) -> str:
+        if event_type in self.SEPA_USER_REFUSAL_EVENT_TYPES:
+            return "Compliant"
+        return self._map_severity_for_sepa(severity)
+
     def _map_event_to_sepa_process_type(self, event_type: str) -> str:
         """Map event type to SEPA Audit Log process_type options"""
         process_type_mapping = {
@@ -175,6 +192,13 @@ class SEPAAuditLogger:
             "payment_processing": "Payment Processing",
             "sepa_batch_processed": "Payment Processing",
             "sepa_invoice_loaded": "Payment Processing",
+            # #3128: explicit, so the batch UI's refusal/failure/read events are a deliberate choice
+            "sepa_batch_creation_validation_failed": "Batch Generation",
+            "sepa_batch_creation_duplicate_date": "Batch Generation",
+            "sepa_batch_creation_invoice_validation_failed": "Batch Generation",
+            "sepa_batch_creation_system_error": "Batch Generation",
+            "sepa_invoice_validation_json_error": "Batch Generation",
+            "sepa_validation_constraints_retrieved": "Batch Generation",
         }
         return process_type_mapping.get(event_type, "Batch Generation")
 
@@ -355,7 +379,9 @@ class SEPAAuditLogger:
                     "timestamp": audit_event["timestamp"],
                     "process_type": self._map_event_to_sepa_process_type(audit_event["event_type"]),
                     "action": audit_event["event_type"],
-                    "compliance_status": self._map_severity_for_sepa(audit_event["severity"]),
+                    "compliance_status": self._sepa_compliance_status(
+                        audit_event["event_type"], audit_event["severity"]
+                    ),
                     "user": audit_event["user"],
                     "details": json.dumps(audit_event["details"], default=str),
                     "sensitive_data": audit_event["sensitive_data"],
