@@ -207,6 +207,10 @@ class BulkTransactionImporter(MollieBaseClient):
                         results["imported"] += settlement_result["imported"]
                     if settlement_result.get("skipped"):
                         results["skipped"] += settlement_result["skipped"]
+                    if settlement_result.get("error"):
+                        # A skip for a legitimate reason carries no "error"; a failed
+                        # creation does, and must turn the run completed_with_errors (#3011).
+                        results["errors"].append(settlement_result["error"])
 
                 except Exception as e:
                     error_msg = f"Error processing settlement {settlement.get('id', 'unknown')}: {str(e)}"
@@ -313,6 +317,8 @@ class BulkTransactionImporter(MollieBaseClient):
                         if payment_result.get("imported"):
                             results["imported"] += 1
                             self.imported_transactions.append(payment_result["transaction"])
+                        elif payment_result.get("error"):
+                            results["errors"].append(payment_result["error"])
 
                     except (ValueError, TypeError) as e:
                         error_msg = (
@@ -393,6 +399,7 @@ class BulkTransactionImporter(MollieBaseClient):
             else:
                 result["skipped"] = 1
                 result["reason"] = "Failed to create bank transaction"
+                result["error"] = f"Failed to create bank transaction for settlement {settlement_id}"
 
         except Exception as e:
             frappe.log_error(f"Settlement processing error: {str(e)}", "Bulk Settlement Processing")
@@ -438,6 +445,8 @@ class BulkTransactionImporter(MollieBaseClient):
                 frappe.logger().info(
                     f"Imported payment {payment_id} as Bank Transaction {bank_transaction.name}"
                 )
+            else:
+                result["error"] = f"Failed to create bank transaction for payment {payment_id}"
 
         except Exception as e:
             frappe.log_error(f"Payment processing error: {str(e)}", "Bulk Payment Processing")
