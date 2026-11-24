@@ -190,7 +190,7 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
 
             # #2653: submit_application's ordinary-failure path calls frappe.db.rollback(), which
             # also discards the Volunteer written earlier in THIS request (a new row vanishes; a
-            # reactivation reverts to Inactive/Retired). Answering "received" over that would tell
+            # reactivation reverts to its prior non-New status). Answering "received" over that would tell
             # the applicant something the database does not hold, so fail honestly instead.
             if not membership_result["success"] and not frappe.db.exists(
                 "Volunteer", {"name": volunteer_name, "status": "New"}
