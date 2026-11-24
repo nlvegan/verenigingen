@@ -35,10 +35,10 @@ class TestChapterMemberOnTrashFailSoft2868(EnhancedTestCase):
     def _logs_titled(self, title):
         return frappe.db.count("Error Log", {"method": title})
 
-    def _delete(self):
+    def _delete_row_2868(self):
         frappe.delete_doc("Chapter Member", self.row_name, force=True)
 
-    def _spy(self, name):
+    def _wrap_real_trash_leg_2868(self, name):
         original = getattr(ChapterMember, name)
         return patch.object(ChapterMember, name, autospec=True, side_effect=original)
 
@@ -47,8 +47,8 @@ class TestChapterMemberOnTrashFailSoft2868(EnhancedTestCase):
         before = self._logs_titled(FAREWELL_TITLE)
         board_before = self._logs_titled(BOARD_TITLE)
         with patch.object(ChapterMember, FAREWELL, side_effect=RuntimeError("farewell boom")):
-            with self._spy(BOARD) as board_spy, self.assertErrorLog(FAREWELL_TITLE):
-                self._delete()
+            with self._wrap_real_trash_leg_2868(BOARD) as board_spy, self.assertErrorLog(FAREWELL_TITLE):
+                self._delete_row_2868()
         self.assertFalse(frappe.db.exists("Chapter Member", self.row_name))
         self.assertTrue(board_spy.called, "a farewell failure must not skip the board mail")
         self.assertEqual(self._logs_titled(FAREWELL_TITLE), before + 1)
@@ -72,7 +72,7 @@ class TestChapterMemberOnTrashFailSoft2868(EnhancedTestCase):
         with patch.object(
             MollieConfigurationService, "get_default_company", side_effect=frappe.ValidationError("No Co")
         ), self.assertErrorLog(FAREWELL_TITLE):
-            self._delete()
+            self._delete_row_2868()
         self.assertFalse(frappe.db.exists("Chapter Member", self.row_name))
         self.assertEqual(self._logs_titled(FAREWELL_TITLE), before + 1)
 
@@ -80,10 +80,10 @@ class TestChapterMemberOnTrashFailSoft2868(EnhancedTestCase):
         self.expectErrorLog(BOARD_TITLE)
         before = self._logs_titled(BOARD_TITLE)
         farewell_before = self._logs_titled(FAREWELL_TITLE)
-        with self._spy(FAREWELL) as farewell_spy:
+        with self._wrap_real_trash_leg_2868(FAREWELL) as farewell_spy:
             with patch.object(ChapterMember, BOARD, side_effect=RuntimeError("board boom")):
                 with self.assertErrorLog(BOARD_TITLE):
-                    self._delete()
+                    self._delete_row_2868()
         self.assertFalse(frappe.db.exists("Chapter Member", self.row_name))
         self.assertTrue(farewell_spy.called)
         self.assertEqual(self._logs_titled(BOARD_TITLE), before + 1)
@@ -93,7 +93,7 @@ class TestChapterMemberOnTrashFailSoft2868(EnhancedTestCase):
         before = self._logs_titled(FAREWELL_TITLE)
         with patch.object(ChapterMember, FAREWELL, side_effect=frappe.QueryDeadlockError()):
             with self.assertRaises(frappe.QueryDeadlockError):
-                self._delete()
+                self._delete_row_2868()
         self.assertTrue(frappe.db.exists("Chapter Member", self.row_name))
         self.assertEqual(self._logs_titled(FAREWELL_TITLE), before, "a deadlock must not be swallowed")
 
@@ -101,7 +101,7 @@ class TestChapterMemberOnTrashFailSoft2868(EnhancedTestCase):
         before = self._logs_titled(BOARD_TITLE)
         with patch.object(ChapterMember, BOARD, side_effect=frappe.QueryTimeoutError()):
             with self.assertRaises(frappe.QueryTimeoutError):
-                self._delete()
+                self._delete_row_2868()
         self.assertTrue(frappe.db.exists("Chapter Member", self.row_name))
         self.assertEqual(self._logs_titled(BOARD_TITLE), before, "a lock timeout must not be swallowed")
 
