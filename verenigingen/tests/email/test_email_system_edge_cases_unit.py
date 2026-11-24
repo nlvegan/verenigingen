@@ -24,6 +24,7 @@ from frappe.exceptions import ValidationError, DoesNotExistError
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.services.communication.email_service import get_email_service, BoundedLRUCache
 from verenigingen.utils.operation_result import OperationResult
+from verenigingen.utils.secure_operations import SecureOperationResult
 from verenigingen.services.communication.compatibility import (
     send_sepa_email,
     send_member_notification,
@@ -253,29 +254,51 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
             })
             template_doc.insert()
 
-        # Mock Communication creation to fail
-        with patch('verenigingen.utils.secure_operations.secure_document_operation') as mock_secure_op:
-            mock_secure_op.return_value = type('Result', (), {
-                'success': False,
-                'errors': ['Permission denied'],
-                'data': None
-            })()
+        # Patch where the name is LOOKED UP: email_service does
+        # `from verenigingen.utils.secure_operations import secure_document_operation`,
+        # so patching the secure_operations module never reaches it (#3162).
+        failed = SecureOperationResult(False, "test-comm-failure")
+        failed.errors = ["Permission denied"]
 
-            with patch('frappe.sendmail'):
-                result = self.email_service.send_templated_email(
-                    template_name="comm_test_template",
-                    recipients=[self.test_member.email],
-                    context={"test": "data"},
-                    create_communication=True
-                )
-
-            # Should still succeed even if Communication creation fails
-            self.assertTrue(
-                result.success,
-                f"result.success={getattr(result, 'success', None)} "
-                f"error={getattr(result, 'error', None)} "
-                f"errors={getattr(result, 'errors', None)}",
+        with patch(
+            "verenigingen.services.communication.email_service.secure_document_operation",
+            return_value=failed,
+        ) as mock_secure_op, patch.object(self.email_service, "logger") as mock_logger:
+            comm_name = self.email_service._create_communication_record(
+                recipients=[self.test_member.email],
+                subject="Test Email",
+                content="<p>Test content</p>",
             )
+
+            # A refused insert yields None, not a raise, and is reported as a
+            # refusal (warning), not swallowed by the blanket except (error).
+            mock_secure_op.assert_called_once()
+            self.assertIsNone(comm_name)
+            mock_logger.warning.assert_called_once()
+            self.assertIn("Permission denied", mock_logger.warning.call_args[0][0])
+            mock_logger.error.assert_not_called()
+
+        # send_templated_email no longer creates a Communication (create_communication
+        # is deprecated; Email Queue is the audit trail), so a refusing Communication
+        # insert cannot affect it. Pin that: it must succeed and never reach the insert.
+        with patch(
+            "verenigingen.services.communication.email_service.secure_document_operation",
+            return_value=failed,
+        ) as mock_secure_op, patch("frappe.sendmail"):
+            result = self.email_service.send_templated_email(
+                template_name="comm_test_template",
+                recipients=[self.test_member.email],
+                context={"test": "data"},
+                create_communication=True
+            )
+
+        self.assertTrue(
+            result.success,
+            f"result.success={getattr(result, 'success', None)} "
+            f"error={getattr(result, 'error', None)} "
+            f"errors={getattr(result, 'errors', None)}",
+        )
+        mock_secure_op.assert_not_called()
 
     def test_cache_memory_pressure(self):
         """Test cache behavior under memory pressure"""
