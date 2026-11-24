@@ -30,6 +30,23 @@ class BatchProcessingService:
         self.config_service = sepa_config_service
         self.validation_service = batch_validation_service
 
+    def refuse_if_rolled_back(self, batch_name: str, action: str) -> None:
+        """Refuse any re-processing of a Rolled Back batch (#3074, maintainer ruling).
+
+        A rollback cancels the batch's Payment Entries and mandate usage, and leaves its rows
+        Pending. Collecting them again from THIS batch would book new Payment Entries and skew
+        FRST/RCUR sequencing; re-collection happens only through a NEW batch. The PERSISTED
+        status is read (not the in-memory one), because every writer of "Rolled Back" uses
+        db.set_value and the caller's doc may predate it.
+        """
+        if frappe.db.get_value("Direct Debit Batch", batch_name, "status") == "Rolled Back":
+            frappe.throw(
+                _(
+                    "Batch {0} was rolled back and cannot be {1}. Collect these invoices again "
+                    "by creating a new batch."
+                ).format(batch_name, action)
+            )
+
     def mark_batch_invoices_as_paid(self, batch_doc) -> int:
         """
         Mark all invoices in the batch as paid and create payment entries.
@@ -46,6 +63,8 @@ class BatchProcessingService:
         """
         if batch_doc.docstatus != 1:
             frappe.throw(_("Batch must be submitted before marking invoices as paid"))
+
+        self.refuse_if_rolled_back(batch_doc.name, _("marked as processed"))
 
         # #1242: a submitted batch is not proof a SEPA file was ever sent to a
         # bank -- on_submit() defers generation (leaving sepa_file_generated=0)
@@ -177,6 +196,8 @@ class BatchProcessingService:
             frappe.ValidationError: If SEPA file not generated or other errors
         """
         try:
+            self.refuse_if_rolled_back(batch_doc.name, _("submitted again"))
+
             if not batch_doc.sepa_file_generated:
                 frappe.throw(_("SEPA file must be generated before processing"))
 

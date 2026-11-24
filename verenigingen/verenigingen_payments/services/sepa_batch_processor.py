@@ -639,6 +639,13 @@ class SEPABatchProcessor:
         try:
             batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
+            from verenigingen.verenigingen_payments.services.batch_processing_service import (
+                batch_processing_service,
+            )
+
+            # #3074: a return file must not overwrite the Rolled Back status.
+            batch_processing_service.refuse_if_rolled_back(batch_name, _("updated from a return file"))
+
             # Parse return file
             returns = self.parse_sepa_return_file(return_file_path)
 

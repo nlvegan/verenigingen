@@ -439,6 +439,12 @@ class DirectDebitBatch(Document):
         self.entry_count = totals["entry_count"]
         self.total_amount = totals["total_amount"]
 
+    def before_update_after_submit(self):
+        """#3074: a Rolled Back batch stays Rolled Back. `status` is allow_on_submit, so a plain
+        save (e.g. frappe.client.set_value) would otherwise reopen it for processing."""
+        if self.status != "Rolled Back":
+            batch_processing_service.refuse_if_rolled_back(self.name, _("reopened"))
+
     def before_submit(self):
         """Reject submitting a batch scheduled to collect on a date in the past.
 
@@ -584,6 +590,8 @@ class DirectDebitBatch(Document):
         """
         # This would typically involve sending the SEPA file to the bank
         try:
+            batch_processing_service.refuse_if_rolled_back(self.name, _("submitted again"))
+
             if not self.sepa_file_generated:
                 frappe.throw(_("SEPA file must be generated before processing"))
 
@@ -695,6 +703,9 @@ def process_batch(batch_name: str):
 
         if batch.docstatus != 1:
             frappe.throw(_("Batch must be submitted before processing"))
+
+        # Before generate_sepa_xml(), which would otherwise rebuild the file of a dead batch
+        batch_processing_service.refuse_if_rolled_back(batch.name, _("processed"))
 
         if not batch.sepa_file_generated:
             batch.generate_sepa_xml()
