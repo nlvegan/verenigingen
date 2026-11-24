@@ -13,11 +13,15 @@ set ``overwrite_existing`` / the auto-create setting directly to select the bran
 """
 
 import itertools
+import json
 from unittest.mock import patch
 
 import frappe
 from frappe.utils import nowdate
 
+from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration import (
+    import_single_mutation,
+)
 from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler import PaymentEntryHandler
 from verenigingen.e_boekhouden.utils.processors.transaction_coordinator import TransactionCoordinator
 from verenigingen.e_boekhouden.utils.processors.payment_processor import PaymentProcessor
@@ -27,6 +31,8 @@ from verenigingen.verenigingen_payments.services.bank_transaction_creator import
     get_bank_transaction_creator,
 )
 
+_API_3061 = "verenigingen.e_boekhouden.utils.eboekhouden_api.EBoekhoudenAPI"
+_LEGACY_3061 = "verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration._process_single_mutation"
 _AUTO_CREATE = "auto_create_parties_from_bank_transactions"
 
 
@@ -336,3 +342,71 @@ class TestPaymentProcessorLockErrors3061(_PayProcBase):
             self._processor_3061()._update_bank_transaction_party(
                 bt_name, {"party_type": "Supplier", "party_name": self._supplier_3061()}
             )
+
+
+class TestImportSingleMutationLockErrors3061(_PayProcBase):
+    """The second production caller of ``TransactionCoordinator.process_mutation``
+    (``import_single_mutation``). Its ``except Exception`` around the coordinator used to log
+    "New Processor Failed" and fall back to the legacy path, then commit; the function-level
+    handler turned anything else into ``{"success": False}``."""
+
+    _seq_3061b = itertools.count(7362001)
+
+    def _migration_3061(self):
+        migration = frappe.new_doc("E-Boekhouden Migration")
+        migration.migration_name = f"Probe 3061 {next(self._seq_3061b)}"
+        migration.company = self.company
+        migration.insert()
+        return migration.name
+
+    def _import_3061(self, mutation, legacy_result=None):
+        """Run the real function; only the remote API fetch and the legacy fallback (a spy) are
+        replaced. The coordinator, processors and database stay real."""
+        migration = self._migration_3061()
+        fetched = {"success": True, "status_code": 200, "data": json.dumps(mutation)}
+        # Mock justified: the API fetch is the network boundary; the coordinator under test is real
+        with patch(_API_3061) as api_cls, patch(_LEGACY_3061, return_value=legacy_result) as legacy:
+            api_cls.return_value.make_request.return_value = fetched
+            try:
+                return import_single_mutation(migration, str(mutation["id"]), False), legacy
+            except Exception as exc:
+                exc.legacy_3061 = legacy
+                raise
+
+    def _mutation_3061(self):
+        n = next(self._seq_3061b)
+        return self._money_mutation(5, 100.0 + n % 1000, "7300008", n)
+
+    def test_a_lock_error_through_import_single_mutation_propagates_and_skips_the_legacy_fallback(self):
+        self.expectErrorLog("Fiscal Year Auto-Creation Error", "Money Transfer Journal Entry Error")
+        errors = {1213: frappe.QueryDeadlockError, 1205: frappe.QueryTimeoutError}
+        for code, error in errors.items():
+            with self.subTest(code=code):
+                mutation = self._mutation_3061()
+                inject, hits = _lock_error_at_driver_3029("BETWEEN year_start_date AND year_end_date", ("SELECT",), code)
+                with inject, self.assertRaises(error) as ctx:
+                    self._import_3061(mutation)
+                self.assertTrue(hits, "the injection must have fired")
+                self.assertFalse(ctx.exception.legacy_3061.called, "legacy fallback must not run")
+
+    def test_an_ordinary_processor_failure_through_import_single_mutation_still_falls_back(self):
+        """Control: the re-raise is narrow; an ordinary failure still logs and falls back."""
+        self.expectErrorLog("New Processor Failed")
+        mutation = self._mutation_3061()
+        # Mock justified: ordinary-error control; constructing the coordinator is inside the handler under test
+        with patch.object(TransactionCoordinator, "__init__", side_effect=ValueError("ordinary")):
+            result, legacy = self._import_3061(mutation)
+        self.assertTrue(legacy.called)
+        self.assertFalse(result["success"])
+
+    def test_a_lock_error_outside_the_coordinator_is_not_turned_into_a_failure_dict(self):
+        """The function-level handler: a lock error on the duplicate lookup (before any
+        coordinator exists) used to come back as ``{"success": False}``."""
+        self.expectErrorLog("Import Error - Mutation")
+        for code, error in {1213: frappe.QueryDeadlockError, 1205: frappe.QueryTimeoutError}.items():
+            with self.subTest(code=code):
+                mutation = self._mutation_3061()
+                inject, hits = _lock_error_at_driver_3029("`tabJournal Entry`", ("SELECT",), code)
+                with inject, self.assertRaises(error):
+                    self._import_3061(mutation)
+                self.assertTrue(hits, "the injection must have fired")

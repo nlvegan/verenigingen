@@ -18,6 +18,8 @@ Run with:
         --module verenigingen.tests.e_boekhouden.test_processors_stock
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.e_boekhouden.utils.processors.stock_processor import StockProcessor
@@ -432,6 +434,34 @@ class TestStockReconciliationCreateIntegration(EnhancedTestCase):
                 )
                 with inject, self.assertRaises(error):
                     self._processor().process(mut)
+                self.assertTrue(hits, "the injection must have fired")
+
+    def test_a_lock_error_creating_the_stock_item_is_not_swallowed_into_none_3061(self):
+        """#3061: ``_get_or_create_stock_item`` logged a 1213/1205 into debug_info and returned
+        None. Injected at the driver on the Item INSERT; a fresh account name per code so the
+        ``exists`` shortcut never hides the create branch."""
+        for code, error in ((1213, frappe.QueryDeadlockError), (1205, frappe.QueryTimeoutError)):
+            with self.subTest(code=code):
+                account = f"99{self._unique_id()} - Lock3061 - {code}"
+                inject, hits = _lock_error_at_driver_3029("`tabItem`", ("INSERT",), code)
+                with inject, self.assertRaises(error):
+                    self._processor()._get_or_create_stock_item(account)
+                self.assertTrue(hits, "the injection must have fired")
+
+    def test_a_lock_error_creating_the_warehouse_is_not_swallowed_into_none_3061(self):
+        """#3061: same shape for ``_get_or_create_warehouse``'s create branch."""
+        for code, error in ((1213, frappe.QueryDeadlockError), (1205, frappe.QueryTimeoutError)):
+            with self.subTest(code=code):
+                inject, hits = _lock_error_at_driver_3029("`tabWarehouse`", ("INSERT",), code)
+                real_get_value = frappe.db.get_value
+
+                def no_existing_warehouse(doctype, *args, **kwargs):
+                    return None if doctype == "Warehouse" else real_get_value(doctype, *args, **kwargs)
+
+                # Mock justified: hides only the existing-Warehouse lookup so the create branch runs
+                with patch("frappe.db.get_value", no_existing_warehouse), inject:
+                    with self.assertRaises(error):
+                        self._processor()._get_or_create_warehouse()
                 self.assertTrue(hits, "the injection must have fired")
 
     def test_stock_reconciliation_created_and_submitted_with_content(self):
