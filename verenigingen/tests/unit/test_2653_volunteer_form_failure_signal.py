@@ -26,7 +26,7 @@ class TestVolunteerFormFailureSignal2653(VereningingenTestCase):
             "submit_application",
         )
 
-    def _payload(self, email=None):
+    def _vol2653_payload(self, email=None):
         return {
             "first_name": "Ria",
             "last_name": "Vermeer",
@@ -37,7 +37,7 @@ class TestVolunteerFormFailureSignal2653(VereningingenTestCase):
             "become_member": 1,
         }
 
-    def _submit(self, payload):
+    def _vol2653_submit_with_membership_fault(self, payload):
         from verenigingen.api import membership_application
         from verenigingen.api.volunteer_application import submit_volunteer_application
 
@@ -51,8 +51,8 @@ class TestVolunteerFormFailureSignal2653(VereningingenTestCase):
         return result
 
     def test_a_rolled_back_new_volunteer_is_reported_as_a_failure(self):
-        payload = self._payload()
-        result = self._submit(payload)
+        payload = self._vol2653_payload()
+        result = self._vol2653_submit_with_membership_fault(payload)
 
         self.assertFalse(frappe.db.exists("Volunteer", {"email": payload["email"]}))
         self.assertFalse(result["success"], f"reported success over a vanished Volunteer: {result}")
@@ -66,7 +66,7 @@ class TestVolunteerFormFailureSignal2653(VereningingenTestCase):
         frappe.db.set_value("Volunteer", existing.name, {"email": email, "status": "Inactive"})
         frappe.db.commit()
 
-        result = self._submit(self._payload(email))
+        result = self._vol2653_submit_with_membership_fault(self._vol2653_payload(email))
 
         self.assertEqual(frappe.db.get_value("Volunteer", existing.name, "status"), "Inactive")
         self.assertFalse(result["success"], f"reported success over a reverted reactivation: {result}")
@@ -76,7 +76,7 @@ class TestVolunteerFormFailureSignal2653(VereningingenTestCase):
         """CONTROL: a failure that does NOT roll back (no address) still keeps the Volunteer."""
         from verenigingen.api.volunteer_application import submit_volunteer_application
 
-        payload = self._payload()
+        payload = self._vol2653_payload()
         with self.as_user("Guest"):
             result = submit_volunteer_application(**payload)
         name = result["data"]["volunteer_name"]
