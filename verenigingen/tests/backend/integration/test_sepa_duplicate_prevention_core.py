@@ -367,6 +367,50 @@ class TestCreatePaymentEntryDuplicateCheck(EnhancedTestCase):
             "Duplicate-blocked payment must NOT create a second Payment Entry Reference",
         )
 
+    def _build_receive_payment_data_3141(self, invoice):
+        """payment_data for a real full-payment Receive entry, built by ERPNext core."""
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        pe = get_payment_entry("Sales Invoice", invoice.name)
+        pe.reference_no = f"DUP-{uuid.uuid4().hex[:8]}"
+        pe.reference_date = frappe.utils.today()
+        return pe.as_dict()
+
+    def test_cancelled_payment_entry_does_not_count_as_paid_3141(self):
+        """#3141: a CANCELLED Payment Entry (e.g. a rolled-back batch) restores the invoice's
+        outstanding, so the guard must let the re-booking through and create a new submitted PE."""
+        invoice = self._setup_submitted_invoice(rate=60.0)
+        first_pe = self._setup_full_payment(invoice)
+        first_pe.cancel()
+
+        result = create_payment_entry_with_duplicate_check(
+            invoice.name, invoice.grand_total, self._build_receive_payment_data_3141(invoice)
+        )
+
+        self.assertTrue(result["success"])
+        self.assertNotEqual(result["payment_entry"], first_pe.name)
+        self.assertEqual(frappe.db.get_value("Payment Entry", result["payment_entry"], "docstatus"), 1)
+
+    def test_draft_payment_entry_still_blocks_3141(self):
+        """Control for #3141: only docstatus 2 is ignored. A DRAFT reference is an in-flight
+        booking and still counts, so the double-debit guard is not weakened."""
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        invoice = self._setup_submitted_invoice(rate=55.0)
+        draft = get_payment_entry("Sales Invoice", invoice.name)
+        draft.reference_no = f"DUP-{uuid.uuid4().hex[:8]}"
+        draft.reference_date = frappe.utils.today()
+        draft.save()
+        self.assertEqual(draft.docstatus, 0)
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            create_payment_entry_with_duplicate_check(
+                invoice.name,
+                invoice.grand_total,
+                {"doctype": "Payment Entry", "payment_type": "Receive", "paid_amount": invoice.grand_total},
+            )
+        self.assertIn("already fully paid", str(ctx.exception))
+
     def test_over_allocation_blocks(self):
         """An amount that would exceed the invoice total is rejected before any PE."""
         invoice = self._setup_submitted_invoice(rate=40.0)

@@ -323,15 +323,22 @@ def create_payment_entry_with_duplicate_check(invoice_name: str, amount: float, 
         {"invoice_name": invoice_name, "amount": amount},
     )
 
-    # Check for existing payments
-    existing_payments = frappe.get_all(
-        "Payment Entry Reference",
-        filters={
-            "reference_name": invoice_name,
-            "reference_doctype": "Sales Invoice",
-            "parenttype": "Payment Entry",
-        },
-        fields=["parent", "allocated_amount"],
+    # Check for existing payments. A CANCELLED Payment Entry (docstatus 2) restored the invoice's
+    # outstanding and must not count (#3141: a rolled-back batch could never be re-reconciled).
+    # Drafts (docstatus 0) still count: they are in-flight bookings and the double-debit guard
+    # must not be weakened. Filtered on the PARENT's docstatus, the source of truth.
+    payment_entry = frappe.qb.DocType("Payment Entry")
+    payment_reference = frappe.qb.DocType("Payment Entry Reference")
+    existing_payments = (
+        frappe.qb.from_(payment_reference)
+        .inner_join(payment_entry)
+        .on(payment_entry.name == payment_reference.parent)
+        .select(payment_reference.parent, payment_reference.allocated_amount)
+        .where(payment_reference.reference_name == invoice_name)
+        .where(payment_reference.reference_doctype == "Sales Invoice")
+        .where(payment_reference.parenttype == "Payment Entry")
+        .where(payment_entry.docstatus < 2)
+        .run(as_dict=True)
     )
 
     # Calculate total already allocated
