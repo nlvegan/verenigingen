@@ -91,7 +91,10 @@ class TestReviewerChosenChapterRowAtApproval(ApprovalCase):
         """An assignment the manager refuses leaves the member approved with no row. That used to be
         reported only through frappe.logger().warning, which nobody reads; it must reach the Error Log.
         The refusal is injected at the manager boundary (a real chapter that refuses is not reachable
-        at approval); the nonexistent-chapter case is deliberately not tested here (#1860)."""
+        at approval); the nonexistent-chapter case is deliberately not tested here (#1860).
+        #2943: the reviewer's row is now written Pending before the core, so the test fails THAT write too
+        (create_pending_chapter_membership returns None, as it does when it logs and gives up); the
+        post-core assignment is then the fallback that is pinned, exactly as before."""
         chapter = self.create_test_chapter(published=1)
         application = self._stage_without_chapter()
         self.expectErrorLog(ASSIGNMENT_FAILURE_TITLE)  # silences tearDown; the assert below checks
@@ -100,7 +103,9 @@ class TestReviewerChosenChapterRowAtApproval(ApprovalCase):
 
         with self.assertErrorLog(ASSIGNMENT_FAILURE_TITLE):
             # Mock justified: fault injection at the manager boundary
-            with patch(MANAGER_ASSIGN, return_value=refusal):
+            with patch(MANAGER_ASSIGN, return_value=refusal), patch(
+                "verenigingen.utils.application_helpers.create_pending_chapter_membership", return_value=None
+            ):
                 member = self._approve(application, chapter.name)
 
         self.assertEqual(self._rows(member), {})
@@ -109,6 +114,29 @@ class TestReviewerChosenChapterRowAtApproval(ApprovalCase):
         self.assertIn(chapter.name, failures[0].error)
         self.assertIn(member, failures[0].error)
         self.assertIn("refused-1797", failures[0].error)
+
+    def test_with_the_early_row_intact_the_post_core_manager_answers_already_exists_and_logs_nothing(self):
+        """Control for the test above (#2943): with the early write NOT failed, the post-core assignment finds
+        the row and answers already_exists, which is benign and must not reach the Error Log."""
+        from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
+
+        chapter = self.create_test_chapter(published=1)
+        application = self._stage_without_chapter()
+        answers = []
+        real = ChapterMembershipManager.assign_member_to_chapter
+
+        def spy(*args, **kwargs):
+            answers.append(real(*args, **kwargs))
+            return answers[-1]
+
+        start = frappe.utils.now()
+        # Mock justified: pass-through spy on the manager; the real assignment still runs.
+        with patch(MANAGER_ASSIGN, side_effect=spy):
+            member = self._approve(application, chapter.name)
+
+        self.assertEqual(self._rows(member), {chapter.name: (1, "Active")})
+        self.assertEqual([a.get("action") for a in answers], ["already_exists"], answers)
+        self.assertEqual(self._assignment_failures_since(start), [])
 
     def test_an_assignment_that_raises_is_logged_and_the_approval_wrapper_survives(self):
         """The wrapper's except branch: the manager is the collaborator, so stubbing it to raise
