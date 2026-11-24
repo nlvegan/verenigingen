@@ -815,6 +815,10 @@ def _build_opening_balance_je(
 
         fiscal_year = ensure_fiscal_year_exists(opening_date, company, debug_info)
         debug_info.append(f"Fiscal year {fiscal_year} verified/created for opening balance date")
+    except NON_RESUMABLE_DB_ERRORS:
+        # #3060: a lock error is not "could not ensure the fiscal year"; carrying on would save
+        # the opening Journal Entry against a transaction the server may have rolled back.
+        raise
     except Exception as fy_error:
         debug_info.append(f"WARNING: Could not ensure fiscal year for {opening_date}: {str(fy_error)}")
 
@@ -950,6 +954,8 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False, fo
                     frappe.delete_doc("Journal Entry", existing_opening_balance, force=True)
                     debug_info.append(f"Deleted Journal Entry {existing_opening_balance}")
                     frappe.db.commit()
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise  # #3060: a lock error is not a "cancel it manually" failure
                 except Exception as e:
                     return {
                         "success": False,
@@ -1053,6 +1059,10 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False, fo
                                 f"Stock reconciliation failed: {stock_result.get('error', 'Unknown error')}"
                             )
 
+                    except NON_RESUMABLE_DB_ERRORS:
+                        # #3060: the opening JE is already written; a lock error here must
+                        # abort the whole import, not become a debug_info line.
+                        raise
                     except Exception as e:
                         debug_info.append(f"Error importing stock reconciliations: {str(e)}")
 
@@ -1081,10 +1091,14 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False, fo
                     "skipped_accounts": skipped_accounts,
                     "accounts_processed": len(processed_accounts),
                 }
+            except NON_RESUMABLE_DB_ERRORS:
+                raise  # #3060: re-raise so the caller owns the (possibly rolled back) transaction
             except Exception as e:
                 debug_info.append(f"Failed to save opening balance journal entry: {str(e)}")
                 return {"success": False, "error": f"Failed to create journal entry: {str(e)}"}
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #3060
     except Exception as e:
         import traceback
 
@@ -1154,10 +1168,14 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
                 "message": "Opening balances imported successfully",
                 "accounts_processed": len(processed_accounts),
             }
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # #3060: re-raise so the caller owns the (possibly rolled back) transaction
         except Exception as e:
             debug_info.append(f"Failed to save opening balance journal entry: {str(e)}")
             return {"success": False, "error": f"Failed to create journal entry: {str(e)}"}
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #3060
     except Exception as e:
         import traceback
 
