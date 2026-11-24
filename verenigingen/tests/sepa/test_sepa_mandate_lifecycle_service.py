@@ -265,14 +265,15 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         valid_transitions = {
             'Draft': ['Pending', 'Active', 'Cancelled'],
             'Pending': ['Active', 'Cancelled', 'Rejected'],
-            'Active': ['Cancelled', 'Expired'],
+            'Active': ['Suspended', 'Cancelled', 'Expired'],
+            'Suspended': ['Active', 'Cancelled'],
             'Cancelled': [],  # Terminal state
             'Expired': ['Cancelled'],
             'Rejected': ['Draft', 'Cancelled']
         }
 
         for from_status, allowed_statuses in valid_transitions.items():
-            for to_status in ['Draft', 'Pending', 'Active', 'Cancelled', 'Expired', 'Rejected']:
+            for to_status in ['Draft', 'Pending', 'Active', 'Suspended', 'Cancelled', 'Expired', 'Rejected']:
                 with self.subTest(from_status=from_status, to_status=to_status):
                     expected = to_status in allowed_statuses
                     result = self.service._is_valid_status_transition(from_status, to_status)

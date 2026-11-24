@@ -425,7 +425,9 @@ class SEPAMandateLifecycleService:
         valid_transitions = {
             "Draft": ["Pending", "Active", "Cancelled"],
             "Pending": ["Active", "Cancelled", "Rejected"],
-            "Active": ["Cancelled", "Expired"],
+            "Active": ["Suspended", "Cancelled", "Expired"],
+            # Maintainer ruling 2026-11-24 (#3138): Draft/Pending cannot be suspended
+            "Suspended": ["Active", "Cancelled"],
             "Cancelled": [],  # Terminal state
             "Expired": ["Cancelled"],  # Can only be cancelled after expiration
             "Rejected": ["Draft", "Cancelled"],  # Can be revised or cancelled
