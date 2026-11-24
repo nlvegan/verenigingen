@@ -404,6 +404,9 @@ def _get_or_create_customer(relation_id, debug_info):
             debug_info.append(f"Party resolver failed for relation {relation_id}")
             return None
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # A 1213 rolled the migration batch back; returning None carries on without the party (#3029).
+        raise
     except Exception as e:
         debug_info.append(f"Error resolving customer for relation {relation_id}: {str(e)}")
         return None
@@ -425,6 +428,9 @@ def _get_or_create_supplier(relation_id, description, debug_info):
             debug_info.append(f"Party resolver failed for relation {relation_id}")
             return None
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # A 1213 rolled the migration batch back; returning None carries on without the party (#3029).
+        raise
     except Exception as e:
         debug_info.append(f"Error resolving supplier for relation {relation_id}: {str(e)}")
         return None
@@ -460,6 +466,9 @@ def _get_or_create_company_party(party_type, company, debug_info):
 
         return party_name
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # A 1213 rolled the migration batch back; returning None carries on without the party (#3029).
+        raise
     except Exception as e:
         debug_info.append(f"Error creating company {party_type.lower()}: {str(e)}")
         return None

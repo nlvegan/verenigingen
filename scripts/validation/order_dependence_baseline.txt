@@ -492,7 +492,6 @@ REUSE tests/backend/unit/api/test_membership_application_review_coverage.py::1  
 REUSE tests/backend/unit/utils/test_application_helpers_coverage.py::1  # order-dependence
 REUSE tests/backend/unit/utils/test_application_helpers_reapplication.py::1  # order-dependence
 REUSE tests/backend/workflows/test_member_lifecycle.py::1  # order-dependence
-REUSE tests/backend/workflows/test_member_lifecycle_complete.py::1  # order-dependence
 REUSE tests/chapter/test_team_role_basic.py::1  # order-dependence
 REUSE tests/doctype/test_procurios_membership_import.py::1  # order-dependence
 REUSE tests/donor/test_anbi_donation_agreement_validation.py::1  # order-dependence

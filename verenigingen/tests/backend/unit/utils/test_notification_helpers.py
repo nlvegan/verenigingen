@@ -35,15 +35,15 @@ class TestSendVolunteerEmail(FrappeTestCase):
             template_name="test_template",
             notification_key="test_key",
         )
-        self.assertFalse(result["success"])
-        self.assertIn("No volunteer", result["reason"])
+        self.assertFalse(result.success)
+        self.assertIn("No volunteer", result.error_message)
 
         result = send_volunteer_email(
             volunteer="",
             template_name="test_template",
             notification_key="test_key",
         )
-        self.assertFalse(result["success"])
+        self.assertFalse(result.success)
 
     def test_returns_failure_when_volunteer_not_found(self):
         """Test returns failure when volunteer doesn't exist."""
@@ -52,8 +52,8 @@ class TestSendVolunteerEmail(FrappeTestCase):
             template_name="test_template",
             notification_key="test_key",
         )
-        self.assertFalse(result["success"])
-        self.assertIn("not found", result["reason"])
+        self.assertFalse(result.success)
+        self.assertIn("not found", result.error_message)
 
     def test_returns_failure_when_no_linked_member(self):
         """Test returns failure when volunteer has no linked member."""
@@ -66,8 +66,8 @@ class TestSendVolunteerEmail(FrappeTestCase):
                 template_name="test_template",
                 notification_key="test_key",
             )
-            self.assertFalse(result["success"])
-            self.assertIn("no linked member", result["reason"])
+            self.assertFalse(result.success)
+            self.assertIn("no linked member", result.error_message)
 
     def test_returns_failure_when_member_has_no_email(self):
         """Test returns failure when member has no email."""
@@ -90,8 +90,8 @@ class TestSendVolunteerEmail(FrappeTestCase):
                 template_name="test_template",
                 notification_key="test_key",
             )
-            self.assertFalse(result["success"])
-            self.assertIn("no email", result["reason"])
+            self.assertFalse(result.success)
+            self.assertIn("no email", result.error_message)
 
     def test_sends_email_with_correct_context(self):
         """Test send_volunteer_email builds and forwards the real context.
