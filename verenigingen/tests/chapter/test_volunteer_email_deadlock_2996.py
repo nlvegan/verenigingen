@@ -289,28 +289,58 @@ class TestVolunteerEmailDeadlock2996(VereningingenTestCase):
     def test_deadlock_on_the_settings_read_escapes_the_constructor(self):
         self._assert_deadlock_2996(EmailService, SETTINGS_READ)
 
+    def test_the_communication_record_is_really_created(self):
+        """#3124: the audit-trail row used to be refused ("Email" is not a legal
+        communication_type), so the method returned None on every call."""
+        self._as_administrator_2996()
+        name = self.service._create_communication_record([self.recipient], "s", "c")
+        self.assertIsNotNone(name, "the Communication insert was refused")
+        self.track_doc("Communication", name)
+        comm = frappe.get_doc("Communication", name)
+        self.assertEqual(comm.communication_type, "Communication")
+        self.assertEqual(comm.communication_medium, "Email")
+
     def test_deadlock_on_the_communication_insert_escapes(self):
+        """The injection is at the real INSERT (no longer a refused-insert read)."""
         self._as_administrator_2996()  # the insert goes through a permission-checked wrapper
         self._assert_deadlock_2996(
             lambda: self.service._create_communication_record([self.recipient], "s", "c"),
-            "tabcommunication",
+            "into `tabcommunication`",
         )
 
     def test_deadlock_on_the_failed_insert_diagnostic_read_escapes(self):
-        """A WARM table-metadata cache is what CI has. This Communication insert is refused by
-        validation (communication_type "Email" is not a legal option), so the first
-        `tabCommunication` query is the best-effort docstatus read made while handling that
-        failure. A deadlock there used to be swallowed into a failure result (merge-group job
-        137114749903); on a cold cache the first match was an unrelated information_schema read,
-        which is why the test above passed locally."""
+        """A WARM table-metadata cache is what CI has. An insert refused by validation makes
+        secure_document_operation do a best-effort `tabCommunication` docstatus read while
+        handling the failure; a deadlock there used to be swallowed into a failure result
+        (merge-group job 137114749903). Since #3124 EmailService's own insert is legal, so this
+        drives the wrapper directly with a Communication whose communication_type "Email" is
+        not a legal option (the refusal EmailService used to hit on every call)."""
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        def refused_insert():
+            return secure_document_operation(
+                operation="insert",
+                doc=frappe.get_doc(
+                    {
+                        "doctype": "Communication",
+                        "communication_type": "Email",
+                        "communication_medium": "Email",
+                        "subject": "s",
+                        "content": "c",
+                        "recipients": self.recipient,
+                        "sent_or_received": "Sent",
+                    }
+                ),
+                justification="deadlock diagnostic read test 3124",
+                required_permissions=["Communication:create"],
+            )
+
         self._as_administrator_2996()
         self.expectErrorLog("Secure Operation Failed")
-        warm = self.service._create_communication_record([self.recipient], "s", "c")
-        self.assertIsNone(warm, "premise: the insert is refused, so no INSERT can be the injection point")
-        self._assert_deadlock_2996(
-            lambda: self.service._create_communication_record([self.recipient], "s", "c"),
-            "from `tabcommunication`",
-        )
+        warm = refused_insert()
+        self.assertFalse(warm.success, "premise: the insert is refused, so no INSERT can be the injection point")
+        self.assertIn("Communication Type", "; ".join(warm.errors), "premise: refused by validation, not elsewhere")
+        self._assert_deadlock_2996(refused_insert, "from `tabcommunication`")
 
     def test_an_ordinary_config_read_error_still_degrades(self):
         """Control: an ordinary error on the config read keeps the fail-open behaviour."""
