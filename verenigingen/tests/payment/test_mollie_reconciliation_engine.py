@@ -896,7 +896,7 @@ class TestBulkImportValidation(ReconciliationEngineTestBase):
         rate_warnings = [w for w in self.engine.warnings if "success rate is low" in w]
         self.assertEqual(len(rate_warnings), 1)
         self.assertIn("25.0%", rate_warnings[0])
-        self.assertIn("1 partial", rate_warnings[0])
+        self.assertIn("1 of 4 completed-or-failed imports successful, 1 partial", rate_warnings[0])
 
     def test_success_rate_below_eighty_percent_raises_a_run_warning(self):
         for _ in range(3):

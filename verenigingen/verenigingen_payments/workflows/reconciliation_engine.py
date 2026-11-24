@@ -631,7 +631,7 @@ class ReconciliationEngine:
                     partial_note = f", {stats['partial_imports']} partial" if stats["partial_imports"] else ""
                     self.warnings.append(
                         f"Bulk import success rate is low: {success_rate:.1f}% "
-                        f"({stats['successful_imports']} of {rated_imports} imports successful"
+                        f"({stats['successful_imports']} of {rated_imports} completed-or-failed imports successful"
                         f"{partial_note})"
                     )
 
