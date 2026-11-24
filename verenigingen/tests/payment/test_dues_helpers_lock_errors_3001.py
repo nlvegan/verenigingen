@@ -181,14 +181,13 @@ class TestDuesHelpersLockErrors3001(DuesCreationTestBase):
             payment.id, payment=payment, member_name=self.member.name, create_missing_invoice=True
         )
 
-    def test_a_deadlocked_recovery_run_reports_a_failure_and_a_rerun_books_once(self):
+    def test_a_deadlocked_recovery_run_raises_and_a_rerun_books_once(self):
         payment = self._payment_3001()
         inject, hits = self._inject_lock_error_3001(1213, "`tabSales Invoice`", startswith=("INSERT",))
-        with inject:
-            failed = self._recovery_3001(payment)
+        # Since #3013 (PR #3065) process_payment re-raises a 1213 instead of reporting an "error" result.
+        with inject, self.assertRaises(frappe.QueryDeadlockError):
+            self._recovery_3001(payment)
         self.assertTrue(hits, "the injection must have fired on the invoice insert")
-        self.assertEqual(failed.status, "error", failed.to_dict())
-        self.assertEqual(failed.exception_type, "QueryDeadlockError")
         self.assertFalse(frappe.db.exists("Payment Entry", {"reference_no": payment.id}))
 
         rerun = self._recovery_3001(payment)
