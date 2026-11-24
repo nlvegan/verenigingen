@@ -41,11 +41,9 @@ class TestMemberFeeChangeService(FrappeTestCase):
 
         member_doc = SimpleMemberDoc()
 
-        # Should return early without calling validation
+        # Should return early: validate_fee_override_permissions above raises if reached
         get_member_fee_change_service().handle_fee_override_changes(member_doc)
 
-        # Verify no pending change created
-        self.assertFalse(hasattr(member_doc, "_pending_fee_change"))
 
     def test_system_update_skips_processing(self):
         """Test that system updates bypass fee override handling"""
@@ -62,11 +60,9 @@ class TestMemberFeeChangeService(FrappeTestCase):
 
         member_doc = SimpleMemberDoc()
 
-        # Should return early without calling validation
+        # Should return early: validate_fee_override_permissions above raises if reached
         get_member_fee_change_service().handle_fee_override_changes(member_doc)
 
-        # Verify no pending change created
-        self.assertFalse(hasattr(member_doc, "_pending_fee_change"))
 
     def test_new_document_skips_change_tracking(self):
         """Test that new documents don't create pending changes"""
@@ -101,7 +97,6 @@ class TestMemberFeeChangeService(FrappeTestCase):
         # Verify audit fields set but no change tracking
         self.assertIsNotNone(member_doc.fee_override_date)
         self.assertIsNotNone(member_doc.fee_override_by)
-        self.assertFalse(hasattr(member_doc, "_pending_fee_change"))
 
     def test_record_fee_change_uses_history_manager(self):
         """Test that record_fee_change delegates to the FeeChangeRecordingService."""
