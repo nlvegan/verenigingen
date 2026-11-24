@@ -87,9 +87,12 @@ class TestLoadTemplateForMembershipType(EnhancedTestCase):
         template = load_template_for_membership_type(self.membership_type_with_template)
 
         # hasattr on a Document is True for any real field, so check the values the
-        # fixture put there: the type was created with amount=50.0.
+        # fixture put there: the template takes the type's minimum_amount.
         self.assertEqual(template.is_template, 1)
-        self.assertEqual(flt(template.minimum_amount), 50.0)
+        self.assertEqual(
+            flt(template.minimum_amount), flt(self.membership_type_with_template.minimum_amount)
+        )
+        self.assertGreater(flt(template.minimum_amount), 0)
         self.assertTrue(template.billing_frequency)
 
     # --- Error path: required=True (default) ---

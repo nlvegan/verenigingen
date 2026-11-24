@@ -299,7 +299,8 @@ class TestPaymentHistoryMediumScale(PaymentHistoryScalabilityTestCase):
         job_ids = []
         start_time = time.time()
         
-        for member in batch["members"][:50]:  # Test with subset
+        subset = batch["members"][:50]
+        for member in subset:  # Test with subset
             job_id = BackgroundJobManager.queue_member_payment_history_update(
                 member_name=member.name,
                 priority="default"
@@ -326,7 +327,7 @@ class TestPaymentHistoryMediumScale(PaymentHistoryScalabilityTestCase):
         self._record_performance_result("medium_scale_background_jobs", metrics)
         
         # Assertions
-        self.assertEqual(len(job_ids), 50, "Every member should get a queued job")
+        self.assertEqual(len(job_ids), len(subset), "Every member should get a queued job")
         self.assertEqual(len(set(job_ids)), len(job_ids), "Job names should be unique")
         for job_id in job_ids:
             job_status = frappe.cache().get_value(f"job_status_{job_id}")

@@ -205,7 +205,7 @@ class TestMediumScalePaymentHistory(VereningingenTestCase):
         # see one in CI, which has no RQ worker. Job execution is covered by
         # tests/utils/test_background_jobs.py (test_rebuild_populates_payment_history_
         # from_real_invoice). Queueing guarantees one tracked status record per job.
-        self.assertEqual(len(job_ids), 50, "Should queue one job per member")
+        self.assertEqual(len(job_ids), len(batch_result["members"]), "Should queue one job per member")
         self.assertEqual(len(set(job_ids)), len(job_ids), "Job names should be unique")
         for job_id in job_ids:
             job_status = frappe.cache().get_value(f"job_status_{job_id}")
