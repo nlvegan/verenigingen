@@ -72,6 +72,13 @@ class TestExistingImportsDateRange3131(_PaymentTestBase):
         self.assertNotIn(getdate(self.early), found)
         self.assertEqual(found, [getdate(self.middle), getdate(self.late)])
 
+    def test_from_date_equal_to_a_posting_date_includes_that_row(self):
+        # Pins the inclusive lower bound: a `>`-style or from_date+1 mutant drops the middle row.
+        self.assertEqual(
+            self._ours_in_range(self.middle, self.late),
+            [getdate(self.middle), getdate(self.late)],
+        )
+
     def test_from_date_alone_has_no_upper_bound(self):
         self.assertEqual(
             self._ours_in_range(add_days(today(), -4)), [getdate(self.middle), getdate(self.late)]
