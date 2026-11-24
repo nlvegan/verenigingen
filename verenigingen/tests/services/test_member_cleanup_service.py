@@ -689,8 +689,10 @@ class TestMemberCleanupService(EnhancedTestCase):
                 "reference_docname": schedule.name,
             }
         ).insert(ignore_permissions=True)
+        self.addCleanup(frappe.delete_doc, "Membership Dues Schedule", schedule.name, force=True)
+        self.addCleanup(frappe.delete_doc, "Event", event.name, force=True)
         key = "dynamic_link_map::Event::reference_doctype"
-        frappe.cache.set_value(key, ["Team"], expires_in_sec=3600)
+        frappe.cache.set_value(key, ["Team", "Member"], expires_in_sec=3600)
         self.addCleanup(frappe.cache.delete_value, key)
         frappe.local.dynamic_link_map = None
         self.assertNotIn("Membership Dues Schedule", frappe.cache.get_value(key), "control: stale")
@@ -702,11 +704,6 @@ class TestMemberCleanupService(EnhancedTestCase):
         blocked = get_member_cleanup_service()._find_blocked_schedules(member.name, [schedule.name])
 
         self.assertEqual(blocked, {schedule.name: [("Event", event.name)]})
-        frappe.delete_doc("Event", event.name, force=True)
-        frappe.delete_doc("Membership Dues Schedule", schedule.name, force=True)
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        frappe.db.commit()
 
     def _make_plain_dues_schedule(self, member, status="Active"):
         """A schedule keyed to `member` with NO Sales Invoice reference --
