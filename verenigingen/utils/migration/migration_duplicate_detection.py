@@ -364,9 +364,9 @@ class DuplicateMerger:
                     # Delete if allowed
                     if not frappe.db.exists("GL Entry", {"voucher_no": duplicate_name}):
                         frappe.delete_doc(doctype, duplicate_name, force=True)
-                        result["merge_log"].append("Deleted duplicate: {duplicate_name}")
+                        result["merge_log"].append(f"Deleted duplicate: {duplicate_name}")
                     else:
-                        result["merge_log"].append("Cancelled duplicate: {duplicate_name} (has GL entries)")
+                        result["merge_log"].append(f"Cancelled duplicate: {duplicate_name} (has GL entries)")
 
                     result["merged_count"] += 1
 

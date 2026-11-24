@@ -645,6 +645,19 @@ class TestCreateJournalEntryEndToEnd(_JournalClusterBase):
         self.assertAlmostEqual(td, 100.0, places=2)
         self.assertEqual({a.account for a in je.accounts}, {self.expense, self.kruisposten})
 
+    def test_missing_description_defaults_to_the_mutation_id(self):
+        # #3096: the default was a plain literal, so the JE remark read
+        # "eBoekhouden Import {mutation_id}" on every row that has no text of its own.
+        debug = []
+        mut = self._memorial_mutation(id=700103)
+        del mut["description"]
+        for row in mut["Regels"]:
+            row.pop("description", None)
+        je = _create_journal_entry(mut, self.company, self.cost_center, debug)
+        self.assertIsNotNone(je, f"JE was None. debug={debug}")
+        remarks = {line.account: line.user_remark for line in je.accounts}
+        self.assertEqual(remarks[self.expense], "eBoekhouden Import 700103")
+
     def test_memorial_multi_row_balanced_and_submitted(self):
         # Two opposite-signed rows that net to zero against each other; the main
         # leg is omitted (already balanced) so we craft rows that need a balance.
