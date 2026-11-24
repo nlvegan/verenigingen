@@ -20,6 +20,7 @@ from frappe.utils import nowdate, nowtime, random_string
 
 from verenigingen.services.payment.sepa_upload_guard import get_sepa_upload_guard
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
+from verenigingen.verenigingen_payments.services.batch_processing_service import batch_processing_service
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
 from verenigingen.verenigingen_payments.services.sepa_xml_adapter import get_sepa_xml_adapter
 from verenigingen.verenigingen_payments.utils.sepa_utilities import FileManagementUtilities, SEPAXMLValidator
@@ -50,6 +51,10 @@ class SEPAXMLGenerationService:
             frappe.ValidationError: If required settings are missing
             Exception: If XML generation fails
         """
+        # #3074: this ends in db_set("status", "Generated"), which would reopen a Rolled Back batch.
+        # Outside the try: a refusal is not a generation failure to log or re-wrap.
+        batch_processing_service.refuse_if_rolled_back(batch_doc.name, _("regenerated"))
+
         try:
             frappe.logger().info(f"Starting SEPA XML generation for batch {batch_doc.name} (pain.008.001.08)")
 
