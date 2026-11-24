@@ -118,32 +118,6 @@ class TestSEPAOptimizations(EnhancedTestCase):
         self.assertIn("total_checked", coverage_result)
         self.assertIn("complete", coverage_result)
     
-    @unittest.skip(
-        "verenigingen.fixtures.add_sepa_database_indexes module was removed; "
-        "verify_sepa_indexes() no longer exists. Index creation is now part of "
-        "the regular migration path. Re-enable when a replacement verifier ships."
-    )
-    def test_database_indexes_presence(self):
-        """Test that database indexes were created successfully"""
-        # importlib, not `from ... import`: the module is gone and the pre-commit import-path
-        # validator rejects a static import of it (test is skipped above).
-        import importlib
-
-        verify_sepa_indexes = importlib.import_module("verenigingen.fixtures.add_sepa_database_indexes").verify_sepa_indexes
-
-        verification_results = verify_sepa_indexes()
-        self.assertIsInstance(verification_results, list)
-
-        found_indexes = [r for r in verification_results if r['status'] == 'found']
-        missing_indexes = [r for r in verification_results if r['status'] == 'missing']
-
-        # Should have most indexes (allow for some environment differences)
-        self.assertGreaterEqual(len(found_indexes), 8,
-                              f"Expected at least 8 indexes, found {len(found_indexes)}")
-
-        if missing_indexes:
-            print(f"Warning: {len(missing_indexes)} indexes missing: {[idx['index'] for idx in missing_indexes]}")
-    
     def test_batch_sequence_type_determination(self):
         """Batch sequence types: a pair that cannot be determined has NO entry (#2716, #3077)."""
         from verenigingen.verenigingen_payments.utils.sepa_mandate_service import SEPAMandateService

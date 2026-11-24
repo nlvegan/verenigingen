@@ -237,27 +237,49 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
         self.assertEqual(result["result"], direct_result)
 
     def test_api_endpoint_performance(self):
-        """Test API endpoint performance"""
+        """The config API is served from the manager's cache after the first read.
 
-        # Test configuration APIs
-        from verenigingen.verenigingen_payments.utils.sepa_config_manager import get_sepa_config
+        Asserted structurally, not against a wall clock (#3085): the first call in a
+        process measured 2.8s on test_site_3 (imports, lazy first-use work) while a
+        call after clear_cache() measured ~25ms, so a 0.2s bound timed the process
+        warm-up and not the cache.
+        """
+        from verenigingen.verenigingen_payments.utils.sepa_config_manager import (
+            get_sepa_config,
+            get_sepa_config_manager,
+        )
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import (
+            get_sepa_cache_stats,
+            get_sepa_mandate_service,
+        )
 
-        start_time = time.time()
-        config = get_sepa_config()
-        api_time = time.time() - start_time
+        manager = get_sepa_config_manager()
+        manager.clear_cache()
+        self.assertEqual(manager.get_cache_info()["total_cached_items"], 0)
 
-        print(f"  Configuration API: {api_time:.3f}s")
-        self.assertLess(api_time, 0.2, "Configuration API should be fast")
+        first = get_sepa_config()
+        self.assertEqual(set(first), set(manager.get_complete_config()))
+        self.assertGreaterEqual(manager.get_cache_info()["total_cached_items"], 2)
 
-        # Test mandate service APIs
-        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_cache_stats
+        # A second read must hand back the cached section object, not rebuild it.
+        cached_section = manager._settings_cache["company_sepa"]
+        second = get_sepa_config()
+        self.assertIs(second["company_sepa"], cached_section)
+        self.assertEqual(second, first)
 
-        start_time = time.time()
-        cache_stats = get_sepa_cache_stats()
-        api_time = time.time() - start_time
+        # A section request goes through the same cache.
+        self.assertIs(get_sepa_config(section="company_sepa"), cached_section)
 
-        print(f"  Cache stats API: {api_time:.3f}s")
-        self.assertLess(api_time, 0.1, "Cache stats API should be very fast")
+        # Mandate service API reports the real cache sizes.
+        service = get_sepa_mandate_service()
+        self.assertEqual(
+            get_sepa_cache_stats(),
+            {
+                "mandate_cache_size": len(service._mandate_cache),
+                "sequence_cache_size": len(service._sequence_cache),
+                "total_cached_items": len(service._mandate_cache) + len(service._sequence_cache),
+            },
+        )
 
     def test_memory_usage_stability(self):
         """Test that optimizations don't cause memory leaks"""
