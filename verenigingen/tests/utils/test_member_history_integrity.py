@@ -289,15 +289,16 @@ class TestMemberHistoryIntegrity(EnhancedTestCase):
         schedule = self._make_dues_schedule(member)
         # Two rows, same schedule + same rate, different change_date
         self._append_fee_row(member, schedule, new_rate=25.0, change_date=add_days(today(), -5))
-        self._append_fee_row(member, schedule, new_rate=25.0, change_date=today())
+        newer_change_date = today()
+        self._append_fee_row(member, schedule, new_rate=25.0, change_date=newer_change_date)
 
         manager = HistoryIntegrityManager(member)
         stats = manager.cleanup_fee_history()
 
         self.assertEqual(stats["removed"], 1)
         self.assertEqual(len(member.fee_change_history), 1)
-        # the kept entry is the newer one
-        self.assertEqual(str(member.fee_change_history[0].change_date), str(today()))
+        # the kept entry is the newer one (compared with the date the fixture wrote, not a second clock read)
+        self.assertEqual(str(member.fee_change_history[0].change_date), str(newer_change_date))
         self.assertIn("Duplicate", stats["details"][0]["reason"])
 
     def test_fee_history_duplicate_different_amount_is_not_deleted(self):

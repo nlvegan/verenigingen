@@ -376,13 +376,15 @@ class _InvoiceClusterBase(EnhancedTestCase):
 class TestSalesInvoiceCreation(_InvoiceClusterBase):
     def test_basic_sales_invoice_created_and_submitted(self):
         debug = []
-        si = _create_sales_invoice(self._sales_mutation(id=900201), self.company, self.cost_center, debug)
+        mutation = self._sales_mutation(id=900201)
+        si = _create_sales_invoice(mutation, self.company, self.cost_center, debug)
         self.assertIsNotNone(si, f"Sales invoice was None. debug={debug}")
         self.assertEqual(si.doctype, "Sales Invoice")
         self.assertEqual(si.docstatus, 1, "Invoice should be submitted")
         self.assertEqual(si.customer, self.customer)
         self.assertEqual(si.company, self.company)
-        self.assertEqual(getdate(si.posting_date), getdate(nowdate()))
+        # posting_date is the mutation's own date (fixture-set), not a fresh clock read.
+        self.assertEqual(getdate(si.posting_date), getdate(mutation["date"]))
         self.assertEqual(si.debit_to, self.receivable)
         self.assertFalse(si.is_return)
         # One line item at rate 100
@@ -514,7 +516,8 @@ class TestSetupInvoiceCommon(_InvoiceClusterBase):
     def test_common_fields_populated_for_normal_invoice(self):
         debug = []
         si = frappe.new_doc("Sales Invoice")
-        result = _setup_invoice_common(si, self._sales_mutation(id=900401), self.company, debug)
+        mutation = self._sales_mutation(id=900401)
+        result = _setup_invoice_common(si, mutation, self.company, debug)
         self.assertIsNotNone(result)
         is_credit_note, effective = result
         self.assertFalse(is_credit_note)
@@ -522,13 +525,13 @@ class TestSetupInvoiceCommon(_InvoiceClusterBase):
         self.assertEqual(si.company, self.company)
         self.assertEqual(si.currency, "EUR")
         self.assertEqual(flt(si.conversion_rate), 1.0)
-        self.assertEqual(getdate(si.posting_date), getdate(nowdate()))
+        self.assertEqual(getdate(si.posting_date), getdate(mutation["date"]))
         self.assertEqual(si.eboekhouden_mutation_nr, "900401")
         self.assertEqual(si.remarks, "Membership fee 2024")
         # default 30-day payment terms -> due date 30 days out
         from frappe.utils import add_days
 
-        self.assertEqual(getdate(si.due_date), getdate(add_days(nowdate(), 30)))
+        self.assertEqual(getdate(si.due_date), getdate(add_days(mutation["date"], 30)))
 
     def test_common_detects_credit_note_from_negative_amount(self):
         debug = []

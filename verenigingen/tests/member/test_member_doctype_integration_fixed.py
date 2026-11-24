@@ -359,7 +359,8 @@ class TestMemberDoctypeIntegrationFixed(EnhancedTestCase):
         # Test approval workflow (real business logic)
         member.status = "Active"
         member.application_status = "Approved"
-        member.member_since = today()
+        member_since = today()
+        member.member_since = member_since
         member.save()
         
         # Validate complete workflow
@@ -368,7 +369,7 @@ class TestMemberDoctypeIntegrationFixed(EnhancedTestCase):
         self.assertEqual(member.status, "Active") 
         self.assertEqual(member.application_status, "Approved")
         # Fix date comparison - compare date objects properly
-        self.assertEqual(str(member.member_since), str(today()))
+        self.assertEqual(str(member.member_since), str(member_since))
         
         # Test that real database relationships work
         active_members = frappe.get_all(
