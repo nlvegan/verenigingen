@@ -58,6 +58,7 @@ Technical Implementation:
 import time
 
 import frappe
+from frappe.utils import cint
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import (
@@ -969,6 +970,60 @@ def has_unforged_owner(doc, user=None, ptype=None):
         return True  # server-built unsaved doc (frappe.new_doc); no client posted this owner
     stored = frappe.db.get_value(doc.get("doctype"), doc.get("name"), "owner") if doc.get("name") else None
     return (stored or "").lower() == claimed
+
+
+# Doctypes whose run_doc_method guard (#2562) refuses a forged owner. Their unknown names must be
+# refused exactly like a forbidden one (see `refuse_unknown_run_doc_method_target`).
+_RUN_DOC_METHOD_GUARDED_DOCTYPES = frozenset(
+    {"Donation Campaign", "Member", "Membership", "Contribution Amendment Request"}
+)
+
+
+def _posted_run_doc_method_document():
+    """The document dict a ``run_doc_method`` request posted (v1 ``docs``, v2 ``document``), or None."""
+    posted = frappe.form_dict.get("docs") or frappe.form_dict.get("document")
+    try:
+        posted = frappe.parse_json(posted) if isinstance(posted, str) else posted
+    except ValueError:
+        return None
+    return posted if isinstance(posted, dict) else None
+
+
+def _frappe_loads_run_doc_method_target_by_name():
+    """True on Frappe >= 16.61.0, whose ``run_doc_method`` loads a posted document without a truthy
+    ``__islocal`` by name (``frappe.has_permission(doctype, ptype, name, throw=True)``). Older Frappe
+    permission-checks the posted dict instead, which never raises DoesNotExistError."""
+    try:
+        return tuple(int(x) for x in frappe.__version__.split("-")[0].split(".")[:3]) >= (16, 61, 0)
+    except ValueError:
+        return True  # an unparseable version string: assume the newer behaviour (the stricter refusal)
+
+
+def refuse_unknown_run_doc_method_target():
+    """auth_hooks hook: an unknown name must be refused like a forbidden one on ``run_doc_method`` (#2562).
+
+    Frappe 16.61 (version-16, 2026-11-24) loads the target of ``run_doc_method`` (v1 ``docs=``, and v2)
+    by name when the posted document has no truthy ``__islocal`` (or no name). For an id that does not
+    exist that load raises DoesNotExistError (404) while a real, forbidden id gets 403: an existence
+    oracle, and ``has_unforged_owner`` never runs because there is no row to hand it. This runs after
+    authentication (``before_request`` runs BEFORE it, so the user is not known there) and, for the
+    guarded doctypes only, asks Frappe the permission question for the posted document with its
+    ``owner`` dropped, which is what a stored row owned by somebody else looks like to it: the same 403
+    with the same message a real forbidden id gets (a posted owner would make ``has_unforged_owner``
+    answer instead, with another message). A caller who passes that check falls through to Frappe, and
+    a posted ``__islocal`` is left to Frappe's own not-stored branch, which already refuses."""
+    if not _is_run_doc_method_dispatch() or not _frappe_loads_run_doc_method_target_by_name():
+        return
+    posted = _posted_run_doc_method_document()
+    doctype = posted.get("doctype") if posted else None
+    if doctype not in _RUN_DOC_METHOD_GUARDED_DOCTYPES or cint(posted.get("__islocal")):
+        return
+    name = posted.get("name")
+    if isinstance(name, str) and name and frappe.db.exists(doctype, name):
+        return  # a stored row: Frappe loads it and the has_permission hook judges it
+    is_v2_write = "/api/v2/" in frappe.request.path and frappe.request.method != "GET"
+    unowned = frappe.get_doc({k: v for k, v in posted.items() if k != "owner"})
+    frappe.has_permission(doctype, "write" if is_v2_write else "read", doc=unowned, throw=True)
 
 
 def has_donation_permission(doc, user=None, ptype=None):
