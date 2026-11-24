@@ -613,10 +613,9 @@ class DuesPaymentProcessor:
             invoice = frappe.new_doc("Sales Invoice")
             invoice.customer = member_doc.customer
             invoice.company = settings.company
-            # Pin the company currency (as invoice_generator does) so the site-default currency cannot
-            # mismatch the company's receivable account, and #3034/#2810: a selling price list in that
-            # currency. Left unset, the site's default list (possibly another currency) makes erpnext
-            # fetch a live exchange rate, which it refuses for a non-System user (webhook/recovery).
+            # #3034/#2810: pin the company currency (as invoice_generator does) and a selling price list in
+            # it. Left unset, the site-default currency can mismatch the company's receivable account, and
+            # a default list in another currency makes erpnext fetch a live rate, refused for a non-System user.
             invoice.currency = frappe.get_cached_value("Company", settings.company, "default_currency")
             invoice.conversion_rate = 1.0
             invoice.selling_price_list = get_selling_price_list_for_currency(
