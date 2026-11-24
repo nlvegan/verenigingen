@@ -7,11 +7,10 @@ server already rolled back, the #2983 finding); the writing helpers re-raise ``N
 
 Probe shortcut, stated: the lock error is injected at ``Cursor.execute`` (a real deadlock needs a second
 connection), so the server does not actually roll back; the tests pin who sees the error, not the DB state
-after it. ``_eur_invoices_3001`` pins the new Sales Invoice to EUR: this site's default price list is INR
-and ``_create_simple_invoice`` sets no currency, so without it validation fails before the INSERT.
+after it. ``_create_simple_invoice`` pins a company-currency selling price list itself (#3034), so no
+fixture shim is needed on a site whose default price list is in another currency.
 """
 
-from contextlib import contextmanager
 from datetime import date
 from unittest.mock import patch
 
@@ -45,24 +44,6 @@ class TestDuesHelpersLockErrors3001(DuesCreationTestBase):
         frappe.db.set_single_value(
             "Verenigingen Settings", "default_membership_type", self.membership_type.name
         )
-        self.price_list = self._ensure_selling_price_list("EUR")
-        frappe.db.set_value("Customer", self.member.customer, "default_price_list", self.price_list)
-
-    @contextmanager
-    def _eur_invoices_3001(self):
-        real_new_doc = frappe.new_doc
-
-        def new_doc(doctype, *args, **kwargs):
-            doc = real_new_doc(doctype, *args, **kwargs)
-            if doctype == "Sales Invoice":
-                doc.currency = "EUR"
-                doc.conversion_rate = 1.0
-                doc.selling_price_list = self.price_list
-            return doc
-
-        # Mock justified: fixture shim for this site's INR default price list; every other call passes through
-        with patch.object(frappe, "new_doc", new_doc):
-            yield
 
     def _inject_lock_error_3001(self, code, fragment, *, startswith=("INSERT", "UPDATE")):
         """``Cursor.execute`` raises OperationalError(code) on a matching statement. Returns (patcher, hits)."""
@@ -100,20 +81,31 @@ class TestDuesHelpersLockErrors3001(DuesCreationTestBase):
         for code, error in LOCK_CODES:
             with self.subTest(code=code):
                 inject, hits = self._inject_lock_error_3001(code, "`tabSales Invoice`", startswith=("INSERT",))
-                with self._eur_invoices_3001(), inject, self.assertRaises(error):
+                with inject, self.assertRaises(error):
                     self._simple_invoice_3001()
                 self.assertEqual(len(hits), 1, "no in-place retry: the server rolled the unit back")
 
     def test_control_simple_invoice_still_returns_none_on_an_ordinary_error(self):
         inject, hits = self._inject_lock_error_3001(1064, "`tabSales Invoice`", startswith=("INSERT",))
-        with self._eur_invoices_3001(), inject:
+        with inject:
             self.assertIsNone(self._simple_invoice_3001())
         self.assertEqual(len(hits), 1, "an ordinary error is not retried either")
 
     def test_control_simple_invoice_creates_the_invoice_when_nothing_fails(self):
-        with self._eur_invoices_3001():
-            name = self._simple_invoice_3001()
-        self.assertTrue(name and frappe.db.exists("Sales Invoice", name), "the shim fixture must reach a real insert")
+        name = self._simple_invoice_3001()
+        self.assertTrue(name and frappe.db.exists("Sales Invoice", name), "the invoice must reach a real insert")
+
+    def test_simple_invoice_is_pinned_to_the_company_currency_and_a_price_list_in_it(self):
+        """#3034: not the site default currency/price list (INR here; the precondition is asserted)."""
+        company_currency = frappe.get_cached_value("Company", self.company, "default_currency")
+        site_default = frappe.db.get_single_value("Selling Settings", "selling_price_list")
+        site_default_currency = frappe.db.get_value("Price List", site_default, "currency")
+        self.assertNotEqual(
+            site_default_currency, company_currency, "fixture: the site default must differ from the company"
+        )
+        invoice = frappe.get_doc("Sales Invoice", self._simple_invoice_3001())
+        self.assertEqual(invoice.currency, company_currency)
+        self.assertEqual(frappe.db.get_value("Price List", invoice.selling_price_list, "currency"), company_currency)
 
     # -- _get_or_create_dues_item -----------------------------------------------------------------
 
@@ -154,7 +146,7 @@ class TestDuesHelpersLockErrors3001(DuesCreationTestBase):
     def test_historical_invoice_raises_a_lock_error_from_the_invoice_insert(self):
         """The full chain, not the reads: Sales Invoice INSERT -> _create_simple_invoice -> historical."""
         inject, hits = self._inject_lock_error_3001(1213, "`tabSales Invoice`", startswith=("INSERT",))
-        with self._eur_invoices_3001(), inject, self.assertRaises(frappe.QueryDeadlockError):
+        with inject, self.assertRaises(frappe.QueryDeadlockError):
             self.processor._get_or_create_historical_invoice(self.member.name, date(2025, 1, 5), 22.5)
         self.assertEqual(len(hits), 1)
 
@@ -163,7 +155,7 @@ class TestDuesHelpersLockErrors3001(DuesCreationTestBase):
     def test_a_deadlock_creating_the_invoice_books_no_unallocated_payment_entry(self):
         payment = self._payment_3001()
         inject, hits = self._inject_lock_error_3001(1213, "`tabSales Invoice`", startswith=("INSERT",))
-        with self._eur_invoices_3001(), inject, self.assertRaises(frappe.QueryDeadlockError):
+        with inject, self.assertRaises(frappe.QueryDeadlockError):
             self.processor._create_payment_entry_for_dues(self.member.name, payment)
         self.assertTrue(hits)
         self.assertFalse(frappe.db.exists("Payment Entry", {"reference_no": payment.id}))
@@ -171,7 +163,7 @@ class TestDuesHelpersLockErrors3001(DuesCreationTestBase):
     def test_control_an_ordinary_invoice_error_keeps_the_unallocated_payment_entry(self):
         payment = self._payment_3001()
         inject, hits = self._inject_lock_error_3001(1064, "`tabSales Invoice`", startswith=("INSERT",))
-        with self._eur_invoices_3001(), inject:
+        with inject:
             pe = self.processor._create_payment_entry_for_dues(self.member.name, payment)
         self.assertTrue(hits)
         self.assertTrue(pe, "the old behaviour (unallocated PE on an ordinary invoice failure) is kept")
@@ -192,18 +184,16 @@ class TestDuesHelpersLockErrors3001(DuesCreationTestBase):
     def test_a_deadlocked_recovery_run_reports_a_failure_and_a_rerun_books_once(self):
         payment = self._payment_3001()
         inject, hits = self._inject_lock_error_3001(1213, "`tabSales Invoice`", startswith=("INSERT",))
-        with self._eur_invoices_3001(), inject:
+        with inject:
             failed = self._recovery_3001(payment)
         self.assertTrue(hits, "the injection must have fired on the invoice insert")
         self.assertEqual(failed.status, "error", failed.to_dict())
         self.assertEqual(failed.exception_type, "QueryDeadlockError")
         self.assertFalse(frappe.db.exists("Payment Entry", {"reference_no": payment.id}))
 
-        with self._eur_invoices_3001():
-            rerun = self._recovery_3001(payment)
+        rerun = self._recovery_3001(payment)
         self.assertEqual(rerun.status, "success", rerun.to_dict())
-        with self._eur_invoices_3001():
-            again = self._recovery_3001(payment)
+        again = self._recovery_3001(payment)
         self.assertNotEqual(again.status, "error", again.to_dict())
         self.assertEqual(
             frappe.db.count("Payment Entry", {"reference_no": payment.id}),

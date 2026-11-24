@@ -587,6 +587,7 @@ class DuesPaymentProcessor:
         """
         # Setup phase: gather configuration (not retryable - these are config errors)
         settings = frappe.get_single("Verenigingen Settings")
+        from verenigingen.utils.invoice_price_list import get_selling_price_list_for_currency
         from verenigingen.utils.settings_utils import get_payments_settings
 
         payments_settings = get_payments_settings()
@@ -612,6 +613,15 @@ class DuesPaymentProcessor:
             invoice = frappe.new_doc("Sales Invoice")
             invoice.customer = member_doc.customer
             invoice.company = settings.company
+            # Pin the company currency (as invoice_generator does) so the site-default currency cannot
+            # mismatch the company's receivable account, and #3034/#2810: a selling price list in that
+            # currency. Left unset, the site's default list (possibly another currency) makes erpnext
+            # fetch a live exchange rate, which it refuses for a non-System user (webhook/recovery).
+            invoice.currency = frappe.get_cached_value("Company", settings.company, "default_currency")
+            invoice.conversion_rate = 1.0
+            invoice.selling_price_list = get_selling_price_list_for_currency(
+                invoice.currency, member_doc.customer
+            )
 
             # Set posting date explicitly (must be done before insert to prevent auto-setting)
             invoice.posting_date = payment_date
