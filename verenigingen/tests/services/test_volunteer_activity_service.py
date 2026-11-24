@@ -267,16 +267,17 @@ class TestVolunteerActivityService(EnhancedTestCase):
         self.assertIsNone(activity.end_date)
 
         # End activity
+        end_date = today()
         service.end_activity(
             activity_name,
-            end_date=today(),
+            end_date=end_date,
             notes="Campaign successfully completed"
         )
 
         # Verify final state
         activity.reload()
         self.assertEqual(activity.status, "Completed")
-        assert_written_today(self, activity.end_date)
+        self.assertEqual(str(activity.end_date), end_date)
         self.assertIn("Campaign successfully completed", activity.notes)
 
 
