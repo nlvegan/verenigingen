@@ -13,6 +13,7 @@ from verenigingen.services.billing.template_configuration_service import load_te
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name
 from verenigingen.utils.member_utils import get_orphan_volunteer_for_email
 from verenigingen.utils.select_options import coerce_select_option
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 def safe_log_error(message, title=None):
@@ -1470,7 +1471,10 @@ def create_pending_chapter_membership(member, chapter_name):
 
 
 def activate_pending_chapter_membership(member, chapter_name):
-    """Activate pending Chapter Member record during application approval"""
+    """Activate pending Chapter Member record during application approval.
+
+    Raises when the activation fails (#2975); returns None only for missing inputs or a missing chapter.
+    """
     if not member or not chapter_name:
         return None
 
@@ -1543,12 +1547,16 @@ def activate_pending_chapter_membership(member, chapter_name):
 
         return pending_member
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
+        # Re-raised (#2975): the approval is the only production caller and must fail, not continue with
+        # the row Pending. The Error Log row survives the approval's rollback (Error Log is MyISAM).
         frappe.log_error(
-            f"Error activating chapter membership for {member.name} in {chapter_name}: {str(e)}",
-            "Chapter Activation Error",
+            title="Chapter Activation Error",
+            message=f"Error activating chapter membership for {member.name} in {chapter_name}: {str(e)}",
         )
-        return None
+        raise
 
 
 def create_active_chapter_membership(member, chapter_name):
@@ -1643,6 +1651,8 @@ def create_active_chapter_membership(member, chapter_name):
         frappe.logger().info(f"Created active Chapter Member record for {member.name} in {chapter_name}")
         return chapter_member
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # the activation fallback must not turn a deadlock into a falsy answer (#2975)
     except Exception as e:
         frappe.log_error(
             f"Error creating active chapter membership for {member.name} in {chapter_name}: {str(e)}",
