@@ -25,6 +25,8 @@ def enqueue_deduplicated(*args, **enqueue_kwargs):
 
     A caller that cannot tolerate a silently lost job passes ``on_not_queued``: it is called
     (no arguments) after the retry also raised, and is NOT forwarded to ``frappe.enqueue``.
+    An exception raised by the callback propagates to the caller, deliberately: a failure to
+    report a lost job must not itself be swallowed.
     ``None`` from this function cannot say that, because frappe also returns ``None`` for a
     legitimate dedupe hit and for any ``enqueue_after_commit`` call (#3186).
 
