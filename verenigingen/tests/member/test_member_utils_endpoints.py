@@ -262,6 +262,20 @@ class TestMemberUtilsEndpoints(VereningingenTestCase):
         self.assertEqual(pe.docstatus, 1)  # submitted
         self.assertEqual(float(pe.paid_amount), 12.50)
 
+    def test_add_manual_payment_record_keeps_the_staff_notes_on_the_entry(self):
+        """#3088: staff notes were replaced by ERPNext's generated remark on save (no custom_remarks)."""
+        settings = frappe.get_single("Verenigingen Settings")
+        company = settings.company or frappe.defaults.get_global_default("company")
+        if not company or not frappe.db.exists("Mode of Payment", "Cash"):
+            self.skipTest("No default company or 'Cash' Mode of Payment configured")
+        if not frappe.get_value("Company", company, "default_receivable_account"):
+            self.skipTest("Company has no default receivable account")
+        notes = f"cash at the stall {frappe.generate_hash(length=8)}"
+
+        payment_name = mu.add_manual_payment_record(member=self.member.name, amount=7.25, notes=notes)
+
+        self.assertEqual(frappe.db.get_value("Payment Entry", payment_name, "remarks"), notes)
+
     # ------------------------------------------------------------------- linked donations
 
     def test_get_linked_donations_no_member(self):

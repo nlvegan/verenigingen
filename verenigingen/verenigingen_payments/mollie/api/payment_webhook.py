@@ -599,6 +599,7 @@ def create_payment_entry_for_donation(donation, mollie_data):
                 "cost_center": cost_center,  # Required for P&L accounts
                 "title": f"{display_name} - {record_reference}",
                 "remarks": f"Payment for {record_reference} via Mollie ({mollie_data.get('method', 'Unknown method')}) - {donor_doc.donor_name}",
+                "custom_remarks": 1,  # else ERPNext's set_remarks regenerates it on validate (#3088)
             }
         )
 
