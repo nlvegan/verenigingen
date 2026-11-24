@@ -53,8 +53,7 @@ class BatchProcessingService:
         # generate_sepa_xml() requires (#1231's Staff-submit path). Marking such
         # a batch's invoices "paid" would record a collection that never
         # happened, so require the file explicitly rather than inferring it
-        # from docstatus/status -- mirroring the same guard already present in
-        # process_batch_submission() a few lines below.
+        # from docstatus/status.
         if not batch_doc.sepa_file_generated:
             frappe.throw(_("SEPA file must be generated before marking invoices as paid"))
 
@@ -162,43 +161,6 @@ class BatchProcessingService:
             "Direct Debit Batch Invoice", {"parent": batch_doc.name, "status": "Successful"}
         )
         self._update_batch_status_after_processing(batch_doc, collected)
-
-    def process_batch_submission(self, batch_doc) -> bool:
-        """
-        Process the batch submission - placeholder for bank integration.
-
-        Args:
-            batch_doc: Direct Debit Batch document
-
-        Returns:
-            True if submission successful
-
-        Raises:
-            frappe.ValidationError: If SEPA file not generated or other errors
-        """
-        try:
-            if not batch_doc.sepa_file_generated:
-                frappe.throw(_("SEPA file must be generated before processing"))
-
-            # Set status to submitted
-            batch_doc.status = "Submitted"
-            BatchLoggingUtilities.add_to_document_batch_log(batch_doc, _("Batch submitted for processing"))
-            batch_doc.save()
-
-            # Here you would add code to communicate with your bank's API
-            # For now, this is a placeholder
-
-            frappe.logger().info(f"Batch {batch_doc.name} submitted for processing")
-            return True
-
-        except Exception as e:
-            error_msg = _("Error processing batch: {0}").format(str(e))
-            BatchLoggingUtilities.add_to_document_batch_log(batch_doc, error_msg)
-            frappe.log_error(
-                title="SEPA Direct Debit Batch Error",
-                message=f"Error processing batch {batch_doc.name}: {str(e)}",
-            )
-            raise frappe.ValidationError(error_msg)
 
     def calculate_batch_totals_optimized(self, batch_doc) -> None:
         """
