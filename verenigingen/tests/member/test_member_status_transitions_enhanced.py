@@ -376,8 +376,8 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
                 if audit_entries:
                     # Verify audit entry contains status change info
                     audit_entry = frappe.get_doc("Communication History", audit_entries[0].name)
-                    self.assertIn("Suspended", audit_entry.content)
-                    self.assertIn(original_status, audit_entry.content)
+                    self.assertIn("Suspended", audit_entry.get("content"))
+                    self.assertIn(original_status, audit_entry.get("content"))
 
         except (frappe.DoesNotExistError, Exception):
             # Audit system not implemented yet or table structure different
