@@ -578,7 +578,6 @@ verenigingen/verenigingen_payments/hooks/payment_hook.py::PaymentHook._get_ponto
 verenigingen/verenigingen_payments/hooks/payment_hook.py::PaymentHook._get_sepa_config::1
 verenigingen/verenigingen_payments/hooks/payment_hook.py::PaymentHook.get_payment_status::1
 verenigingen/verenigingen_payments/hooks/payment_hook.py::PaymentHook.initiate_payment::1
-verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_notify_member_of_payment_failure::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_validate_payment_amount::5
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::create_payment_entry_for_donation::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::process_successful_member_payment::1

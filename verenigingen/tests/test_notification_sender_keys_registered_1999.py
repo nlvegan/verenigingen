@@ -258,7 +258,7 @@ class TestSenderKeysAreRegistered(FrappeTestCase):
         # control: a scan that finds nothing would pass the test above vacuously
         found = sender_keys()
         self.assertIn("member_activated", found, "literal keyword value")
-        self.assertIn("payment_failure_first", found, "dict-map value (payment_webhook)")
+        self.assertIn("payment_reminder_urgent", found, "dict-map value (payment_processing notification_key_map)")
         self.assertIn("subscription_suspended", found, "dict-map value (mollie sync)")
         self.assertIn("payment_reminder_friendly", found, ".get default / map value (payment_processing)")
         self.assertIn("chapter_membership_approved", found, "deprecated key_mapping value")

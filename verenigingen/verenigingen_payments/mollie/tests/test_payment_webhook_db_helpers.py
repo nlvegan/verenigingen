@@ -17,7 +17,6 @@ Targets:
 - update_donation_payment_history        (child-table append + idempotency)
 - create_payment_entry_for_donation      (PE creation + idempotency + guest customer)
 - check_payment_processing_status_by_id  (idempotency status probe)
-- _get_subscription_failure_count        (atomic failure counting)
 - _validate_webhook_signature            (HMAC validation, PermissionError path)
 """
 
@@ -26,7 +25,6 @@ from frappe.utils import getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.api.payment_webhook import (
-    _get_subscription_failure_count,
     _validate_webhook_signature,
     check_payment_processing_status_by_id,
     create_payment_entry_for_donation,
@@ -255,43 +253,6 @@ class TestCheckPaymentProcessingStatusById(EnhancedTestCase):
         status = check_payment_processing_status_by_id("tr_does_not_exist_999")
         self.assertFalse(status["all_complete"])
         self.assertIn("No donation found", status["message"])
-
-
-class TestSubscriptionFailureCount(EnhancedTestCase):
-    def test_counts_only_matching_cancelled_rows(self):
-        member = self.create_test_member(
-            first_name="Failure", last_name="Count", email="failure.count@example.com"
-        )
-        sub_id = f"sub_fc_{frappe.generate_hash()[:8]}"
-        self.assertEqual(_get_subscription_failure_count(member.name, sub_id), 0)
-
-        # Add two Cancelled rows that match the production filter
-        # (payment_status == "Cancelled" AND notes LIKE "%subscription <id>%").
-        for i in range(2):
-            member.append(
-                "payment_history",
-                {
-                    "payment_date": getdate(),
-                    "amount": 25.0,
-                    "payment_method": "Mollie",
-                    "payment_status": "Cancelled",
-                    "notes": f"Mollie payment tr_fc_{i} (subscription {sub_id}) failed",
-                },
-            )
-        # A non-matching row (Paid) must not be counted.
-        member.append(
-            "payment_history",
-            {
-                "payment_date": getdate(),
-                "amount": 25.0,
-                "payment_method": "Mollie",
-                "payment_status": "Paid",
-                "notes": f"subscription {sub_id} ok",
-            },
-        )
-        member.save()
-
-        self.assertEqual(_get_subscription_failure_count(member.name, sub_id), 2)
 
 
 class TestValidateWebhookSignaturePaymentWebhook(EnhancedTestCase):
