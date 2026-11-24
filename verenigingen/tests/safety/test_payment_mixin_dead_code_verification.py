@@ -252,13 +252,12 @@ class TestPaymentMixinDeadCodeVerification(EnhancedTestCase):
         with self.assertRaises(AttributeError):
             _ = member.start_date
 
-        # payment_status might exist - check
-        has_payment_status = hasattr(member, 'payment_status')
-        if not has_payment_status:
-            print("✓ Member.payment_status does not exist (as expected)")
-        else:
-            print(f"⚠ WARNING: Member.payment_status EXISTS with value: {member.payment_status}")
-            print("  This means check_payment_status() might not be dead code!")
+        # Measured on a test site: Member has no payment_status field, so a bare
+        # hasattr on the Document is a real (falsifiable) probe here.
+        self.assertFalse(
+            hasattr(member, 'payment_status'),
+            "Member.payment_status exists, so check_payment_status() might not be dead code",
+        )
 
     def test_07_verify_deleted_methods_not_on_payment_mixin(self):
         """Verify deleted methods were removed from PaymentMixin (may exist via other mixins)"""

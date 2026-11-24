@@ -933,8 +933,9 @@ class TestVolunteerExpensePortalUtils(_ExpenseFixtureMixin, EnhancedTestCase):
 
         theme = get_theme_settings()
         # Either an Owl Theme Settings single or the fallback _dict; both expose
-        # the keys the templates read.
-        self.assertTrue(hasattr(theme, "background_color"))
+        # the keys the templates read. hasattr is True for ANY name on a _dict, so
+        # read the value through .get(), which is None for a key that is not there.
+        self.assertIsNotNone(theme.get("background_color"))
 
 
 # ---------------------------------------------------------------------------
