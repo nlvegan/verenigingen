@@ -248,12 +248,28 @@ def get_payment_references_for_invoice(
                 as_dict=True,
             )
         else:
-            # Simple reference lookup without payment details
-            references = frappe.get_all(
-                "Payment Entry Reference",
-                filters={"reference_doctype": invoice_type, "reference_name": invoice_name},
-                fields=["name", "parent", "allocated_amount", "reference_doctype", "reference_name"],
-            )
+            # Simple reference lookup without payment details. Only SUBMITTED Payment
+            # Entries count (#3160), same as the JOIN branch: a draft or cancelled PE's
+            # child rows are not payments of the invoice.
+            per = frappe.qb.DocType("Payment Entry Reference")
+            pe = frappe.qb.DocType("Payment Entry")
+            references = (
+                frappe.qb.from_(per)
+                .join(pe)
+                .on(per.parent == pe.name)
+                .select(
+                    per.name,
+                    per.parent,
+                    per.allocated_amount,
+                    per.reference_doctype,
+                    per.reference_name,
+                )
+                .where(
+                    (per.reference_doctype == invoice_type)
+                    & (per.reference_name == invoice_name)
+                    & (pe.docstatus == 1)
+                )
+            ).run(as_dict=True)
 
         return references or []
 
