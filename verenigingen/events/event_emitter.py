@@ -23,8 +23,14 @@ def enqueue_deduplicated(*args, **enqueue_kwargs):
     survives but this job was NOT queued. Any other exception, on either attempt, propagates:
     a lock or deadlock error must still reach the caller.
 
-    Arguments are forwarded unchanged, so callers keep their positional/keyword shape.
+    A caller that cannot tolerate a silently lost job passes ``on_not_queued``: it is called
+    (no arguments) after the retry also raised, and is NOT forwarded to ``frappe.enqueue``.
+    ``None`` from this function cannot say that, because frappe also returns ``None`` for a
+    legitimate dedupe hit and for any ``enqueue_after_commit`` call (#3186).
+
+    Other arguments are forwarded unchanged, so callers keep their positional/keyword shape.
     """
+    on_not_queued = enqueue_kwargs.pop("on_not_queued", None)
     try:
         return frappe.enqueue(*args, deduplicate=True, **enqueue_kwargs)
     except InvalidJobOperation as e:
@@ -33,6 +39,8 @@ def enqueue_deduplicated(*args, **enqueue_kwargs):
         return frappe.enqueue(*args, deduplicate=True, **enqueue_kwargs)
     except InvalidJobOperation as e:
         _log_dedupe_race(args, enqueue_kwargs, e, "retry failed too, job NOT queued")
+        if on_not_queued:
+            on_not_queued()
 
 
 def _log_dedupe_race(args, enqueue_kwargs, error, outcome):
