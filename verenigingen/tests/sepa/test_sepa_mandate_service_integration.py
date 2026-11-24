@@ -307,9 +307,9 @@ class TestSEPAMandateServiceIntegration(VereningingenTestCase):
 
         # Test identity service error handling
         with patch('frappe.get_single', side_effect=Exception("Settings error")):
-            # Should fallback to default pattern
-            mandate_id = sepa_mandate_identity_service.generate_mandate_id()
-            self.assertTrue(mandate_id.startswith("MANDATE-"))
+            # #2627: refuses instead of falling back to the default pattern
+            with self.assertRaises(frappe.ValidationError):
+                sepa_mandate_identity_service.generate_mandate_id()
 
         # Test validation service rejection paths, against the REAL iban_validator.
         #
