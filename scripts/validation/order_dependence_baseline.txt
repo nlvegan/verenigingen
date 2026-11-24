@@ -46,7 +46,7 @@ COMMIT tests/api/test_workspace_health.py::1  # order-dependence
 COMMIT tests/backend/components/test_chapter_assignment_edge_cases.py::2  # order-dependence
 COMMIT tests/backend/components/test_member_status_transitions.py::1  # order-dependence
 COMMIT tests/backend/components/test_membership_analytics_permissions.py::1  # order-dependence
-COMMIT tests/backend/components/test_membership_utilities.py::4  # order-dependence
+COMMIT tests/backend/components/test_membership_utilities.py::3  # order-dependence
 COMMIT tests/backend/components/test_payment_processing_api_real.py::1  # order-dependence
 COMMIT tests/backend/components/test_setup.py::5  # order-dependence
 COMMIT tests/backend/components/test_setup_btw_eboekhouden.py::6  # order-dependence
@@ -136,7 +136,6 @@ COMMIT tests/e_boekhouden/test_transaction_utils_invoice_lines.py::1  # order-de
 COMMIT tests/email/test_email_newsletter_system.py::1  # order-dependence
 COMMIT tests/email/test_email_system_edge_cases_unit.py::1  # order-dependence
 COMMIT tests/financial/test_mollie_financial_safeguards.py::4  # order-dependence
-COMMIT tests/fixtures/anbi_test_personas.py::1  # order-dependence
 COMMIT tests/fixtures/enhanced_test_factory.py::8  # order-dependence
 COMMIT tests/fixtures/singleton_backup.py::1  # order-dependence
 COMMIT tests/fixtures/test_data_factory.py::1  # order-dependence
@@ -154,7 +153,7 @@ COMMIT tests/integration/test_canonical_approval_chapter_activation.py::2  # ord
 COMMIT tests/integration/test_chapter_membership_approval_integration.py::2  # order-dependence
 COMMIT tests/integration/test_employee_user_link_security.py::1  # order-dependence
 COMMIT tests/integration/test_membership_approval.py::2  # order-dependence
-COMMIT tests/integration/test_monitoring_system.py::3  # order-dependence
+COMMIT tests/integration/test_monitoring_system.py::2  # order-dependence
 COMMIT tests/integration/test_portal_authentication_security.py::1  # order-dependence
 COMMIT tests/integration/test_sepa_mandate_authentication_security.py::1  # order-dependence
 COMMIT tests/integration/test_team_background_jobs.py::6  # order-dependence
@@ -163,7 +162,7 @@ COMMIT tests/member/test_bulk_account_creation.py::5  # order-dependence
 COMMIT tests/member/test_donor.py::1  # order-dependence
 COMMIT tests/member/test_donor_auto_creation_management.py::1  # order-dependence
 COMMIT tests/member/test_member_merge.py::3  # order-dependence
-COMMIT tests/member/test_member_status_transitions_enhanced.py::2  # order-dependence
+COMMIT tests/member/test_member_status_transitions_enhanced.py::1  # order-dependence
 COMMIT tests/member/test_user_member_image_sync.py::6  # order-dependence
 COMMIT tests/patches/test_clear_stale_membership_payment_history_links.py::2  # order-dependence
 COMMIT tests/payment/test_bank_transaction_reconciliation.py::1  # order-dependence
@@ -269,9 +268,7 @@ COMMIT tests/utils/test_config.py::1  # order-dependence
 COMMIT tests/utils/test_history_manager_utils.py::2  # order-dependence
 COMMIT tests/utils/test_orphaned_child_table_cleanup.py::5  # order-dependence
 COMMIT tests/utils/test_setup.py::5  # order-dependence
-COMMIT tests/utils/test_utils.py::1  # order-dependence
 COMMIT tests/verenigingen_payments/test_bank_transaction_reference_backfill.py::2  # order-dependence
-COMMIT tests/volunteer/test_volunteer_skills_api.py::1  # order-dependence
 COMMIT tests/workflows/test_performance_comprehensive.py::3  # order-dependence
 COMMIT tests/www/test_eboekhouden_www_pages_coverage.py::4  # order-dependence
 COMMIT tests/www/test_mollie_www_pages_coverage.py::1  # order-dependence
@@ -335,7 +332,7 @@ COMMIT_EXEMPT tests/api/test_email_template_manager.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/api/test_unlink_donor_customer_remove_flag_2327.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_chapter_assignment_edge_cases.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_history_audit_improvements.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/backend/components/test_membership_analytics_permissions.py::4  # order-dep-exempt
+COMMIT_EXEMPT tests/backend/components/test_membership_analytics_permissions.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_membership_application.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_sepa_reconciliation.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_setup_add_settings_fields.py::1  # order-dep-exempt
@@ -362,7 +359,6 @@ COMMIT_EXEMPT tests/chapter/test_chapter_board_document.py::1  # order-dep-exemp
 COMMIT_EXEMPT tests/doctype/test_procurios_membership_import_flow.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/doctype/test_procurios_membership_import_row_atomicity.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/donor/test_donor_auto_creation_comprehensive.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/e2e/test_workflow_validation.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/e_boekhouden/test_cost_center_parsing.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/e_boekhouden/test_cost_center_ui_integration.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/e_boekhouden/test_create_custom_fields_coverage.py::1  # order-dep-exempt
@@ -417,7 +413,7 @@ COMMIT_EXEMPT tests/security/test_csrf_ratelimit_cache_coverage.py::1  # order-d
 COMMIT_EXEMPT tests/security/test_link_sanitizer.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_permissions_coverage.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_security_modules.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/security/test_security_penetration.py::2  # order-dep-exempt
+COMMIT_EXEMPT tests/security/test_security_penetration.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/security/test_unlinked_member_home_page_2207.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_batch_processing_service_happy_path.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/sepa/test_dd_batch_pipeline_coverage.py::1  # order-dep-exempt

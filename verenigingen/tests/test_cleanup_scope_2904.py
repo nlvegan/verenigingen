@@ -74,19 +74,21 @@ KNOWN_REMAINING = {
     ("test_staff_alert_event_1979.py", 'frappe.db.delete("Error Log", {"method": ["like", "Staff Alert Event could not be recorded%"]})'),
     ("services/event_application/test_failed_chapter_move_alert_2199.py", 'frappe.db.delete("Notification Log", {"subject": ["like", "MijnRood chapter move failed for %"]})'),
     # table-wide deletes (a whole table, not this test's rows)
-    ("payment/test_mollie_reconciliation_engine.py", None),
-    ("chapter/test_chapter_board_lifecycle_notifications.py", None),
-    ("utils/test_config.py", None),
+    ("payment/test_mollie_reconciliation_engine.py", 'frappe.db.delete("Mollie Reconciliation Log")'),
+    ("chapter/test_chapter_board_lifecycle_notifications.py", 'frappe.db.delete("Email Queue")'),
+    ("utils/test_config.py", 'frappe.db.delete("Email Queue")'),
     # raw SQL on a file-specific prefix ("Chapter Member Test Chapter%", "ChapterTest%")
-    ("chapter/test_chapter_members_enhanced.py", None),
+    ("chapter/test_chapter_members_enhanced.py", "DELETE FROM `tabChapter Board Member` WHERE parent LIKE 'Chapter Member Test Chapter%'"),
+    ("chapter/test_chapter_members_enhanced.py", "DELETE FROM `tabChapter Member` WHERE parent LIKE 'Chapter Member Test Chapter%'"),
+    ("chapter/test_chapter_members_enhanced.py", "DELETE FROM `tabChapter` WHERE name LIKE 'Chapter Member Test Chapter%'"),
+    ("chapter/test_chapter_members_enhanced.py", "DELETE FROM `tabMember` WHERE first_name LIKE 'ChapterTest%'"),
+    ("chapter/test_chapter_members_enhanced.py", "DELETE FROM `tabVolunteer` WHERE volunteer_name LIKE 'ChapterTest%'"),
 }
 
 
 def _unexpected(found):
-    """Drop the audited sites. A `None` text entry allowlists every hit in that file."""
-    whole_file = {rel for rel, text in KNOWN_REMAINING if text is None}
-    exact = {(rel, text) for rel, text in KNOWN_REMAINING if text is not None}
-    return sorted(hit for hit in found if hit[0] not in whole_file and hit not in exact)
+    """Drop the audited sites, matched by exact (file, text): a new hit in the same file is reported."""
+    return sorted(hit for hit in found if hit not in KNOWN_REMAINING)
 
 
 class TestCleanupsDeleteOnlyWhatTheyCreated(unittest.TestCase):
@@ -123,10 +125,5 @@ class TestCleanupsDeleteOnlyWhatTheyCreated(unittest.TestCase):
     def test_known_remaining_sites_still_exist(self):
         """An entry whose site was fixed must be removed, so the list only shrinks."""
         found = scan_tree(TESTS_ROOT)
-        files_with_hits = {rel for rel, _text in found}
-        stale = sorted(
-            (rel, text)
-            for rel, text in KNOWN_REMAINING
-            if (text is None and rel not in files_with_hits) or (text is not None and (rel, text) not in found)
-        )
+        stale = sorted(hit for hit in KNOWN_REMAINING if hit not in found)
         self.assertEqual(stale, [], "KNOWN_REMAINING lists a site the scan no longer finds; delete the entry")

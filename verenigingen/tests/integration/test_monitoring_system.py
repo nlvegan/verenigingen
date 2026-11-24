@@ -465,3 +465,8 @@ class MonitoringSystemTestRunner:
         print(f"\nTest completed at: {now()}")
 
 
+# Convenience function for running from console
+def run_comprehensive_tests():
+    """Run comprehensive monitoring system tests from console."""
+    runner = MonitoringSystemTestRunner()
+    return runner.run_all_tests()
