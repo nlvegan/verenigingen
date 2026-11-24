@@ -29,6 +29,18 @@ class TestWasDelivered(unittest.TestCase):
             with self.subTest(label):
                 self.assertIs(was_delivered(result), False)
 
+    def test_the_scan_sees_every_shape_of_a_private_copy(self):
+        shapes = {
+            "def": "def _was_delivered(r):\n    return True\n",
+            "async def": "async def _delivered(r):\n    return True\n",
+            "lambda assign": "_was_delivered = lambda r: True\n",
+            "annotated assign": "_delivered: object = lambda r: True\n",
+        }
+        for label, source in shapes.items():
+            with self.subTest(label):
+                self.assertEqual(len(_private_copies(ast.parse(source))), 1)
+        self.assertEqual(_private_copies(ast.parse("def was_delivered(r):\n    return True\n")), [])
+
     def test_no_module_keeps_a_private_copy_of_the_predicate(self):
         offenders = []
         for base, _dirs, files in os.walk(APP_ROOT):
@@ -40,7 +52,18 @@ class TestWasDelivered(unittest.TestCase):
                 path = os.path.join(base, name)
                 with open(path, encoding="utf-8") as handle:
                     tree = ast.parse(handle.read())
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.FunctionDef) and node.name in PRIVATE_COPY_NAMES:
-                        offenders.append(f"{path}:{node.lineno}")
+                offenders.extend(f"{path}:{line}" for line in _private_copies(tree))
         self.assertEqual(offenders, [])
+
+
+def _private_copies(tree):
+    """Line numbers of any def, async def or assignment (lambda) binding a banned name."""
+    lines = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in PRIVATE_COPY_NAMES:
+            lines.append(node.lineno)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, ast.Name) and t.id in PRIVATE_COPY_NAMES for t in targets):
+                lines.append(node.lineno)
+    return lines
