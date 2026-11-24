@@ -254,6 +254,9 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
         )
 
         manager = get_sepa_config_manager()
+        # Populate first: the singleton starts empty, so clearing an empty cache proves nothing.
+        get_sepa_config()
+        self.assertGreater(manager.get_cache_info()["total_cached_items"], 0)
         manager.clear_cache()
         self.assertEqual(manager.get_cache_info()["total_cached_items"], 0)
 
