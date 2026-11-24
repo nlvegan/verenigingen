@@ -15,19 +15,34 @@ def enqueue_deduplicated(*args, **enqueue_kwargs):
     With ``deduplicate=True`` frappe fetches the job by id and, when it is not queued or
     started, deletes it. ``Job.delete`` re-reads the job's status, and when a concurrent
     enqueue or worker removed the hash in between, rq raises ``InvalidJobOperation``. Called
-    from a document hook, that aborted the business save. The job id names a job that is
-    already handled, so the race is logged and treated as done.
+    from a document hook, that aborted the business save.
+
+    The race means the job hash is gone, so the enqueue is retried ONCE: ``get_job`` then
+    returns None and the job is queued. The race is logged. If the retry also raises
+    ``InvalidJobOperation`` that is logged too and the call returns None, so the save
+    survives but this job was NOT queued. Any other exception, on either attempt, propagates:
+    a lock or deadlock error must still reach the caller.
 
     Arguments are forwarded unchanged, so callers keep their positional/keyword shape.
-    Only ``InvalidJobOperation`` is caught: a lock or deadlock error must still propagate.
     """
     try:
         return frappe.enqueue(*args, deduplicate=True, **enqueue_kwargs)
     except InvalidJobOperation as e:
-        frappe.log_error(
-            title="Event dedupe enqueue race (InvalidJobOperation)",
-            message=f"job_id={enqueue_kwargs.get('job_id')} method={args[0] if args else enqueue_kwargs.get('method')}: {e}",
-        )
+        _log_dedupe_race(args, enqueue_kwargs, e, "retrying once")
+    try:
+        return frappe.enqueue(*args, deduplicate=True, **enqueue_kwargs)
+    except InvalidJobOperation as e:
+        _log_dedupe_race(args, enqueue_kwargs, e, "retry failed too, job NOT queued")
+
+
+def _log_dedupe_race(args, enqueue_kwargs, error, outcome):
+    frappe.log_error(
+        title="Event dedupe enqueue race (InvalidJobOperation)",
+        message=(
+            f"{outcome}: job_id={enqueue_kwargs.get('job_id')} "
+            f"method={args[0] if args else enqueue_kwargs.get('method')}: {error}"
+        ),
+    )
 
 
 def emit_event(

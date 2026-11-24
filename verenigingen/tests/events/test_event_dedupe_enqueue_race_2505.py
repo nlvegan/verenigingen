@@ -73,17 +73,22 @@ class TestEventDedupeEnqueueRace2505(VereningingenTestCase):
     def _emission_failures(titles):
         return [t for t in titles if t.startswith(EMISSION_FAILURE_PREFIX)]
 
-    def _racing_get_job(self, exc, racing_marker):
+    def _racing_get_job(self, exc, racing_marker, times=None):
+        """``get_job`` that hits the race for ``racing_marker``: every time, or only ``times`` times."""
         real_get_job = frappe.utils.background_jobs.get_job
+        fired = []
 
         def get_job(job_id):
-            if racing_marker in job_id:
+            if racing_marker in job_id and (times is None or len(fired) < times):
+                fired.append(job_id)
                 return _FinishedJobWhoseHashVanishes(exc)
             return real_get_job(job_id)
 
+        get_job.fired = fired
+
         return get_job
 
-    def _save_application_status_change(self, exc):
+    def _save_application_status_change(self, exc, times=None):
         """Real Member save; the FIRST subscriber's dedupe enqueue hits the race."""
         accepted = []
         real_enqueue = frappe.enqueue
@@ -98,22 +103,42 @@ class TestEventDedupeEnqueueRace2505(VereningingenTestCase):
         # Mock justified: the race is a concurrent actor deleting the job hash; it cannot be
         # produced on demand, so the rq boundary (get_job/delete) is made to behave as it does mid-race.
         with patch(
-            "frappe.utils.background_jobs.get_job", self._racing_get_job(exc, FIRST_SUBSCRIBER)
+            "frappe.utils.background_jobs.get_job", self._racing_get_job(exc, FIRST_SUBSCRIBER, times)
         ), patch("frappe.enqueue", recording_enqueue):
             member.save()
         return accepted
 
-    def test_member_save_survives_the_race_and_still_dispatches_the_other_subscribers(self):
+    def test_a_single_race_is_retried_and_the_job_is_still_queued(self):
+        """The race hits the first attempt only: the retry must queue the job it dropped."""
+        accepted = self._save_application_status_change(InvalidJobOperation("Failed to retrieve status"), 1)
+        titles = self._error_titles()
+        self.assertFalse(self._emission_failures(titles), "the race aborted the emission")
+        self.assertEqual(titles.count(ERROR_TITLE), 1, "one race, one Error Log row")
+        self.assertTrue(
+            any(FIRST_SUBSCRIBER in m for m in accepted),
+            f"the raced job was dropped instead of retried: {accepted}",
+        )
+        self.assertTrue(any(SECOND_SUBSCRIBER in m for m in accepted), accepted)
+
+    def test_a_race_on_both_attempts_is_logged_and_the_save_survives(self):
         accepted = self._save_application_status_change(InvalidJobOperation("Failed to retrieve status"))
         titles = self._error_titles()
         self.assertFalse(self._emission_failures(titles), "the race aborted the emission")
-        self.assertIn(ERROR_TITLE, titles, "the race was swallowed without a log row")
+        self.assertEqual(titles.count(ERROR_TITLE), 2, "first attempt and failed retry are both logged")
+        self.assertFalse(
+            any(FIRST_SUBSCRIBER in m for m in accepted),
+            "the job cannot have been queued when both attempts raced",
+        )
         self.assertTrue(
             any(SECOND_SUBSCRIBER in m for m in accepted),
             f"the sibling subscriber was never dispatched: {accepted}",
         )
 
     def test_control_a_deadlock_is_not_swallowed_as_a_race(self):
+        # Deliberately locks the CURRENT behaviour: a non-race error escapes the enqueue
+        # helper and member_events' handler aborts the rest of the fan-out (the second
+        # subscriber is never dispatched). Changing that is a separate decision; this
+        # test exists so a widened except cannot start swallowing deadlocks unnoticed.
         accepted = self._save_application_status_change(QueryDeadlockError())
         titles = self._error_titles()
         self.assertNotIn(ERROR_TITLE, titles, "a deadlock was treated as the benign dedupe race")
@@ -130,7 +155,7 @@ class TestEventDedupeEnqueueRace2505(VereningingenTestCase):
             "frappe.utils.background_jobs.get_job", racing
         ):
             delayed_expense_hooks.schedule_member_expense_history_update(doc)
-        self.assertIn(ERROR_TITLE, self._error_titles())
+        self.assertEqual(self._error_titles().count(ERROR_TITLE), 2)
 
     def test_control_expense_hook_still_raises_a_deadlock(self):
         doc = frappe._dict(doctype="Expense Claim", employee="EMP-2505", name="EXP-2505")
