@@ -39,6 +39,7 @@ import hashlib
 import uuid
 
 import frappe
+from frappe.utils import flt
 
 from verenigingen.api.sepa_duplicate_prevention import (
     _operation_cache,
@@ -391,9 +392,9 @@ class TestCreatePaymentEntryDuplicateCheck(EnhancedTestCase):
         self.assertNotEqual(result["payment_entry"], first_pe.name)
         self.assertEqual(frappe.db.get_value("Payment Entry", result["payment_entry"], "docstatus"), 1)
 
-    def test_draft_payment_entry_still_blocks_3141(self):
-        """Control for #3141: only docstatus 2 is ignored. A DRAFT reference is an in-flight
-        booking and still counts, so the double-debit guard is not weakened."""
+    def test_draft_payment_entry_does_not_block_3141(self):
+        """A DRAFT Payment Entry (e.g. staff Create > Payment) is not a payment: it must not block
+        reconciliation, and the SEPA entry must still be created and submitted."""
         from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
         invoice = self._setup_submitted_invoice(rate=55.0)
@@ -403,13 +404,48 @@ class TestCreatePaymentEntryDuplicateCheck(EnhancedTestCase):
         draft.save()
         self.assertEqual(draft.docstatus, 0)
 
+        result = create_payment_entry_with_duplicate_check(
+            invoice.name, invoice.grand_total, self._build_receive_payment_data_3141(invoice)
+        )
+
+        self.assertNotEqual(result["payment_entry"], draft.name)
+        self.assertEqual(frappe.db.get_value("Payment Entry", result["payment_entry"], "docstatus"), 1)
+
+    def _book_partial_payment_3141(self, invoice, amount):
+        """A real Receive Payment Entry for part of the invoice, built by ERPNext core."""
+        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+        pe = get_payment_entry("Sales Invoice", invoice.name, party_amount=amount)
+        pe.reference_no = f"DUP-{uuid.uuid4().hex[:8]}"
+        pe.reference_date = frappe.utils.today()
+        return pe
+
+    def test_cancelled_and_live_partial_payments_count_only_the_live_one_3141(self):
+        """100.00 invoice: PE1 (40) cancelled, PE2 (30) live. Only the 30 counts, so 71 is refused
+        (30 + 71 > 100) and 70 is allowed (30 + 70 == 100)."""
+        invoice = self._setup_submitted_invoice(rate=100.0)
+        self.assertEqual(flt(invoice.grand_total), 100.0)
+        first = self._book_partial_payment_3141(invoice, 40)
+        first.save()
+        first.submit()
+        first.cancel()
+        second = self._book_partial_payment_3141(invoice, 30)
+        second.save()
+        second.submit()
+        self.assertEqual(flt(second.references[0].allocated_amount), 30.0)
+
         with self.assertRaises(frappe.ValidationError) as ctx:
             create_payment_entry_with_duplicate_check(
                 invoice.name,
-                invoice.grand_total,
-                {"doctype": "Payment Entry", "payment_type": "Receive", "paid_amount": invoice.grand_total},
+                71.0,
+                {"doctype": "Payment Entry", "payment_type": "Receive", "paid_amount": 71.0},
             )
-        self.assertIn("already fully paid", str(ctx.exception))
+        self.assertIn("exceed invoice total", str(ctx.exception))
+        self.assertIn("Already allocated: 30", str(ctx.exception))
+
+        final = self._book_partial_payment_3141(invoice, 70)
+        result = create_payment_entry_with_duplicate_check(invoice.name, 70.0, final.as_dict())
+        self.assertEqual(frappe.db.get_value("Payment Entry", result["payment_entry"], "docstatus"), 1)
 
     def test_over_allocation_blocks(self):
         """An amount that would exceed the invoice total is rejected before any PE."""

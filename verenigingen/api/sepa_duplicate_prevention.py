@@ -323,10 +323,11 @@ def create_payment_entry_with_duplicate_check(invoice_name: str, amount: float, 
         {"invoice_name": invoice_name, "amount": amount},
     )
 
-    # Check for existing payments. A CANCELLED Payment Entry (docstatus 2) restored the invoice's
-    # outstanding and must not count (#3141: a rolled-back batch could never be re-reconciled).
-    # Drafts (docstatus 0) still count: they are in-flight bookings and the double-debit guard
-    # must not be weakened. Filtered on the PARENT's docstatus, the source of truth.
+    # Check for existing payments. Count SUBMITTED Payment Entries only (#3141): a cancelled
+    # entry (docstatus 2) restored the invoice's outstanding, so a rolled-back batch must be
+    # re-reconcilable; a draft (docstatus 0, e.g. a staff-created one) is not a payment yet and
+    # would otherwise block reconciliation until someone deleted it. ERPNext's own outstanding
+    # check still refuses to submit a draft that would overpay. Filtered on the PARENT's docstatus.
     payment_entry = frappe.qb.DocType("Payment Entry")
     payment_reference = frappe.qb.DocType("Payment Entry Reference")
     existing_payments = (
@@ -337,7 +338,7 @@ def create_payment_entry_with_duplicate_check(invoice_name: str, amount: float, 
         .where(payment_reference.reference_name == invoice_name)
         .where(payment_reference.reference_doctype == "Sales Invoice")
         .where(payment_reference.parenttype == "Payment Entry")
-        .where(payment_entry.docstatus < 2)
+        .where(payment_entry.docstatus == 1)
         .run(as_dict=True)
     )
 
