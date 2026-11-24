@@ -172,8 +172,14 @@ def sync_fields(doc, method=None):
         try:
             _sync_to_target(doc, target_doctype, config)
         except Exception as e:
-            # Log error but don't block the source document save
-            logger.error(f"Failed to sync {source_doctype} -> {target_doctype}: {str(e)}")
+            # Don't block the source document save, but leave an Error Log row: the
+            # stdlib logger reaches neither the Error Log nor CI output (#3172).
+            # Keyword args: a positional (message, title) call lands the traceback in
+            # the title column. Safe here: this runs from Member/User doc_events, not "*".
+            frappe.log_error(
+                title=f"Field sync failed: {source_doctype} {doc.name} -> {target_doctype}",
+                message=f"{str(e)}\n\n{frappe.get_traceback()}",
+            )
 
 
 def _sync_to_target(source_doc, target_doctype: str, config: Dict):
