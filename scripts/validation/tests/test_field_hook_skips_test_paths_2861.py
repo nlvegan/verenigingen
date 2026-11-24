@@ -35,12 +35,18 @@ class FieldHookSkipsTestPaths2861(unittest.TestCase):
         "verenigingen/tests/backend/components/test_membership_status.py",
         "scripts/validation/tests/test_enhanced_field_reference_validator.py",
         "tests/test_root_level.py",
+        "verenigingen/e_boekhouden/utils/debug_helpers.py",
+        "verenigingen/debug_api.py",
+        "scripts/testing/pytest_precommit_runner.py",
+        "scripts/debug/x.py",
+        "debug_root_script.py",  # root level: only the (^|/) anchor catches it
     ]
     PRODUCTION_PATHS = [
         "verenigingen/verenigingen/doctype/chapter/chapter.py",
         "verenigingen/services/member/lifecycle/member_cleanup_service.py",
         "verenigingen/api/payment_dashboard.py",
         "verenigingen/templates/pages/contest.py",  # contains "test" but is not a test path
+        "verenigingen/utils/latest_report.py",  # mid-name "test_": an unanchored exclude would drop it
     ]
 
     def test_nested_test_paths_are_excluded(self):
