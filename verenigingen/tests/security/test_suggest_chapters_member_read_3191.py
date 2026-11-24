@@ -144,3 +144,11 @@ class TestSuggestChaptersMemberRead3191(EnhancedTestCase):
             unknown = self._observed_refusal_3191(user, f"no-such-member-{self.victim.name}")
             self.assertEqual(forbidden[0][0], "PermissionError", "forbidden member must be refused")
             self.assertEqual(forbidden, unknown, f"refusal differs for {user}")
+
+    def test_blank_member_is_refused_like_an_unknown_member(self):
+        # A blank member must not skip the check (mutant: `(not member) or has_permission`).
+        for user in (self.volunteer_user, self.outside_board.user, self.staff_user):
+            blank = self._observed_refusal_3191(user, "")
+            unknown = self._observed_refusal_3191(user, f"no-such-member-{self.victim.name}")
+            self.assertEqual(blank[0][0], "PermissionError", f"blank member not refused for {user}")
+            self.assertEqual(blank, unknown, f"blank vs unknown refusal differs for {user}")
