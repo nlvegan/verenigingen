@@ -24,6 +24,7 @@ from verenigingen.e_boekhouden.utils.data_integrity import (
     mask_pii_in_mutation,
     safe_log_mutation_error,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 from verenigingen.verenigingen_payments.utils.bank_transaction_status import (
     RECONCILED,
@@ -529,6 +530,10 @@ class PaymentProcessor(BaseTransactionProcessor):
 
             try:
                 ensure_fiscal_year_exists(je.posting_date, self.company, self.debug_info)
+            except NON_RESUMABLE_DB_ERRORS:
+                # #3061: a lock error is not "could not ensure the fiscal year"; submitting
+                # below would run against a transaction the server may have rolled back.
+                raise
             except Exception as fy_error:
                 self.debug_info.append(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
 
@@ -893,6 +898,8 @@ class PaymentProcessor(BaseTransactionProcessor):
                                 bt_doc.cancel()
                             frappe.delete_doc("Bank Transaction", bt_name, force=True)
                             existing_bt = None  # Mark as deleted so new BT will be created below
+                        except NON_RESUMABLE_DB_ERRORS:
+                            raise  # #3061: a lock error is not a "could not delete" to carry on past
                         except Exception as e:
                             self.debug_info.append(f"Error deleting Bank Transaction {bt_name}: {str(e)}")
                 else:
@@ -958,6 +965,8 @@ class PaymentProcessor(BaseTransactionProcessor):
                                 self.debug_info.append(
                                     f"Resolved party via relation_id {relation_id} to {party_type}: {party_name}"
                                 )
+                        except NON_RESUMABLE_DB_ERRORS:
+                            raise  # #3061: do not fall back to name matching after a lock error
                         except Exception as e:
                             # Relation ID lookup error - log and continue to try name matching
                             self.debug_info.append(f"⚠️ Relation ID lookup error: {str(e)}")
@@ -1023,6 +1032,10 @@ class PaymentProcessor(BaseTransactionProcessor):
                                             f"Bank Transaction will be created without party link "
                                             f"(auto-create disabled)"
                                         )
+                            except NON_RESUMABLE_DB_ERRORS:
+                                # #3061: re-raise whatever the auto-create setting says; with it
+                                # off the handler below used to log and create the BT party-less.
+                                raise
                             except Exception as e:
                                 # Party resolution error is critical if auto-create is enabled
                                 error_msg = f"Failed to resolve/create party '{extracted_name}': {str(e)}"
@@ -1073,6 +1086,9 @@ class PaymentProcessor(BaseTransactionProcessor):
 
             return bank_transaction_name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3061: returning None here let the caller submit the Journal Entry anyway
+            raise
         except Exception as e:
             self.debug_info.append(f"ERROR creating Bank Transaction: {str(e)}")
             frappe.log_error(
@@ -1246,6 +1262,8 @@ class PaymentProcessor(BaseTransactionProcessor):
                     f"Updated Bank Transaction {bank_transaction_name} with party: {party_type} - {party_name}"
                 )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # #3061: this handler used to fall off the end after the party write
         except Exception as e:
             self.debug_info.append(f"ERROR updating Bank Transaction party: {str(e)}")
             frappe.log_error(
