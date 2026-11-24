@@ -499,6 +499,20 @@ def create_system_notification(
     }
 
 
+def was_delivered(result) -> bool:
+    """True when a notify_administrators / create_system_notification result reached someone.
+
+    success is False for no recipient, skipped is True for a disabled key or email, and
+    notifications_created is 0 when nothing was written. Callers use this to release a dedupe claim
+    when nobody was told."""
+    result = result or {}
+    return (
+        bool(result.get("success"))
+        and not result.get("skipped")
+        and bool(result.get("notifications_created"))
+    )
+
+
 def notify_administrators(
     subject,
     message,

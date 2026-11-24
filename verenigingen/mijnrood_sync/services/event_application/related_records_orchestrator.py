@@ -366,7 +366,7 @@ class MijnRoodRelatedRecordsOrchestrator:
         """Raise the staff alert; True when at least one notification was actually created."""
         from frappe.utils import escape_html
 
-        from verenigingen.utils.notification_helpers import notify_administrators
+        from verenigingen.utils.notification_helpers import notify_administrators, was_delivered
 
         full_name = frappe.db.get_value("Member", member_name, "full_name") or member_name
         # The failed move was rolled back, so these are the chapters the member is still in.
@@ -392,12 +392,7 @@ class MijnRoodRelatedRecordsOrchestrator:
             exclude_users=["Administrator"],
             staff_alert=True,
         )
-        result = result or {}
-        return (
-            bool(result.get("success"))
-            and not result.get("skipped")
-            and bool(result.get("notifications_created"))
-        )
+        return was_delivered(result)
 
     def _handle_division_field_change(
         self, member_name: str, changed_fields: list, event, field_name: str = "division_id"
