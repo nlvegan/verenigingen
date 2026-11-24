@@ -247,10 +247,10 @@ class TestPaymentMixinDeadCodeVerification(EnhancedTestCase):
 
         # These should NOT exist (AttributeError expected)
         with self.assertRaises(AttributeError):
-            _ = member.payment_amount
+            getattr(member, "payment_amount")
 
         with self.assertRaises(AttributeError):
-            _ = member.start_date
+            getattr(member, "start_date")
 
         # Measured on a test site: Member has no payment_status field, so a bare
         # hasattr on the Document is a real (falsifiable) probe here.
