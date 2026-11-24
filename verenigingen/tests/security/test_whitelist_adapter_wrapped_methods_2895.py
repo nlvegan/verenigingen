@@ -3,10 +3,13 @@
 
 Uses the REAL ``frappe.whitelist`` registry and real ``functools.wraps``
 wrappers (which set ``__wrapped__``), not a mock of the registry. The branch
-matters because a non-re-registering outer decorator (plain ``@wraps``) sits
-between a security decorator and the whitelisted function: without the branch
-the inner function's GET-only restriction is lost and the wrapper silently
-falls back to the POST default.
+matters because a non-re-registering outer decorator (plain ``@wraps``) can sit
+between a security decorator and the whitelisted function: the branch stops the
+wrapper falling back to the POST-only default and keeps the inner function's
+registered methods. A GET-only method list is used here only because it is
+distinguishable from that default; no production endpoint is GET-only today
+(the ~21 production functions that reach this branch, e.g. in
+sepa_reconciliation and dd_batch_*, all carry Frappe's default four methods).
 """
 
 import functools
@@ -39,7 +42,7 @@ class TestWhitelistAdapterWrappedMethods2895(FrappeTestCase):
             frappe.allowed_http_methods_for_whitelisted_func.pop(fn, None)
         super().tearDown()
 
-    def _track(self, *fns):
+    def _untrack_on_teardown_2895(self, *fns):
         self._added.extend(fns)
 
     def _whitelisted_get_only(self):
@@ -47,13 +50,13 @@ class TestWhitelistAdapterWrappedMethods2895(FrappeTestCase):
         def inner_2895():
             return 1
 
-        self._track(inner_2895)
+        self._untrack_on_teardown_2895(inner_2895)
         return inner_2895
 
     def test_wrapped_registered_inner_methods_are_returned(self):
         inner = self._whitelisted_get_only()
         outer = _plain_wrap_2895(inner)
-        self._track(outer)
+        self._untrack_on_teardown_2895(outer)
 
         self.assertIs(outer.__wrapped__, inner)
         self.assertNotIn(outer, frappe.allowed_http_methods_for_whitelisted_func)
@@ -71,19 +74,19 @@ class TestWhitelistAdapterWrappedMethods2895(FrappeTestCase):
         inner = self._whitelisted_get_only()
         outer = _plain_wrap_2895(inner)
         frappe.allowed_http_methods_for_whitelisted_func[outer] = ["PUT"]
-        self._track(outer)
+        self._untrack_on_teardown_2895(outer)
 
         self.assertEqual(self.adapter.get_allowed_http_methods(outer), ["PUT"])
 
     def test_register_wrapper_keeps_inner_get_restriction_not_post_default(self):
         inner = self._whitelisted_get_only()
         outer = _plain_wrap_2895(inner)
-        self._track(outer)
+        self._untrack_on_teardown_2895(outer)
 
         def security_wrapper_2895():
             pass
 
-        self._track(security_wrapper_2895)
+        self._untrack_on_teardown_2895(security_wrapper_2895)
         self.adapter.register_http_methods(security_wrapper_2895, outer)
 
         self.assertEqual(
