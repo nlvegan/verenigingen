@@ -84,6 +84,7 @@ class MembershipImportService(StatelessService):
                     self.logger.info(
                         f"Membership {existing} was created by concurrent process for {member_doc.name}"
                     )
+                    release_savepoint_if_present(savepoint)
                     return existing
 
             # Double-check under lock for existing membership
@@ -93,6 +94,7 @@ class MembershipImportService(StatelessService):
                     f"Member {member_doc.name} already has active membership "
                     f"{existing_membership}, skipping creation"
                 )
+                release_savepoint_if_present(savepoint)
                 return existing_membership
 
             # Create membership using unified path
