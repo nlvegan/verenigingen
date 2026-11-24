@@ -411,9 +411,6 @@ class TestE2EWorkflowValidation(EnhancedTestCase):
             self.track_test_record("Member", self.test_data['member'].name)
             frappe.delete_doc("Member", self.test_data['member'].name, force=True)
         
-        # Mollie Audit Log no longer has a reference_id column (refactored away);
-        # match on the description text instead.
-        frappe.db.delete("Mollie Audit Log", {"description": ["like", "%e2e%"]})
-        frappe.db.delete("Dispute Case", {"case_id": ["like", "%test%"]})
-        frappe.db.commit()
+        # No site-wide Mollie Audit Log / Dispute Case delete here (#2904): a `%e2e%` / `%test%`
+        # pattern removes rows this class did not create. Nothing above inserts either doctype.
         super().tearDown()

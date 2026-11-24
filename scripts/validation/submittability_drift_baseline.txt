@@ -14,8 +14,6 @@ verenigingen/tests/backend/components/test_member_lifecycle_iban.py::submit::SEP
 verenigingen/tests/backend/components/test_payment_plan_system.py::cancel::Payment Plan::1
 verenigingen/tests/backend/components/test_payment_plan_system.py::submit::Payment Plan::2
 verenigingen/tests/donor/test_campaign_donation_integration.py::submit::Donation::5
-verenigingen/tests/fixtures/anbi_test_personas.py::cancel::Donation::1
-verenigingen/tests/fixtures/anbi_test_personas.py::docstatus:compare::Donation::1
 verenigingen/tests/fixtures/anbi_test_personas.py::submit::Donation::4
 verenigingen/tests/payment/test_mollie_webhook_wrapper_coverage_b2.py::submit::Donation::1
 verenigingen/tests/payment/test_payment_gateways_sweep2_coverage.py::cancel::Donation::1

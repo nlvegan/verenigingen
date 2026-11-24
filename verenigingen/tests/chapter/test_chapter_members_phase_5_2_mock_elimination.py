@@ -40,9 +40,9 @@ class TestChapterMembersPhase5_2MockElimination(EnhancedTestCase):
         """Set up test data with real database operations"""
         super().setUp()
         
-        # Clean up any existing test chapters first (Phase 5.2A: Use proper Enhanced Test Factory method)
-        # 🔧 INFRASTRUCTURE FIX: cleanup_test_chapters() method exists in Enhanced Test Factory
-        self.cleanup_test_chapters(chapter_pattern="Phase 5-2A%")
+        # No cleanup_test_chapters() here (#2904): it deleted every Member whose first_name matched
+        # its DEFAULT member patterns ("BasicTest%", "Phase5_2A%" -- `_` is a LIKE wildcard --,
+        # "%TestMember%") site-wide. Everything below is created and tracked by this test.
         
         # Create test members using real Enhanced Test Factory
         self.member1 = self.create_test_member(

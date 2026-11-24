@@ -780,18 +780,8 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
         # Restore original user session
         frappe.set_user(self.original_user)
 
-        # Clean up any security audit logs that might have been created
-        try:
-            frappe.db.sql(
-                """
-                DELETE FROM `tabError Log`
-                WHERE creation >= %s
-                AND error LIKE '%test%'
-            """,
-                (self.test_start_time,),
-            )
-        except Exception:
-            pass  # Ignore cleanup errors
+        # No `DELETE FROM tabError Log ... error LIKE '%test%'` here (#2904): it wiped every
+        # other test's (and any concurrent process's) diagnostics written since test_start_time.
 
         super().tearDown()
 

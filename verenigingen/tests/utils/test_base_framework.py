@@ -5,7 +5,7 @@ Automatically mocks email sending to prevent real emails during tests
 
 import unittest
 import frappe
-from verenigingen.tests.test_utils import mock_email_sending, setup_test_environment, cleanup_test_data
+from verenigingen.tests.test_utils import mock_email_sending, setup_test_environment
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 

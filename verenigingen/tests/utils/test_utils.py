@@ -109,29 +109,6 @@ def setup_test_environment():
     frappe.flags.mute_emails = True
 
 
-def cleanup_test_data(*doctypes):
-    """Clean up test data for specified doctypes"""
-    for doctype in doctypes:
-        # Delete test records
-        test_records = frappe.get_all(
-            doctype,
-            filters=[
-                ["name", "like", "TEST-%"],
-                ["name", "like", "%-TEST-%"],
-                ["name", "like", "%-test-%"]
-            ],
-            pluck="name"
-        )
-        
-        for record in test_records:
-            try:
-                frappe.delete_doc(doctype, record, force=True, )
-            except Exception:
-                pass
-    
-    frappe.db.commit()
-
-
 class TestDataFactory:
     """Factory for creating test data"""
     
@@ -226,15 +203,3 @@ class TestDataFactory:
         volunteer = frappe.get_doc(volunteer_data)
         volunteer.insert()
         return volunteer
-
-
-def with_test_cleanup(*doctypes):
-    """Decorator to ensure test data cleanup after test execution"""
-    def decorator(test_func):
-        def wrapper(*args, **kwargs):
-            try:
-                return test_func(*args, **kwargs)
-            finally:
-                cleanup_test_data(*doctypes)
-        return wrapper
-    return decorator

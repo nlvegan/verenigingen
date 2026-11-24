@@ -473,8 +473,6 @@ class TestSecurityPenetration(EnhancedTestCase):
 
     def tearDown(self):
         """Clean up test data"""
-        # Clean up test audit logs. Mollie Audit Log no longer has a reference_id
-        # column (refactored away); match on the description text instead.
-        frappe.db.delete("Mollie Audit Log", {"description": ["like", "%test%"]})
-        frappe.db.commit()
+        # No site-wide `description LIKE '%test%'` Mollie Audit Log delete (#2904): it removed
+        # rows this suite never created, and the suite inserts none.
         super().tearDown()

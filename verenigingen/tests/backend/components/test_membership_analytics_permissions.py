@@ -564,18 +564,10 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
         # (e.g. on early failure) before running cleanup.
         frappe.set_user("Administrator")
 
-        # Delete test data in reverse order of dependencies
-        frappe.db.sql("DELETE FROM `tabAnalytics Alert Log`")
-        frappe.db.sql("DELETE FROM `tabAnalytics Alert Rule`")
-        frappe.db.sql("DELETE FROM `tabMembership Analytics Snapshot`")
-        frappe.db.sql("DELETE FROM `tabMembership Goal`")
-        
-        # Delete test members (first_name is uniquified per run, so the auto-created Customer
-        # cannot collide across runs; the raw DELETE leaves those Customers behind harmlessly).
-        frappe.db.sql("DELETE FROM `tabMember` WHERE last_name = 'Analytics'")
-
-        frappe.db.commit()
-
+        # Every Member / Goal / Alert Rule above is inserted through the document API, so the
+        # EnhancedTestCase drain removes exactly those rows (#2904). The table-wide DELETEs this
+        # used to run (whole Analytics Alert Log / Rule / Snapshot / Goal tables, every Member
+        # with last_name 'Analytics') also removed rows other tests or a dev site owned.
         super().tearDown()
 
 
@@ -718,9 +710,9 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
         # Restore Administrator in case a test left a restricted user active.
         frappe.set_user("Administrator")
 
-        # Delete test members (names are uniquified per run, so the auto-created Customer
-        # cannot collide across runs; the raw DELETE leaves those Customers behind harmlessly).
-        frappe.db.sql("DELETE FROM `tabMember` WHERE first_name LIKE 'Test%'")
+        # The test Members are inserted through the document API, so the EnhancedTestCase drain
+        # removes exactly those (#2904). A `first_name LIKE 'Test%'` DELETE here also removed
+        # every other test's, or a dev site's, "Test..." member.
 
         # Delete chapter members + chapters. Chapter is prompt-named (the `name` IS the
         # chapter name; there is no `chapter_name` column) and create_test_chapter may

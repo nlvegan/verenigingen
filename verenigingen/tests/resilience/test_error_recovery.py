@@ -88,6 +88,7 @@ class TestErrorRecovery(VereningingenTestCase):
         super().setUp()
         self.settings_name = "Resilience Test"
         self.audit_trail = ImmutableAuditTrail()
+        self._audit_markers = []
 
     def test_retry_policy_with_backoff(self):
         """Test retry policy with exponential backoff"""
@@ -450,6 +451,7 @@ class TestErrorRecovery(VereningingenTestCase):
         # events (other tests in the module also emit these event types).
         start_event = AuditEventType.SETTLEMENT_PROCESSED
         marker = f"AUDITTEST-{frappe.generate_hash(length=8)}"
+        self._audit_markers.append(marker)
 
         # Test audit logging doesn't fail even when main operation fails
         def failing_operation():
@@ -502,7 +504,10 @@ class TestErrorRecovery(VereningingenTestCase):
 
     def tearDown(self):
         """Clean up test data"""
-        # Clean up test audit logs
-        frappe.db.delete("Mollie Audit Log", {"event_type": ["like", "%TEST%"]})
+        # Delete only the audit rows this test wrote, found by its own per-run marker (#2904).
+        # `event_type LIKE '%TEST%'` matched neither those rows (their event_type is an enum
+        # value) nor anything else that was ours.
+        for marker in self._audit_markers:
+            frappe.db.delete("Mollie Audit Log", {"description": ["like", f"{marker}%"]})
         frappe.db.commit()
         super().tearDown()

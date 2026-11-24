@@ -279,41 +279,6 @@ class MembershipTestUtilities:
             return add_years(start_date, 1)  # Default to annual
 
     @staticmethod
-    def cleanup_test_membership_types(prefix="Test", use_permissions=False):
-        """Clean up test membership types and related data"""
-        # Find all test membership types
-        test_types = frappe.get_all(
-            "Membership Type",
-            filters={"membership_type_name": ["like", f"{prefix}%"]},
-            fields=["name", "subscription_plan"],
-        )
-
-        for mt in test_types:
-            # Delete linked subscription plans
-            if mt.subscription_plan:
-                if use_permissions:
-                    frappe.delete_doc("Subscription Plan", mt.subscription_plan, force=True)
-                else:
-                    frappe.delete_doc("Subscription Plan", mt.subscription_plan, ignore_permissions=True, force=True)
-
-            # Delete linked items
-            items = frappe.get_all("Item", filters={"item_name": ["like", f"{mt.name}%"]}, fields=["name"])
-            for item in items:
-                if use_permissions:
-                    frappe.delete_doc("Item", item.name, force=True)
-                else:
-                    frappe.delete_doc("Item", item.name, ignore_permissions=True, force=True)
-
-            # Delete membership type
-            if use_permissions:
-                frappe.delete_doc("Membership Type", mt.name, force=True)
-            else:
-                frappe.delete_doc("Membership Type", mt.name, ignore_permissions=True, force=True)
-
-        frappe.db.commit()
-        return len(test_types)
-
-    @staticmethod
     def with_minimum_period_disabled(membership_type_names=None):
         """
         Context manager to temporarily disable minimum membership period enforcement for specific membership types
