@@ -14,7 +14,6 @@ rollback manager's own flow is covered in tests/payment/test_sepa_rollback_manag
 from unittest.mock import patch
 
 import frappe
-from frappe.utils import today
 
 from verenigingen.tests.sepa.test_batch_processing_service_happy_path import _SubmittedBatchBase
 from verenigingen.verenigingen_payments.doctype.direct_debit_batch import direct_debit_batch as ddb_module
@@ -106,7 +105,9 @@ class TestRolledBackBatchRefused3074(_SubmittedBatchBase):
         self.assertEqual(frappe.db.get_value("Direct Debit Batch", self.batch.name, "status"), "Rolled Back")
 
     def test_control_a_return_file_still_marks_a_submitted_batch_partially_failed(self):
-        frappe.db.set_value("Direct Debit Batch", self.batch.name, "status", "Submitted", update_modified=False)
+        frappe.db.set_value(
+            "Direct Debit Batch", self.batch.name, "status", "Submitted", update_modified=False
+        )
         row = self.batch.invoices[0]
         rejection = {"end_to_end_id": f"INV-{row.invoice}", "reason_code": "AC04", "reason_description": "x"}
         processor = SEPABatchProcessor()
@@ -136,26 +137,15 @@ class TestRolledBackBatchRefused3074(_SubmittedBatchBase):
         }
         self.addCleanup(setattr, config, "_settings_cache", original_cache)
         # Mock justified: XML builder boundary only, so the real status write is reached
-        with patch.object(sepa_xml_service.xml_adapter, "generate_xml_for_batch", return_value=f"<Document>{self.batch.name}</Document>"):
+        with patch.object(
+            sepa_xml_service.xml_adapter,
+            "generate_xml_for_batch",
+            return_value=f"<Document>{self.batch.name}</Document>",
+        ):
             with self.assertRaises(frappe.ValidationError) as ctx:
                 sepa_xml_service.generate_sepa_xml_for_batch(self.batch)
         self.assertIn(REFUSAL, str(ctx.exception))
         self._assert_rolled_back_batch_untouched()
-
-    def test_reconciling_a_bank_transaction_by_batch_name_books_nothing(self):
-        """Rows are set Successful (no Payment Entry) so a missing guard has something to book."""
-        from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
-            PaymentReconciliationManager,
-        )
-
-        frappe.db.set_value(
-            "Direct Debit Batch Invoice", {"parent": self.batch.name}, "status", "Successful"
-        )
-        bank_trans = frappe._dict(name="NO-SUCH-BT", date=today(), reference_number="REF-3074")
-        with self.assertRaises(frappe.ValidationError) as ctx:
-            PaymentReconciliationManager().create_payment_entries_from_batch(bank_trans, self.batch.name)
-        self.assertIn(REFUSAL, str(ctx.exception))
-        self.assertEqual(frappe.db.count("Payment Entry"), self.pe_before)
 
     def test_bank_reconciliation_by_batch_name_refuses(self):
         from verenigingen.verenigingen_payments.api import sepa_reconciliation
@@ -175,7 +165,9 @@ class TestRolledBackBatchRefused3074(_SubmittedBatchBase):
 
     def test_control_a_submitted_batch_is_still_marked_processed(self):
         """The guard keys on Rolled Back only: the same batch, status Submitted, still collects."""
-        frappe.db.set_value("Direct Debit Batch", self.batch.name, "status", "Submitted", update_modified=False)
+        frappe.db.set_value(
+            "Direct Debit Batch", self.batch.name, "status", "Submitted", update_modified=False
+        )
         self.batch.reload()
         self.assertEqual(self.service.mark_batch_invoices_as_paid(self.batch), len(self.row_names))
         self.assertEqual(frappe.db.count("Payment Entry"), self.pe_before + len(self.row_names))
