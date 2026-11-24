@@ -52,7 +52,11 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
-from verenigingen.utils.transaction_errors import DATABASE_ERROR, NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.transaction_errors import (
+    DATABASE_ERROR,
+    NON_RESUMABLE_DB_ERRORS,
+    rollback_to_savepoint,
+)
 
 if TYPE_CHECKING:
     # Quoted in annotations only; imported at call time to avoid a module-load cycle.
@@ -635,6 +639,9 @@ class SEPAMandateManager(StatelessService):
                 validated_holder = member_doc.full_name
 
             # Step 5: Create the SEPA Mandate document
+            # Savepoint so a Step 6 failure takes the inserted Draft with it (#3102).
+            mandate_savepoint = f"sepa_create_{frappe.generate_hash(length=8)}"
+            frappe.db.savepoint(mandate_savepoint)
             mandate = frappe.new_doc("SEPA Mandate")
             mandate.member = member
             mandate.member_name = member_doc.full_name
@@ -664,7 +671,15 @@ class SEPAMandateManager(StatelessService):
                 )
 
             # Step 6: Link mandate to member's sepa_mandates child table
-            self._link_mandate_to_member(member_doc, mandate)
+            try:
+                self._link_mandate_to_member(member_doc, mandate)
+            except NON_RESUMABLE_DB_ERRORS:
+                # 1213 already destroyed the savepoint; the outer handler re-raises.
+                raise
+            except Exception:
+                # Do not leave the Draft behind: a retry would meet the duplicate-IBAN check (#3102).
+                rollback_to_savepoint(mandate_savepoint)
+                raise
 
             data = {
                 "mandate_name": mandate.name,
