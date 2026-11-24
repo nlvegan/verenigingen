@@ -252,6 +252,12 @@ class TestPublicAPIGuestAccess(EnhancedTestCase):
                 "@frappe.whitelist(allow_guest=True)\n"
                 "@standard_api(operation_type=1)\n"
                 "def contradicts():\n    pass\n\n"
+                "@frappe.whitelist(allow_guest=True)\n"
+                "@utility_api\n"
+                "def contradicts_utility():\n    pass\n\n"
+                "@frappe.whitelist(allow_guest=True)\n"
+                "@webhook_api()\n"
+                "def contradicts_webhook():\n    pass\n\n"
                 "@frappe.whitelist()\n"
                 "@standard_api\n"
                 "def honest_authenticated():\n    pass\n\n"
@@ -260,8 +266,9 @@ class TestPublicAPIGuestAccess(EnhancedTestCase):
                 "def honest_public():\n    pass\n"
             )
             issues = find_guest_flag_on_authenticated_api_issues([sample])
-        self.assertEqual(len(issues), 1, issues)
-        self.assertIn("contradicts", issues[0])
+        self.assertEqual(len(issues), 3, issues)
+        for name in ("contradicts", "contradicts_utility", "contradicts_webhook"):
+            self.assertTrue(any(f" {name}:" in i for i in issues), (name, issues))
 
 
 def _build_import_aliases(tree: ast.Module) -> Dict[str, str]:
@@ -336,15 +343,18 @@ def _whitelist_allows_guest(decorator: ast.expr) -> Tuple[bool, bool]:
     return False, False
 
 
-# Security decorators that refuse a Guest (api_security_framework). Combined with
-# allow_guest=True the flag only moves the refusal one layer down (#3046).
-_AUTH_REQUIRING_API_DECORATORS = {"standard_api", "high_security_api", "critical_api", "self_service_api"}
+def _auth_requiring_api_decorators() -> Set[str]:
+    """Every engine decorator except @public_api: combined with allow_guest=True the
+    flag only moves the refusal one layer down (#3046). Derived from the sibling
+    class's ENGINE_DECORATORS so a new framework decorator is covered automatically."""
+    return set(TestGuestEndpointsGetPerVisitorRateLimitBuckets.ENGINE_DECORATORS) - {"public_api"}
 
 
 def find_guest_flag_on_authenticated_api_issues(api_files: List[Path]) -> List[str]:
     """Scan for ``allow_guest=True`` on a function that also carries a decorator
     that requires authentication (#3046). Only literal ``True`` is judged."""
     issues: List[str] = []
+    auth_decorators = _auth_requiring_api_decorators()
     for path in api_files:
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -359,7 +369,7 @@ def find_guest_flag_on_authenticated_api_issues(api_files: List[Path]) -> List[s
                 _decorator_base_name(d, aliases) == "whitelist" and _whitelist_allows_guest(d)[0]
                 for d in node.decorator_list
             )
-            clash = names & _AUTH_REQUIRING_API_DECORATORS
+            clash = names & auth_decorators
             if guest and clash:
                 issues.append(f"{path}:{node.lineno} {node.name}: allow_guest=True with {sorted(clash)}")
     return issues
