@@ -45,6 +45,7 @@ from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     log_ambiguous_mandate_refusal,
     unambiguous_active_mandate,
 )
+from verenigingen.verenigingen_payments.utils.sepa_constants import batch_status_locks_invoices
 from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
 
 
@@ -733,7 +734,7 @@ def create_sepa_batch_validated_secure(**params):
 
             if existing_batch_invoice:
                 batch_doc = frappe.get_doc("Direct Debit Batch", existing_batch_invoice.parent)
-                if batch_doc.status not in ["Cancelled", "Failed"]:
+                if batch_status_locks_invoices(batch_doc.status):
                     invoice_validation_errors.append(
                         f"Invoice {invoice['invoice']} already in batch {existing_batch_invoice.parent}"
                     )

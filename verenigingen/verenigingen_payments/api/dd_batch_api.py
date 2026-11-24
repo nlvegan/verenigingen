@@ -82,6 +82,7 @@ from verenigingen.verenigingen_payments.api.sepa_batch_notifications import get_
 from verenigingen.verenigingen_payments.utils.collection_rows import (
     refuse_invoices_with_more_than_one_row,
 )
+from verenigingen.verenigingen_payments.utils.sepa_constants import non_locking_batch_status_sql_list
 
 
 @frappe.whitelist()
@@ -539,13 +540,21 @@ def get_eligible_invoices(filters: dict | None = None):
     filtered_invoices = []
     for invoice in eligible_invoices:
         # Check if invoice is already in a pending batch
-        existing_entry = frappe.db.exists(
-            "Direct Debit Batch Invoice",
-            {
-                "invoice": invoice.name,
-                "docstatus": ["!=", 2],  # Not cancelled
-                "status": ["in", ["Pending", "Processing"]],
-            },
+        # The PARENT batch's status counts too (#3055): a Rolled Back batch has its rows
+        # reset to Pending (#3021), and a bare row-status filter would keep those
+        # invoices locked out of every new batch.
+        existing_entry = frappe.db.sql(
+            f"""
+            SELECT 1
+            FROM `tabDirect Debit Batch Invoice` ddi
+            JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
+            WHERE ddi.invoice = %(invoice)s
+              AND ddi.docstatus != 2
+              AND ddi.status IN ('Pending', 'Processing')
+              AND ddb.status NOT IN ({non_locking_batch_status_sql_list()})
+            LIMIT 1
+            """,
+            {"invoice": invoice.name},
         )
 
         if not existing_entry:

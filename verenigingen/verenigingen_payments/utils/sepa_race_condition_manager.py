@@ -25,6 +25,7 @@ from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
+from verenigingen.verenigingen_payments.utils.sepa_constants import non_locking_batch_status_sql_list
 from verenigingen.verenigingen_payments.utils.shared.backoff import calculate_backoff_delay
 
 
@@ -706,7 +707,7 @@ class SEPABatchRaceConditionManager:
         try:
             # Check for invoices already in active batches
             existing_assignments = frappe.db.sql(
-                """
+                f"""
                 SELECT
                     ddi.invoice,
                     ddb.name as batch_name,
@@ -716,7 +717,7 @@ class SEPABatchRaceConditionManager:
                 JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
                 WHERE ddi.invoice IN %(invoices)s
                 AND ddb.docstatus != 2  -- Not cancelled
-                AND ddb.status NOT IN ('Failed', 'Cancelled')
+                AND ddb.status NOT IN ({non_locking_batch_status_sql_list()})
                 FOR UPDATE
             """,
                 {"invoices": invoice_names},
