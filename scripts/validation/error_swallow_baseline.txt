@@ -141,7 +141,6 @@ verenigingen/services/communication/email_configuration_service.py::EmailConfigu
 verenigingen/services/communication/email_service.py::EmailService._create_communication_record::1
 verenigingen/services/communication/email_service.py::EmailService._get_template::1
 verenigingen/services/communication/email_service.py::EmailService._has_active_email_account::1
-verenigingen/services/csv_import/membership_import_service.py::MembershipImportService.create_membership_from_csv::1
 verenigingen/services/customer_handling_service.py::CustomerHandlingService.update_member_customer_reference::1
 verenigingen/services/customer_handling_service.py::CustomerHandlingService.validate_configuration::1
 verenigingen/services/donation/donor_service.py::DonationDonorService.link_donor_to_customer::1
