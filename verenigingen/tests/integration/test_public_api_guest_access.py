@@ -217,6 +217,52 @@ class TestPublicAPIGuestAccess(EnhancedTestCase):
             with self.assertRaises(frappe.PermissionError):
                 suggest_chapters_for_member(member="", postal_code="1500AB", city="Amsterdam")
 
+    def test_suggest_chapters_for_member_does_not_declare_guest_access(self):
+        """#3046: the declared access must match the real one.
+
+        The endpoint is @standard_api (authenticated), so its ``allow_guest=True``
+        was inert at the function and misleading at dispatch: ``is_whitelisted``
+        let a Guest through to be refused one layer later. Ask the dispatch gate
+        itself (whitelisting is only consulted at dispatch, never on a direct call).
+        """
+        from verenigingen.verenigingen.doctype.chapter.chapter import suggest_chapters_for_member
+
+        self.assertNotIn(suggest_chapters_for_member, frappe.guest_methods)
+        with _with_user("Guest"):
+            with self.assertRaises(frappe.PermissionError):
+                frappe.is_whitelisted(suggest_chapters_for_member)
+
+    def test_no_guest_flag_on_authenticated_api_decorators(self):
+        """#3046 class guard: ``allow_guest=True`` beside an auth-requiring
+        security decorator is a declaration the decorator then contradicts.
+        The naming-heuristic scan above cannot see this shape.
+        """
+        app_path = Path(frappe.get_app_path("verenigingen"))
+        files = [p for p in _recursive_py_files(app_path) if "tests" not in p.parts]
+        self.assertGreater(len(files), 500, "scan found suspiciously few files")
+        self.assertEqual(find_guest_flag_on_authenticated_api_issues(files), [])
+
+    def test_guest_flag_scan_flags_standard_api_with_allow_guest(self):
+        """Positive control for the class guard: the #3046 shape is caught, a
+        correct authenticated endpoint and a correct @public_api are not."""
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = Path(tmp) / "control_3046.py"
+            sample.write_text(
+                "import frappe\n\n"
+                "@frappe.whitelist(allow_guest=True)\n"
+                "@standard_api(operation_type=1)\n"
+                "def contradicts():\n    pass\n\n"
+                "@frappe.whitelist()\n"
+                "@standard_api\n"
+                "def honest_authenticated():\n    pass\n\n"
+                "@frappe.whitelist(allow_guest=True)\n"
+                "@public_api\n"
+                "def honest_public():\n    pass\n"
+            )
+            issues = find_guest_flag_on_authenticated_api_issues([sample])
+        self.assertEqual(len(issues), 1, issues)
+        self.assertIn("contradicts", issues[0])
+
 
 def _build_import_aliases(tree: ast.Module) -> Dict[str, str]:
     """Map a local ``from x import y as z`` alias back to its real name ``y``.
@@ -288,6 +334,35 @@ def _whitelist_allows_guest(decorator: ast.expr) -> Tuple[bool, bool]:
         return value_node.value is True, True
 
     return False, False
+
+
+# Security decorators that refuse a Guest (api_security_framework). Combined with
+# allow_guest=True the flag only moves the refusal one layer down (#3046).
+_AUTH_REQUIRING_API_DECORATORS = {"standard_api", "high_security_api", "critical_api", "self_service_api"}
+
+
+def find_guest_flag_on_authenticated_api_issues(api_files: List[Path]) -> List[str]:
+    """Scan for ``allow_guest=True`` on a function that also carries a decorator
+    that requires authentication (#3046). Only literal ``True`` is judged."""
+    issues: List[str] = []
+    for path in api_files:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        aliases = _build_import_aliases(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            names = {_decorator_base_name(d, aliases) for d in node.decorator_list}
+            guest = any(
+                _decorator_base_name(d, aliases) == "whitelist" and _whitelist_allows_guest(d)[0]
+                for d in node.decorator_list
+            )
+            clash = names & _AUTH_REQUIRING_API_DECORATORS
+            if guest and clash:
+                issues.append(f"{path}:{node.lineno} {node.name}: allow_guest=True with {sorted(clash)}")
+    return issues
 
 
 def find_public_api_allow_guest_issues(api_files: List[Path]) -> List[str]:
@@ -1112,8 +1187,11 @@ class TestGuestEndpointsGetPerVisitorRateLimitBuckets(EnhancedTestCase):
         # 73 since #813 deliberately deleted the unused guest endpoint `process_donation_form`
         # (web_form/donation_form; maintainer ruling 2026-11-08).
         # 72 since #2494 deleted the unused guest endpoint `payment_page` (no token minter, #1817).
+        # 71 since #3046 dropped the inert allow_guest=True from `suggest_chapters_for_member`
+        # (it is @standard_api, so a Guest was always refused).
         # Lower this only for an endpoint deliberately removed, never to absorb a scan regression.
-        self.assertGreaterEqual(len(names), 72)
+        self.assertGreaterEqual(len(names), 71)
+        self.assertNotIn("suggest_chapters_for_member", names, "control: #3046 made this authenticated-only")
         self.assertNotIn("process_donation_form", names, "control: #813 deleted this guest endpoint")
         self.assertNotIn("payment_page", names, "control: #2494 deleted this guest endpoint")
         for webhook in ("mollie_payment_webhook", "handle_ponto_webhook", "handle_payment"):
