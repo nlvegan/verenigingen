@@ -33,6 +33,10 @@ class ReconciliationStatus:
     PARTIAL = "partial"
 
 
+# MT940 Import.import_status values for a run that finished with row errors/warnings (#3012).
+PARTIAL_IMPORT_STATUSES = ("Completed With Errors", "Completed With Warnings")
+
+
 class ReconciliationEngine:
     """
     Automated reconciliation engine for Mollie backend
@@ -547,6 +551,7 @@ class ReconciliationEngine:
                 "total_imports": 0,
                 "successful_imports": 0,
                 "failed_imports": 0,
+                "partial_imports": 0,
                 "total_transactions_imported": 0,
             },
         }
@@ -595,6 +600,13 @@ class ReconciliationEngine:
                     validation_results["statistics"]["total_transactions_imported"] += import_record.get(
                         "transactions_created", 0
                     )
+                elif import_record["import_status"] in PARTIAL_IMPORT_STATUSES:
+                    # #3106: a run that finished but with row errors/warnings is neither
+                    # a success nor a failure; its created rows are real Bank Transactions.
+                    validation_results["statistics"]["partial_imports"] += 1
+                    validation_results["statistics"]["total_transactions_imported"] += import_record.get(
+                        "transactions_created", 0
+                    )
                 elif import_record["import_status"] == "Failed":
                     validation_results["statistics"]["failed_imports"] += 1
 
@@ -609,17 +621,18 @@ class ReconciliationEngine:
                 validation_results["recent_imports"].append(import_info)
 
             # Check for patterns or recurring issues
-            if len(bulk_imports) > 0:
-                success_rate = (
-                    validation_results["statistics"]["successful_imports"]
-                    / validation_results["statistics"]["total_imports"]
-                ) * 100
+            stats = validation_results["statistics"]
+            # Partial runs are outside the rate: they are neither successful nor failed (#3106).
+            rated_imports = stats["total_imports"] - stats["partial_imports"]
+            if rated_imports > 0:
+                success_rate = (stats["successful_imports"] / rated_imports) * 100
 
                 if success_rate < 80:
+                    partial_note = f", {stats['partial_imports']} partial" if stats["partial_imports"] else ""
                     self.warnings.append(
                         f"Bulk import success rate is low: {success_rate:.1f}% "
-                        f"({validation_results['statistics']['successful_imports']} of "
-                        f"{validation_results['statistics']['total_imports']} imports successful)"
+                        f"({stats['successful_imports']} of {rated_imports} imports successful"
+                        f"{partial_note})"
                     )
 
         except Exception as e:
