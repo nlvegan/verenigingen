@@ -386,7 +386,7 @@ class EBoekhoudenPartyExtractor:
             try:
                 from verenigingen.e_boekhouden.utils.party_resolver import EBoekhoudenPartyResolver
 
-                resolver = EBoekhoudenPartyResolver(self.company)
+                resolver = EBoekhoudenPartyResolver()
 
                 if party_type == "Customer":
                     return resolver.resolve_customer(relation_id)
