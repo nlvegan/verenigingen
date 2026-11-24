@@ -137,6 +137,7 @@ class TestOpeningBalanceLockErrors3060(_OpeningBalanceBase):
             ) as iterator:
                 iterator.return_value._get_session_token.return_value = "t"
                 iterator.return_value.base_url = "http://stub.invalid"
+                # Mock justified: External Service - the e-Boekhouden HTTP API, not business logic
                 with patch("requests.get") as get:
                     get.return_value.status_code = 200
                     get.return_value.json.return_value = {"code": "99999", "description": "x"}
