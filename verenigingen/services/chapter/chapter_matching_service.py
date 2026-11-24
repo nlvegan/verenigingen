@@ -31,6 +31,7 @@ Dependencies:
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import frappe
+from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.verenigingen.doctype.chapter.validators.postal_code_validator import (
@@ -145,6 +146,7 @@ class ChapterMatchingService(StatelessService):
 
         # Resolve location data from member if not provided
         if not postal_code and not state and not city:
+            self._require_member_read(member)
             postal_code, state, city = self._get_member_location(member)
 
         matching_chapters = []
@@ -186,6 +188,25 @@ class ChapterMatchingService(StatelessService):
             return frappe.db.get_single_value("Verenigingen Settings", "enable_chapter_management") == 1
         except Exception:
             return True  # Fail open
+
+    def _require_member_read(self, member: str) -> None:
+        """Refuse unless the caller may read ``member`` (#3191).
+
+        The location read below is a plain get_doc, so the caller's Member read right has to be
+        checked first. An unknown member and a forbidden one both end here with the same
+        PermissionError and message: has_permission on an unknown name raises DoesNotExistError
+        (and appends a message_log entry), which would tell the caller which ids exist.
+        """
+        logged = len(frappe.local.message_log)
+        try:
+            allowed = bool(member) and frappe.has_permission("Member", "read", doc=member)
+        except frappe.DoesNotExistError:
+            allowed = False
+            del frappe.local.message_log[logged:]  # the "not found" message is the oracle
+        if not allowed:
+            frappe.throw(
+                _("You do not have permission to use this member's location"), frappe.PermissionError
+            )
 
     def _get_member_location(self, member: str) -> tuple:
         """Get location data from member's address.
