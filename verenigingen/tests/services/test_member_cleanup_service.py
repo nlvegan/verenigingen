@@ -664,6 +664,50 @@ class TestMemberCleanupService(EnhancedTestCase):
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.db.commit()
 
+    def test_a_stale_dynamic_link_cache_does_not_hide_a_schedule_reference_3120(self):
+        """#3120: Frappe caches, for 12h in Redis, which doctypes each Dynamic Link field names,
+        and only a VALIDATED save of the referencing row evicts it. A reference written without
+        validation therefore leaves a cache entry that omits "Membership Dues Schedule", and
+        _find_blocked_schedules (via get_dynamic_linked_docs) skipped the referencing table.
+
+        Probe shortcut: the referencing Event is a stock doctype with a Dynamic Link, and the
+        stale entry is planted directly (in CI an earlier link check leaves it). No production
+        writer in this app is known to write such a row unvalidated, so the guard is hardening.
+        """
+        member = self.create_test_member(
+            first_name="StaleDyn", last_name=f"Test{frappe.generate_hash(length=6)}",
+            email=f"staledyn.{frappe.generate_hash(length=8)}@example.com",
+        )
+        schedule = self._make_plain_dues_schedule(member, status="Active")
+        event = frappe.get_doc(
+            {
+                "doctype": "Event",
+                "subject": f"Stale3120 {frappe.generate_hash(length=6)}",
+                "starts_on": frappe.utils.now_datetime(),
+                "event_type": "Private",
+                "reference_doctype": "Membership Dues Schedule",
+                "reference_docname": schedule.name,
+            }
+        ).insert(ignore_permissions=True)
+        key = "dynamic_link_map::Event::reference_doctype"
+        frappe.cache.set_value(key, ["Team"], expires_in_sec=3600)
+        self.addCleanup(frappe.cache.delete_value, key)
+        frappe.local.dynamic_link_map = None
+        self.assertNotIn("Membership Dues Schedule", frappe.cache.get_value(key), "control: stale")
+        self.assertEqual(
+            frappe.db.get_value("Event", event.name, "reference_docname"), schedule.name,
+            "control: the reference row exists",
+        )
+
+        blocked = get_member_cleanup_service()._find_blocked_schedules(member.name, [schedule.name])
+
+        self.assertEqual(blocked, {schedule.name: [("Event", event.name)]})
+        frappe.delete_doc("Event", event.name, force=True)
+        frappe.delete_doc("Membership Dues Schedule", schedule.name, force=True)
+        if member.customer:
+            frappe.delete_doc("Customer", member.customer, force=True)
+        frappe.db.commit()
+
     def _make_plain_dues_schedule(self, member, status="Active"):
         """A schedule keyed to `member` with NO Sales Invoice reference --
         the sibling used to prove a non-blocked schedule is left alone by
