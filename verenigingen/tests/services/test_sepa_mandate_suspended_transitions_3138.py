@@ -63,6 +63,8 @@ class TestSuspendedTransitions3138(EnhancedTestCase):
         self._assert_allowed("Suspended", "Active")
 
     def test_suspended_to_cancelled_is_allowed(self):
+        # TODO(#2999): once #2999 merges (cancelled_date fix), also assert
+        # result["success"] is True and result["errors"] == [] here.
         self._assert_allowed("Suspended", "Cancelled")
 
     def test_control_draft_and_pending_cannot_be_suspended(self):
@@ -73,3 +75,31 @@ class TestSuspendedTransitions3138(EnhancedTestCase):
         for target in ("Draft", "Pending", "Expired", "Rejected"):
             with self.subTest(target=target):
                 self._assert_refused("Suspended", target)
+
+    def _link_row(self):
+        rows = frappe.get_all(
+            "Member SEPA Mandate Link",
+            filters={"parent": self.mandate.member, "sepa_mandate": self.mandate.name},
+            fields=["status", "is_current"],
+        )
+        self.assertEqual(len(rows), 1, rows)
+        return rows[0]
+
+    def test_real_save_flow_syncs_the_member_link_for_suspend_and_reactivate(self):
+        """Real flow: save() Active -> Suspended -> Active; the on_update hook syncs the link row."""
+        self.mandate.reload()
+        self.mandate.status = "Active"
+        self.mandate.save()
+        self.assertEqual(self._link_row().is_current, 1)
+
+        self.mandate.status = "Suspended"
+        self.mandate.save()
+        row = self._link_row()
+        self.assertEqual(row.status, "Suspended")
+        self.assertEqual(row.is_current, 0)
+
+        self.mandate.status = "Active"
+        self.mandate.save()
+        row = self._link_row()
+        self.assertEqual(row.status, "Active")
+        self.assertEqual(row.is_current, 1)
