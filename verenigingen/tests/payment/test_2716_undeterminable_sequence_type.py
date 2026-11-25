@@ -17,13 +17,10 @@ from frappe.model.qb_query import DatabaseQuery
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.payment.test_collection_run_not_lost_silently import (
-    ReleasesWhatTheBatcherCommitted,
-)
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.tests.support.batcher_commit_release import ReleasesWhatTheBatcherCommitted
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
-from verenigingen.verenigingen_payments.api import dd_batch_optimizer
-from verenigingen.verenigingen_payments.api import dd_batch_scheduler as sched
+from verenigingen.verenigingen_payments.api import dd_batch_optimizer, dd_batch_scheduler as sched
 from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
     create_mandate_usage_record,
 )
