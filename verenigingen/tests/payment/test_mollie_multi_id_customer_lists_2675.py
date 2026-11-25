@@ -158,8 +158,8 @@ class TestControls(MultiIdBase):
         for payment_id in (self.id_a,):
             result = PaymentClassifier().classify(self.payment(customer_id=payment_id))
             self.assertNotEqual(result.member_id, self.members[0].name, "prefix id matched a longer id")
-            (batch,) = PaymentClassifier().classify_batch([self.payment(customer_id=payment_id)])
-            self.assertNotEqual(batch.member_id, self.members[0].name)
+            (classified_in_bulk,) = PaymentClassifier().classify_batch([self.payment(customer_id=payment_id)])
+            self.assertNotEqual(classified_in_bulk.member_id, self.members[0].name)
             self.assertIsNone(
                 MemberPaymentMatcher().find_member_for_payment(self.payment(customer_id=payment_id))
             )
@@ -184,8 +184,8 @@ class TestDuplicateAndCaseControls(MultiIdBase):
         self._list_on(self.members[0], self.id_a, self.id_a)
         single = PaymentClassifier().classify(self.payment(customer_id=self.id_a))
         self.assertEqual((single.payment_type, single.member_id), (PaymentType.DUES, self.members[0].name))
-        (batch,) = PaymentClassifier().classify_batch([self.payment(customer_id=self.id_a)])
-        self.assertEqual((batch.payment_type, batch.member_id), (PaymentType.DUES, self.members[0].name))
+        (classified_in_bulk,) = PaymentClassifier().classify_batch([self.payment(customer_id=self.id_a)])
+        self.assertEqual((classified_in_bulk.payment_type, classified_in_bulk.member_id), (PaymentType.DUES, self.members[0].name))
         found = MemberPaymentMatcher().find_member_for_payment(self.payment(customer_id=self.id_a))
         self.assertEqual(found["name"], self.members[0].name)
         self.assertEqual(self._error_rows(MEMBER_LOG_TITLE), [])
