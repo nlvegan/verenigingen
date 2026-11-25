@@ -373,6 +373,92 @@ class MixinAheadOfHarnessBaseTest(unittest.TestCase):
         self.assertEqual(1, len(_scan(files)))
 
 
+class NextClassInMroTest(unittest.TestCase):
+    """#2939: an explicit base call must reach the NEXT class in the MRO that
+    defines the method, not merely some harness-rooted ancestor."""
+
+    def _violations(self, mix_body: str, other_body: str, bases: str = "Mix, Other"):
+        files = {
+            "verenigingen/harness.py": _HARNESS_SRC,
+            "verenigingen/tests/test_m.py": (
+                "from verenigingen.harness import VereningingenTestCase\n"
+                "class Mix(VereningingenTestCase):\n" + mix_body + "\n"
+                "class Other(VereningingenTestCase):\n" + other_body + "\n"
+                f"class T({bases}):\n    def test_it(self):\n        pass\n"
+            ),
+        }
+        return sorted((v.class_name, v.method, v.via) for v in _scan(files))
+
+    _OTHER = "    def setUp(self):\n        super().setUp()\n"
+    _MIX_SKIPS = "    def setUp(self):\n        VereningingenTestCase.setUp(self)\n"
+
+    def test_call_that_jumps_over_a_sibling_definer_is_flagged(self):
+        """Mix passes alone (#1348) but in T(Mix, Other) skips Other.setUp."""
+        self.assertEqual([("Mix", "setUp", "T")], self._violations(self._MIX_SKIPS, self._OTHER))
+
+    def test_the_jump_is_flagged_for_class_level_hooks_too(self):
+        mix = "    @classmethod\n    def setUpClass(cls):\n        VereningingenTestCase.setUpClass()\n"
+        other = "    @classmethod\n    def setUpClass(cls):\n        super().setUpClass()\n"
+        self.assertEqual([("Mix", "setUpClass", "T")], self._violations(mix, other))
+
+    def test_control_call_to_a_defining_intermediate_that_is_next_passes(self):
+        """Correct explicit call: Low's next definer is Mid, and it calls Mid."""
+        files = {
+            "verenigingen/harness.py": _HARNESS_SRC,
+            "verenigingen/tests/test_m.py": (
+                "from verenigingen.harness import VereningingenTestCase\n"
+                "class Mid(VereningingenTestCase):\n    def setUp(self):\n        super().setUp()\n"
+                "class Low(Mid):\n    def setUp(self):\n        Mid.setUp(self)\n"
+            ),
+        }
+        self.assertEqual([], _scan(files))
+
+    def test_control_call_over_a_defining_intermediate_is_flagged(self):
+        """Same shape, but Low jumps over Mid to the root: Mid.setUp is skipped
+        in single inheritance too, which the pre-#2939 ancestry rule accepted."""
+        files = {
+            "verenigingen/harness.py": _HARNESS_SRC,
+            "verenigingen/tests/test_m.py": (
+                "from verenigingen.harness import VereningingenTestCase\n"
+                "class Mid(VereningingenTestCase):\n    def setUp(self):\n        super().setUp()\n"
+                "class Low(Mid):\n    def setUp(self):\n        VereningingenTestCase.setUp(self)\n"
+            ),
+        }
+        self.assertEqual([("Low", "setUp")], [(v.class_name, v.method) for v in _scan(files)])
+
+    def test_control_sibling_defining_no_setup_is_not_skipped(self):
+        self.assertEqual([], self._violations(self._MIX_SKIPS, "    pass\n"))
+
+    def test_a_call_the_main_rule_flags_is_reported_once_not_twice(self):
+        """Dedup test. Stranger is harness-rooted, defines setUp, and is NOT an
+        ancestor of Mix, so the main rule flags ``Stranger.setUp(self)``. The
+        skipped-sibling pass also flags it (Stranger is not Other, the next
+        definer in T(Mix, Other)); the same key must be reported exactly once."""
+        files = {
+            "verenigingen/harness.py": _HARNESS_SRC,
+            "verenigingen/tests/test_m.py": (
+                "from verenigingen.harness import VereningingenTestCase\n"
+                "class Stranger(VereningingenTestCase):\n    def setUp(self):\n        super().setUp()\n"
+                "class Mix(VereningingenTestCase):\n    def setUp(self):\n        Stranger.setUp(self)\n"
+                "class Other(VereningingenTestCase):\n    def setUp(self):\n        super().setUp()\n"
+                "class T(Mix, Other):\n    pass\n"
+            ),
+        }
+        self.assertEqual([("Mix", "setUp")], [(v.class_name, v.method) for v in _scan(files)])
+
+    def test_control_mixin_used_alone_still_passes(self):
+        self.assertEqual([], self._violations(self._MIX_SKIPS, self._OTHER, bases="Mix"))
+
+    def test_control_sibling_ordered_before_the_mixin_is_not_skipped(self):
+        """T(Other, Mix): Other.setUp runs first via super() into Mix, whose
+        call to the harness root skips nothing."""
+        self.assertEqual([], self._violations(self._MIX_SKIPS, self._OTHER, bases="Other, Mix"))
+
+    def test_control_cooperative_super_in_the_mixin_passes(self):
+        mix = "    def setUp(self):\n        super().setUp()\n"
+        self.assertEqual([], self._violations(mix, self._OTHER))
+
+
 class RealRepoRegressionTest(unittest.TestCase):
     """Scans the actual verenigingen/ tree. With #1307's fix applied this
     must be empty; before the fix (see git history of the three files it
