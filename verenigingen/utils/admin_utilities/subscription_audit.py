@@ -12,6 +12,9 @@ from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.verenigingen_payments.core.mollie_base_client import MollieBaseClient
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    split_mollie_customer_ids,
+)
 
 
 class SubscriptionAudit:
@@ -137,9 +140,11 @@ class SubscriptionAudit:
         member_by_sub_id = {
             m.mollie_subscription_id: m for m in members_with_subs if m.mollie_subscription_id
         }
-        member_by_customer_id = {
-            m.mollie_customer_id: m for m in members_with_customers if m.mollie_customer_id
-        }
+        # The field may hold a comma-separated list (#2675): key by every listed id.
+        member_by_customer_id = {}
+        for m in members_with_customers:
+            for listed_id in split_mollie_customer_ids(m.mollie_customer_id):
+                member_by_customer_id.setdefault(listed_id, m)
 
         # Fetch all deleted members upfront to avoid N+1 LIKE queries
         deleted_members_data = frappe.db.sql(
@@ -226,7 +231,7 @@ class SubscriptionAudit:
                     )
 
                 # Check if customer_id matches
-                if member_by_sub.mollie_customer_id != customer_id:
+                if customer_id not in split_mollie_customer_ids(member_by_sub.mollie_customer_id):
                     self.issues["subscription_status_mismatch"].append(
                         {
                             **sub_info,

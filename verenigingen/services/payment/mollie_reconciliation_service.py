@@ -16,6 +16,9 @@ import frappe
 
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.verenigingen_payments.core.mollie_base_client import MollieBaseClient
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    split_mollie_customer_ids,
+)
 
 
 class MollieReconciliationService:
@@ -120,8 +123,12 @@ class MollieReconciliationService:
         # Build member reconciliation data
         member_data = []
         for member in members:
-            customer_id = member.get("mollie_customer_id")
-            mollie_subs = subs_by_customer.get(customer_id, [])
+            # The field may hold a comma-separated list (#2675): gather every listed id's subscriptions.
+            mollie_subs = [
+                sub
+                for listed_id in split_mollie_customer_ids(member.get("mollie_customer_id"))
+                for sub in subs_by_customer.get(listed_id, [])
+            ]
 
             # Sort subscriptions: active first, then by creation date (newest first)
             mollie_subs.sort(
@@ -145,7 +152,7 @@ class MollieReconciliationService:
                     "current_subscription_id": member.get("mollie_subscription_id"),
                     "current_next_payment_date": member.get("next_payment_date"),
                     "current_mollie_next_invoice_date": member.get("mollie_subscription_next_invoice_date"),
-                    "customer_id": customer_id,
+                    "customer_id": member.get("mollie_customer_id"),
                     "active_subscriptions": active_subs,
                     "inactive_subscriptions": inactive_subs,
                     "discrepancies": discrepancy_result["discrepancies"],

@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 import frappe
 
 from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    names_listing_customer_id,
     split_mollie_customer_ids,
 )
 
@@ -194,25 +195,10 @@ class DatabaseLookupClassification(PaymentClassificationRule):
         Neither Mollie id field is unique, so get_value would silently pick one.
         """
         if field_name == "mollie_customer_id":
-            return _names_listing_customer_id(doctype, field_value)
+            return names_listing_customer_id(doctype, field_value)
         return frappe.get_all(
             doctype, filters={field_name: field_value}, pluck="name", order_by="name asc", limit=3
         )
-
-
-def _names_listing_customer_id(doctype: str, customer_id: str) -> List[str]:
-    """Rows whose ``mollie_customer_id`` lists this id (#2675).
-
-    The field may hold a comma-separated list. The LIKE only narrows the candidates (and would
-    also hit ``cst_123`` for ``cst_12``); the exact per-token test is what decides.
-    """
-    rows = frappe.get_all(
-        doctype,
-        filters={"mollie_customer_id": ["like", f"%{customer_id}%"]},
-        fields=["name", "mollie_customer_id"],
-        order_by="name asc",
-    )
-    return [r.name for r in rows if customer_id in split_mollie_customer_ids(r.mollie_customer_id)][:3]
 
 
 def _ambiguous_result(
