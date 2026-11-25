@@ -151,6 +151,42 @@ class FindOrphansTest(unittest.TestCase):
             self.assertEqual(orphans, {})
 
 
+def _string_literals_in_app_code(root: Path) -> set:
+    """Every str constant in .py under <root>/verenigingen, skipping tests and
+    patches: both merely mention a row by name (a patch seeds/prunes it) without
+    reading it, so they would keep the control green after the reader is gone."""
+    import ast
+
+    found = set()
+    for path in (root / "verenigingen").rglob("*.py"):
+        if {"tests", "patches"} & set(path.relative_to(root).parts):
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        found.update(
+            n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)
+        )
+    return found
+
+
+class AllowlistReadersExistTest(unittest.TestCase):
+    def test_every_allowlisted_name_other_than_the_fallback_has_a_literal_reader(self):
+        literals = _string_literals_in_app_code(corov.REPO_ROOT)
+        for name in sorted(corov.ALLOWLIST - {"_generic_api_fallback"}):
+            self.assertIn(name, literals, f"ALLOWLIST entry {name!r} has no reader literal in app code")
+
+    def test_control_the_literal_scan_misses_a_name_nobody_reads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "verenigingen").mkdir()
+            (root / "verenigingen" / "a.py").write_text('x = "present"\n')
+            lits = _string_literals_in_app_code(root)
+        self.assertIn("present", lits)
+        self.assertNotIn("retry_failed_payment_self", lits)
+
+
 class NewFindingsTest(unittest.TestCase):
     """The baseline comparison itself: a key not in the baseline is 'new'."""
 

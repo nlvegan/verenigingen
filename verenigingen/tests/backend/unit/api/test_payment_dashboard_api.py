@@ -620,23 +620,16 @@ class TestPaymentDashboardAPI(EnhancedTestCase):
     # ------------------------------------------------------------------
 
     def _national_board_member_user(self):
-        """A caller whose Role Profile clears CRITICAL security level but has no
-        Sales Invoice write access -- the specific unauthorized shape
-        retry_failed_payment's own check (frappe.has_permission("Sales
-        Invoice", "write")) cares about.
+        """A caller with a CRITICAL-capable Role Profile but no Sales Invoice write access --
+        the unauthorized shape retry_failed_payment's own check (frappe.has_permission("Sales
+        Invoice", "write") or invoice ownership) cares about.
 
-        Unlike "Verenigingen Chapter Board Member" (HIGH/MEDIUM/LOW only),
-        retry_failed_payment is @critical_api (CRITICAL tier), so the probe
-        needs a Role Profile from ROLE_PROFILE_SECURITY_MAPPING that reaches
-        CRITICAL. Every such profile on this site (checked via `Role
-        Profile.roles`) bundles "Verenigingen Staff" -- so, unlike
-        _board_member_user()'s probe, this one is NOT usable to test
-        validate_member_exists's Roles.ADMIN_ROLES check (it WOULD clear
-        that). "Verenigingen National Board Member" is used here because its
-        bundle carries no Accounts User/Manager, so
-        frappe.has_permission("Sales Invoice", "write") is still False for
-        it -- confirmed below -- isolating retry_failed_payment's OWNERSHIP
-        branch (is_owner, not has_write) from its security-tier gate.
+        retry_failed_payment is LOW tier since #2596 (it was @critical_api), so the tier no
+        longer matters to it; this probe is kept because "Verenigingen National Board Member"
+        bundles no Accounts User/Manager, so frappe.has_permission("Sales Invoice", "write")
+        is False for it -- confirmed below -- isolating the OWNERSHIP branch (is_owner, not
+        has_write). It is NOT usable to test validate_member_exists's Roles.ADMIN_ROLES check:
+        its bundle includes "Verenigingen Staff", which would clear that.
         """
         from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
 

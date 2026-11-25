@@ -16,7 +16,7 @@ from verenigingen.utils.performance_utils import performance_monitor
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
-    critical_api,
+    api_security_framework,
     high_security_api,
     standard_api,
 )
@@ -636,13 +636,68 @@ def _next_payment(member: str = None, caller_cleared_high: bool = False) -> Oper
         return OperationResult.fail(_("Failed to retrieve next payment: {0}").format(str(e)))
 
 
+def _audit_retry_call(result):
+    """Audit the one exit of retry_failed_payment.
+
+    The LOW tier's profile does not audit (requires_audit is False), so this records every
+    outcome, refusals included. A money action must stay in the audit trail (#2596).
+    """
+    get_audit_emitter().log_api_call(
+        func=retry_failed_payment,
+        security_level=SecurityLevel.LOW,
+        success=result.success,
+        error=None if result.success else result.error_message,
+        user=frappe.session.user,
+        args_count=0,
+        kwargs_keys=["invoice_id"],
+    )
+
+
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
+@api_security_framework(security_level=SecurityLevel.LOW, operation_type=OperationType.FINANCIAL)
 def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
     """Manually trigger payment retry"""
+    result = _retry_failed_payment(invoice_id)
+    _audit_retry_call(result)
+    return result
+
+
+def _self_retry_limit_exceeded():
+    """Tick the caller's own-invoice retry bucket (COR retry_failed_payment_self, 5/hour).
+
+    The decorator's bucket (COR retry_failed_payment, 30/hour) is the staff cross-member
+    limit and also a ceiling for everyone; the member's tighter budget lives here because the
+    decorator runs before the endpoint can tell whose invoice it is.
+    """
+    from verenigingen.utils.security.rate_limit_engine import get_rate_limit_engine
+
+    # Fail closed: without its own row the engine silently falls back to the generic
+    # 100/hour limit, which would leave the owner effectively unlimited.
+    # The engine's own lifecycle/test bypass (it limits nothing there) is mirrored: fixtures load after patches.
+    engine_bypassed = any(
+        getattr(frappe.flags, flag, False) for flag in ("in_test", "in_install", "in_migrate", "in_patch")
+    )
+    if not engine_bypassed and not frappe.db.exists(
+        "Critical Operation Rule", {"operation_name": "retry_failed_payment_self", "enabled": 1}
+    ):
+        frappe.log_error(
+            title="retry_failed_payment_self rate limit rule missing",
+            message="Critical Operation Rule 'retry_failed_payment_self' is absent or disabled; "
+            "refusing member self-retries until it is restored (run the split_retry_failed_payment_rate_limits patch).",
+        )
+        return True
+
+    key = f"{__name__}.retry_failed_payment_self"
+    return not get_rate_limit_engine().check_rate_limit(key).allowed
+
+
+def _retry_failed_payment(invoice_id):
     try:
         member = get_member_from_user()
         has_write = frappe.has_permission("Sales Invoice", "write")
+        may_act_for_members = has_write and bool(
+            Roles.PAYMENT_RETRY_ON_BEHALF_ROLES & set(frappe.get_roles())
+        )
 
         # Resolve ownership from a cheap field lookup, not frappe.get_doc, and
         # decide authorization BEFORE deciding whether invoice_id exists at
@@ -664,8 +719,13 @@ def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
         # matching a caller who has no resolved member of their own (None == None).
         is_owner = invoice_member is not None and invoice_member == member
 
-        if not has_write and not is_owner:
+        if not may_act_for_members and not is_owner:
             return OperationResult.fail(_("You don't have permission to retry this payment"))
+
+        # A member retrying their own invoice has the strict self-retry budget; staff acting
+        # cross-member are bounded only by the endpoint's own (higher) COR bucket (#2596).
+        if is_owner and _self_retry_limit_exceeded():
+            return OperationResult.fail(_("Too many retry attempts. Please try again later."))
 
         if not invoice_exists:
             return OperationResult.fail(_("Invoice not found"))
@@ -678,27 +738,15 @@ def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
         if existing_retry:
             return OperationResult.fail(_("This payment is already scheduled for retry"))
 
+        # Retries are exhausted and staff were told; every further call would re-escalate
+        if frappe.db.exists("SEPA Payment Retry", {"invoice": invoice_id, "status": "Escalated"}):
+            return OperationResult.fail(_("This payment has been escalated for manual review"))
+
         # Schedule retry
         from verenigingen.utils.payment_retry import PaymentRetryManager
 
         retry_manager = PaymentRetryManager()
-        try:
-            result = retry_manager._schedule_retry(invoice_id, "MANUAL", "Manual retry requested by member")
-        except Exception as e:
-            # The handler below returns the failure, so critical_api would audit this call as a
-            # success. Before #2280 the nested critical schedule_retry audited the raise as
-            # api_call_failed (the #352 N1 class); record it here through the decorators' emitter.
-            get_audit_emitter().log_api_call(
-                func=retry_failed_payment,
-                security_level=SecurityLevel.CRITICAL,
-                success=False,
-                error=str(e),
-                user=frappe.session.user,
-                args_count=0,
-                kwargs_keys=["invoice_id"],
-            )
-            raise
-
+        result = retry_manager._schedule_retry(invoice_id, "MANUAL", "Manual retry requested by member")
         if result["scheduled"]:
             data = {"next_retry": result["next_retry"]}
             return OperationResult.ok(data, message=result["message"])

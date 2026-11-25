@@ -40,6 +40,9 @@ class Roles:
 
     # Role groups for common permission checks (frozenset prevents accidental mutation)
     ADMIN_ROLES: FrozenSet[str] = frozenset({SYSTEM_MANAGER, VERENIGINGEN_ADMIN, VERENIGINGEN_STAFF})
+    # Who may retry a failed payment on behalf of another member (#2596 ruling, 2026-11-25):
+    # the admin set plus the Treasurer.
+    PAYMENT_RETRY_ON_BEHALF_ROLES: FrozenSet[str] = ADMIN_ROLES | frozenset({TREASURER})
     ADMIN_PAIR: FrozenSet[str] = frozenset({SYSTEM_MANAGER, VERENIGINGEN_ADMIN})
 
     VOLUNTEER_ADMIN_ROLES: FrozenSet[str] = frozenset(

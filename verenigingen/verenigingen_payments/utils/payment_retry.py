@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, getdate, now_datetime, today
+from frappe.utils import add_days, flt, getdate, now_datetime, today
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.notification_helpers import resolve_admin_recipients
@@ -40,11 +40,26 @@ class PaymentRetryManager:
         return self._schedule_retry(failed_invoice, reason_code, reason_message)
 
     def _schedule_retry(self, failed_invoice, reason_code=None, reason_message=None):
-        # Undecorated body: api.payment_dashboard.retry_failed_payment (itself @critical_api)
-        # calls this so one manual retry is one audit row and one rate-limit bucket (#2280).
+        # Undecorated body: api.payment_dashboard.retry_failed_payment calls this so one manual
+        # retry is one audit row and one rate-limit bucket (#2280).
+
+        # The callers authorize before reaching here (a retry is also scheduled on behalf of
+        # the invoice's own member, who holds no write access to SEPA Payment Retry, #2596),
+        # so the record writes below skip the doc-level permission check.
+
+        # Only a submitted invoice with something still owing can be retried (#2596 review)
+        docstatus, outstanding = frappe.db.get_value(
+            "Sales Invoice", failed_invoice, ["docstatus", "outstanding_amount"]
+        ) or (None, 0)
+        if docstatus != 1 or flt(outstanding) <= 0:
+            return {"scheduled": False, "message": _("This invoice has no outstanding amount to retry")}
 
         # Get or create retry record
         retry_record = self.get_or_create_retry_record(failed_invoice)
+
+        # Already escalated: staff were told once; do not escalate (and mail them) again
+        if retry_record.status == "Escalated":
+            return {"scheduled": False, "message": _("This payment has been escalated for manual review")}
 
         if retry_record.retry_count >= self.retry_config["max_retries"]:
             self.escalate_payment_failure(retry_record)
@@ -71,7 +86,7 @@ class PaymentRetryManager:
             },
         )
 
-        retry_record.save()
+        retry_record.save(ignore_permissions=True)
 
         # Create scheduled job
         self.create_retry_job(retry_record)
@@ -116,7 +131,7 @@ class PaymentRetryManager:
         retry_doc.original_amount = invoice.outstanding_amount
         retry_doc.retry_count = 0
         retry_doc.status = "Pending"
-        retry_doc.insert()
+        retry_doc.insert(ignore_permissions=True)
 
         return retry_doc
 
@@ -179,7 +194,7 @@ class PaymentRetryManager:
         # Use frappe.enqueue instead of Scheduled Job Type which has a different schema
         # This is simpler and doesn't require custom fields on core DocTypes
         retry_record.status = "Scheduled"
-        retry_record.save()
+        retry_record.save(ignore_permissions=True)
 
         try:
             frappe.enqueue(
@@ -192,7 +207,7 @@ class PaymentRetryManager:
         except Exception:
             frappe.log_error("Payment retry enqueue failed", f"Retry record: {retry_record.name}")
             retry_record.status = "Pending"
-            retry_record.save()
+            retry_record.save(ignore_permissions=True)
             return {"job_scheduled": False, "retry_record": retry_record.name}
 
         return {"job_scheduled": True, "retry_record": retry_record.name}
@@ -201,7 +216,7 @@ class PaymentRetryManager:
         """Escalate payment failure after max retries"""
         retry_record.status = "Escalated"
         retry_record.escalated_on = now_datetime()
-        retry_record.save()
+        retry_record.save(ignore_permissions=True)
 
         # Send notification to administrators
         self.send_escalation_notification(retry_record)
@@ -215,7 +230,7 @@ class PaymentRetryManager:
         if retry_record.membership:
             membership = frappe.get_doc("Membership", retry_record.membership)
             membership.add_comment("Comment", comment)
-            membership.save()
+            membership.save(ignore_permissions=True)
         else:
             retry_record.add_comment("Comment", comment)
 

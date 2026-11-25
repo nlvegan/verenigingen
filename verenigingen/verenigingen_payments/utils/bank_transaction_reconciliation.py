@@ -2872,7 +2872,14 @@ def handle_payment_rejection(end_to_end_id, reason_code, reason_text):
     from verenigingen.verenigingen_payments.utils.payment_retry import PaymentRetryManager
 
     retry_manager = PaymentRetryManager()
-    retry_manager.schedule_retry(invoice_name, reason_code, reason_text)
+    outcome = retry_manager.schedule_retry(invoice_name, reason_code, reason_text)
+    # The caller (pain.002 import) has no use for the outcome, so a refused retry (paid or
+    # cancelled invoice, already escalated; #2596) would otherwise vanish without a trace.
+    if not outcome.get("scheduled"):
+        frappe.log_error(
+            title="SEPA rejection: retry not scheduled",
+            message=f"Invoice {invoice_name}, reason {reason_code}: {outcome.get('message')}",
+        )
 
 
 def mark_payment_successful(end_to_end_id):
