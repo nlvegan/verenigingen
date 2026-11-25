@@ -26,6 +26,7 @@ from frappe.utils import get_datetime, now_datetime
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.client_ip import get_client_ip_or_none
+from verenigingen.utils.security.constant_time import safe_compare_digest
 
 
 class MollieSecurityManager:
@@ -86,7 +87,7 @@ class MollieSecurityManager:
         ).hexdigest()
 
         # Use constant-time comparison to prevent timing attacks
-        is_valid = hmac.compare_digest(signature, expected_signature)
+        is_valid = safe_compare_digest(signature, expected_signature)
 
         if not is_valid:
             self._create_security_alert(

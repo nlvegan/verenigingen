@@ -5,12 +5,12 @@ Provides secure webhook signature verification to ensure webhook requests
 actually originate from Mollie and prevent malicious attacks.
 """
 
-import hmac
 from typing import Optional
 
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+from verenigingen.utils.security.constant_time import safe_compare_digest
 from verenigingen.verenigingen_payments.utils.shared.responses import compute_hmac_signature
 from verenigingen.verenigingen_payments.utils.webhook_ack import log_error_once
 
@@ -134,7 +134,7 @@ def verify_mollie_webhook_signature(payload: str, signature_header: Optional[str
         expected_signature_header = f"sha256={expected_signature}"
 
         # Use constant-time comparison to prevent timing attacks
-        is_valid = hmac.compare_digest(signature_header, expected_signature_header)
+        is_valid = safe_compare_digest(signature_header, expected_signature_header)
 
         if is_valid:
             frappe.logger().info("✅ Webhook signature verified successfully")

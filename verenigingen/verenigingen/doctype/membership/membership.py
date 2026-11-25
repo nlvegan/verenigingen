@@ -15,6 +15,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.security.constant_time import safe_compare_digest
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
@@ -1045,7 +1046,7 @@ def verify_signature(data, signature, secret_key=None):
     # Create signature
     computed_signature = hmac.new(secret_key, data, hashlib.sha256).hexdigest()
     # Compare signatures (using constant-time comparison to prevent timing attacks)
-    return hmac.compare_digest(computed_signature, signature)
+    return safe_compare_digest(computed_signature, signature)
 
 
 @frappe.whitelist()

@@ -13,6 +13,8 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.constant_time import safe_compare_digest
+
 from ..exceptions import MollieSecurityError
 
 
@@ -92,7 +94,7 @@ class WebhookSecurityManager:
         expected_signature = self._calculate_signature(payload, webhook_secret)
 
         # Compare signatures securely
-        return hmac.compare_digest(signature, expected_signature)
+        return safe_compare_digest(signature, expected_signature)
 
     def _calculate_signature(self, payload: str, secret: str) -> str:
         """
