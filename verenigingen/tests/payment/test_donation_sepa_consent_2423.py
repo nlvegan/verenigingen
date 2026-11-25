@@ -7,6 +7,7 @@ this test does not own); everything after it is real.
 """
 
 import json
+import os
 from unittest.mock import patch
 
 import frappe
@@ -260,3 +261,66 @@ class TestDonationSepaConsent2423(PortalSelfServiceTestMixin, EnhancedTestCase):
         from verenigingen.templates.pages.donate import submit_donation
 
         self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[submit_donation], ["POST"])
+
+    # ---- the real browser payload (#2423): keys come from donation_form.js itself ----
+
+    def _browser_sepa_payload_2423(self, hash_value=None):
+        """The field set donation_form.js posts for SEPA, built from the names it renders.
+
+        Names are read out of the JS's own SEPA template literal, values are what the page
+        would put there: the hash from the rendered donate.html source element, the tick as
+        the checkbox boolean collectAllStepData() sends.
+        """
+        import re
+
+        import verenigingen
+
+        js_path = os.path.join(os.path.dirname(verenigingen.__file__), "public", "js", "donation_form.js")
+        with open(js_path, encoding="utf-8") as handle:
+            js = handle.read()
+        block = js.split("case 'SEPA Direct Debit':", 1)[1].split("case '", 1)[0]
+        names = set(re.findall(r"""<input[^>]*\bname=["']([A-Za-z_]\w*)["']""", block))
+        self.assertTrue({"donor_iban", "sepa_consent", "sepa_consent_text_hash"} <= names, names)
+        from verenigingen.templates.pages import donate
+
+        context = frappe._dict()
+        donate.get_context(context)
+        values = {
+            "donor_iban": self.iban,
+            "sepa_consent": True,
+            "sepa_consent_text_hash": context.mandate_consent_text_hash if hash_value is None else hash_value,
+        }
+        payload = {name: values[name] for name in names if name in values}
+        payload.update(
+            {
+                "donor_name": self.holder,
+                "donor_email": f"browser2423.{frappe.generate_hash(length=6)}@example.com",
+                "amount": 15,
+                "payment_method": "SEPA Direct Debit",
+            }
+        )
+        return frappe._dict(payload)
+
+    def _submit_browser_payload_2423(self, payload):
+        from verenigingen.services.donation.public_donation_service import get_public_donation_service
+
+        with self._as_user("Guest"):
+            return get_public_donation_service().submit(payload)
+
+    def test_the_browser_payload_with_the_right_hash_is_accepted(self):
+        result = self._submit_browser_payload_2423(self._browser_sepa_payload_2423())
+        self.assertTrue(result["success"], result)
+        self.assertEqual(len(self._mandates_2423()), 1)
+
+    def test_the_browser_payload_without_a_hash_is_refused(self):
+        payload = self._browser_sepa_payload_2423()
+        del payload["sepa_consent_text_hash"]
+        result = self._submit_browser_payload_2423(payload)
+        self.assertFalse(result["success"], result)
+        self.assertEqual(self._mandates_2423(), [])
+
+    def test_the_browser_payload_with_a_wrong_hash_is_refused(self):
+        for bad in (hash_consent_text("some older mandate text"), ""):
+            result = self._submit_browser_payload_2423(self._browser_sepa_payload_2423(hash_value=bad))
+            self.assertFalse(result["success"], result)
+        self.assertEqual(self._mandates_2423(), [])
