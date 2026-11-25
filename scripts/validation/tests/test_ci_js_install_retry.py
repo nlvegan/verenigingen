@@ -137,6 +137,86 @@ class PipInstallRetryTests(unittest.TestCase):
         self.assertEqual(rc, 5)
 
 
+class PipFinalFailureClassificationTests(unittest.TestCase):
+    """#2910 review: the FINAL failure decides; a bare retry line / fetch error is not a transport cause."""
+
+    _BLIP = "WARNING: Retrying (Retry(total=4)) after connection broken by 'ReadTimeoutError(Read timed out.)'\n"
+
+    def _assert_real(self, text):
+        rc, out = _pip([(1, text)] * 3)
+        self.assertIn("ATTEMPTS=1", out)
+        self.assertIn("GAVE_UP=0", out)
+        self.assertNotIn("infrastructure failure", out)
+        self.assertEqual(rc, 1)
+
+    def test_blip_then_real_conflict_is_not_infra(self):
+        self._assert_real(self._BLIP + "ERROR: Cannot install a and b because these package versions have conflicting dependencies.\n")
+
+    def test_git_404_is_not_infra(self):
+        self._assert_real("fatal: unable to access 'https://github.com/x/y/': The requested URL returned error: 404\n")
+
+    def test_git_403_is_not_infra(self):
+        self._assert_real("fatal: unable to access 'https://github.com/x/y/': The requested URL returned error: 403\n")
+
+    def test_pypi_404_then_no_matching_distribution_is_not_infra(self):
+        self._assert_real(
+            "WARNING: Retrying (Retry(total=4)) after connection broken\n"
+            "ERROR: HTTP error 404 while getting https://pypi.org/simple/nosuch/\n"
+            "ERROR: Could not install requirement nosuch because of HTTP error 404 Client Error: Not Found for url\n"
+            "WARNING: Could not fetch URL https://pypi.org/simple/nosuch/: 404 Client Error\n"
+            "ERROR: No matching distribution found for nosuch\n"
+        )
+
+    def test_bare_retry_line_without_a_cause_is_not_infra(self):
+        self._assert_real("WARNING: Retrying (Retry(total=4)) after something\nERROR: No matching distribution found for x\n")
+
+
+def _extract_pip_step_script():
+    text = _ACTION.read_text()
+    start = text.index("    - name: Install Python Dependencies")
+    body = text[start:].split("      run: |\n", 1)[1].split("\n    - name:", 1)[0]
+    lines = [ln[8:] if ln.startswith("        ") else ln for ln in body.splitlines()]
+    return "\n".join(lines)
+
+
+class PipStepFailsClosedTests(unittest.TestCase):
+    """Run the REAL "Install Python Dependencies" step body under `bash -eo pipefail` with a fake pip."""
+
+    def _run_step(self, pip_output):
+        script = _extract_pip_step_script()
+        script = script.replace("${{ github.action_path }}", str(_LIB.parent))
+        script = script.replace("${{ inputs.enable-coverage }}", "false")
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            (ws / "env" / "bin").mkdir(parents=True)
+            (ws / "env" / "bin" / "activate").write_text("")
+            (ws / "sites").mkdir()
+            (ws / "apps" / "demo").mkdir(parents=True)
+            (ws / "apps" / "demo" / "pyproject.toml").write_text("")
+            fake = ws / "bin"
+            fake.mkdir()
+            (fake / "pip").write_text(f"#!/bin/bash\ncat <<'EOF'\n{pip_output}EOF\nexit 1\n")
+            (fake / "pip").chmod(0o755)
+            (fake / "sleep").write_text("#!/bin/bash\nexit 0\n")
+            (fake / "sleep").chmod(0o755)
+            env = {**os.environ, "GITHUB_WORKSPACE": str(ws), "PATH": f"{fake}:{os.environ['PATH']}",
+                   "CI_JS_INSTALL_ATTEMPTS": "2", "CI_JS_INSTALL_BACKOFF": "0"}
+            p = subprocess.run(["bash", "-eo", "pipefail", "-c", script + "\necho STEP_CONTINUED"],
+                               capture_output=True, text=True, env=env, cwd=ws)
+            return p.returncode, p.stdout + p.stderr
+
+    def test_step_stops_after_a_network_give_up(self):
+        rc, out = self._run_step("WARNING: ReadTimeoutError: Read timed out.\n")
+        self.assertNotIn("STEP_CONTINUED", out)
+        self.assertNotEqual(rc, 0)
+        self.assertIn("infrastructure failure", out)
+
+    def test_step_stops_after_a_real_failure_of_both_installs(self):
+        rc, out = self._run_step("ERROR: Cannot install a and b because these package versions have conflicting dependencies.\n")
+        self.assertNotIn("STEP_CONTINUED", out)
+        self.assertNotEqual(rc, 0)
+
+
 class ActionUsesTheGuardTests(unittest.TestCase):
     def test_action_wraps_the_install_and_keeps_the_yarn_npm_fallback(self):
         text = _ACTION.read_text()

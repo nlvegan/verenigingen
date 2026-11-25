@@ -466,9 +466,11 @@ runs:
             echo "Installing Python dependencies for ${app_name}"
             # The extras-less fallback is for a missing extra only: after a network give-up it
             # would just repeat the same doomed round and a second ::error::.
-            ci_retry_pip_install "${app_name}[dev,test]" pip install --upgrade -e "${app}[dev,test]" \
-              || { [ "$CI_RETRY_GAVE_UP_ON_NETWORK" != 1 ] \
-                   && ci_retry_pip_install "${app_name}" pip install --upgrade -e "${app}"; }
+            # An explicit if/exit: under `bash -e` a failing `&&` list inside `||` does NOT stop the step.
+            if ! ci_retry_pip_install "${app_name}[dev,test]" pip install --upgrade -e "${app}[dev,test]"; then
+              [ "$CI_RETRY_GAVE_UP_ON_NETWORK" != 1 ] || exit 1
+              ci_retry_pip_install "${app_name}" pip install --upgrade -e "${app}" || exit 1
+            fi
           fi
           echo "$app_name" >> sites/apps.txt
         done

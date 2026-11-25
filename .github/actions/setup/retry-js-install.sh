@@ -19,7 +19,12 @@ _CI_JS_TRANSIENT='npm error code (ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|EN
 # on an index 5xx it prints only "No matching distribution found" (measured against a local 502 server:
 # output identical to a real missing pin), so that case has no network signature and is not retried
 # here. What does leave a signature: connection resets/timeouts/DNS and a failed git fetch.
-_CI_PIP_TRANSIENT='Retrying \(Retry|ReadTimeoutError|ConnectTimeoutError|ConnectionResetError|Connection reset by peer|Connection aborted|RemoteDisconnected|IncompleteRead|Read timed out|Temporary failure in name resolution|Network is unreachable|Could not fetch URL|Max retries exceeded|Could not resolve host|RPC failed|early EOF|fatal: unable to access|HTTP error 5[0-9][0-9]|50[0234] (Bad Gateway|Service Unavailable|Gateway Time-out)'
+_CI_PIP_TRANSIENT='ReadTimeoutError|ConnectTimeoutError|ConnectionResetError|Connection reset by peer|Connection refused|Connection aborted|RemoteDisconnected|IncompleteRead|Read timed out|timed out|Temporary failure in name resolution|Network is unreachable|Could not resolve host|Max retries exceeded|RPC failed|early EOF|HTTP error 5[0-9][0-9]|returned error: 5[0-9][0-9]|50[0234] (Bad Gateway|Service Unavailable|Gateway Time-out)'
+# A transport line only counts if the log does not go on to show a real failure AFTER it (a blip that
+# pip retried past, then a conflict / 4xx / missing repo): the FINAL failure decides, not any earlier
+# retry warning. A bare `Retrying (Retry`, `Could not fetch URL` or `fatal: unable to access` carries no
+# cause, so none of them is a transport signature on its own.
+_CI_PIP_REAL='conflicting dependencies|ResolutionImpossible|Cannot install |HTTP error 4[0-9][0-9]|returned error: 4[0-9][0-9]|4[0-9][0-9] Client Error|Repository not found|repository .* not found'
 
 # Set to 1 when the last ci_retry_* call gave up on a network error, so a caller's `|| fallback` can skip
 # a second, equally doomed round.
@@ -32,7 +37,17 @@ ci_retry_js_install() {
 
 ci_retry_pip_install() {
   local label="$1"; shift
-  _ci_retry_install "Python dependency" "$_CI_PIP_TRANSIENT" "$label" "$@"
+  _CI_REAL_AFTER="$_CI_PIP_REAL" _ci_retry_install "Python dependency" "$_CI_PIP_TRANSIENT" "$label" "$@"
+}
+
+# True when the log has a transport line and no "real" line after the last one (real pattern optional).
+_ci_log_is_network() {
+  local log="$1" pattern="$2" real="$3" t r
+  t="$(grep -En "$pattern" "$log" | tail -n1 | cut -d: -f1)"
+  [ -n "$t" ] || return 1
+  [ -n "$real" ] || return 0
+  r="$(grep -En "$real" "$log" | tail -n1 | cut -d: -f1)"
+  [ -z "$r" ] || [ "$r" -lt "$t" ]
 }
 
 _ci_retry_install() {
@@ -46,7 +61,7 @@ _ci_retry_install() {
     "$@" >"$log" 2>&1 || rc=$?
     cat "$log"
     if [ "$rc" -eq 0 ]; then rm -f "$log"; return 0; fi
-    if ! grep -Eq "$pattern" "$log"; then
+    if ! _ci_log_is_network "$log" "$pattern" "${_CI_REAL_AFTER:-}"; then
       echo "${kind} install for ${label} failed (exit ${rc}) with no network signature: a real dependency error, not retried."
       rm -f "$log"
       return "$rc"
