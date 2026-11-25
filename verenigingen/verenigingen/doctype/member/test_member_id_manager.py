@@ -225,6 +225,48 @@ class TestMemberIDManager(EnhancedTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(cint(frappe.cache().get(COUNTER_KEY)), target)
 
+    # ---- #2316: a reset moves the REAL counter, and only upward
+    def _issue_ids_and_return_last(self, count=3):
+        """Issue real IDs from a counter preset well above the data; return the last."""
+        MemberIDManager.get_next_member_id()  # make sure the Singles row exists
+        base = max(MemberIDManager._get_max_numeric_member_id(), 1000) + 20
+        self._set_singles_counter(base)
+        last = base
+        for _ in range(count):
+            last = MemberIDManager.get_next_member_id()
+        return last
+
+    def test_reset_counter_raises_the_persisted_counter_not_just_the_cache(self):
+        issued = self._issue_ids_and_return_last()
+        target = issued + 500
+        reset_member_id_counter(target)
+        self.assertEqual(self._get_singles_counter(), target)
+        self.assertEqual(MemberIDManager.get_next_member_id(), target + 1)
+
+    def test_reset_counter_refuses_to_lower_and_never_reissues_an_id(self):
+        issued = self._issue_ids_and_return_last()
+        with self.assertRaises(frappe.ValidationError):
+            reset_member_id_counter(issued - 1)
+        self.assertEqual(self._get_singles_counter(), issued)
+        self.assertEqual(cint(frappe.cache().get(COUNTER_KEY)), issued)
+        self.assertEqual(MemberIDManager.get_next_member_id(), issued + 1)
+
+    def test_reset_counter_refuses_below_the_highest_member_id_even_if_counter_drifted(self):
+        """The stored counter can lag the data (CSV import); the guard uses the higher."""
+        MemberIDManager.get_next_member_id()
+        top = max(MemberIDManager._get_max_numeric_member_id(), 1000) + 50000
+        self._make_member_with_id(top)
+        self._set_singles_counter(top - 40000)  # drifted behind the real member
+        with self.assertRaises(frappe.ValidationError):
+            reset_member_id_counter(top - 10)
+        self.assertEqual(self._get_singles_counter(), top - 40000)
+
+    def test_reset_counter_to_the_current_value_is_allowed_and_changes_nothing(self):
+        issued = self._issue_ids_and_return_last()
+        reset_member_id_counter(issued)
+        self.assertEqual(self._get_singles_counter(), issued)
+        self.assertEqual(MemberIDManager.get_next_member_id(), issued + 1)
+
     def test_reset_counter_blocks_non_system_manager(self):
         with self.as_user("Guest"):
             with self.assertRaises((frappe.PermissionError, frappe.ValidationError)):

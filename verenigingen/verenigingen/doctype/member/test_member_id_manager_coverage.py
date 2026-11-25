@@ -84,21 +84,6 @@ class TestMemberIDManagerCoverage(EnhancedTestCase):
             with self.assertRaises((frappe.PermissionError, frappe.ValidationError)):
                 migrate_member_id_counter()
 
-    # ------------------------------------------------------------ reset conflict warning
-
-    def test_reset_counter_warns_on_existing_id_at_or_above_target(self):
-        start = cint(frappe.db.get_single_value(DOCTYPE, "member_id_start")) or 1000
-        # Create a member with a high numeric id, then reset the counter to a value
-        # AT or BELOW that id (but >= minimum) so the conflict-warning branch fires.
-        high = max(start, MemberIDManager._get_max_numeric_member_id()) + 50000
-        self._make_member_with_id(high)
-        # Reset to high - 10: still >= minimum, and an id (high) exists >= target,
-        # triggering the msgprint warning path without raising.
-        target = high - 10
-        result = reset_member_id_counter(target)
-        self.assertTrue(result["success"])
-        self.assertEqual(cint(frappe.cache().get("member_id_counter")), target)
-
     # ------------------------------------------------------------ statistics no-data branch
 
     def test_statistics_gap_branch_present(self):

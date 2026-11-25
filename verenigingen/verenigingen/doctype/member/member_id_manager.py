@@ -152,7 +152,15 @@ class MemberIDManager:
     @staticmethod
     def reset_counter(new_value):
         """
-        Reset the counter to a specific value
+        Raise the REAL counter (``last_member_id`` in tabSingles) to ``new_value``.
+
+        Maintainer ruling 2026-11-25 (#2316): a reset only moves the counter UP,
+        never down, so no member ID is ever re-issued. A value below the effective
+        counter (the stored value or the highest numeric member_id, whichever is
+        higher: the same self-heal as ``get_next_member_id``) is refused.
+        The counter holds the LAST ASSIGNED id, so the next new Member gets
+        ``new_value + 1``. The row is locked FOR UPDATE like the issuer's.
+
         Args:
             new_value (int): New counter value to set
         """
@@ -166,32 +174,36 @@ class MemberIDManager:
         if new_value < min_value:
             frappe.throw(_("Counter value cannot be less than the configured minimum: {0}").format(min_value))
 
-        # Check if new value conflicts with existing member IDs
-        existing_conflict = frappe.db.sql(
-            """
-            SELECT member_id
-            FROM `tabMember`
-            WHERE member_id IS NOT NULL
-            AND CAST(member_id AS UNSIGNED) >= %s
-            ORDER BY CAST(member_id AS UNSIGNED) ASC
-            LIMIT 1
-        """,
-            (new_value,),
-            as_dict=True,
+        doctype_name = "Verenigingen Settings"
+        field_name = "last_member_id"
+        row = frappe.db.sql(
+            "SELECT value FROM `tabSingles` WHERE doctype = %s AND field = %s FOR UPDATE",
+            (doctype_name, field_name),
         )
+        stored = cint(row[0][0]) if row else 0
+        current = max(stored, MemberIDManager._get_max_numeric_member_id())
 
-        if existing_conflict:
-            frappe.msgprint(
+        if new_value < current:
+            frappe.throw(
                 _(
-                    "Warning: Counter reset to {0}, but member ID {1} already exists. "
-                    "This may cause conflicts."
-                ).format(new_value, existing_conflict[0].member_id),
-                indicator="orange",
+                    "The member ID counter can only be raised, never lowered: it is already at {0}, "
+                    "so lowering it to {1} could issue an ID twice."
+                ).format(current, new_value)
             )
 
-        # Reset the cache counter
-        counter_key = "member_id_counter"
-        frappe.cache().set(counter_key, new_value)
+        if row:
+            frappe.db.sql(
+                "UPDATE `tabSingles` SET value = %s WHERE doctype = %s AND field = %s",
+                (new_value, doctype_name, field_name),
+            )
+        else:
+            frappe.db.sql(
+                "INSERT INTO `tabSingles` (doctype, field, value) VALUES (%s, %s, %s)",
+                (doctype_name, field_name, new_value),
+            )
+
+        # The cache mirrors the real counter (display only, never read for issuing).
+        frappe.cache().set("member_id_counter", new_value)
 
         frappe.msgprint(_("Member ID counter reset to {0}").format(new_value), indicator="green")
 
