@@ -332,6 +332,26 @@ class Chapter(Document):
                 continue  # deleted first: no member, no user, nothing left to withdraw from
             _withdraw_access_without_chapter(volunteer)
 
+    def before_rename(self, old_name, new_name, merge=False):
+        """Refuse a merge-rename while any board seat is held (#2789).
+
+        A merge repoints the links and then deletes this chapter, which withdraws the
+        holders' board access (#2147) but leaves their Volunteer Assignment history Active at
+        the target chapter, where they hold no seat. Maintainer ruling 2026-11-25: staff end
+        or transfer the seats first. Runs before any link is repointed; a plain rename is
+        unaffected.
+        """
+        if not merge:
+            return
+        held = [row for row in self.get("board_members") or [] if row.is_active]
+        if held:
+            frappe.throw(
+                _(
+                    "Cannot merge chapter {0}: {1} board seat(s) are still held. End or transfer them first."
+                ).format(old_name, len(held)),
+                title=_("Board seats held"),
+            )
+
     def after_rename(self, old_name, new_name, merge=False):
         """Handle department renaming when chapter is renamed.
 
