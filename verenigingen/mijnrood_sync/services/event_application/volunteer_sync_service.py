@@ -298,6 +298,15 @@ class MijnRoodVolunteerSyncService:
             )
             return _("Chapter Role '{0}' does not exist").format(chapter_role)
 
+        # An inactive Chapter Role confers nothing (#2958), so seating a member under one is a silent
+        # no-op that the consumed event can never repair: refuse and tell staff (#2504, ruling a).
+        if not frappe.db.get_value("Chapter Role", chapter_role, "is_active"):
+            self.logger.warning("Chapter Role '%s' is not active, skipping board assignment", chapter_role)
+            get_related_records_orchestrator().alert_role_mapping_invalid(
+                "Chapter Role", chapter_role, "is not active", member_name, event
+            )
+            return _("Chapter Role '{0}' is not active").format(chapter_role)
+
         # Check if already on this chapter's board (active)
         chapter_doc = frappe.get_doc("Chapter", chapter_name)
         for bm in chapter_doc.board_members or []:
