@@ -69,6 +69,12 @@ class MemberRoleService(StatelessService):
             if not frappe.has_permission("User", "write"):
                 frappe.throw(_("Insufficient permissions to modify user roles"))
 
+            # #3217: this method REPLACES every role, so it must never touch a staff
+            # account. Refused here (None return, like every other failure) instead of
+            # relying on callers to only pass NEW member accounts.
+            if self._is_staff_account(user_name):
+                frappe.throw(_("Refusing to replace the roles of staff account {0}").format(user_name))
+
             # Use provided role profile or default to Verenigingen Member
             if not role_profile_name:
                 role_profile_name = "Verenigingen Member"
@@ -132,6 +138,17 @@ class MemberRoleService(StatelessService):
                 f"Error adding roles to user {user_name}: {str(e)}\n\nTraceback: {frappe.get_traceback()}"
             )
             return None
+
+    @staticmethod
+    def _is_staff_account(user_name: str) -> bool:
+        """Administrator, or any user holding System Manager (Has Role rows, not just cached roles)."""
+        if user_name == "Administrator":
+            return True
+        return bool(
+            frappe.db.exists(
+                "Has Role", {"parent": user_name, "parenttype": "User", "role": "System Manager"}
+            )
+        )
 
     def _assign_individual_member_roles(self, user_name: str) -> str:
         """
