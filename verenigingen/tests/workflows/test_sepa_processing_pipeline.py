@@ -11,6 +11,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 import unittest
 
+CI_ALWAYS_SKIPS = "whole class @unittest.skip'd: imagined Direct Debit Batch schema; faithful rewrite is a follow-up"
+
 
 @unittest.skip(
     "Tests an imagined Direct Debit Batch schema/behavior that does not exist in "
