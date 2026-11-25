@@ -18,6 +18,7 @@
 /* global describe, it, expect */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const acorn = require('acorn');
 
@@ -82,8 +83,10 @@ function walk(node, ancestors, visit) {
 	ancestors.pop();
 }
 
-function findUnguardedErrorReads(source) {
-	const ast = acorn.parse(source, { ecmaVersion: 'latest', sourceType: 'script', locations: true });
+// Scope: only the receiver name `r` and the non-computed form `r.message.error` are checked
+// (not `response.message.error`, `r['message']`, or an aliased `const m = r.message`).
+function findUnguardedErrorReads(source, sourceType = 'script') {
+	const ast = acorn.parse(source, { ecmaVersion: 'latest', sourceType, locations: true });
 	const found = [];
 	walk(ast, [], (node, ancestors) => {
 		const isErrorRead =
@@ -95,6 +98,30 @@ function findUnguardedErrorReads(source) {
 		if (isErrorRead && !isGuarded(node, ancestors)) found.push(node.loc.start.line);
 	});
 	return found;
+}
+
+// Try script, retry as ES module, else record as unparsed (never silently skip a file).
+function scanFiles(files) {
+	const offenders = [];
+	const unparsed = [];
+	let parsed = 0;
+	files.forEach((file) => {
+		const source = fs.readFileSync(file, 'utf8');
+		let lines;
+		try {
+			lines = findUnguardedErrorReads(source, 'script');
+		} catch (scriptError) {
+			try {
+				lines = findUnguardedErrorReads(source, 'module');
+			} catch (moduleError) {
+				unparsed.push(`${path.relative(APP_ROOT, file)}: ${moduleError.message}`);
+				return;
+			}
+		}
+		parsed += 1;
+		lines.forEach((line) => offenders.push(`${path.relative(APP_ROOT, file)}:${line}`));
+	});
+	return { offenders, unparsed, parsed };
 }
 
 describe('r.message.error census (#1476)', () => {
@@ -111,17 +138,24 @@ describe('r.message.error census (#1476)', () => {
 		good.forEach((src) => expect(findUnguardedErrorReads(src)).toEqual([]));
 	});
 
-	it('no client script reads r.message.error without proving r.message is truthy', () => {
-		const offenders = [];
-		listJsFiles(APP_ROOT).forEach((file) => {
-			let lines;
-			try {
-				lines = findUnguardedErrorReads(fs.readFileSync(file, 'utf8'));
-			} catch (e) {
-				return; // not parseable as a plain script (ES module / template); out of scope
-			}
-			lines.forEach((line) => offenders.push(`${path.relative(APP_ROOT, file)}:${line}`));
-		});
-		expect(offenders).toEqual([]);
+	it('flags a file that cannot be parsed instead of silently passing it (control)', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'census-'));
+		const broken = path.join(dir, 'broken.js');
+		fs.writeFileSync(broken, 'function ( {{ r.message.error');
+		const esm = path.join(dir, 'esm.js');
+		fs.writeFileSync(esm, "import x from './y.js';\nf(r => { x(r.message.error); });");
+		const result = scanFiles([broken, esm]);
+		expect(result.unparsed).toHaveLength(1);
+		expect(result.unparsed[0]).toContain('broken.js');
+		expect(result.parsed).toBe(1); // the ES module parsed on retry
+		expect(result.offenders).toHaveLength(1); // ...and its unguarded read was found
+	});
+
+	it('every scanned client script parses and none reads r.message.error unguarded', () => {
+		const files = listJsFiles(APP_ROOT);
+		const result = scanFiles(files);
+		expect(result.unparsed).toEqual([]);
+		expect(result.parsed).toBe(files.length);
+		expect(result.offenders).toEqual([]);
 	});
 });
