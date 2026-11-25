@@ -8,9 +8,9 @@ a Verenigingen Administrator. Where that profile may not delete a Customer, an a
 shows up as a refusal (``DONOR_CUSTOMER_UNLINK_ERROR``, unlink rolled back); where it may, it
 really removes the Customer (the data-loss path). The test reads which applies.
 
-On a fresh install (CI) ``custom_docperm_setup.apply_custom_permissions`` writes Customer Custom
-DocPerm rows, so only Sales Master Manager can delete and CI always takes the refused branch; the
-real-delete branch runs only on a site that grants the admin Customer delete.
+Since #2328 ``custom_docperm_setup.apply_custom_permissions`` grants Customer delete to the
+Verenigingen Administrator role, so a migrated site takes the real-delete branch; the refused
+branch runs only on a site that has not applied the grant yet.
 
 Donors/Customers are committed because the WSGI child is another DB connection; removed afterwards.
 
