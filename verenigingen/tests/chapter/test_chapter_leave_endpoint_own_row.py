@@ -56,7 +56,6 @@ class TestChapterOwnRowLeaveAndRejoin(EnhancedTestCase):
                     member_name=member_name, chapter_name=self.chapter.name, leave_reason="moving"
                 )
         except frappe.PermissionError as exc:
-            # #2456: the self-service gate now refuses a foreign or unknown id by raising.
             response = (type(exc).__name__, str(exc))
         return response, list(frappe.local.message_log), frappe.db.count("Error Log") - errors_before
 
@@ -73,14 +72,14 @@ class TestChapterOwnRowLeaveAndRejoin(EnhancedTestCase):
     def test_member_cannot_leave_for_another_member(self):
         """The forbidden id (a real Active row) is refused and its row untouched."""
         response, _log, _errors = self._call_leave(self.me, self.other.member.name)
-        self.assertIsInstance(response, tuple, response)
+        self.assertEqual(response, {"success": False, "removed": False})
         row = self._row_2166(self.other.member)
         self.assertEqual((row.status, row.enabled), ("Active", 1))
 
     def test_forbidden_and_unknown_member_are_refused_identically(self):
         forbidden = self._call_leave(self.me, self.other.member.name)
         unknown = self._call_leave(self.me, "Assoc-Member-DOES-NOT-EXIST-2166")
-        self.assertIsInstance(forbidden[0], tuple, forbidden)
+        self.assertEqual(forbidden[0], {"success": False, "removed": False})
         self.assertEqual(forbidden, unknown)
 
     def test_manager_default_does_not_elevate(self):

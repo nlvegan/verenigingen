@@ -3,8 +3,8 @@
 `Chapter.leave_chapter` was @high_security_api, which a bare "Verenigingen Member" (role
 profile maps to LOW only) never clears, so the endpoint body was unreachable for the people
 it exists for. It is now @self_service_api: any authenticated user passes the tier and the
-framework's ownership check (plus the body's Member.user check) refuses every target but
-the caller's own member.
+body refuses every target but the caller's own member unless the caller holds a
+Roles.ADMIN_ROLES role (ruling: staff may act for a member).
 
 Callers are real users: a plain Verenigingen Member (NO role profile), the "Verenigingen
 Staff" profile, and a Chapter Board Member. Probe shortcut: member status is set with
@@ -16,6 +16,9 @@ import frappe
 from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.chapter.chapter import leave_chapter
+
+
+REFUSED_2456 = {"success": False, "removed": False}
 
 
 class TestPlainMemberLeavesOwnChapter2456(EnhancedTestCase):
@@ -51,7 +54,7 @@ class TestPlainMemberLeavesOwnChapter2456(EnhancedTestCase):
 
     def _leave_2456(self, caller, member_name):
         """Return (outcome, message_log added by the call, Error Log delta); outcome is the
-        response, or (exception type, text) when the call raised."""
+        response, or (exception type, text) when the call raised (Guest)."""
         frappe.local.message_log = []
         errors_before = frappe.db.count("Error Log")
         try:
@@ -81,7 +84,7 @@ class TestPlainMemberLeavesOwnChapter2456(EnhancedTestCase):
 
     def test_plain_member_cannot_leave_for_another_member(self):
         outcome, _log, _errors = self._leave_2456(self.me, self.other.member.name)
-        self.assertIsInstance(outcome, tuple, outcome)
+        self.assertEqual(outcome, REFUSED_2456)
         row = self._row_2456(self.other.member)
         self.assertEqual((row.status, row.enabled), ("Active", 1))
 
@@ -90,7 +93,7 @@ class TestPlainMemberLeavesOwnChapter2456(EnhancedTestCase):
         no blanket Member access."""
         forbidden = self._leave_2456(self.me, self.other.member.name)
         unknown = self._leave_2456(self.me, "Assoc-Member-DOES-NOT-EXIST-2456")
-        self.assertIsInstance(forbidden[0], tuple, forbidden)
+        self.assertEqual(forbidden[0], REFUSED_2456)
         self.assertEqual(forbidden, unknown)
 
     def test_staff_profile_user_leaves_own_chapter(self):
@@ -100,10 +103,22 @@ class TestPlainMemberLeavesOwnChapter2456(EnhancedTestCase):
         self.assertEqual(outcome, {"success": True, "removed": True})
         self.assertEqual(self._row_2456(staff.member).enabled, 0)
 
-    def test_staff_cannot_leave_for_a_member_through_this_endpoint(self):
-        """Control: the ruling lowers the tier, it does not make this a staff-on-behalf endpoint."""
+    def test_staff_leaving_for_another_member_is_allowed(self):
+        """Maintainer ruling on #2456 (2026-11-25, per #1101): staff (Roles.ADMIN_ROLES) may leave a
+        chapter on a member's behalf. The staff user is a member of nothing here."""
         staff = self._plain_member_2456("Staff2", profile="Verenigingen Staff")
         outcome, _log, _errors = self._leave_2456(staff, self.other.member.name)
+        self.assertEqual(outcome, {"success": True, "removed": True})
+        self.assertEqual(self._row_2456(self.other.member).enabled, 0)
+
+    def test_board_member_who_is_not_staff_cannot_leave_for_another_member(self):
+        board = self._plain_member_2456("Board", profile="Verenigingen Chapter Board Member")
+        outcome, _log, _errors = self._leave_2456(board, self.other.member.name)
+        self.assertEqual(outcome, REFUSED_2456)
+        self.assertEqual(self._row_2456(self.other.member).enabled, 1)
+
+    def test_guest_is_refused(self):
+        outcome, _log, _errors = self._leave_2456(frappe._dict(user="Guest"), self.other.member.name)
         self.assertIsInstance(outcome, tuple, outcome)
         self.assertEqual(self._row_2456(self.other.member).enabled, 1)
 
@@ -111,7 +126,7 @@ class TestPlainMemberLeavesOwnChapter2456(EnhancedTestCase):
         email = f"nm2456-{frappe.generate_hash()[:8]}@example.com"
         self.create_test_user_with_roles(email=email, roles=["Verenigingen Member"])
         outcome, _log, _errors = self._leave_2456(frappe._dict(user=email), self.other.member.name)
-        self.assertIsInstance(outcome, tuple, outcome)
+        self.assertEqual(outcome, REFUSED_2456)
         self.assertEqual(self._row_2456(self.other.member).enabled, 1)
 
     def test_non_active_member_may_leave_own_chapter(self):

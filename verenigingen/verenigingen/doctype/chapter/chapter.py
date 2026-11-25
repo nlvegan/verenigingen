@@ -73,14 +73,15 @@ from verenigingen.events.chapter_events import (
     emit_chapter_membership_changed,
     emit_chapter_settings_changed,
 )
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import handle_api_error, log_error
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
     high_security_api,
-    self_service_api,
     standard_api,
+    utility_api,
 )
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
@@ -1291,10 +1292,12 @@ def join_chapter(member_name: str, chapter_name: str, introduction: str = None, 
 
 
 @frappe.whitelist()
-# #2456: self-service tier, not HIGH. A plain "Verenigingen Member" never clears HIGH (profile-only),
-# so it could not leave its own chapter. The framework refuses any member_name but the caller's own,
-# identically for unknown and forbidden ids, and the body re-checks Member.user.
-@self_service_api(operation_type=OperationType.MEMBER_DATA)
+# #2456: LOW tier (any authenticated user), not HIGH: a plain "Verenigingen Member" never clears HIGH
+# (profile-only). self_service_api is NOT used because its own-member gate would also refuse staff
+# acting for a member (maintainer ruling, #1101). Authorisation is in the body instead: the caller
+# must be the member (Member.user) or hold a Roles.ADMIN_ROLES role; everyone else gets the same
+# {"success": False} for an unknown and a forbidden id.
+@utility_api(operation_type=OperationType.MEMBER_DATA)
 def leave_chapter(member_name: str, chapter_name: str, leave_reason: str = None):
     """Web method for a member to leave a chapter via portal"""
     # Use centralized chapter membership manager for consistency
@@ -1305,6 +1308,7 @@ def leave_chapter(member_name: str, chapter_name: str, leave_reason: str = None)
         chapter_name=chapter_name,
         leave_reason=leave_reason,
         user_email=frappe.session.user,
+        staff_on_behalf=bool(Roles.ADMIN_ROLES & set(frappe.get_roles())),
     )
 
     return {
