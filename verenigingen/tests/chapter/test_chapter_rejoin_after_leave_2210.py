@@ -60,7 +60,9 @@ class TestChapterRejoinAfterLeave2210(EnhancedTestCase):
 
     def _leave(self, reason="moving"):
         with self.as_user(self.me.user):
-            return leave_chapter(self.me.member.name, self.chapter.name, reason)
+            return leave_chapter(
+                member_name=self.me.member.name, chapter_name=self.chapter.name, leave_reason=reason
+            )
 
     def _rejoin(self):
         with self.as_user(self.me.user):

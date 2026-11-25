@@ -193,7 +193,9 @@ class TestChapterAuditComment2196(EnhancedTestCase):
             self.assertFalse(frappe.has_permission("Comment", "create"))
         before = set(self._comments())
         with self.as_user(email):
-            response = leave_chapter(member.name, self.chapter.name, "moving 2196")
+            response = leave_chapter(
+                member_name=member.name, chapter_name=self.chapter.name, leave_reason="moving 2196"
+            )
         self.assertEqual(response, {"success": True, "removed": True})
         new = [c for c in self._comments() if c not in before]
         self.assertEqual(len(new), 1, new)

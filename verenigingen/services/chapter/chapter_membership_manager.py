@@ -91,6 +91,7 @@ class ChapterMembershipManager:
         leave_reason: str = None,
         user_email: str = None,
         permanent: bool = False,
+        staff_on_behalf: bool = False,
     ) -> Dict[str, Any]:
         """
         Standard method for a member to leave a chapter
@@ -101,13 +102,15 @@ class ChapterMembershipManager:
             leave_reason: Reason for leaving
             user_email: Email of user making the request (for validation)
             permanent: Whether to remove completely or just disable
+            staff_on_behalf: caller holds a Roles.ADMIN_ROLES role (#2456, #1101 ruling) and
+                may leave on a member's behalf; the caller decides this, never user input
 
         Returns:
             Dict with operation result
         """
         try:
             # Validate user permissions
-            if not ChapterMembershipManager._caller_is_member(user_email, member_id):
+            if not staff_on_behalf and not ChapterMembershipManager._caller_is_member(user_email, member_id):
                 return {"success": False, "error": _("You don't have permission to perform this action")}
 
             # Check if member exists
