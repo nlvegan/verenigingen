@@ -44,11 +44,11 @@ class TestSubmitApplicationWithTrackingRateLimit2926(EnhancedTestCase):
             getattr(frappe.local, "request_ip", None),
             frappe.session.user,
         )
-        self.addCleanup(self._restore)
+        self.addCleanup(self._restore_request_state_2926)
         self.ip = self._new_ip()
         frappe.set_user("Guest")
 
-    def _restore(self):
+    def _restore_request_state_2926(self):
         for ip in getattr(self, "ips", []):
             _forget_submit_rl_counters_2926(ip)
         frappe.local.request, frappe.local.request_ip = self._previous[:2]  # Mock justified: restores the process-level request state; frappe.rate_limit only acts when a request exists
