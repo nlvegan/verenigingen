@@ -780,7 +780,7 @@ class TestSEPARollbackManagerNetNew(EnhancedTestCase):
         self.assertIsNone(self.mgr._get_batch_info("NO-SUCH-BATCH-ABC-123"))
 
     def test_rollback_payment_entries_no_linked_payments(self):
-        batch = self.create_test_direct_debit_batch(invoice_count=1)
-        res = self.mgr._rollback_payment_entries([batch.invoices[0].invoice])
+        dd_batch = self.create_test_direct_debit_batch(invoice_count=1)
+        res = self.mgr._rollback_payment_entries([dd_batch.invoices[0].invoice])
         self.assertTrue(res["success"])
         self.assertEqual(res["cancelled_payments"], [])

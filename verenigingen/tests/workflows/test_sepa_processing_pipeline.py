@@ -86,7 +86,7 @@ class TestSEPAProcessingPipeline(VereningingenTestCase):
         # Step 4: Use mandate in collection
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
-        batch.collection_date = add_days(today(), 5)
+        collection_date = add_days(today(), 5)  # Direct Debit Batch has no collection_date field
         batch.save()
         self.track_doc("Direct Debit Batch", batch.name)
 
@@ -283,7 +283,7 @@ class TestSEPAProcessingPipeline(VereningingenTestCase):
         # Create batch with multiple transactions
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
-        batch.collection_date = add_days(today(), 5)
+        collection_date = add_days(today(), 5)  # Direct Debit Batch has no collection_date field
         batch.save()
         self.track_doc("Direct Debit Batch", batch.name)
 
@@ -334,7 +334,7 @@ class TestSEPAProcessingPipeline(VereningingenTestCase):
                     "transaction_id": f"TRX{i:04d}",
                     "status": "COLLECTED",
                     "amount": item.amount,
-                    "collection_date": batch.collection_date
+                    "collection_date": collection_date
                 })
             else:
                 response_data["transactions"].append({
