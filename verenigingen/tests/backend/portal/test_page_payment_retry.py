@@ -20,6 +20,7 @@ import frappe
 
 from verenigingen.templates.pages import payment_retry
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.member_utils import member_solely_holds_customer
 
 _MEMBER_ROLE = "Verenigingen Member"
 
@@ -156,18 +157,36 @@ class TestPagePaymentRetry(EnhancedTestCase):
         self.assertEqual(context.invoice.name, invoice.name)
 
     def test_blank_member_invoice_refused_when_its_customer_is_shared_2493(self):
-        """Both Members linked to the Customer are refused, and the refusal equals an unknown invoice's."""
+        """BOTH Members linked to the Customer are refused, each exactly like an unknown invoice."""
         member, invoice = self._blank_member_invoice_2493()
-        housemate = self.create_test_member(first_name="Housemate", last_name="Retry", birth_date="1991-01-01")
+        housemate, _ = self._member_with_invoice()
         frappe.db.set_value("Member", housemate.name, "customer", invoice.customer)
-        refused = self._open_page_2493(member, invoice)
-        unknown = frappe._dict({"member": member.name, "invoice": "ACC-SINV-DOES-NOT-EXIST-2493"})
-        frappe.local.form_dict = unknown
-        unknown_ctx = frappe._dict()
-        payment_retry.get_context(unknown_ctx)
-        self.assertIsNone(refused.member)
-        self.assertIsNone(refused.invoice)
-        self.assertEqual(dict(refused), dict(unknown_ctx))
+        for caller in (member, housemate):
+            refused = self._open_page_2493(caller, invoice)
+            frappe.local.form_dict = frappe._dict(
+                {"member": caller.name, "invoice": "ACC-SINV-DOES-NOT-EXIST-2493"}
+            )
+            unknown_ctx = frappe._dict()
+            payment_retry.get_context(unknown_ctx)
+            self.assertIsNone(refused.member, caller.name)
+            self.assertIsNone(refused.invoice, caller.name)
+            self.assertEqual(dict(refused), dict(unknown_ctx))
+
+    def test_member_solely_holds_customer_2493(self):
+        """The one rule: true only for the single Member linked to the Customer."""
+        member, invoice = self._member_with_invoice()
+        other, _ = self._member_with_invoice()
+        customer = invoice.customer
+        self.assertTrue(member_solely_holds_customer(member.name, customer))
+        # a non-holder on a single-holder Customer
+        self.assertFalse(member_solely_holds_customer(other.name, customer))
+        frappe.db.set_value("Member", other.name, "customer", customer)
+        # two holders: false for BOTH (kills pick-first and limit=1 variants)
+        self.assertFalse(member_solely_holds_customer(member.name, customer))
+        self.assertFalse(member_solely_holds_customer(other.name, customer))
+        self.assertFalse(member_solely_holds_customer("", customer))
+        self.assertFalse(member_solely_holds_customer(member.name, ""))
+        self.assertFalse(member_solely_holds_customer(None, None))
 
     def test_member_set_invoice_unaffected_when_customer_is_shared_2493(self):
         """CONTROL: an invoice naming the member stays theirs even if the Customer is shared."""

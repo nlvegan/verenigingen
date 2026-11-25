@@ -59,6 +59,9 @@ def _require_mandate_access(mandate_name: str, sales_invoice: str = None) -> Non
         # A blank-member invoice is claimed through its Customer alone: refused when shared (#2493).
         if invoice and not invoice.member and not sole_holder:
             _refuse_mandate_access()
+        # A member-set invoice belongs to that Member alone, whatever Customer they share.
+        if invoice and invoice.member and invoice.member != owner:
+            _refuse_mandate_access()
 
 
 @frappe.whitelist()

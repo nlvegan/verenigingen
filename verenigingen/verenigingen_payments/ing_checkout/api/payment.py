@@ -57,10 +57,12 @@ def _caller_owns_reference(reference_doctype, reference_name) -> bool:
         # Same customer rule as mandate.py. A blank-member invoice is claimed through its Customer
         # alone, which is refused when another Member shares that Customer (#2493).
         invoice = frappe.db.get_value("Sales Invoice", reference_name, ["customer", "member"], as_dict=True)
-        owner = invoice.customer if invoice else None
-        mine = member_customer
-        if invoice and not invoice.member and not sole_customer_holder:
-            mine = None
+        if invoice and invoice.member:
+            # A member-set invoice belongs to that Member alone, whatever Customer they share.
+            owner, mine = invoice.member, current_member
+        else:
+            owner = invoice.customer if invoice else None
+            mine = member_customer if sole_customer_holder else None
     else:
         return False
     return bool(owner and mine and owner == mine)

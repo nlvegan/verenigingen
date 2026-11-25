@@ -190,6 +190,17 @@ class TestGetPaymentStatusOwnership(_Pay2814Base):
         self.assertEqual(unknown, shared)
         self.fake_client.get_order.assert_not_called()
 
+    def test_member_set_invoice_order_refused_to_another_member_sharing_the_customer_2493(self):
+        """B shares A's Customer; A's member-set invoice order is refused to B like an unknown order."""
+        frappe.db.set_value("Sales Invoice", self.victim_invoice.name, "member", self.victim.name)
+        frappe.db.set_value("Member", self.attacker_member.name, "customer", self.victim_customer)
+        with self.set_user(self.attacker):
+            unknown = self._observe(payment_api.get_payment_status, UNKNOWN_ORDER)
+            shared = self._observe(payment_api.get_payment_status, self.victim_order)
+        self.assertEqual(shared["outcome"][0], "raised", shared)
+        self.assertEqual(unknown, shared)
+        self.fake_client.get_order.assert_not_called()
+
     def test_member_set_invoice_order_unaffected_when_customer_is_shared_2493(self):
         """CONTROL: the rule is about blank-member invoices; one naming a member keeps the customer rule."""
         frappe.db.set_value("Sales Invoice", self.victim_invoice.name, "member", self.attacker_member.name)
