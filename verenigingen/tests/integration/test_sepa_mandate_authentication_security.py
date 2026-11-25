@@ -507,7 +507,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
                 "iban": iban,
                 "bic": bic,
                 "account_holder_name": account_holder_name,
-                "status": "Pending",
+                "status": "Draft",
                 "creation_method": "API",
             }
 

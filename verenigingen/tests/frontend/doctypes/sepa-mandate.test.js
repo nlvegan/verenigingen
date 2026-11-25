@@ -111,7 +111,7 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			// Assert
 			expect(mandateWithDefaults.mandate_type).toBe('RCUR');
 			expect(mandateWithDefaults.sequence_type).toBe('FRST');
-			expect(mandateWithDefaults.status).toBe('Pending');
+			expect(mandateWithDefaults.status).toBe('Draft');
 			expect(mandateWithDefaults.creditor_id).toBe('NL98ZZZ999999999999');
 		});
 
@@ -238,7 +238,7 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 		test('should handle mandate activation properly', async () => {
 			// Arrange
 			const pendingMandate = testFactory.createSEPAMandateData('Member-001', {
-				status: 'Pending'
+				status: 'Draft'
 			});
 			mockFrm.doc = pendingMandate;
 
@@ -516,7 +516,7 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			const mandates = [
 				testFactory.createSEPAMandateData(member.name, { status: 'Active' }),
 				testFactory.createSEPAMandateData(member.name, { status: 'Cancelled' }),
-				testFactory.createSEPAMandateData(member.name, { status: 'Pending' })
+				testFactory.createSEPAMandateData(member.name, { status: 'Draft' })
 			];
 
 			// Act
@@ -638,7 +638,7 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 
 	function getMandateRefreshHandler() {
 		return jest.fn((frm) => {
-			if (frm.doc.status === 'Pending') {
+			if (frm.doc.status === 'Draft') {
 				frm.add_custom_button('Activate Mandate', () => {});
 			} else if (frm.doc.status === 'Active') {
 				frm.add_custom_button('Cancel Mandate', () => {});
@@ -673,7 +673,7 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			...mandate,
 			mandate_type: 'RCUR',
 			sequence_type: 'FRST',
-			status: 'Pending',
+			status: 'Draft',
 			creditor_id: 'NL98ZZZ999999999999'
 		};
 	});

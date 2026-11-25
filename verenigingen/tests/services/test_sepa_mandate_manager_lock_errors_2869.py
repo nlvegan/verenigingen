@@ -296,7 +296,7 @@ class TestSEPAMandateManagerLockErrors2869(EnhancedTestCase):
             self.assertFalse(integration.update_member_mandate_relationship(mandate)["success"])
             self.assertTrue(service._update_member_mandate_status(mandate, "Active"))  # errors returned (#3101)
             mandate.status = "Active"
-            self.assertIn("success", service.handle_status_transition(mandate, "Pending"))
+            self.assertIn("success", service.handle_status_transition(mandate, "Draft"))
 
     def test_a_non_lock_database_error_inside_the_lifecycle_service_is_contained(self):
         """Raised INSIDE the lifecycle layer (the integration service contains the member write
@@ -313,7 +313,7 @@ class TestSEPAMandateManagerLockErrors2869(EnhancedTestCase):
         mandate.cancellation_date = frappe.utils.today()
         for label, call in (
             ("update_member_mandate_status", lambda: service._update_member_mandate_status(mandate, "x")),
-            ("handle_status_transition", lambda: service.handle_status_transition(mandate, "Pending")),
+            ("handle_status_transition", lambda: service.handle_status_transition(mandate, "Draft")),
             ("process_mandate_cancellation", lambda: service.process_mandate_cancellation(mandate)),
             ("handle_mandate_creation", lambda: service.handle_mandate_creation(mandate)),
             ("handle_mandate_update", lambda: service.handle_mandate_update(mandate)),
@@ -382,7 +382,7 @@ class TestSEPAMandateManagerLockErrors2869(EnhancedTestCase):
 
     def test_lifecycle_handle_status_transition_propagates_for_each_target_status(self):
         service = self._lifecycle()
-        for old_status, new_status in (("Pending", "Active"), ("Active", "Cancelled"), ("Active", "Expired")):
+        for old_status, new_status in (("Draft", "Active"), ("Active", "Cancelled"), ("Active", "Expired")):
             with self.subTest(new_status=new_status):
                 mandate = self._saved_mandate()
                 mandate.status = new_status

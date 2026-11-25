@@ -42,6 +42,7 @@ class SEPAMandate(Document):
         enforce_consent_provenance(self)
         self.set_scheme_default()
         self.auto_generate_mandate_id()
+        self.validate_status_transition()
         self.enforce_terminal_status()
         self.validate_dates()
         self.validate_iban()
@@ -55,6 +56,28 @@ class SEPAMandate(Document):
         # final status (set by set_status_based_on_dates / sync_status_is_active).
         self.validate_active_mandate_has_a_purpose()
         self.validate_single_active_mandate_per_purpose()
+
+    def validate_status_transition(self):
+        """Refuse a status change the lifecycle transition map does not allow (#3179).
+
+        Runs BEFORE ``set_status_based_on_dates`` so it judges the status the caller
+        asked for, not one the date rules derive later: otherwise an unrelated save of
+        a date-expired mandate would be blocked by the system's own derivation.
+        A new document is not a transition. ``db_set`` / ``frappe.db.set_value``
+        bypass validate and are not covered.
+        """
+        if self.is_new():
+            return
+        previous_status = frappe.db.get_value("SEPA Mandate", self.name, "status")
+        if not previous_status or previous_status == self.status:
+            return
+        if not sepa_mandate_lifecycle_service._is_valid_status_transition(previous_status, self.status):
+            frappe.throw(
+                _("Invalid SEPA Mandate status transition from {0} to {1}").format(
+                    previous_status, self.status
+                ),
+                title=_("Invalid Status Transition"),
+            )
 
     def enforce_terminal_status(self):
         """Prevent reactivating a mandate that is in a terminal state.
@@ -260,7 +283,12 @@ class SEPAMandate(Document):
         sepa_mandate_lifecycle_service.sync_status_and_active_flag(self)
 
     def set_status_based_on_dates(self):
-        """Set status based on dates using lifecycle service"""
+        """Set status based on dates using lifecycle service.
+
+        Date-derived changes are exempt from the transition map (#3179 ruling
+        2026-11-24); only the caller-requested status is checked, in
+        ``validate_status_transition``.
+        """
         self.status = sepa_mandate_lifecycle_service.set_status_based_on_dates(self)
 
     def set_value(self, fieldname, value):

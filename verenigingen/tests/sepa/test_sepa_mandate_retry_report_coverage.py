@@ -280,10 +280,10 @@ class TestSEPAMandateLifecycleServiceRealDB(EnhancedTestCase):
         return member, mandate
 
     # ---- set_status_based_on_dates against a real persisted mandate ----
-    def test_set_status_future_sign_date_pending(self):
+    def test_set_status_future_sign_date_stays_draft(self):
         _member, mandate = self._make_member_with_mandate(status="Draft")
         mandate.sign_date = add_days(today(), 10)
-        self.assertEqual(self.service.set_status_based_on_dates(mandate), "Pending")
+        self.assertEqual(self.service.set_status_based_on_dates(mandate), "Draft")
 
     def test_set_status_expired_when_past_expiry(self):
         _member, mandate = self._make_member_with_mandate(status="Active")
@@ -780,7 +780,7 @@ class TestSEPARollbackManagerNetNew(EnhancedTestCase):
         self.assertIsNone(self.mgr._get_batch_info("NO-SUCH-BATCH-ABC-123"))
 
     def test_rollback_payment_entries_no_linked_payments(self):
-        batch = self.create_test_direct_debit_batch(invoice_count=1)
-        res = self.mgr._rollback_payment_entries([batch.invoices[0].invoice])
+        dd_batch = self.create_test_direct_debit_batch(invoice_count=1)
+        res = self.mgr._rollback_payment_entries([dd_batch.invoices[0].invoice])
         self.assertTrue(res["success"])
         self.assertEqual(res["cancelled_payments"], [])

@@ -11,6 +11,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 import unittest
 
+CI_ALWAYS_SKIPS = "whole class @unittest.skip'd: imagined Direct Debit Batch schema; faithful rewrite is a follow-up"
+
 
 @unittest.skip(
     "Tests an imagined Direct Debit Batch schema/behavior that does not exist in "
@@ -70,7 +72,7 @@ class TestSEPAProcessingPipeline(VereningingenTestCase):
         mandate.bic = self.factory.derive_bic_from_test_iban(mandate.iban)
         mandate.mandate_type = "RCUR"  # Recurring
         mandate.sign_date = today()
-        mandate.status = "Pending"
+        mandate.status = "Draft"
         mandate.save()
         self.track_doc("SEPA Mandate", mandate.name)
 
@@ -86,7 +88,7 @@ class TestSEPAProcessingPipeline(VereningingenTestCase):
         # Step 4: Use mandate in collection
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
-        batch.collection_date = add_days(today(), 5)
+        collection_date = add_days(today(), 5)  # Direct Debit Batch has no collection_date field
         batch.save()
         self.track_doc("Direct Debit Batch", batch.name)
 
@@ -283,7 +285,7 @@ class TestSEPAProcessingPipeline(VereningingenTestCase):
         # Create batch with multiple transactions
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
-        batch.collection_date = add_days(today(), 5)
+        collection_date = add_days(today(), 5)  # Direct Debit Batch has no collection_date field
         batch.save()
         self.track_doc("Direct Debit Batch", batch.name)
 
@@ -334,7 +336,7 @@ class TestSEPAProcessingPipeline(VereningingenTestCase):
                     "transaction_id": f"TRX{i:04d}",
                     "status": "COLLECTED",
                     "amount": item.amount,
-                    "collection_date": batch.collection_date
+                    "collection_date": collection_date
                 })
             else:
                 response_data["transactions"].append({

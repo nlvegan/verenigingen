@@ -226,6 +226,12 @@ class SEPAMandateLifecycleService:
         """
         Set mandate status based on validity dates and current date.
 
+        Date-derived status changes (e.g. expiry -> Expired) are EXEMPT from the
+        transition map (maintainer ruling 2026-11-24, #3179): the map is enforced
+        only on the status a user or caller requests (see
+        ``SEPAMandate.validate_status_transition``); what this method derives from
+        the dates always applies.
+
         Args:
             mandate_doc: SEPA Mandate document
 
@@ -239,9 +245,10 @@ class SEPAMandateLifecycleService:
             if not mandate_doc.sign_date and not mandate_doc.expiry_date:
                 return mandate_doc.status or "Draft"
 
-            # Check if mandate is not yet valid (sign date in future)
+            # A future sign date keeps the mandate where it is (Draft by default).
+            # Pending is not a SEPA Mandate status option (ruling 2026-11-24).
             if mandate_doc.sign_date and getdate(mandate_doc.sign_date) > current_date:
-                return "Pending"
+                return mandate_doc.status or "Draft"
 
             # Check if mandate has expired
             if mandate_doc.expiry_date and getdate(mandate_doc.expiry_date) < current_date:
@@ -253,7 +260,7 @@ class SEPAMandateLifecycleService:
                 return "Active"
 
             # For terminal states, don't change them
-            if mandate_doc.status in ["Cancelled", "Rejected", "Expired"]:
+            if mandate_doc.status in ["Cancelled", "Expired"]:
                 return mandate_doc.status
 
             # For other statuses (Draft, Suspended, etc.), preserve them
@@ -423,12 +430,12 @@ class SEPAMandateLifecycleService:
         """
         # Define valid status transitions
         valid_transitions = {
-            "Draft": ["Pending", "Active", "Cancelled"],
-            "Pending": ["Active", "Cancelled", "Rejected"],
-            "Active": ["Cancelled", "Expired"],
+            "Draft": ["Active", "Cancelled"],
+            "Active": ["Suspended", "Cancelled", "Expired"],
+            # Maintainer ruling 2026-11-24 (#3138): Draft cannot be suspended
+            "Suspended": ["Active", "Cancelled"],
             "Cancelled": [],  # Terminal state
             "Expired": ["Cancelled"],  # Can only be cancelled after expiration
-            "Rejected": ["Draft", "Cancelled"],  # Can be revised or cancelled
         }
 
         allowed_statuses = valid_transitions.get(old_status, [])
