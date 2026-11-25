@@ -1,8 +1,8 @@
 """#2549: the patch moves Suppliers off Supplier Group nodes into the leaf 'Unsorted'.
 
 Probe shortcut: ``execute`` is called directly (not through the patch runner), and a
-Supplier is placed in a group node by a plain insert, which this bench's erpnext still
-accepts (the v16 save-time refusal is not in the local tree). Only rows the test made
+Supplier is placed in a group node by ``set_value`` after insert, because v16 erpnext
+refuses a group node at insert ("Cannot select a Group type Supplier Group"; CI red on #3270). Only rows the test made
 are asserted on; the site may hold other root-group Suppliers, which the patch also moves.
 """
 
@@ -41,6 +41,7 @@ class TestMoveSuppliersOffGroupNodes(FrappeTestCase):
                 "is_group": 0,
             }
         ).insert(ignore_permissions=True)
+        # Insert into the leaf, then move: CI's v16 erpnext refuses a group node at insert.
         self.in_root = self._supplier_2549("Root", ROOT)
         self.in_mid = self._supplier_2549("Mid", self.mid_group_2549.name)
         self.in_leaf = self._supplier_2549("Leaf", self.leaf_2549.name)
@@ -52,9 +53,11 @@ class TestMoveSuppliersOffGroupNodes(FrappeTestCase):
                 "doctype": "Supplier",
                 "supplier_name": f"S2549 {label} {frappe.generate_hash(length=6)}",
                 "supplier_type": "Company",
-                "supplier_group": group,
+                "supplier_group": None if group is None else self.leaf_2549.name,
             }
         ).insert()
+        if group is not None and group != self.leaf_2549.name:
+            frappe.db.set_value("Supplier", doc.name, "supplier_group", group, update_modified=False)
         return doc.name
 
     def _group_2549(self, supplier):
