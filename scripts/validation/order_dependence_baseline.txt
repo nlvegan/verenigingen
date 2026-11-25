@@ -169,7 +169,6 @@ COMMIT tests/patches/test_clear_stale_membership_payment_history_links.py::2  # 
 COMMIT tests/payment/test_bank_transaction_reconciliation.py::1  # order-dependence
 COMMIT tests/payment/test_bulk_transaction_importer_sweep.py::4  # order-dependence
 COMMIT tests/payment/test_chapter_dues_domain_model.py::3  # order-dependence
-COMMIT tests/payment/test_collection_run_not_lost_silently.py::1  # order-dependence
 COMMIT tests/payment/test_donation_subscription_activation.py::1  # order-dependence
 COMMIT tests/payment/test_event_driven_payment_history.py::2  # order-dependence
 COMMIT tests/payment/test_fee_change_settled_invoice_isolation.py::5  # order-dependence
@@ -244,6 +243,7 @@ COMMIT tests/services/test_member_financial_services_realdb.py::3  # order-depen
 COMMIT tests/services/test_member_import_service.py::2  # order-dependence
 COMMIT tests/services/test_member_lookup_service.py::1  # order-dependence
 COMMIT tests/setup/__init__.py::16  # order-dependence
+COMMIT tests/support/batcher_commit_release.py::1  # order-dependence
 COMMIT tests/support/eur_company_decoy.py::1  # order-dependence
 COMMIT tests/support/mollie_settings.py::2  # order-dependence
 COMMIT tests/support/sepa_test_company.py::5  # order-dependence
