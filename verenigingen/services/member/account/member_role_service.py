@@ -69,10 +69,10 @@ class MemberRoleService(StatelessService):
             if not frappe.has_permission("User", "write"):
                 frappe.throw(_("Insufficient permissions to modify user roles"))
 
-            # #3217: this method REPLACES every role, so it must never touch a staff
-            # account. Refused here (None return, like every other failure) instead of
-            # relying on callers to only pass NEW member accounts.
-            if self._is_staff_account(user_name):
+            # #3217: this method REPLACES every role, so it must never run on a staff
+            # account. Administrator is a Frappe standard user: role profiles are discarded
+            # for it, so there is nothing to add and the refusal stays.
+            if user_name == "Administrator":
                 # Error Log row (self.logger writes only a site log file): without it a
                 # refused member link is silent for the operator.
                 frappe.log_error(
@@ -84,6 +84,11 @@ class MemberRoleService(StatelessService):
                     ),
                 )
                 frappe.throw(_("Refusing to replace the roles of staff account {0}").format(user_name))
+
+            # #3218 (maintainer ruling 2026-11-25): a System Manager who is also a member gets
+            # the member profile as a SECOND profile, additively; staff roles are kept.
+            if self._is_staff_account(user_name):
+                return self._add_member_profile_to_staff(user_name, role_profile_name)
 
             # Use provided role profile or default to Verenigingen Member
             if not role_profile_name:
@@ -107,10 +112,10 @@ class MemberRoleService(StatelessService):
             # - If this user account already has roles (e.g., Roles.SYSTEM_MANAGER), those roles
             #   were assigned incorrectly or the account is being re-purposed as a member account
             #
-            # GUARD (#3217): callers include the "linked_existing" paths in
+            # GUARD (#3217/#3218): callers include the "linked_existing" paths in
             # member_user_account_service, so existing users DO reach this method.
-            # Staff accounts (Administrator, System Manager) are refused above, before
-            # anything is cleared; every other account is reduced to the member profile.
+            # Administrator is refused and System Managers take the additive path above,
+            # before anything is cleared; every other account is reduced to the member profile.
             user.roles = []
 
             # Assign the role profile. Frappe v16 moved role-profile assignment to
@@ -143,6 +148,41 @@ class MemberRoleService(StatelessService):
                 f"Error adding roles to user {user_name}: {str(e)}\n\nTraceback: {frappe.get_traceback()}"
             )
             return None
+
+    def _add_member_profile_to_staff(self, user_name: str, role_profile_name: Optional[str]) -> str:
+        """Add the member profile to a staff account WITHOUT replacing anything (#3218, per #1969).
+
+        Existing profiles stay. Roles held directly (supplied by none of the user's
+        profiles) are written back after the save, because User.validate() re-derives
+        ``roles`` from ``role_profiles`` and would drop them (same trap as the nightly sync).
+        """
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            _direct_roles,
+            _restore_direct_roles,
+            record_requested_profile,
+        )
+
+        role_profile_name = role_profile_name or "Verenigingen Member"
+        user = frappe.get_doc("User", user_name)
+        held_profiles = [row.role_profile for row in user.get("role_profiles")]
+        keep_roles = _direct_roles(user_name, held_profiles)
+
+        if frappe.db.exists("Role Profile", role_profile_name):
+            if role_profile_name not in held_profiles:
+                user.append("role_profiles", {"role_profile": role_profile_name})
+            record_requested_profile(user, role_profile_name, keep_existing=True)
+        else:
+            self.logger.warning(f"Role Profile {role_profile_name} does not exist. Adding member role only.")
+            if not frappe.db.exists("Role", "Verenigingen Member"):
+                self.create_verenigingen_member_role()
+            keep_roles = [*keep_roles, "Verenigingen Member"]
+
+        if not user.enabled:
+            user.enabled = 1
+        user.save()
+        _restore_direct_roles(user_name, keep_roles)
+        self.logger.info(f"Added member profile '{role_profile_name}' to staff user {user_name}")
+        return user.name
 
     @staticmethod
     def _is_staff_account(user_name: str) -> bool:
@@ -192,8 +232,8 @@ class MemberRoleService(StatelessService):
             #
             # SAFETY NOTES:
             # - Same safety considerations as add_member_roles_to_user()
-            # - Reached only via add_member_roles_to_user(), which refuses staff accounts
-            #   (Administrator, System Manager) before calling this (#3217)
+            # - Reached only via add_member_roles_to_user(), which never sends it a staff account
+            #   (Administrator refused, System Manager additive, #3217/#3218)
             #
             # ALTERNATIVE APPROACH (if needed in future):
             # - Could use selective removal: only remove conflicting roles, preserve others
