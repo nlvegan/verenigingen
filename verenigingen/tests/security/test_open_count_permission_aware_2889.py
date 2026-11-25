@@ -73,6 +73,24 @@ class TestOpenCountPermissionAware2889(EnhancedTestCase):
 
     # --- wiring ---------------------------------------------------------------
 
+    CORE_HELPERS = (
+        "get_internal_links",
+        "has_external_link_field",
+        "get_external_link_fieldname",
+        "get_external_link_fieldnames",
+        "get_dynamic_link_filters",
+        "get_child_doctypes_with_field",
+        "get_external_links_in_child_tables",
+        "get_filters_for",
+    )
+
+    def test_core_helpers_the_override_reuses_still_exist(self):
+        """Drift guard: an upstream rename must redden this test, not every dashboard."""
+        from frappe.desk import notifications
+
+        missing = [n for n in self.CORE_HELPERS if not callable(getattr(notifications, n, None))]
+        self.assertEqual(missing, [])
+
     def test_override_is_registered_and_dispatch_whitelisted(self):
         resolved = frappe.override_whitelisted_method(CORE_METHOD)
         self.assertEqual(
@@ -82,7 +100,7 @@ class TestOpenCountPermissionAware2889(EnhancedTestCase):
 
     # --- F1: items= is an oracle over doctypes the viewer cannot read ---------------
 
-    def test_items_cannot_probe_a_doctype_the_caller_cannot_read(self):
+    def test_items_the_dashboard_offers_to_nobody_without_read_are_not_probeable(self):
         staff = self._user(["Verenigingen Staff"])
         self.assertTrue(self._can_read(staff, "SEPA Mandate", self.mandate.name))
         self.assertFalse(self._can_read(staff, "Donation"))
