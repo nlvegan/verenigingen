@@ -255,7 +255,7 @@ class TestRetryFailedPaymentTier2596(EnhancedTestCase):
         """The fixture file is not loaded into existing sites (rules are seeded once, never
         overwritten), and the engine reads the DB rows, so this runs the patch against rows in the
         pre-change state and reads them back."""
-        from verenigingen.patches.v2_2.lower_retry_failed_payment_rate_limit import execute
+        from verenigingen.patches.v2_2.split_retry_failed_payment_rate_limits import execute
 
         staff_op, self_op = "retry_failed_payment", "retry_failed_payment_self"
         staff_row = frappe.db.get_value("Critical Operation Rule", {"operation_name": staff_op}, "name")
@@ -323,6 +323,27 @@ class TestRetryFailedPaymentTier2596(EnhancedTestCase):
         self.assertIsNone(error)
         self.assertNotIn("too many", str((result.get("error") or {}).get("message")).lower())
 
+    def test_the_owner_is_refused_when_the_self_limit_row_is_missing(self):
+        """Fail closed: with the retry_failed_payment_self row gone (patch not run, operator
+        deleted it) the engine would fall back to the 100/hour generic limit and the owner
+        would be effectively unlimited. The owner path must refuse and say why in Error Log."""
+        self._arm_live_limits_2596()  # leaves the self row present; restored by addCleanup/rollback
+        frappe.db.delete("Critical Operation Rule", {"operation_name": "retry_failed_payment_self"})
+        frappe.clear_cache(doctype="Critical Operation Rule")
+        result, error, channels = self._dispatch_2596(self.owner_email, self.invoice.name, live_limiter=True)
+        self.assertIsNone(error)
+        self.assertFalse(result["success"], result)
+        self.assertIn("too many", result["error"]["message"].lower())
+        self.assertEqual(channels["error_logs"], 1, "the missing row must be logged visibly")
+        self.assertTrue(
+            frappe.db.exists("Error Log", {"error": ["like", "%retry_failed_payment_self%"]}),
+        )
+        # control: staff are bounded by their own row, which exists, and are not refused by this guard
+        staff = self._user_2596("Verenigingen Staff")
+        result, error, _ = self._dispatch_2596(staff, self.invoice.name, live_limiter=True)
+        self.assertIsNone(error)
+        self.assertNotIn("too many", str((result.get("error") or {}).get("message")).lower())
+
     def test_a_refused_stranger_does_not_spend_the_owners_budget(self):
         """Authorization comes first: only the invoice owner's calls tick the self bucket."""
         self._arm_live_limits_2596()
@@ -335,7 +356,7 @@ class TestRetryFailedPaymentTier2596(EnhancedTestCase):
     def _apply_cor_split_2596(self):
         """Put the two COR rows in the state the patch leaves on an existing site (this site may
         predate it), and put them back afterwards."""
-        from verenigingen.patches.v2_2.lower_retry_failed_payment_rate_limit import execute
+        from verenigingen.patches.v2_2.split_retry_failed_payment_rate_limits import execute
 
         staff_row = frappe.db.get_value("Critical Operation Rule", {"operation_name": "retry_failed_payment"})
         original = frappe.db.get_value(

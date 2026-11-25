@@ -671,6 +671,22 @@ def _self_retry_limit_exceeded():
     """
     from verenigingen.utils.security.rate_limit_engine import get_rate_limit_engine
 
+    # Fail closed: without its own row the engine silently falls back to the generic
+    # 100/hour limit, which would leave the owner effectively unlimited.
+    # The engine's own lifecycle/test bypass (it limits nothing there) is mirrored: fixtures load after patches.
+    engine_bypassed = any(
+        getattr(frappe.flags, flag, False) for flag in ("in_test", "in_install", "in_migrate", "in_patch")
+    )
+    if not engine_bypassed and not frappe.db.exists(
+        "Critical Operation Rule", {"operation_name": "retry_failed_payment_self", "enabled": 1}
+    ):
+        frappe.log_error(
+            title="retry_failed_payment_self rate limit rule missing",
+            message="Critical Operation Rule 'retry_failed_payment_self' is absent or disabled; "
+            "refusing member self-retries until it is restored (run the split_retry_failed_payment_rate_limits patch).",
+        )
+        return True
+
     key = f"{__name__}.retry_failed_payment_self"
     return not get_rate_limit_engine().check_rate_limit(key).allowed
 
