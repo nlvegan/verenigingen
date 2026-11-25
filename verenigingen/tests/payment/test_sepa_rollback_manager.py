@@ -725,6 +725,45 @@ class TestRollbackResetsCollectedBatchRows3021(EnhancedTestCase):
         self.assertEqual(rows[broken].status, "Successful")
         self.assertEqual(rows[fine].status, "Pending")
 
+    # ----- #3054: a partial rollback keeps the batch's status -----
+    def _batch_status3054(self, batch):
+        return frappe.db.get_value("Direct Debit Batch", batch.name, "status")
+
+    def test_partial_rollback_keeps_the_batch_status_3054(self):
+        batch = self._collected_batch3021()
+        prior = self._batch_status3054(batch)
+        self.assertNotEqual(prior, "Rolled Back")  # control: the fixture really is not Rolled Back
+        affected, untouched = [r.invoice for r in batch.invoices]
+        self._rollback3021(batch, "partial_batch", affected)
+        self.assertEqual(self._batch_status3054(batch), prior)
+        rows = self._rows3021(batch)
+        self.assertEqual(rows[affected].status, "Pending")  # #3021 still holds
+        self.assertEqual(rows[untouched].status, "Successful")
+        self.assertEqual(frappe.db.get_value("Sales Invoice", untouched, "status"), "Paid")
+
+    def test_partial_scope_covering_every_invoice_behaves_as_full_3054(self):
+        batch = self._collected_batch3021()
+        everything = [r.invoice for r in batch.invoices]
+        self._rollback3021(batch, "partial_batch", ",".join(everything))
+        self.assertEqual(self._batch_status3054(batch), "Rolled Back")
+
+    def test_full_rollback_still_marks_the_batch_rolled_back_3054(self):
+        batch = self._collected_batch3021()
+        self._rollback3021(batch, "full_batch")
+        self.assertEqual(self._batch_status3054(batch), "Rolled Back")
+
+    def test_rolled_back_invoice_of_a_partial_rollback_lock_state_3054(self):
+        """Records (not endorses) how the open-batch lock treats the Pending row of a
+        partially rolled-back batch: see the PR body. Fails loudly if #3055 changes it."""
+        from verenigingen.verenigingen_payments.api.sepa_batch_ui import get_open_batch_invoice_names
+
+        batch = self._collected_batch3021()
+        affected, untouched = [r.invoice for r in batch.invoices]
+        self._rollback3021(batch, "partial_batch", affected)
+        locked = get_open_batch_invoice_names()
+        self.assertIn(untouched, locked)
+        self.assertIn(affected, locked)
+
     def test_failed_row_is_left_alone(self):
         batch = self._collected_batch3021()
         failed, collected = [r.name for r in batch.invoices]
