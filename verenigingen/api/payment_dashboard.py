@@ -681,9 +681,7 @@ def _retry_failed_payment(invoice_id):
         # real invoice whose member happens to be blank", so a staff caller
         # (has_write=True, who never needs ownership at all) got a false
         # "Invoice not found" on a real invoice.
-        invoice_row = frappe.db.get_value(
-            "Sales Invoice", invoice_id, ["name", "member", "docstatus", "outstanding_amount"], as_dict=True
-        )
+        invoice_row = frappe.db.get_value("Sales Invoice", invoice_id, ["name", "member"], as_dict=True)
         invoice_exists = invoice_row is not None
         invoice_member = invoice_row.member if invoice_row else None
         # `invoice_member is not None` also guards a null-member invoice from
@@ -695,10 +693,6 @@ def _retry_failed_payment(invoice_id):
 
         if not invoice_exists:
             return OperationResult.fail(_("Invoice not found"))
-
-        # Only a submitted invoice with something still owing can be retried (#2596 review)
-        if invoice_row.docstatus != 1 or flt(invoice_row.outstanding_amount) <= 0:
-            return OperationResult.fail(_("This invoice has no outstanding amount to retry"))
 
         # Check if already being retried
         existing_retry = frappe.db.exists(

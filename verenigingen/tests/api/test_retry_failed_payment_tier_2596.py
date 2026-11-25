@@ -8,7 +8,6 @@ real whitelist gate.
 """
 
 import json
-import os
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -249,10 +248,52 @@ class TestRetryFailedPaymentTier2596(EnhancedTestCase):
         self.assertIn("already", cases["already scheduled"][0][1]["error"].lower())
 
     def test_the_cor_rate_limit_for_manual_retry_is_sane(self):
-        """The shipped rule was 5000/hour; a retry mails staff and writes records."""
-        path = os.path.join(frappe.get_app_path("verenigingen"), "fixtures", "critical_operation_rule.json")
-        with open(path) as f:
-            rule = next(r for r in json.load(f) if r["operation_name"] == "retry_failed_payment")
-        self.assertLessEqual(rule["rate_limit_calls"], 5)
-        self.assertEqual(rule["rate_limit_period_seconds"], 3600)
-        self.assertEqual(rule["rate_limit_scope"], "per_user")
+        """The shipped rule was 5000/hour; a retry mails staff and writes records.
+
+        The fixture file is not loaded into existing sites (rules are seeded once, never
+        overwritten), and the engine reads the DB row, so this runs the patch against a row
+        still holding the old value and reads the row back.
+        """
+        from verenigingen.patches.v2_2.lower_retry_failed_payment_rate_limit import execute
+
+        rule = "retry_failed_payment"
+        fields = ["rate_limit_calls", "rate_limit_period_seconds", "rate_limit_scope"]
+        original = frappe.db.get_value("Critical Operation Rule", rule, fields, as_dict=True)
+        self.assertIsNotNone(original, "rule row missing on this site")
+        self.addCleanup(
+            lambda: frappe.db.set_value(
+                "Critical Operation Rule", rule, dict(original), update_modified=False
+            )
+        )
+        frappe.db.set_value("Critical Operation Rule", rule, "rate_limit_calls", 5000)
+        execute()
+        row = frappe.db.get_value("Critical Operation Rule", rule, fields, as_dict=True)
+        self.assertEqual(row.rate_limit_calls, 5)
+        self.assertEqual(row.rate_limit_period_seconds, 3600)
+        self.assertEqual(row.rate_limit_scope, "per_user")
+
+        # a row an operator tuned is left alone
+        frappe.db.set_value("Critical Operation Rule", rule, "rate_limit_calls", 77)
+        execute()
+        self.assertEqual(frappe.db.get_value("Critical Operation Rule", rule, "rate_limit_calls"), 77)
+
+    def test_a_paid_invoice_rejected_by_the_bank_logs_the_refused_retry(self):
+        """pain.002 path: handle_payment_rejection drops schedule_retry's return value, so the
+        refusal must leave an Error Log row naming the invoice and the reason."""
+        from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
+            handle_payment_rejection,
+        )
+
+        # Probe shortcut: outstanding_amount zeroed directly instead of booking a payment
+        frappe.db.set_value("Sales Invoice", self.invoice.name, "outstanding_amount", 0)
+        handle_payment_rejection(f"E2E-{self.invoice.name}", "AC04", "Closed account")
+        self.assertFalse(frappe.db.exists("SEPA Payment Retry", {"invoice": self.invoice.name}))
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"error": ["like", f"%{self.invoice.name}%"]},
+            fields=["method", "error"],
+            order_by="creation desc",
+        )
+        self.assertEqual(len(rows), 1, rows)
+        self.assertIn("outstanding", rows[0].error.lower())
+        self.assertIn("AC04", rows[0].error)
