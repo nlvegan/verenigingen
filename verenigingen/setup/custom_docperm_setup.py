@@ -107,6 +107,8 @@ CORE_GRANTS = (
     # Administrator profiles, which hold System Manager and so can also delete the Customer's
     # Contact/Address (ERPNext's Customer.on_trash deletes them as the session user). Staff,
     # Treasurer and National Board profiles lack Contact delete; widening that is a ruling.
+    # The new row also carries `export`, the framework default add_permission gives every new row.
+    # Maintainer: Administrator role only, doctype-wide Customer delete accepted (#2328).
     ("Customer", "Verenigingen Administrator", ("read", "delete")),
     (
         "Address",

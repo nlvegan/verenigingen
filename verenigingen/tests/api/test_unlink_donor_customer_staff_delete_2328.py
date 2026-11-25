@@ -17,6 +17,7 @@ Usage:
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.linked_donor_fixture import LinkedDonorFixtureMixin
 from verenigingen.tests.support.wsgi_http_session import (
     CommittedLoginUsersMixin,
     api_path,
@@ -27,7 +28,11 @@ from verenigingen.tests.support.wsgi_http_session import (
 ENDPOINT = api_path("verenigingen.api.donor_customer_management.unlink_donor_customer")
 
 
-class TestUnlinkDonorCustomerStaffDelete2328(CommittedLoginUsersMixin, EnhancedTestCase):
+class TestUnlinkDonorCustomerStaffDelete2328(
+    LinkedDonorFixtureMixin, CommittedLoginUsersMixin, EnhancedTestCase
+):
+    donor_name_prefix = "Staff2328"
+
     CRITICAL_PROFILES = (
         "Verenigingen Administrator",
         "Verenigingen System Administrator",
@@ -46,29 +51,6 @@ class TestUnlinkDonorCustomerStaffDelete2328(CommittedLoginUsersMixin, EnhancedT
         self.profile_users = {profile: users[f"p{i}"] for i, profile in enumerate(profiles)}
         self._donors = []
         self.addCleanup(self._cleanup_donors)
-
-    def _cleanup_donors(self):
-        frappe.db.rollback()
-        for donor, customer in self._donors:
-            for doctype, name in (("Donor", donor), ("Customer", customer)):
-                if name and frappe.db.exists(doctype, name):
-                    frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
-        frappe.db.commit()
-
-    def _create_linked_donor(self):
-        donor = frappe.new_doc("Donor")
-        donor.donor_name = f"Staff2328 {frappe.generate_hash(length=6)}"
-        donor.donor_type = "Individual"
-        donor.donor_email = f"s{frappe.generate_hash(length=6)}@example.com"
-        donor.flags.enable_customer_sync_in_test = True  # sync is gated off in tests otherwise
-        donor.save()
-        donor.reload()
-        customer = donor.customer
-        self.assertTrue(customer, "Donor.save is expected to create and link a Customer")
-        self._donors.append((donor.name, customer))
-        frappe.db.set_value("Customer", customer, "donor", donor.name)
-        frappe.db.commit()
-        return donor.name, customer
 
     def test_administrator_profiles_can_delete_the_customer(self):
         """Real WSGI flow as each admin profile (not the Administrator user)."""
@@ -95,6 +77,10 @@ class TestUnlinkDonorCustomerStaffDelete2328(CommittedLoginUsersMixin, EnhancedT
             with self.subTest(profile=profile):
                 donor, customer = self._create_linked_donor()
                 self.expectErrorLog("Donor Customer Unlink Error")
+                with self.set_user(self.profile_users[profile]):
+                    self.assertFalse(frappe.has_permission("Customer", "delete"), profile)
+                    # Customer.on_trash deletes the Contact as the session user: the cause.
+                    self.assertFalse(frappe.has_permission("Contact", "delete"), profile)
                 case = {
                     "name": "c",
                     "endpoint": ENDPOINT,
