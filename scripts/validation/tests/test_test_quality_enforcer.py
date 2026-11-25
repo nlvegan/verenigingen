@@ -1289,6 +1289,35 @@ class ReassignEvasionShapesTest(unittest.TestCase):
         self._assert_clean('frappe.__dict__["flags"] = x', resolves_nothing=False)
         self._assert_clean("frappe.flags.count += 1", resolves_nothing=False)
 
+    def test_control_setattr_with_no_positional_args_does_not_crash(self):
+        # #2847 r2: `_is_dotted_string_target` read call.args[0] before the
+        # `not call.args` guard, so these valid calls raised IndexError.
+        self._assert_clean("foo.setattr()")
+        self._assert_clean("foo.setattr(**kw)")
+        self._assert_clean("mp.setattr(**kw)")
+        self._assert_clean("setattr()")
+
+    def test_known_false_negative_keyword_only_dotted_target(self):
+        # KNOWN false negative (labelled, not endorsed): `target=` as a keyword is
+        # not read, so this monkeypatch is NOT found. If it ever is, flip this.
+        self._assert_clean('mp.setattr(target="frappe.x", value=1)')
+
+    def test_shape10c_async_with_and_async_for_targets(self):
+        for body in ("async with ctx() as frappe.db.sql:\n            pass",
+                     "async for frappe.get_all in fakes:\n            pass"):
+            src = ("class TestThing:\n    async def test_it(self):\n        "
+                   + body + "\n")
+            self.assertIn("DATABASE MOCK", _kinds(src, "test_thing.py"), src)
+        src = ("class TestThing:\n    async def test_it(self):\n"
+               "        async with ctx() as sql:\n            pass\n")
+        self.assertEqual([], _kinds(src, "test_thing.py"), src)
+
+    def test_shape11c_starred_namespace_target(self):
+        self._assert_db_mock('*vars(frappe)["get_all"], = fakes', "", "frappe.get_all")
+
+    def test_control_setdefault_with_a_non_literal_key(self):
+        self._assert_clean("vars(frappe).setdefault(k, v)")
+
     def test_control_a_relative_import_is_not_the_frappe_module(self):
         self._assert_clean("db.get_value = 1", "from .frappe import db\n")
 

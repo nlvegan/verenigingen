@@ -556,6 +556,8 @@ def _setattr_target(call, resolve) -> str:
 
 def _is_dotted_string_target(call) -> bool:
     """`recv.setattr("frappe.x", value)`: one string target plus a value (#2847)."""
+    if not call.args:
+        return False
     first = call.args[0]
     return (
         isinstance(first, ast.Constant)
