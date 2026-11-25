@@ -78,7 +78,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
             "iban": test_iban,
             "account_holder": "SEPA TestMember",
             "mandate_reference": mandate_reference,
-            "mandate_date": today(),
+            "sign_date": today(),
             "status": "Draft",
             "creditor_id": "NL12ZZZ123456789",
             "sequence_type": "FRST"
@@ -316,7 +316,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
             "iban": "NL91ABNA0417164300",
             "account_holder": "Payment Failure",
             "mandate_reference": f"FAIL{frappe.generate_hash()[:8]}",
-            "mandate_date": today(),
+            "sign_date": today(),
             "status": "Active",
             "creditor_id": "NL12ZZZ123456789"
         })
@@ -483,7 +483,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
                 "iban": f"NL{20+i:02d}ABNA041716430{i}",
                 "account_holder": f"Batch Member{i+1}",
                 "mandate_reference": f"BATCH{i+1:03d}{frappe.generate_hash()[:6]}",
-                "mandate_date": today(),
+                "sign_date": today(),
                 "status": "Active",
                 "creditor_id": "NL12ZZZ123456789"
             })
@@ -618,7 +618,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
             "iban": "NL91ABNA0417164300",  # Old IBAN
             "account_holder": "Migration Member",
             "mandate_reference": f"OLD{frappe.generate_hash()[:8]}",
-            "mandate_date": add_days(today(), -365),  # 1 year old
+            "sign_date": add_days(today(), -365),  # 1 year old
             "status": "Active",
             "creditor_id": "NL12ZZZ123456789",
             "total_collections": 12,
@@ -637,7 +637,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
             "iban": "NL20INGB0001234567",  # New IBAN (different bank)
             "account_holder": "Migration Member", 
             "mandate_reference": f"NEW{frappe.generate_hash()[:8]}",
-            "mandate_date": today(),
+            "sign_date": today(),
             "status": "Draft",
             "creditor_id": "NL12ZZZ123456789",
             "replaces_mandate": old_mandate.name
@@ -759,7 +759,7 @@ class SEPAPaymentWorkflowRealTest(EnhancedTestCase):
             "iban": "NL91ABNA0417164300",
             "account_holder": "Audit Trail",
             "mandate_reference": f"AUD{frappe.generate_hash()[:8]}",
-            "mandate_date": today(),
+            "sign_date": today(),
             "status": "Draft",
             "creditor_id": "NL12ZZZ123456789",
             "created_by": "Administrator"

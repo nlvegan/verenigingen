@@ -73,8 +73,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                     "account_holder_name": "SEPA EdgeCase",
                     "sign_date": today(),
                     "iban": iban,
-                    "status": "Active",
-                    "mandate_date": today()}
+                    "status": "Active"}
             )
 
             try:
@@ -95,8 +94,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                         "account_holder_name": "SEPA EdgeCase",
                         "sign_date": today(),
                         "iban": iban,
-                        "status": "Active",
-                        "mandate_date": today()}
+                        "status": "Active"}
                 )
                 mandate.insert()
 
@@ -122,8 +120,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                     "account_holder_name": "SEPA EdgeCase",
                     "sign_date": today(),
                     "iban": input_iban,
-                    "status": "Active",
-                    "mandate_date": today()}
+                    "status": "Active"}
             )
             mandate.insert()
 
@@ -151,8 +148,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                     "account_holder_name": "SEPA EdgeCase",
                     "sign_date": today(),
                     "iban": wrong_checksum_iban,
-                    "status": "Active",
-                    "mandate_date": today()}
+                    "status": "Active"}
             )
             mandate.insert()
 
@@ -168,10 +164,9 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
                 "account_holder_name": "SEPA EdgeCase",
-                "sign_date": today(),
+                "sign_date": past_date,
                 "iban": self._get_test_iban(),
                 "status": "Active",
-                "mandate_date": past_date,
                 "expiry_date": past_date}
         )
 
@@ -195,8 +190,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 "account_holder_name": "SEPA EdgeCase",
                 "sign_date": today(),
                 "iban": self._get_test_iban(),
-                "status": "Active",
-                "mandate_date": today()}
+                "status": "Active"}
         )
         mandate.insert()
 
@@ -243,8 +237,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 "account_holder_name": "SEPA EdgeCase",
                 "sign_date": today(),
                 "iban": shared_iban,
-                "status": "Active",
-                "mandate_date": today()}
+                "status": "Active"}
         )
         mandate1.insert()
 
@@ -257,8 +250,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                     "account_holder_name": "SEPA EdgeCase",
                     "sign_date": today(),
                     "iban": shared_iban,  # same IBAN as mandate1
-                    "status": "Active",
-                    "mandate_date": today()}
+                    "status": "Active"}
             )
             duplicate.insert()
 
@@ -273,8 +265,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                     "account_holder_name": "SEPA EdgeCase",
                     "sign_date": today(),
                     "iban": "DE89370400440532013000",  # different IBAN
-                    "status": "Active",
-                    "mandate_date": today()}
+                    "status": "Active"}
             )
             mandate2.insert()
         # Name the blocking mandate, or an operator cannot act on the error -- and
@@ -294,8 +285,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 "account_holder_name": "SEPA EdgeCase",
                 "sign_date": today(),
                 "iban": "DE89370400440532013000",
-                "status": "Active",
-                "mandate_date": today()}
+                "status": "Active"}
         )
         mandate3.insert()
         self.assertEqual(mandate3.status, "Active")
@@ -321,7 +311,6 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 "sign_date": today(),
                 "iban": self._get_test_iban(),
                 "status": "Active",
-                "mandate_date": today(),
                 "usage_limit": 3,  # Allow only 3 uses
             }
         )
@@ -363,7 +352,6 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 "sign_date": today(),
                 "iban": self._get_test_iban(),
                 "status": "Active",
-                "mandate_date": today(),
                 "monthly_limit": 500.00,  # €500 per month
             }
         )
@@ -481,8 +469,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 "account_holder_name": "SEPA EdgeCase",
                 "sign_date": today(),
                 "iban": self._get_test_iban(),
-                "status": "Active",
-                "mandate_date": today()}
+                "status": "Active"}
         )
         mandate.insert()
 
@@ -509,10 +496,9 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
                 "account_holder_name": "SEPA EdgeCase",
-                "sign_date": today(),
+                "sign_date": add_days(today(), -1000),  # Old mandate
                 "iban": self._get_test_iban(),
                 "status": "Active",
-                "mandate_date": add_days(today(), -1000),  # Old mandate
             }
         )
         mandate.insert()
@@ -559,8 +545,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                         "account_holder_name": "SEPA EdgeCase",
                         "sign_date": today(),
                         "iban": iban,
-                        "status": "Active",
-                        "mandate_date": today()}
+                        "status": "Active"}
                 )
 
                 if should_be_valid:
@@ -585,8 +570,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 "account_holder_name": "SEPA EdgeCase",
                 "sign_date": today(),
                 "iban": self._get_test_iban(),
-                "status": "Active",
-                "mandate_date": today()}
+                "status": "Active"}
         )
         mandate.insert()
 
@@ -635,8 +619,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                             "account_holder_name": "SEPA EdgeCase",
                             "sign_date": today(),
                             "iban": self._get_test_iban(),
-                            "status": "Active",
-                            "mandate_date": today()}
+                            "status": "Active"}
                     )
                     mandate.insert()
 
