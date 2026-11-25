@@ -186,10 +186,10 @@ class TestSepaMandateExplicitConsent(PortalSelfServiceTestMixin, EnhancedTestCas
     def test_donation_hook_current_refusal_for_a_non_staff_caller_documents_status_quo(self):
         """Documents the CURRENT refusal of SEPAGateway._create_sepa_mandate for a non-staff caller.
 
-        NOT guard coverage: secure_document_operation refuses this caller before the consent
-        guard is reached, so this stays green with the guard removed. It becomes coverage of
-        enforce_consent_provenance only once #2423 is fixed. Real gateway method, real Donor,
-        real (non-staff) session user; a refusal must create nothing.
+        Since #2423 the refusal here is the gateway's own consent check (no consent in form_data),
+        not secure_document_operation; the with-consent success is in
+        test_donation_sepa_consent_2423. Real gateway method, real Donor, real (non-staff)
+        session user; a refusal must create nothing.
         """
         from verenigingen.verenigingen_payments.utils import payment_gateways as pg
 

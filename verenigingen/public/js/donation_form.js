@@ -272,6 +272,12 @@ function validateCurrentStep() {
 		if (!selectedPayment) {
 			showAlert(__('Please select a payment method'), 'danger');
 			isValid = false;
+		} else if (selectedPayment.value === 'SEPA Direct Debit') {
+			const consent = document.getElementById('sepa_consent');
+			if (!consent || !consent.checked) {
+				showAlert(__('Please read the mandate text and tick the consent box to continue.'), 'danger');
+				isValid = false;
+			}
 		}
 	}
 
@@ -410,10 +416,15 @@ function showPaymentDetails(method) {
                         <label for="donor_iban">${__('IBAN')}</label>
                         <input type="text" class="form-control" name="donor_iban" placeholder="NL00 BANK 0000 0000 00">
                     </div>
+                    <div class="form-group">
+                        <h6>${__('SEPA Direct Debit mandate')}</h6>
+                        <p id="sepa-mandate-consent-text" style="white-space: pre-line;"></p>
+                        <input type="hidden" name="sepa_consent_text_hash" id="sepa-consent-text-hash">
+                    </div>
                     <div class="form-check">
-                        <input type="checkbox" class="form-check-input" id="sepa_consent" required>
+                        <input type="checkbox" class="form-check-input" name="sepa_consent" id="sepa_consent">
                         <label class="form-check-label" for="sepa_consent">
-                            ${__('I authorize the collection of this amount via SEPA Direct Debit')}
+                            ${__('I have read the mandate text above and I agree to it.')}
                         </label>
                     </div>
                 </div>
@@ -452,6 +463,14 @@ function showPaymentDetails(method) {
 	}
 
 	detailsContainer.innerHTML = content;
+
+	if (method === 'SEPA Direct Debit') {
+		// Text and hash come from the server-rendered source (donate.html). The text goes in via
+		// textContent, never innerHTML; the server refuses consent whose hash no longer matches.
+		const source = document.getElementById('sepa-mandate-source');
+		document.getElementById('sepa-mandate-consent-text').textContent = source.textContent.trim();
+		document.getElementById('sepa-consent-text-hash').value = source.dataset.textHash;
+	}
 }
 
 function populateConfirmation() {

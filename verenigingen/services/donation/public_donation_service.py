@@ -245,6 +245,8 @@ class PublicDonationService(StatelessService):
             "email": form_data.get("donor_email"),
             "name": form_data.get("donor_name"),
             "iban": form_data.get("donor_iban"),
+            "sepa_consent": form_data.get("sepa_consent"),
+            "sepa_consent_text_hash": form_data.get("sepa_consent_text_hash"),
             "account_holder": form_data.get("account_holder") or form_data.get("donor_name"),
         }
 

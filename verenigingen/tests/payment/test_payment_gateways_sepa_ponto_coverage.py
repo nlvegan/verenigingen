@@ -36,6 +36,7 @@ import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.utils import payment_gateways as pg
+from verenigingen.tests.fixtures.sepa_mandate_test_factory import donation_sepa_consent_fields_2423
 
 VALID_IBAN_RABO = "NL39RABO0300065264"  # -> BIC RABONL2U
 VALID_IBAN_ABNA = "NL02ABNA0123456789"  # -> BIC ABNANL2A
@@ -62,7 +63,7 @@ class TestSEPAGatewayMandateFieldMapping(EnhancedTestCase):
         donation = self._donation(donor=donor.name)
         spaced = "nl39 rabo 0300 0652 64"  # lower-case + spaces
 
-        result = SEPAGateway_process(donation, {"donor_iban": spaced, "donor_name": "Spaced IBAN Donor"})
+        result = SEPAGateway_process(donation, {**donation_sepa_consent_fields_2423(), "donor_iban": spaced, "donor_name": "Spaced IBAN Donor"})
 
         self.assertEqual(result["status"], "mandate_created")
         stored = frappe.db.get_value("SEPA Mandate", result["mandate_id"], "iban")
@@ -72,7 +73,7 @@ class TestSEPAGatewayMandateFieldMapping(EnhancedTestCase):
     def test_mandate_carries_derived_bic(self):
         donor = self.create_test_donor(donor_name="BIC Donor")
         donation = self._donation(donor=donor.name)
-        result = SEPAGateway_process(donation, {"donor_iban": VALID_IBAN_RABO, "donor_name": "BIC Donor"})
+        result = SEPAGateway_process(donation, {**donation_sepa_consent_fields_2423(), "donor_iban": VALID_IBAN_RABO, "donor_name": "BIC Donor"})
         self.assertEqual(result["status"], "mandate_created")
         self.assertEqual(frappe.db.get_value("SEPA Mandate", result["mandate_id"], "bic"), "RABONL2U")
 
@@ -81,7 +82,7 @@ class TestSEPAGatewayMandateFieldMapping(EnhancedTestCase):
         # (non-"Recurring" status) donation must produce a one-off OOFF mandate.
         donor = self.create_test_donor(donor_name="OneOff Donor")
         donation = self._donation(donor=donor.name)  # default status, not "Recurring"
-        result = SEPAGateway_process(donation, {"donor_iban": VALID_IBAN_ABNA, "donor_name": "OneOff Donor"})
+        result = SEPAGateway_process(donation, {**donation_sepa_consent_fields_2423(), "donor_iban": VALID_IBAN_ABNA, "donor_name": "OneOff Donor"})
         self.assertEqual(result["status"], "mandate_created")
         self.assertEqual(
             frappe.db.get_value("SEPA Mandate", result["mandate_id"], "mandate_type"), "OOFF"
@@ -93,7 +94,7 @@ class TestSEPAGatewayMandateFieldMapping(EnhancedTestCase):
         donor = self.create_test_donor(donor_name="No Member Donor")
         self.assertFalse(donor.member)
         donation = self._donation(donor=donor.name)
-        result = SEPAGateway_process(donation, {"donor_iban": VALID_IBAN_RABO, "donor_name": "No Member Donor"})
+        result = SEPAGateway_process(donation, {**donation_sepa_consent_fields_2423(), "donor_iban": VALID_IBAN_RABO, "donor_name": "No Member Donor"})
         self.assertEqual(result["status"], "mandate_created")
         self.assertFalse(frappe.db.get_value("SEPA Mandate", result["mandate_id"], "member"))
 
@@ -102,7 +103,7 @@ class TestSEPAGatewayMandateFieldMapping(EnhancedTestCase):
         # donor_name for account_holder_name.
         donor = self.create_test_donor(donor_name="Fallback Holder Name")
         donation = self._donation(donor=donor.name)
-        result = SEPAGateway_process(donation, {"donor_iban": VALID_IBAN_RABO})  # no donor_name
+        result = SEPAGateway_process(donation, {**donation_sepa_consent_fields_2423(), "donor_iban": VALID_IBAN_RABO})  # no donor_name
         self.assertEqual(result["status"], "mandate_created")
         self.assertEqual(
             frappe.db.get_value("SEPA Mandate", result["mandate_id"], "account_holder_name"),
@@ -112,7 +113,7 @@ class TestSEPAGatewayMandateFieldMapping(EnhancedTestCase):
     def test_collection_date_returned_on_success(self):
         donor = self.create_test_donor(donor_name="Collection Date Donor")
         donation = self._donation(donor=donor.name)
-        result = SEPAGateway_process(donation, {"donor_iban": VALID_IBAN_RABO, "donor_name": "x"})
+        result = SEPAGateway_process(donation, {**donation_sepa_consent_fields_2423(), "donor_iban": VALID_IBAN_RABO, "donor_name": "x"})
         self.assertEqual(result["status"], "mandate_created")
         # Collection date is T+2 from today.
         from frappe.utils import add_to_date, getdate

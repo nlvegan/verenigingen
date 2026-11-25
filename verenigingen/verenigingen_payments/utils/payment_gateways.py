@@ -9,8 +9,9 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.services.payment.sepa_mandate_consent import check_member_consent, record_member_consent
 from verenigingen.utils.member_utils import validate_member_ownership
-from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.secure_operations import save_as_system_user, secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, public_api
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
@@ -872,6 +873,14 @@ class SEPAGateway(PaymentGateway):
         if not validation_result["valid"]:
             return create_error_response(validation_result["message"])
 
+        # Server-side consent gate (#2423): before anything is written. _create_sepa_mandate
+        # checks again, so a direct caller of it is held to the same rule.
+        _consent_text, consent_refusal = check_member_consent(
+            form_data.get("sepa_consent"), form_data.get("sepa_consent_text_hash")
+        )
+        if consent_refusal:
+            return create_error_response(consent_refusal["error"])
+
         # Create or update SEPA mandate
         mandate = self._create_sepa_mandate(donation, iban, form_data)
 
@@ -910,6 +919,13 @@ class SEPAGateway(PaymentGateway):
 
     def _create_sepa_mandate(self, donation, iban, form_data):
         """Create SEPA mandate record"""
+        # Checked again here, not only in process_payment: any caller of this method is held to
+        # the same consent, so a mandate is never built without it (#2423).
+        consent_text, consent_refusal = check_member_consent(
+            form_data.get("sepa_consent"), form_data.get("sepa_consent_text_hash")
+        )
+        if consent_refusal:
+            return None
         try:
             # Get donor information
             donor = frappe.get_doc("Donor", donation.donor)
@@ -943,6 +959,10 @@ class SEPAGateway(PaymentGateway):
                 }
             )
 
+            # Stamp the verified consent (who/when/which text) and mark it server-verified,
+            # which is what enforce_consent_provenance accepts from a non-staff donor.
+            record_member_consent(mandate, consent_text)
+
             # Link the mandate to the donor's member (when the donor is a member)
             # so it appears in the member's mandate list and member-scoped
             # permission queries. SEPA Mandate is member-scoped (no donor field);
@@ -968,19 +988,16 @@ class SEPAGateway(PaymentGateway):
                 carry_forward_purposes(mandate, superseded["purposes"])
                 mandate.used_for_donations = 1
 
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            mandate_result = secure_document_operation(
-                operation="insert",
-                doc=mandate,
-                justification=f"Create SEPA mandate for donation {donation.name} - {mandate.mandate_type} mandate for donor {form_data.get('donor_name', donor.donor_name)}",
-                required_permissions=["SEPA Mandate:create"],
+            # Written as the configured system user (the public-donation pattern): a guest or
+            # plain donor holds no create permission on SEPA Mandate, and
+            # secure_document_operation refuses them outright (#2423). The consent just verified
+            # above is what authorises the write; enforce_consent_provenance re-checks it on insert.
+            save_as_system_user(
+                mandate,
+                "insert",
+                "public_donation_sepa_mandate",
+                f"Create SEPA mandate for donation {donation.name} with the donor's verified consent",
             )
-            if not mandate_result.success:
-                frappe.log_error(
-                    f"Failed to create SEPA mandate for donation {donation.name}: {'; '.join(mandate_result.errors)}",
-                    "SEPA Gateway Error",
-                )
-                return None
             return mandate
 
         except Exception as e:

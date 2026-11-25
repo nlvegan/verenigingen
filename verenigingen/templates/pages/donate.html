@@ -614,6 +614,8 @@
 
                 <!-- Payment-specific fields will be shown here -->
                 <div id="payment-details"></div>
+                <!-- Server-rendered SEPA mandate text; showPaymentDetails() copies it into the SEPA block (#2423) -->
+                <div id="sepa-mandate-source" hidden data-text-hash="{{ mandate_consent_text_hash|e }}">{{ mandate_consent_text|e }}</div>
             </div>
 
             <div style="display: flex; justify-content: space-between;">

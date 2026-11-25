@@ -208,7 +208,8 @@ class PaymentHook:
             amount: Payment amount
             reference_doctype: DocType being paid for (Donation, Membership, etc.)
             reference_name: Document name
-            payer_info: Payer details {"email": "...", "name": "...", "iban": "..."}
+            payer_info: Payer details {"email": "...", "name": "...", "iban": "...",
+                "sepa_consent": bool, "sepa_consent_text_hash": "..."} (consent keys: SEPA only)
             recurring: Whether this is a recurring payment setup
             interval: Recurring interval (e.g., "1 month", "3 months", "1 year")
             description: Optional payment description override forwarded to the gateway
@@ -295,6 +296,11 @@ class PaymentHook:
                     "email": payer_info.get("email"),
                     "name": payer_info.get("name"),
                     "iban": payer_info.get("iban"),
+                    # SEPAGateway reads `donor_iban`; `iban` alone never reached it (#2423).
+                    "donor_iban": payer_info.get("iban"),
+                    # Mandate consent, enforced by SEPAGateway (#2423).
+                    "sepa_consent": payer_info.get("sepa_consent"),
+                    "sepa_consent_text_hash": payer_info.get("sepa_consent_text_hash"),
                     "account_holder": payer_info.get("account_holder") or payer_info.get("name"),
                     "recurring": recurring,
                     "interval": interval,
