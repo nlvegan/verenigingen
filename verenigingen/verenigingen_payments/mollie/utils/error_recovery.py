@@ -359,7 +359,9 @@ class MollieErrorRecovery:
         Get comprehensive error recovery status.
 
         Returns:
-            Status summary with metrics and circuit breaker states
+            Status summary with metrics and circuit breaker states.
+            Per-queue total_items is not cumulative: processed items beyond the
+            cap are evicted (#1310).
         """
         # Get circuit breaker states
         circuit_status = {}

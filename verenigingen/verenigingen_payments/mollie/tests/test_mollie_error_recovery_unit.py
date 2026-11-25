@@ -279,25 +279,31 @@ class TestRecoveryWorkflows(EnhancedTestCase):
     def test_processed_items_are_bounded_but_pending_items_never_evicted_1310(self):
         self.recovery.max_terminal_items_per_queue = 3
         name = "unit_bound_1310"
-        # Two pending items that must survive any eviction (control).
-        pending_ids = [
-            self.recovery.create_recovery_workflow(name, {"operation_type": "keep"}, "no_such_strategy")
-            for _ in range(2)
-        ]
-        for _ in range(8):
+        # Oldest processed item is a FAILED one, driven through real processing passes.
+        self.recovery.create_recovery_workflow(name, {"operation_type": "bad"}, "no_such_strategy")
+        failed_item = self.recovery.recovery_queues[name][0]
+        for _ in range(failed_item["max_retries"]):
+            self.recovery.process_recovery_queue(name)
+        self.assertEqual(failed_item["status"], "failed")
+        # Six completed items, each really processed.
+        completed = []
+        for _ in range(6):
             self.recovery.create_recovery_workflow(name, {"operation_type": "done"}, "manual_review")
-            queue = self.recovery.recovery_queues[name]
-            for item in queue:
-                if item["strategy"] == "manual_review" and item["status"] == "pending":
-                    item["status"] = "completed"
-        # One more create triggers eviction with all 8 done items completed.
-        self.recovery.create_recovery_workflow(name, {"operation_type": "done"}, "manual_review")
+            item = self.recovery.recovery_queues[name][-1]
+            self.recovery.process_recovery_queue(name)
+            self.assertEqual(item["status"], "completed")
+            completed.append(item)
+        # Two pending items (control: must survive); the creates trigger eviction.
+        for _ in range(2):
+            self.recovery.create_recovery_workflow(name, {"operation_type": "keep"}, "no_such_strategy")
         queue = self.recovery.recovery_queues[name]
-        terminal = [i for i in queue if i["status"] == "completed"]
-        pending = [i for i in queue if i["status"] == "pending" and i["strategy"] == "no_such_strategy"]
-        self.assertEqual(len(terminal), 3, "processed items must be capped")
+        terminal = [i for i in queue if i["status"] in ("completed", "failed")]
+        pending = [i for i in queue if i["status"] == "pending"]
+        self.assertEqual(len(terminal), 3, "processed items (failed included) must be capped")
+        # Oldest-first: the failed item and the oldest completed ones go, the newest 3 stay.
+        self.assertEqual([id(i) for i in terminal], [id(i) for i in completed[-3:]])
+        self.assertNotIn(id(failed_item), [id(i) for i in queue])
         self.assertEqual(len(pending), 2, "pending items must never be evicted")
-        self.assertEqual(sorted(i["workflow_id"] for i in pending), sorted(pending_ids))
 
     def test_process_recovery_queue_manual_review_completes(self):
         self.recovery.create_recovery_workflow("unit_mr", {"operation_type": "test"}, "manual_review")
