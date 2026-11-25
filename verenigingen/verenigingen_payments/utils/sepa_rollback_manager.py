@@ -315,8 +315,13 @@ class SEPARollbackManager:
             rollback_steps = []
             errors = []
 
-            # Step 1: Update batch status
-            step_result = self._rollback_batch_status(operation.batch_name)
+            # Step 1: Update batch status. Ruling #3054: a rollback that does not cover every
+            # invoice of the batch keeps the batch's status; only the affected rows are rolled back.
+            batch_invoices = {inv.invoice for inv in batch_info["invoices"]}
+            if batch_invoices.issubset(set(operation.affected_invoices)):
+                step_result = self._rollback_batch_status(operation.batch_name)
+            else:
+                step_result = {"success": True, "message": "Partial rollback: batch status kept"}
             rollback_steps.append({"step": "batch_status_update", "result": step_result})
             if not step_result["success"]:
                 errors.extend(step_result.get("errors", []))
