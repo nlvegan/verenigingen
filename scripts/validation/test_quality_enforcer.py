@@ -399,25 +399,101 @@ def _reassign_targets(content: str) -> List[Tuple[int, str]]:
             yield target
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            targets = node.targets
-        elif isinstance(node, ast.AnnAssign) and node.value is not None:
-            # `frappe.get_all: object = x`; a bare annotation assigns nothing.
-            targets = [node.target]
-        elif isinstance(node, ast.Call):
+        if isinstance(node, ast.Call):
             target = _setattr_target(node, resolve)
             if target:
                 out.append((node.lineno, target))
+            out.extend((node.lineno, t) for t in _namespace_update_targets(node, resolve))
             continue
-        else:
-            continue
-        for top in targets:
+        for top in _binding_targets(node):
+            # `ast.comprehension` carries no lineno of its own
+            line = getattr(node, "lineno", top.lineno)
             for target in attribute_targets(top):
                 dotted = resolve(target)
                 if dotted:
-                    out.append((node.lineno, dotted))
+                    out.append((line, dotted))
+            for dotted in _namespace_subscript_targets(top, resolve):
+                out.append((line, dotted))
 
     return out
+
+
+def _binding_targets(node) -> list:
+    """Target expressions a statement/expression node BINDS (#2847).
+
+    Beyond `ast.Assign`/`ast.AnnAssign` (#1576): an augmented assignment
+    (`frappe.get_all += x`), a `with ... as frappe.db.sql:` item, and a `for` /
+    comprehension target all store into an attribute.
+    """
+    if isinstance(node, ast.Assign):
+        return list(node.targets)
+    if isinstance(node, ast.AnnAssign):
+        # `frappe.get_all: object = x`; a bare annotation assigns nothing.
+        return [node.target] if node.value is not None else []
+    if isinstance(node, ast.AugAssign):
+        return [node.target]
+    if isinstance(node, (ast.With, ast.AsyncWith)):
+        return [i.optional_vars for i in node.items if i.optional_vars is not None]
+    if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+        return [node.target]
+    return []
+
+
+def _namespace_of(node, resolve) -> str:
+    """Dotted frappe object whose attribute namespace `node` exposes, or "".
+
+    `X.__dict__` and `vars(X)` where X resolves to a frappe root (#2847).
+    """
+    if isinstance(node, ast.Attribute) and node.attr == "__dict__":
+        return resolve(node.value)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "vars"
+        and len(node.args) == 1
+        and not node.keywords
+    ):
+        return resolve(node.args[0])
+    return ""
+
+
+def _namespace_subscript_targets(top, resolve):
+    """`frappe.__dict__["get_all"] = x` / `vars(frappe.db)["sql"] = x` (also nested
+    in tuple/list targets). A non-literal key resolves nothing: a false negative.
+    """
+    if isinstance(top, (ast.Tuple, ast.List)):
+        for elt in top.elts:
+            yield from _namespace_subscript_targets(elt, resolve)
+    elif isinstance(top, ast.Starred):
+        yield from _namespace_subscript_targets(top.value, resolve)
+    elif isinstance(top, ast.Subscript):
+        base = _namespace_of(top.value, resolve)
+        key = top.slice
+        if base and isinstance(key, ast.Constant) and isinstance(key.value, str):
+            yield f"{base}.{key.value}"
+
+
+def _namespace_update_targets(call, resolve):
+    """`vars(frappe).update({"get_all": x}, sql=y)` / `X.__dict__.update(...)` /
+    `.setdefault("k", v)`: literal keys only (#2847)."""
+    func = call.func
+    if not (isinstance(func, ast.Attribute) and func.attr in ("update", "setdefault")):
+        return
+    base = _namespace_of(func.value, resolve)
+    if not base:
+        return
+    keys = [k.arg for k in call.keywords if k.arg]
+    for arg in call.args[:1]:
+        if func.attr == "setdefault":
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                keys.append(arg.value)
+        elif isinstance(arg, ast.Dict):
+            keys += [
+                k.value for k in arg.keys
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)
+            ]
+    for key in keys:
+        yield f"{base}.{key}"
 
 
 def _frappe_root_aliases(tree) -> Dict[str, str]:
@@ -454,10 +530,15 @@ def _setattr_target(call, resolve) -> str:
     """
     func = call.func
     is_builtin = isinstance(func, ast.Name) and func.id == "setattr"
-    is_pytest = (
-        isinstance(func, ast.Attribute) and func.attr == "setattr"
-        and _dotted_name(func.value) == "monkeypatch"
-    )
+    is_method = isinstance(func, ast.Attribute) and func.attr == "setattr"
+    # #2847: the pytest fixture is not always literally named `monkeypatch`
+    # (`mp`, `pytest.MonkeyPatch()` instances, `with ... as m`). A method named
+    # `setattr` on ANY receiver counts when the call has monkeypatch's shape:
+    # a frappe base + literal name + a value, or a dotted "frappe.x" string + a
+    # value. The literal receiver `monkeypatch` keeps its old, laxer arity.
+    has_value = len(call.args) >= 3 or any(k.arg == "value" for k in call.keywords)
+    is_pytest = is_method and (_dotted_name(func.value) == "monkeypatch" or has_value
+                               or _is_dotted_string_target(call))
     if not (is_builtin or is_pytest) or not call.args:
         return ""
     first = call.args[0]
@@ -471,6 +552,18 @@ def _setattr_target(call, resolve) -> str:
     if base and isinstance(attr, ast.Constant) and isinstance(attr.value, str):
         return f"{base}.{attr.value}"
     return ""
+
+
+def _is_dotted_string_target(call) -> bool:
+    """`recv.setattr("frappe.x", value)`: one string target plus a value (#2847)."""
+    if not call.args:
+        return False
+    first = call.args[0]
+    return (
+        isinstance(first, ast.Constant)
+        and isinstance(first.value, str)
+        and (len(call.args) >= 2 or any(k.arg == "value" for k in call.keywords))
+    )
 
 
 def counts_of(findings) -> Dict[str, int]:
