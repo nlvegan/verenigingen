@@ -170,6 +170,32 @@ class PipFinalFailureClassificationTests(unittest.TestCase):
     def test_bare_retry_line_without_a_cause_is_not_infra(self):
         self._assert_real("WARNING: Retrying (Retry(total=4)) after something\nERROR: No matching distribution found for x\n")
 
+    def test_blip_then_missing_pin_is_not_infra(self):
+        self._assert_real(
+            self._BLIP
+            + "ERROR: Could not find a version that satisfies the requirement x==9 (from versions: 1.0, 2.0)\n"
+            "ERROR: No matching distribution found for x==9\n"
+        )
+
+    def test_blip_then_build_error_is_not_infra(self):
+        self._assert_real(self._BLIP + "error: subprocess-exited-with-error\n  x Building wheel for y did not run successfully.\n")
+
+    def test_build_error_saying_operation_timed_out_is_not_infra(self):
+        self._assert_real("OSError: operation timed out\nerror: subprocess-exited-with-error\n")
+
+    def test_last_transport_line_decides_when_a_real_line_sits_between(self):
+        text = self._BLIP + "ERROR: Cannot install a and b because these package versions have conflicting dependencies.\n" + self._BLIP
+        rc, out = _pip([(1, text)] * 3)
+        self.assertIn("ATTEMPTS=3", out)
+        self.assertIn("GAVE_UP=1", out)
+
+    def test_further_transport_causes_are_infra(self):
+        for cause in ("Couldn't connect to server", "Connection was reset", "GnuTLS recv error (-54)", "SSL_ERROR_SYSCALL", "Connection timed out"):
+            with self.subTest(cause=cause):
+                rc, out = _pip([(1, f"fatal: {cause}\n")] * 3)
+                self.assertIn("ATTEMPTS=3", out)
+                self.assertIn("GAVE_UP=1", out)
+
 
 def _extract_pip_step_script():
     text = _ACTION.read_text()
