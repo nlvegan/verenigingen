@@ -70,14 +70,9 @@ describe('Real Member Controller', () => {
 				tussenvoegsel: 'van der',
 				full_name: 'Jan van der Berg',
 				email: 'jan.van.der.berg@example.org',
-				phone: '+31612345678',
 				status: 'Active',
 				member_since: '2024-01-15',
-				membership_type: 'Regular',
 				iban: 'NL91ABNA0417164300',
-				postal_code: '1012 AB',
-				city: 'Amsterdam',
-				country: 'Netherlands',
 				__islocal: 0
 			}
 		});
@@ -89,10 +84,8 @@ describe('Real Member Controller', () => {
 			tussenvoegsel: { df: { fieldtype: 'Data' } },
 			full_name: { df: { fieldtype: 'Data' } },
 			email: { df: { fieldtype: 'Data' } },
-			phone: { df: { fieldtype: 'Data' } },
 			iban: { df: { fieldtype: 'Data' } },
 			status: { df: { fieldtype: 'Select' } },
-			membership_type: { df: { fieldtype: 'Select' } },
 			address_section: {
 				wrapper: global.$('<div>')
 			},
@@ -303,7 +296,7 @@ describe('Real Member Controller', () => {
 
 		it('should handle SEPA mandate association', () => {
 			frm.doc.iban = 'NL91ABNA0417164300';
-			frm.doc.sepa_mandate = 'SEPA-2024-001';
+			frm.doc.sepa_mandates = [{ sepa_mandate: 'SEPA-2024-001' }];
 
 			expect(() => {
 				testFormEvent('Member', 'refresh', frm, { Member: memberHandlers });
@@ -367,20 +360,20 @@ describe('Real Member Controller', () => {
 		});
 
 		it('should link to current membership record', () => {
-			frm.doc.current_membership = 'MEMBERSHIP-2024-001';
+			frm.doc.current_membership_plan = 'MEMBERSHIP-2024-001';
 			frm.doc.__islocal = 0;
 
 			testFormEvent('Member', 'refresh', frm, { Member: memberHandlers });
 
 			// Should maintain membership reference
-			expect(frm.doc.current_membership).toBe('MEMBERSHIP-2024-001');
+			expect(frm.doc.current_membership_plan).toBe('MEMBERSHIP-2024-001');
 		});
 
 		it('should handle membership type changes', () => {
 			const membershipTypes = ['Regular', 'Student', 'Senior', 'Family'];
 
 			membershipTypes.forEach((type) => {
-				frm.doc.membership_type = type;
+				frm.doc.selected_membership_type = type;
 
 				// Test membership_type handler if it exists
 				if (memberHandlers.membership_type) {
@@ -458,8 +451,6 @@ describe('Real Member Controller', () => {
 
 		it('should handle invalid data gracefully', () => {
 			frm.doc.iban = 'INVALID_IBAN';
-			frm.doc.postal_code = 'INVALID_CODE';
-			frm.doc.phone = 'INVALID_PHONE';
 
 			expect(() => {
 				testFormEvent('Member', 'refresh', frm, { Member: memberHandlers });
@@ -511,7 +502,7 @@ describe('Real Member Controller', () => {
 		});
 
 		it('should integrate with volunteer system', () => {
-			frm.doc.is_volunteer = 1;
+			frm.doc.interested_in_volunteering = 1;
 			frm.doc.volunteer_record = 'VOL-2024-001';
 
 			expect(() => {
@@ -544,13 +535,13 @@ describe('Real Member Controller', () => {
 		});
 
 		it('should validate member number format', () => {
-			frm.doc.member_number = 'MEM-2024-001';
+			frm.doc.member_id = 'MEM-2024-001';
 
 			expect(() => {
 				testFormEvent('Member', 'refresh', frm, { Member: memberHandlers });
 			}).not.toThrow();
 
-			expect(frm.doc.member_number).toBe('MEM-2024-001');
+			expect(frm.doc.member_id).toBe('MEM-2024-001');
 		});
 	});
 });

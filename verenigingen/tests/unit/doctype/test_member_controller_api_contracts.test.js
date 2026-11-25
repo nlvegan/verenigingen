@@ -38,7 +38,6 @@ const memberControllerConfig = {
 		tussenvoegsel: 'van der',
 		last_name: 'Berg',
 		email: 'jan.vandeberg@example.org',
-		phone: '+31612345678',
 		birth_date: '1985-03-15',
 		member_since: '2025-01-01'
 	},

@@ -55,7 +55,7 @@ describe('Member JavaScript Controller Tests', () => {
 			cy.fill_frappe_field('tussenvoegsel', 'van der');
 			cy.fill_frappe_field('last_name', 'Berg');
 			cy.fill_frappe_field('email', 'w.vandenberg@example.com');
-			cy.fill_frappe_field('date_of_birth', '1985-04-27', {
+			cy.fill_frappe_field('birth_date', '1985-04-27', {
 				fieldtype: 'Date'
 			});
 
@@ -77,9 +77,8 @@ describe('Member JavaScript Controller Tests', () => {
 			cy.fill_frappe_field('tussenvoegsel', 'de');
 			cy.fill_frappe_field('last_name', 'Groot');
 			cy.fill_frappe_field('email', 'catharina.degroot@example.com');
-			cy.fill_frappe_field('phone', '+31612345678');
-			cy.fill_frappe_field('postal_code', '1012 AB');
-			cy.fill_frappe_field('city', 'Amsterdam');
+			// Phone, postal code and city are not Member fields (#1186): they live on
+			// the linked Contact/Address, so there is nothing to fill here.
 
 			// Test personal information validation
 			cy.execute_business_workflow(
@@ -120,7 +119,7 @@ describe('Member JavaScript Controller Tests', () => {
 			cy.fill_frappe_field('first_name', 'Emma');
 			cy.fill_frappe_field('last_name', 'Jonkers');
 			cy.fill_frappe_field('email', 'emma.jonkers@example.com');
-			cy.fill_frappe_field('date_of_birth', '2010-06-15', {
+			cy.fill_frappe_field('birth_date', '2010-06-15', {
 				fieldtype: 'Date'
 			});
 
@@ -136,8 +135,8 @@ describe('Member JavaScript Controller Tests', () => {
 					}
 
 					// Test volunteer eligibility (must be 16+)
-					if (frm.doc.date_of_birth) {
-						const birthYear = new Date(frm.doc.date_of_birth).getFullYear();
+					if (frm.doc.birth_date) {
+						const birthYear = new Date(frm.doc.birth_date).getFullYear();
 						const currentYear = new Date().getFullYear();
 						const age = currentYear - birthYear;
 
@@ -211,10 +210,7 @@ describe('Member JavaScript Controller Tests', () => {
 			cy.fill_frappe_field('first_name', 'Renewal');
 			cy.fill_frappe_field('last_name', 'Test');
 			cy.fill_frappe_field('email', 'renewal.test@example.com');
-			cy.fill_frappe_field('membership_expiry', '2025-12-31', {
-				fieldtype: 'Date'
-			});
-			cy.fill_frappe_field('auto_renewal', true, { fieldtype: 'Check' });
+			// membership_expiry and auto_renewal are not Member fields (#1186).
 
 			// Test renewal logic
 			cy.execute_business_workflow(
@@ -234,7 +230,7 @@ describe('Member JavaScript Controller Tests', () => {
 						}
 
 						// Test auto-renewal logic
-						if (frm.doc.auto_renewal && frm.fields_dict.auto_renewal_processing) {
+						if (frm.fields_dict.auto_renewal_processing) {
 							expect(frm.fields_dict.auto_renewal_processing).to.exist;
 							cy.log('Auto-renewal processing available');
 						}
@@ -257,9 +253,8 @@ describe('Member JavaScript Controller Tests', () => {
 			cy.fill_frappe_field('first_name', 'Payment');
 			cy.fill_frappe_field('last_name', 'Integration');
 			cy.fill_frappe_field('email', 'payment.integration@example.com');
-			cy.fill_frappe_field('preferred_payment_method', 'Bank Transfer', {
-				fieldtype: 'Select'
-			});
+			// preferred_payment_method is not a Member field (#1186); the real one is
+			// the 'payment_method' Link, whose target rows are fixture-dependent.
 
 			// Test payment integration
 			cy.execute_form_operation(() => {
@@ -297,9 +292,6 @@ describe('Member JavaScript Controller Tests', () => {
 			cy.fill_frappe_field('first_name', 'SEPA');
 			cy.fill_frappe_field('last_name', 'Mandate');
 			cy.fill_frappe_field('email', 'sepa.mandate@example.com');
-			cy.fill_frappe_field('preferred_payment_method', 'SEPA Direct Debit', {
-				fieldtype: 'Select'
-			});
 			cy.fill_frappe_field('iban', 'NL91ABNA0417164300');
 
 			// Test SEPA integration
@@ -308,8 +300,8 @@ describe('Member JavaScript Controller Tests', () => {
 					const frm = win.frappe.ui.form.get_form('Member');
 
 					// Test SEPA mandate creation
-					if (frm.fields_dict.sepa_mandate) {
-						expect(frm.fields_dict.sepa_mandate).to.exist;
+					if (frm.fields_dict.sepa_mandates) {
+						expect(frm.fields_dict.sepa_mandates).to.exist;
 						cy.log('SEPA mandate management available');
 					}
 
@@ -380,10 +372,10 @@ describe('Member JavaScript Controller Tests', () => {
 			cy.fill_frappe_field('first_name', 'Volunteer');
 			cy.fill_frappe_field('last_name', 'Profile');
 			cy.fill_frappe_field('email', 'volunteer.profile@example.com');
-			cy.fill_frappe_field('date_of_birth', '1990-03-20', {
+			cy.fill_frappe_field('birth_date', '1990-03-20', {
 				fieldtype: 'Date'
 			});
-			cy.fill_frappe_field('is_volunteer', true, { fieldtype: 'Check' });
+			cy.fill_frappe_field('interested_in_volunteering', true, { fieldtype: 'Check' });
 
 			// Test volunteer integration
 			cy.execute_form_operation(() => {
@@ -391,7 +383,7 @@ describe('Member JavaScript Controller Tests', () => {
 					const frm = win.frappe.ui.form.get_form('Member');
 
 					// Test volunteer eligibility (16+ years)
-					if (frm.doc.is_volunteer && frm.fields_dict.volunteer_eligibility) {
+					if (frm.doc.interested_in_volunteering && frm.fields_dict.volunteer_eligibility) {
 						expect(frm.fields_dict.volunteer_eligibility).to.exist;
 						cy.log('Volunteer eligibility validation available');
 					}
@@ -423,8 +415,9 @@ describe('Member JavaScript Controller Tests', () => {
 			cy.fill_frappe_field('first_name', 'Privacy');
 			cy.fill_frappe_field('last_name', 'Test');
 			cy.fill_frappe_field('email', 'privacy.test@example.com');
-			cy.fill_frappe_field('email_consent', true, { fieldtype: 'Check' });
-			cy.fill_frappe_field('marketing_consent', false, { fieldtype: 'Check' });
+			// email_consent / marketing_consent are not Member fields (#1186); the one
+			// real preference is accepts_optional_communications.
+			cy.fill_frappe_field('accepts_optional_communications', false, { fieldtype: 'Check' });
 
 			// Test privacy and communication
 			cy.execute_business_workflow(
@@ -472,9 +465,8 @@ describe('Member JavaScript Controller Tests', () => {
 
 			// Test termination workflow
 			cy.fill_frappe_field('status', 'Quit', { fieldtype: 'Select' });
-			cy.fill_frappe_field('termination_reason', 'Voluntary', {
-				fieldtype: 'Select'
-			});
+			// termination_reason is not a Member field (#1186); it belongs to the
+			// Membership Termination Request doctype.
 
 			cy.execute_form_operation(() => {
 				cy.window().then((win) => {
@@ -513,7 +505,7 @@ describe('Member JavaScript Controller Tests', () => {
 			cy.fill_frappe_field('first_name', 'Analytics');
 			cy.fill_frappe_field('last_name', 'Member');
 			cy.fill_frappe_field('email', 'analytics.member@example.com');
-			cy.fill_frappe_field('date_of_birth', '1985-07-12', {
+			cy.fill_frappe_field('birth_date', '1985-07-12', {
 				fieldtype: 'Date'
 			});
 			cy.fill_frappe_field('member_since', '2020-01-15', { fieldtype: 'Date' });
