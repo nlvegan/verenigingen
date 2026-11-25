@@ -46,17 +46,13 @@ class PaymentReferenceRefused(frappe.ValidationError):
     """The one refusal for every way a guest-supplied payment reference can be unusable."""
 
 
-# Columns holding the owner's email, read by name without loading the document (Sales Invoice and
-# Payment Plan Payment resolve through their own helpers in _owner_email_on_file).
-_OWNER_EMAIL_COLUMN = {"Donation": "donor_email"}
-
-
 def load_owned_reference(reference_doctype: str, reference_name: str, payer_email: str):
     """Return the reference document, but only if payer_email matches its on-file email.
 
     Guest-reachable by design (a payer has no session before their payment
     succeeds), so the on-file email is the only ownership signal available --
-    mirrors donate.py's PublicDonationService._verify_donor_email_matches (#969).
+    the one ownership rule for every guest payment path, including donate.retry_payment (#969,
+    #2183).
 
     An unknown name, an existing document the caller does not own, a doctype
     outside ALLOWED_REFERENCE_DOCTYPES and a missing/blank email all raise the
@@ -83,8 +79,8 @@ def _owner_email_on_file(reference_doctype: str, reference_name: str) -> str:
     """Owner email for a reference, "" for anything unresolvable (callers fail closed).
 
     Issues the same number of queries for an unknown and an existing name of an
-    allowed doctype: one for Donation/Sales Invoice, two for Payment Plan Payment
-    (the Member lookup runs even when the payment row or its member is missing).
+    allowed doctype: two for Donation and Payment Plan Payment (the second lookup runs
+    even when the first row or its owner is missing), three for Sales Invoice.
     A non-string name is refused before any query: ``get_value`` would read a dict
     as filters.
     """
@@ -100,8 +96,20 @@ def _owner_email_on_file(reference_doctype: str, reference_name: str) -> str:
         return (email or "").strip().lower()
     if reference_doctype == "Sales Invoice":
         return _sales_invoice_owner_email(reference_name)
-    column = _OWNER_EMAIL_COLUMN[reference_doctype]
-    return (frappe.db.get_value(reference_doctype, reference_name, column) or "").strip().lower()
+    return _donation_owner_email(reference_name)
+
+
+def _donation_owner_email(donation_name: str) -> str:
+    """The donor's LIVE ``Donor.donor_email`` (#2183, maintainer ruling), never the Donation snapshot.
+
+    ``Donation.donor_email`` is ``fetch_from: donor.donor_email``, copied when the Donation is
+    saved, so it keeps an address the donor has since replaced. The Donor read runs for an unknown
+    donation too (empty-name filter dict, which matches nothing where ``get_value("Donor", "")``
+    would read the first row), so unknown and not-owned cost the same queries.
+    """
+    donor = frappe.db.get_value("Donation", donation_name, "donor")
+    email = frappe.db.get_value("Donor", {"name": donor or ""}, "donor_email")
+    return (email or "").strip().lower()
 
 
 def _sales_invoice_owner_email(invoice_name: str) -> str:
