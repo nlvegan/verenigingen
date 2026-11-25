@@ -23,6 +23,9 @@ from verenigingen.verenigingen_payments.core.resilience.job_timeout import rerai
 
 # Import configuration service for cached settings access
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    names_listing_customer_id,
+)
 
 from ..exceptions import MolliePaymentError, MollieWebhookError
 
@@ -716,7 +719,7 @@ class MollieClient:
             # Check database records
             members = frappe.get_all(
                 "Member",
-                filters={"mollie_customer_id": customer_id},
+                filters={"name": ["in", names_listing_customer_id("Member", customer_id, limit=None)]},
                 fields=[
                     "name",
                     "full_name",
@@ -728,7 +731,9 @@ class MollieClient:
             result["database_records"]["members"] = members
 
             donors = frappe.get_all(
-                "Donor", filters={"mollie_customer_id": customer_id}, fields=["name", "donor_name", "member"]
+                "Donor",
+                filters={"name": ["in", names_listing_customer_id("Donor", customer_id, limit=None)]},
+                fields=["name", "donor_name", "member"],
             )
             result["database_records"]["donors"] = donors
 

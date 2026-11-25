@@ -23,6 +23,9 @@ from verenigingen.utils.security.api_security_framework import (
     self_service_api,
 )
 from verenigingen.utils.validation_utilities import DateRangeValidator
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    split_mollie_customer_ids,
+)
 
 # Tri-state result of get_recurring_donation_state(). UNKNOWN means the state could
 # NOT be established -- typically because Mollie was unreachable -- and is
@@ -263,10 +266,22 @@ def get_mollie_subscription_info(subscription_id):
             if not members or not members[0].mollie_customer_id:
                 raise Exception(f"No member found with mollie_customer_id for subscription {subscription_id}")
 
-            customer_id = members[0].mollie_customer_id
-
-            # Get the subscription through the customer (correct Mollie API usage)
-            subscription = gateway.client.customers.get(customer_id).subscriptions.get(subscription_id)
+            # The field may hold a comma-separated list (#2675): the subscription lives under
+            # exactly one of the listed customers, so try each id in turn.
+            subscription = None
+            last_error = None
+            for customer_id in split_mollie_customer_ids(members[0].mollie_customer_id):
+                try:
+                    subscription = gateway.client.customers.get(customer_id).subscriptions.get(
+                        subscription_id
+                    )
+                    break
+                except Exception as lookup_error:
+                    last_error = lookup_error
+            if subscription is None:
+                raise last_error or Exception(
+                    f"No usable mollie_customer_id for subscription {subscription_id}"
+                )
 
             return {
                 "subscription_status": subscription.status,

@@ -13,6 +13,9 @@ from frappe.utils import now_datetime
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    names_listing_customer_id,
+)
 
 from ..core.client import MollieClient
 from ..exceptions import MollieIntegrationError
@@ -392,13 +395,14 @@ def _update_local_subscription_records(subscription_status: Dict[str, Any]) -> D
         customer_id = subscription_status["customer_id"]
 
         # Find member with this subscription
-        members = frappe.db.get_all(
-            "Member", {"mollie_customer_id": customer_id, "mollie_subscription_id": subscription_id}, ["name"]
+        # mollie_customer_id may hold a comma-separated list (#2675)
+        member_names = names_listing_customer_id(
+            "Member", customer_id, filters={"mollie_subscription_id": subscription_id}, limit=None
         )
 
-        for member_record in members:
+        for member_name in member_names:
             try:
-                member = frappe.get_doc("Member", member_record.name)
+                member = frappe.get_doc("Member", member_name)
                 member.subscription_status = subscription_status["status"]
                 member.next_payment_date = subscription_status.get("next_payment_date")
                 # Security: Admin sync endpoint protected by frappe.only_for() role check - updates Mollie-sourced subscription data
@@ -406,7 +410,7 @@ def _update_local_subscription_records(subscription_status: Dict[str, Any]) -> D
                 updates["updated_records"] += 1
 
             except Exception as e:
-                updates["errors"].append(f"Failed to update member {member_record.name}: {e}")
+                updates["errors"].append(f"Failed to update member {member_name}: {e}")
 
     except Exception as e:
         updates["errors"].append(f"General error updating records: {e}")

@@ -23,6 +23,9 @@ from verenigingen.verenigingen_payments.mollie.utils.amount_helpers import (
     extract_amount_float,
     extract_amount_value,
 )
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    split_mollie_customer_ids,
+)
 
 
 # Configuration constants
@@ -336,6 +339,45 @@ class BulkPaymentChecker:
 
         return payment_date < from_date
 
+    def check_payments_for_member(
+        self,
+        customer_id_field: str,
+        member_name: str,
+        from_date: Optional[datetime] = None,
+        limit: int = 250,
+    ) -> Dict[str, Any]:
+        """Check every Mollie customer listed in a Member's ``mollie_customer_id`` (#2675).
+
+        The field may hold a comma-separated list; each id is a separate Mollie customer, so each
+        gets its own API check and the results are merged into one per-member result.
+
+        Partial failure: ids are all checked even when one errors; the FIRST error message is kept
+        in ``error`` while payments and counters of the healthy ids are still merged. The member
+        then counts as ONE error toward ``errors`` and the circuit breaker, however many of its
+        ids failed.
+        """
+        ids = split_mollie_customer_ids(customer_id_field)
+        if len(ids) <= 1:
+            return self.check_payments_for_customer(
+                customer_id=ids[0] if ids else customer_id_field,
+                member_name=member_name,
+                from_date=from_date,
+                limit=limit,
+            )
+        merged = None
+        for listed_id in ids:
+            part = self.check_payments_for_customer(
+                customer_id=listed_id, member_name=member_name, from_date=from_date, limit=limit
+            )
+            if merged is None:
+                merged = {**part, "customer_id": customer_id_field}
+                continue
+            merged["payments"] = merged["payments"] + part["payments"]
+            for counter in ("total_found", "new_payments", "filtered_by_date", "filtered_by_duplicate"):
+                merged[counter] += part.get(counter, 0)
+            merged["error"] = merged["error"] or part["error"]
+        return merged
+
     def check_payments_for_customer(
         self,
         customer_id: str,
@@ -613,8 +655,8 @@ class BulkPaymentChecker:
                 if (idx + 1) % 10 == 0:
                     frappe.logger().info(f"Progress: {idx + 1}/{len(members)} members checked")
 
-                customer_result = self.check_payments_for_customer(
-                    customer_id=member["mollie_customer_id"],
+                customer_result = self.check_payments_for_member(
+                    customer_id_field=member["mollie_customer_id"],
                     member_name=member["name"],
                     from_date=from_date,
                     limit=limit_per_customer,

@@ -25,6 +25,9 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     validate_mollie_amount,
 )
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    names_listing_customer_id,
+)
 from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
 
@@ -154,13 +157,15 @@ class MollieDebugService(StatelessService):
         # Check database records
         members = frappe.get_all(
             "Member",
-            filters={"mollie_customer_id": customer_id},
+            filters={"name": ["in", names_listing_customer_id("Member", customer_id, limit=None)]},
             fields=["name", "full_name", "mollie_subscription_id", "subscription_status", "payment_method"],
         )
         result["database_records"]["members"] = members
 
         donors = frappe.get_all(
-            "Donor", filters={"mollie_customer_id": customer_id}, fields=["name", "donor_name", "member"]
+            "Donor",
+            filters={"name": ["in", names_listing_customer_id("Donor", customer_id, limit=None)]},
+            fields=["name", "donor_name", "member"],
         )
         result["database_records"]["donors"] = donors
 

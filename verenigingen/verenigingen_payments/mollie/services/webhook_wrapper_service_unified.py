@@ -28,6 +28,9 @@ from verenigingen.verenigingen_payments.services.journal_entry_booking_support i
 
 # Import payment data extraction utilities
 from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    split_mollie_customer_ids,
+)
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 # Import custom exceptions
@@ -3037,8 +3040,11 @@ class UnifiedWebhookWrapperService:
 
             # Update Mollie IDs if present (requires full save)
             mollie_fields_changed = False
-            if customer_id and donor.mollie_customer_id != customer_id:
-                donor.mollie_customer_id = customer_id
+            # The field may hold a comma-separated list (#2675): an id already listed is present,
+            # and an unlisted one is appended, because overwriting would drop the others.
+            listed_ids = split_mollie_customer_ids(donor.mollie_customer_id)
+            if customer_id and customer_id not in listed_ids:
+                donor.mollie_customer_id = ", ".join(listed_ids + [customer_id])
                 fields_updated.append("mollie_customer_id")
                 mollie_fields_changed = True
 
