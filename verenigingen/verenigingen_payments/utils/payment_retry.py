@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, getdate, now_datetime, today
+from frappe.utils import add_days, flt, getdate, now_datetime, today
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.notification_helpers import resolve_admin_recipients
@@ -40,15 +40,26 @@ class PaymentRetryManager:
         return self._schedule_retry(failed_invoice, reason_code, reason_message)
 
     def _schedule_retry(self, failed_invoice, reason_code=None, reason_message=None):
-        # Undecorated body: api.payment_dashboard.retry_failed_payment (itself @critical_api)
-        # calls this so one manual retry is one audit row and one rate-limit bucket (#2280).
+        # Undecorated body: api.payment_dashboard.retry_failed_payment calls this so one manual
+        # retry is one audit row and one rate-limit bucket (#2280).
 
         # The callers authorize before reaching here (a retry is also scheduled on behalf of
         # the invoice's own member, who holds no write access to SEPA Payment Retry, #2596),
         # so the record writes below skip the doc-level permission check.
 
+        # Only a submitted invoice with something still owing can be retried (#2596 review)
+        docstatus, outstanding = frappe.db.get_value(
+            "Sales Invoice", failed_invoice, ["docstatus", "outstanding_amount"]
+        ) or (None, 0)
+        if docstatus != 1 or flt(outstanding) <= 0:
+            return {"scheduled": False, "message": _("This invoice has no outstanding amount to retry")}
+
         # Get or create retry record
         retry_record = self.get_or_create_retry_record(failed_invoice)
+
+        # Already escalated: staff were told once; do not escalate (and mail them) again
+        if retry_record.status == "Escalated":
+            return {"scheduled": False, "message": _("This payment has been escalated for manual review")}
 
         if retry_record.retry_count >= self.retry_config["max_retries"]:
             self.escalate_payment_failure(retry_record)

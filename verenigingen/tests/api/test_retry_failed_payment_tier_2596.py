@@ -7,12 +7,15 @@ on a member's behalf (#1101). Real users, real Role Profiles, dispatched through
 real whitelist gate.
 """
 
-from unittest.mock import MagicMock
+import json
+import os
+from unittest.mock import MagicMock, patch
 
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.role_profile_helper import grant_matching_role_profiles
+from verenigingen.utils.constants import Roles
 
 CMD = "verenigingen.api.payment_dashboard.retry_failed_payment"
 UNKNOWN_INVOICE = "ACC-SINV-DOES-NOT-EXIST-2596"
@@ -110,3 +113,146 @@ class TestRetryFailedPaymentTier2596(EnhancedTestCase):
         result, error, _ = self._dispatch_2596("Guest", self.invoice.name)
         self.assertIsNotNone(error, result)
         self.assertFalse(frappe.db.exists("SEPA Payment Retry", {"invoice": self.invoice.name}))
+
+    # ------------------------------------------------------------------ #
+    # review round 2
+    # ------------------------------------------------------------------ #
+    def _retry_rows_2596(self):
+        return frappe.get_all(
+            "SEPA Payment Retry", filters={"invoice": self.invoice.name}, fields=["name", "status"]
+        )
+
+    def _audit_names_2596(self):
+        rows = frappe.get_all("API Audit Log", fields=["name", "event_type", "details"], limit_page_length=0)
+        return {
+            r.name: (r.event_type, json.loads(r.details or "{}"))
+            for r in rows
+            if json.loads(r.details or "{}").get("function") == "retry_failed_payment"
+        }
+
+    def _new_audit_2596(self, before):
+        return [v for k, v in self._audit_names_2596().items() if k not in before]
+
+    def test_chapter_board_member_cannot_retry_another_members_invoice(self):
+        """Chapter Board Member carries Sales Invoice write (Accounts User); that must not be enough
+        to retry ANY member's invoice. Precondition asserts the write permission is really there,
+        so the role check is what refuses."""
+        board = self._user_2596("Verenigingen Chapter Board Member")
+        with self.as_user(board):
+            self.assertTrue(frappe.has_permission("Sales Invoice", "write"), "setup: needs has_write")
+        result, error, _ = self._dispatch_2596(board, self.invoice.name)
+        self.assertIsNone(error)
+        self.assertFalse(result["success"], result)
+        self.assertIn("permission", result["error"]["message"].lower())
+        self.assertEqual(self._retry_rows_2596(), [])
+
+    def test_treasurer_only_user_cannot_retry_another_members_invoice(self):
+        """#1101 excludes treasurer and board: the staff set is Roles.ADMIN_ROLES."""
+        # The Treasurer Role Profile bundles Verenigingen Staff, so use the bare roles
+        treasurer = f"p2596-treas-{frappe.generate_hash(length=8)}@example.com"
+        self.create_test_user(treasurer, roles=["Verenigingen Treasurer", "Accounts User"])
+        with self.as_user(treasurer):
+            self.assertFalse(set(frappe.get_roles()) & Roles.ADMIN_ROLES, "setup: treasurer-only")
+            self.assertTrue(frappe.has_permission("Sales Invoice", "write"), "setup: needs has_write")
+        result, error, _ = self._dispatch_2596(treasurer, self.invoice.name)
+        self.assertIsNone(error)
+        self.assertFalse(result["success"], result)
+        self.assertIn("permission", result["error"]["message"].lower())
+        self.assertEqual(self._retry_rows_2596(), [])
+
+    def _assert_not_retryable_2596(self, invoice_name, caller):
+        before = self._audit_names_2596()
+        result, error, _ = self._dispatch_2596(caller, invoice_name)
+        self.assertIsNone(error)
+        self.assertFalse(result["success"], result)
+        self.assertIn("outstanding", result["error"]["message"].lower())
+        self.assertFalse(frappe.db.exists("SEPA Payment Retry", {"invoice": invoice_name}))
+        # the manager refuses on its own too, not only the endpoint
+        from verenigingen.verenigingen_payments.utils.payment_retry import PaymentRetryManager
+
+        direct = PaymentRetryManager()._schedule_retry(invoice_name, "MANUAL", "x")
+        self.assertFalse(direct["scheduled"], direct)
+        self.assertFalse(frappe.db.exists("SEPA Payment Retry", {"invoice": invoice_name}))
+        return before
+
+    def test_paid_invoice_is_refused(self):
+        # Probe shortcut: outstanding_amount zeroed directly instead of booking a payment
+        frappe.db.set_value("Sales Invoice", self.invoice.name, "outstanding_amount", 0)
+        self._assert_not_retryable_2596(self.invoice.name, self.owner_email)
+
+    def test_cancelled_invoice_is_refused(self):
+        frappe.get_doc("Sales Invoice", self.invoice.name).cancel()
+        self._assert_not_retryable_2596(self.invoice.name, self.owner_email)
+
+    def test_draft_invoice_is_refused(self):
+        # Probe shortcut: docstatus set directly; the factory only builds submitted invoices
+        frappe.db.set_value("Sales Invoice", self.invoice.name, "docstatus", 0)
+        self._assert_not_retryable_2596(self.invoice.name, self.owner_email)
+
+    def test_an_exhausted_record_escalates_once_not_on_every_call(self):
+        from verenigingen.verenigingen_payments.utils.payment_retry import PaymentRetryManager
+
+        manager = PaymentRetryManager()
+        exhausted = frappe.get_doc(
+            {
+                "doctype": "SEPA Payment Retry",
+                "invoice": self.invoice.name,
+                "member": self.owner.name,
+                "original_amount": 50,
+                "retry_count": manager.retry_config["max_retries"],
+                "status": "Retried",
+            }
+        ).insert()
+        with patch.object(
+            PaymentRetryManager,
+            "send_escalation_notification",
+            autospec=True,
+            side_effect=PaymentRetryManager.send_escalation_notification,
+        ) as notified:
+            outcomes = [self._dispatch_2596(self.owner_email, self.invoice.name)[0] for _ in range(4)]
+        self.assertEqual(notified.call_count, 1, "staff must be mailed exactly once")
+        self.assertTrue(all(not o["success"] for o in outcomes), outcomes)
+        self.assertEqual(frappe.db.get_value("SEPA Payment Retry", exhausted.name, "status"), "Escalated")
+        self.assertIn("escalated", outcomes[-1]["error"]["message"].lower())
+
+    def test_every_failing_exit_is_audited(self):
+        staff = self._user_2596("Verenigingen Staff")
+        cases = {}
+
+        before = self._audit_names_2596()
+        self._dispatch_2596(self.other_email, self.invoice.name)
+        cases["refused"] = self._new_audit_2596(before)
+
+        before = self._audit_names_2596()
+        self._dispatch_2596(staff, UNKNOWN_INVOICE)
+        cases["not found"] = self._new_audit_2596(before)
+
+        frappe.get_doc(
+            {
+                "doctype": "SEPA Payment Retry",
+                "invoice": self.invoice.name,
+                "member": self.owner.name,
+                "original_amount": 50,
+                "retry_count": 1,
+                "status": "Scheduled",
+            }
+        ).insert()
+        before = self._audit_names_2596()
+        self._dispatch_2596(self.owner_email, self.invoice.name)
+        cases["already scheduled"] = self._new_audit_2596(before)
+
+        for name, rows in cases.items():
+            self.assertEqual(len(rows), 1, f"{name}: expected one audit row, got {rows}")
+            self.assertEqual(rows[0][0], "api_call_failed", name)
+        self.assertIn("permission", cases["refused"][0][1]["error"].lower())
+        self.assertIn("not found", cases["not found"][0][1]["error"].lower())
+        self.assertIn("already", cases["already scheduled"][0][1]["error"].lower())
+
+    def test_the_cor_rate_limit_for_manual_retry_is_sane(self):
+        """The shipped rule was 5000/hour; a retry mails staff and writes records."""
+        path = os.path.join(frappe.get_app_path("verenigingen"), "fixtures", "critical_operation_rule.json")
+        with open(path) as f:
+            rule = next(r for r in json.load(f) if r["operation_name"] == "retry_failed_payment")
+        self.assertLessEqual(rule["rate_limit_calls"], 5)
+        self.assertEqual(rule["rate_limit_period_seconds"], 3600)
+        self.assertEqual(rule["rate_limit_scope"], "per_user")

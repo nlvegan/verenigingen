@@ -293,6 +293,7 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
     def test_retry_failed_payment_ticks_one_bucket_and_schedules_the_retry(self):
         member = self.create_test_member(first_name="Retry", last_name="Payment", status="Active")
         invoice = self.create_test_sales_invoice(member=member.name)
+        invoice.submit()  # a retry needs a submitted invoice (#2596)
         cmd = PAY + "retry_failed_payment"
         audited_before = self._audit_counts_2280()
         result, error, buckets = self._dispatch_2280(cmd, "Administrator", "POST", invoice_id=invoice.name)
@@ -328,9 +329,9 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
         and nothing is scheduled."""
         member = self.create_test_member(first_name="Retry", last_name="Owner", status="Active")
         invoice = self.create_test_sales_invoice(member=member.name)
+        invoice.submit()  # a retry needs a submitted invoice (#2596)
         cmd = PAY + "retry_failed_payment"
         outsider = self._user_with_profile_2280("Verenigingen National Board Member")
-        self._member_for_user_2280(outsider)  # #2596: the self-service gate wants a member of its own
         with self.as_user(outsider):
             self.assertFalse(frappe.has_permission("Sales Invoice", "write"))  # precondition
         result, error, buckets = self._dispatch_2280(cmd, outsider, "POST", invoice_id=invoice.name)
@@ -378,6 +379,7 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
         schedule_retry used to audit the raise as api_call_failed."""
         member = self.create_test_member(first_name="Retry", last_name="Fails", status="Active")
         invoice = self.create_test_sales_invoice(member=member.name)
+        invoice.submit()  # a retry needs a submitted invoice (#2596)
         cmd = PAY + "retry_failed_payment"
         before = self._audit_rows_2280()
         # Mock justified: fault injection at the manager's DB step; the endpoint's own path is real
