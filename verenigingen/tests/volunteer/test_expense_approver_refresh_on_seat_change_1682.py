@@ -677,3 +677,30 @@ class TestExpenseApproverRefreshOnSeatChange(EnhancedTestCase):
         frappe.set_user(caller)
         self.assertNotIn("Expense Approver", self._treasurer_roles(self.treasurer_user))
         self.assertIsNone(self._employee_approver() or None)
+
+    # Discriminators (security review of #2683): each grant site is needed on its own. The two
+    # sites are department_hierarchy (Department Approver sync) and expense_approver_service
+    # (per-claimant refresh); the cases below leave only one of them able to grant.
+    def test_the_department_sync_alone_grants_the_role_when_no_claimant_is_fed_2683(self):
+        """No volunteer with an Employee is fed by the chapter, so only the department-approver
+        path can grant: dropping system_operation there must redden this."""
+        frappe.db.set_value("Volunteer", self.claimant.name, "employee_id", None, update_modified=False)
+        self.assertNotIn("Expense Approver", self._treasurer_roles(self.treasurer_user))
+        caller = self._as_chapter_admin()
+        self._seat_volunteer_on_chapter(self.treasurer.name)
+        frappe.set_user(caller)
+        self.assertIn("Expense Approver", self._treasurer_roles(self.treasurer_user))
+
+    def test_the_service_alone_grants_the_second_treasurer_the_claimant_is_excluded_from_2683(self):
+        """The claimant is itself a user-backed Financial holder: the department path grants the
+        first holder, so the second treasurer's role can only come from the per-claimant service
+        path. Dropping system_operation there must redden this."""
+        first_user = self.factory.create_user_with_roles(roles=["Verenigingen Volunteer"])
+        frappe.db.set_value("Volunteer", self.claimant.name, "email", first_user.email, update_modified=False)
+        self._seat_volunteer_on_chapter(self.claimant.name)
+        self.assertIn("Expense Approver", self._treasurer_roles(first_user))
+        self.assertNotIn("Expense Approver", self._treasurer_roles(self.treasurer_user))
+        caller = self._as_chapter_admin()
+        self._seat_volunteer_on_chapter(self.treasurer.name)
+        frappe.set_user(caller)
+        self.assertIn("Expense Approver", self._treasurer_roles(self.treasurer_user))
