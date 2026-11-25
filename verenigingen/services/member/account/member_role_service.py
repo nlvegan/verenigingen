@@ -155,14 +155,17 @@ class MemberRoleService(StatelessService):
 
         "Profile if safe, else role" (maintainer ruling on #3218): attach the member profile
         as a second profile only when that cannot let a later User.save() drop a role the
-        user holds now; otherwise grant the Verenigingen Member role directly, which no
-        later save can strip because no profile re-derives the roles.
+        user holds now; otherwise grant the Verenigingen Member role directly.
 
         The profile is hard-wired to "Verenigingen Member": a caller-supplied profile could
         carry more roles than member access, and a staff account must not gain them here.
         A disabled staff account stays disabled; ``enabled`` is never touched on this path.
-        Limit: a plain ``User.save()`` keeps these roles, but the event-mode
-        ``sync_user_role_profile`` strips direct roles (pre-existing, tracked in #3269).
+        Limits: the direct grant survives a plain ``User.save()`` only when the user holds
+        NO role profile. For a user who already has a profile plus an unprofiled direct
+        role, ``User.validate`` re-derives roles from the profile on the next save and drops
+        the direct roles, the member role included. That was already true for their other
+        direct roles before this change. The event-mode ``sync_user_role_profile`` also
+        strips direct roles (pre-existing, tracked in #3269).
         """
         role_profile_name = "Verenigingen Member"
         user = frappe.get_doc("User", user_name)
