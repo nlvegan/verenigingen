@@ -839,10 +839,15 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         self.assertEqual(self._allocation_state(payment_id)["links"], [], "a draft PE was linked")
         self.assertEqual(len(self._error_log_rows(self.LINK_FAILURE_TITLE, payment_id)), 1, "only the forced failure")
 
-    def test_a_redelivery_after_staff_cancelled_both_the_entry_and_the_bank_transaction_books_nothing(self):
-        """#1803 review F4: staff cancel the PE AND the BT, Mollie redelivers. Pins what happens:
-        nothing is booked, the webhook acknowledges (200), and the Error Log names the cancelled
-        Bank Transaction that holds the unique reference instead of claiming a lost "race condition". Probe shortcut: none; both cancels are real document cancels."""
+    def test_a_redelivery_after_staff_cancelled_both_the_entry_and_the_bank_transaction_leaves_one_fresh_unreconciled_bt(self):
+        """#1803 review F4, as re-ruled on #2626 (maintainer, 2026-11-25, option a): staff cancel
+        the PE AND the BT, Mollie redelivers. The cancelled BT no longer holds the #1267 key, so a
+        fresh unreconciled submitted Bank Transaction IS created, and NO Payment Entry is
+        auto-booked (#2406 still forbids that); staff book it by hand. This edits a test to green:
+        the old assertion (no live Bank Transaction, Held By Cancelled Row log) encoded the
+        behaviour the ruling replaced. Controls: the cancelled row stays cancelled, no PE is
+        rebooked, the invoice stays open, and neither the held-by-cancelled-row log nor a lost
+        "race condition" is reported. Probe shortcut: none; both cancels are real document cancels."""
         from verenigingen.tests.support import forward_refusal as refusal
 
         payment_id = f"tr_{frappe.generate_hash(length=10)}"
@@ -864,21 +869,24 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         self.assertEqual(frappe.db.get_value("Bank Transaction", bt_name, "docstatus"), 2, "fixture")
         held = "Bank Transaction Reference Held By Cancelled Row"
         self.addCleanup(frappe.db.delete, "Error Log", {"method": held, "error": ["like", f"%{payment_id}%"]})
-        self.expectErrorLog(held)
-        self.expectErrorLog("Secure Operation Failed")
 
         result = self._post_mollie_notification(payment)
 
         self.assertLess(self._http_status(), 400, result)
         refusal.assert_not_rebooked(self, payment_id, first)
         live_bts = frappe.get_all(
-            "Bank Transaction", filters={"reference_number": payment_id, "docstatus": ["!=", 2]}, pluck="name"
+            "Bank Transaction",
+            filters={"reference_number": payment_id, "docstatus": ["!=", 2]},
+            fields=["name", "docstatus", "status", "unallocated_amount", "deposit"],
         )
-        self.assertEqual(live_bts, [], "a Bank Transaction was booked again")
+        self.assertEqual(len(live_bts), 1, live_bts)
+        self.assertNotEqual(live_bts[0].name, bt_name)
+        self.assertEqual(live_bts[0].docstatus, 1)
+        self.assertEqual(live_bts[0].status, "Unreconciled")
+        self.assertEqual(float(live_bts[0].unallocated_amount), float(live_bts[0].deposit))
+        self.assertEqual(frappe.db.get_value("Bank Transaction", bt_name, "docstatus"), 2)
         self.assertEqual(self._invoice_outstanding(), float(self.invoice_total))
-        rows = self._error_log_rows(held, payment_id)
-        self.assertEqual(len(rows), 1, rows)
-        self.assertIn(bt_name, rows[0].error)
+        self.assertEqual(self._error_log_rows(held, payment_id), [], "the key is no longer held")
         self.assertEqual(
             self._error_log_rows("Bank Transaction Race Condition Error", payment_id),
             [],
