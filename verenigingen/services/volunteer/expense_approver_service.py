@@ -153,6 +153,10 @@ class VolunteerExpenseApproverService(StatelessService):
             doc=user,
             justification="Adding Expense Approver role for volunteer expense management",
             required_permissions=["User:write", "Role:assign"],
+            # #2683: the grant follows an active Financial seat (the caller derived this user
+            # from it), not the acting user's own User write; a Chapter Admin who seats the
+            # holder has none. Same stance as the Employee/Department writes of the refresh.
+            system_operation=True,
         )
 
         if not result.success:

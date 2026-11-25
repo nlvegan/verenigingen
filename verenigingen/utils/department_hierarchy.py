@@ -449,6 +449,7 @@ class DepartmentHierarchyManager:
                 doc=user,
                 justification=f"Add Expense Approver role to user {user_email} for department approval workflow",
                 required_permissions=["User:write"],
+                system_operation=True,  # #2683: derived from the Financial seat, not the saver's User write
             )
 
             if not result.success:

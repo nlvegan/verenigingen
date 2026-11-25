@@ -628,3 +628,52 @@ class TestExpenseApproverRefreshOnSeatChange(EnhancedTestCase):
             with self._captured_enqueues() as jobs:
                 self._seat_volunteer_on_chapter(self.treasurer.name, chapter_name=national.name)
         self.assertEqual(jobs, [])
+
+    # ----------------------------------------------------- #2683: the role grant as a Chapter Admin
+    def _as_chapter_admin(self):
+        """A real Chapter Admin board member (no User/Employee write); returns their user."""
+        admin = self.create_test_board_member(self.chapter.name, permissions_level="Admin")
+        user = getattr(admin, "user", None) or getattr(admin, "email", None)
+        caller = frappe.session.user
+        frappe.set_user(user)
+        self.addCleanup(frappe.set_user, caller)
+        self.assertFalse(frappe.has_permission("Employee", "write", doc=self.employee.name))
+        self.assertFalse(frappe.has_permission("User", "write", doc=self.treasurer_user.name))
+        return caller
+
+    def _treasurer_roles(self, user):
+        return frappe.get_all("Has Role", filters={"parent": user.name, "parenttype": "User"}, pluck="role")
+
+    def test_a_chapter_admin_seating_a_financial_holder_sets_the_approver_2683(self):
+        """Real flow: a Chapter Admin's Chapter save adds the new Financial seat (#2683).
+
+        The approver (and the Expense Approver role it needs) is derived from the seat, so
+        the grant must not depend on the saver's own User write."""
+        self.assertNotIn("Expense Approver", self._treasurer_roles(self.treasurer_user))
+        caller = self._as_chapter_admin()
+        self._seat_volunteer_on_chapter(self.treasurer.name)
+        frappe.set_user(caller)
+        self.assertEqual(self._employee_approver(), self.treasurer_user.email)
+        self.assertIn("Expense Approver", self._treasurer_roles(self.treasurer_user))
+        self.assertEqual(self._dept_approvers(), [self.treasurer_user.email])
+
+    def test_a_chapter_admin_swapping_in_a_holder_with_a_user_moves_the_approver_2683(self):
+        """The swap #2553 item 2 reported: the old approver must be replaced, not left."""
+        second, second_user = self._user_backed_volunteer("sw3")
+        self._seated_treasurer()
+        row_name = self._seat_row_name(self.treasurer.name)
+        caller = self._as_chapter_admin()
+        self._swap_seat_holder_in_chapter_save(row_name, second.name)
+        frappe.set_user(caller)
+        self.assertEqual(self._employee_approver(), second_user.email)
+        self.assertIn("Expense Approver", self._treasurer_roles(second_user))
+
+    def test_a_chapter_admin_seating_a_basic_holder_grants_no_approver_role_2683(self):
+        """Control: the grant follows a FINANCIAL seat only. A Basic seat held by a volunteer
+        with a real user, saved by the same caller, gets neither role nor approver."""
+        basic_role = self._chapter_role_at_level("Basic")
+        caller = self._as_chapter_admin()
+        self._seat_volunteer_on_chapter(self.treasurer.name, role=basic_role)
+        frappe.set_user(caller)
+        self.assertNotIn("Expense Approver", self._treasurer_roles(self.treasurer_user))
+        self.assertIsNone(self._employee_approver() or None)
