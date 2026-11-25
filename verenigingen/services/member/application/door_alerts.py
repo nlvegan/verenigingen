@@ -15,7 +15,7 @@ import hashlib
 import frappe
 from frappe.utils import escape_html
 
-from verenigingen.utils.notification_helpers import notify_administrators
+from verenigingen.utils.notification_helpers import notify_administrators, was_delivered
 
 NOTIFICATION_KEY = "door_unavailable"
 REALERT_SECONDS = 24 * 3600
@@ -46,19 +46,8 @@ def alert_if_door_unusable(door, plans, problems):
         frappe.cache.delete(claim)  # so the next visit tries again
         frappe.log_error(title="Door unavailable alert failed", message=frappe.get_traceback())
         return
-    if not _was_delivered(result):
+    if not was_delivered(result):
         frappe.cache.delete(claim)  # dropped (key off, nobody to tell): do not hold the alert back for a day
-
-
-def _was_delivered(result) -> bool:
-    """notify_administrators returns success False for no recipient, skipped True for a disabled key or
-    email, and notifications_created 0 when nothing was written."""
-    result = result or {}
-    return (
-        bool(result.get("success"))
-        and not result.get("skipped")
-        and bool(result.get("notifications_created"))
-    )
 
 
 def _claim(door_name, reason):
