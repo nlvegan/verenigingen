@@ -72,6 +72,7 @@ class FinancialHistoryBatchProcessor:
 
         # Trigger processing if enough time has passed
         cls._maybe_process_batches()
+        cls._ensure_drain_before_commit()
 
     @classmethod
     def queue_expense_operation(cls, member_name: str, expense_name: str, operation: str, data: dict = None):
@@ -94,6 +95,24 @@ class FinancialHistoryBatchProcessor:
 
         # Trigger processing if enough time has passed
         cls._maybe_process_batches()
+        cls._ensure_drain_before_commit()
+
+    @classmethod
+    def _ensure_drain_before_commit(cls):
+        """Make sure an entry still held after the 30 s gate is drained at commit (#2746).
+
+        The queues are per PROCESS and the gate only drains when 30 s have passed since the
+        previous drain, so an operation queued inside the window is held, and the process
+        (request or job) can end before any later call drains it. The */5 cron runs in a
+        fresh process with an empty queue and cannot rescue it. ``before_commit`` runs
+        inside the owning transaction just before COMMIT, so the drained history rows commit
+        with the work that queued them; a rollback drops the callback along with that work.
+        """
+        if not (cls._payment_queue or cls._expense_queue):
+            return
+        callbacks = frappe.db.before_commit
+        if cls.force_process_all not in getattr(callbacks, "_functions", ()):
+            callbacks.add(cls.force_process_all)
 
     @classmethod
     def _maybe_process_batches(cls):
