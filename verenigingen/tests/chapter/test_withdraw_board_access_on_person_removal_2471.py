@@ -8,6 +8,8 @@ that has no dues schedule, i.e. the plain delete branch; the #1306 anonymise bra
 covered by ``test_anonymised_member_...`` below (the Member row survives there).
 """
 
+from unittest import mock
+
 import frappe
 
 from verenigingen.services.member.account.user_role_profile_calculator import (
@@ -159,3 +161,85 @@ class TestWithdrawBoardAccessOnPersonRemoval2471(VereningingenTestCase):
         self.assertTrue(frappe.db.exists("Member", leaver.member), "control: anonymised, not deleted")
         self._assert_unseated_2471(leaver)
         self._assert_seated_2471(bystander)
+
+    def _system_manager_only_2471(self):
+        """A user who can delete a Member/Volunteer (System Manager) but has no Chapter write."""
+        email = f"rm2471.sm.{frappe.generate_hash(length=8)}@test.invalid"
+        admin = self.create_test_user(email, roles=["System Manager"])
+        self.track_doc("User", admin.name)
+        self.assertFalse(
+            frappe.has_permission("Chapter", "write", user=admin.name), "precondition: no Chapter write"
+        )
+        return admin.name
+
+    def test_a_system_manager_without_chapter_write_can_delete_a_seated_volunteer(self):
+        leaver, bystander = self._two_holders_2471()
+        caller = frappe.session.user
+        self.addCleanup(frappe.set_user, caller)
+        frappe.set_user(self._system_manager_only_2471())
+
+        frappe.delete_doc("Volunteer", leaver.volunteer, force=1)
+
+        frappe.set_user(caller)
+        self.assertFalse(frappe.db.exists("Volunteer", leaver.volunteer), "control: really deleted")
+        self._assert_unseated_2471(leaver)
+        self._assert_seated_2471(bystander)
+
+    def test_a_system_manager_without_chapter_write_can_delete_a_seated_member(self):
+        leaver, bystander = self._two_holders_2471()
+        caller = frappe.session.user
+        self.addCleanup(frappe.set_user, caller)
+        frappe.set_user(self._system_manager_only_2471())
+
+        frappe.delete_doc("Member", leaver.member, force=1)
+
+        frappe.set_user(caller)
+        self.assertFalse(frappe.db.exists("Member", leaver.member), "control: really deleted")
+        self._assert_unseated_2471(leaver)
+        self._assert_seated_2471(bystander)
+
+    def test_resaving_an_already_disabled_user_does_not_end_a_new_seat(self):
+        """Only the 1 -> 0 transition ends seats. A disabled user re-seated afterwards keeps the
+        seat across a further save of the (still disabled) account."""
+        person = self._person_2471("Reseat")
+        self._seat_2471(person)
+        self._disable_2471(person.user)
+        self._assert_unseated_2471(person)
+        other_chapter = self._chapter_2471()
+        self._seat_2471(person, other_chapter)
+        self.assertTrue(
+            any(r.is_active for r in self._seat_rows_2471(person.volunteer, other_chapter)),
+            "control: re-seated",
+        )
+
+        user_doc = frappe.get_doc("User", person.user)
+        user_doc.last_name = "Resaved"
+        user_doc.save()
+
+        self.assertEqual(frappe.db.get_value("User", person.user, "enabled"), 0, "control: still disabled")
+        self.assertTrue(
+            any(r.is_active for r in self._seat_rows_2471(person.volunteer, other_chapter)),
+            "an already-disabled user's re-seat was ended by an unrelated save",
+        )
+
+    def test_a_failed_role_withdrawal_on_disable_is_logged_and_the_disable_succeeds(self):
+        self.expectErrorLog("Board seats not ended for disabled user")
+        person = self._person_2471("SoftFail")
+        self._seat_2471(person)
+        before = frappe.utils.now_datetime()
+
+        # Mock justified: forces the role-withdrawal step to fail, which no real fixture can do.
+        with mock.patch(
+            "verenigingen.services.member.account.user_role_profile_calculator.sync_user_role_profile",
+            side_effect=RuntimeError("boom 2471"),
+        ):
+            self._disable_2471(person.user)
+
+        self.assertEqual(frappe.db.get_value("User", person.user, "enabled"), 0, "the disable must succeed")
+        logs = frappe.get_all(
+            "Error Log",
+            filters={"method": "Board seats not ended for disabled user", "creation": [">=", before]},
+            fields=["error"],
+        )
+        self.assertTrue(logs, "no Error Log row for the failed withdrawal")
+        self.assertIn("boom 2471", logs[0].error)

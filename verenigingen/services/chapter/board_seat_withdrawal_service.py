@@ -29,7 +29,12 @@ def end_seats_for_deleted_volunteer(volunteer_name: str) -> None:
     """Volunteer.on_trash: end the volunteer's live seats and withdraw their board access."""
     failures = []
     end_board_positions_safe(
-        None, today(), REASON_VOLUNTEER_DELETED, failures, volunteer_names=[volunteer_name]
+        None,
+        today(),
+        REASON_VOLUNTEER_DELETED,
+        failures,
+        volunteer_names=[volunteer_name],
+        ignore_permissions=True,  # Security: the delete/disable mandates the seat-end, whatever Chapter rights the caller has (#2471)
     )
     _refuse_if_any(failures, volunteer_name)
 
@@ -37,7 +42,8 @@ def end_seats_for_deleted_volunteer(volunteer_name: str) -> None:
 def end_seats_for_deleted_member(member_name: str) -> None:
     """Member deletion (also reached by the #1306 anonymise-instead-of-delete branch)."""
     failures = []
-    end_board_positions_safe(member_name, today(), REASON_MEMBER_DELETED, failures)
+    # Security: the delete mandates the seat-end, whatever Chapter rights the caller has (#2471)
+    end_board_positions_safe(member_name, today(), REASON_MEMBER_DELETED, failures, ignore_permissions=True)
     _refuse_if_any(failures, member_name)
 
 
@@ -49,13 +55,21 @@ def end_seats_for_disabled_user(doc, method=None) -> None:
     if not member_name:
         return
     failures = []
-    end_board_positions_safe(member_name, today(), REASON_USER_DISABLED, failures)
-    _withdraw_role_of_disabled_user(doc.name, member_name, failures)
+    # Security: the disable mandates the seat-end, whatever Chapter rights the caller has (#2471)
+    ended = end_board_positions_safe(
+        member_name, today(), REASON_USER_DISABLED, failures, ignore_permissions=True
+    )
+    if ended or _holds_board_role(doc.name):
+        _withdraw_role_of_disabled_user(doc.name, member_name, failures)
     if failures:
         frappe.log_error(
             title="Board seats not ended for disabled user",
             message=f"User {doc.name} (Member {member_name}): " + "; ".join(failures),
         )
+
+
+def _holds_board_role(user):
+    return bool(frappe.db.exists("Has Role", {"parent": user, "role": "Verenigingen Chapter Board Member"}))
 
 
 def _withdraw_role_of_disabled_user(user, member_name, failures):
