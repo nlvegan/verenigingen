@@ -260,8 +260,8 @@ class TestPaymentHistoryReconciliation(EnhancedTestCase):
         self.assertGreaterEqual(result["deferred_members"], 2)
 
     def test_reconciliation_query_count_does_not_grow_with_gaps(self):
-        """One batched query, however many members have gaps (the decorator stack's own
-        queries are excluded by calling the undecorated function)."""
+        """Two batched queries (scan + row-cap check), however many members have gaps (the
+        decorator stack's own queries are excluded by calling the undecorated function)."""
         from verenigingen.utils import payment_history_validator as validator
 
         for i in range(3):
@@ -286,4 +286,104 @@ class TestPaymentHistoryReconciliation(EnhancedTestCase):
             result = inner()
 
         self.assertGreaterEqual(result["missing_found"], 3)
-        self.assertEqual(len(sql_calls), 1, sql_calls)
+        self.assertEqual(len(sql_calls), 2, sql_calls)
+
+    def _assert_clean_after_drain(self, member):
+        from verenigingen.utils.background_jobs import drain_member_payment_history
+
+        drain_member_payment_history(member.name, member.customer)
+        job_ids, _result = self._enqueued_job_ids()
+        self.assertNotIn(f"fin_history_payment_{member.name}", job_ids)
+
+    def test_status_only_difference_is_stale(self):
+        """Outstanding and payment_status agree; only the invoice status differs.
+
+        Probe shortcut: the invoice status is written directly ("Unpaid and Discounted" is what
+        ERPNext's invoice-discounting flow writes; payment_status stays Unpaid)."""
+        member, invoice = self._drained_invoice("statusdiff")
+        frappe.db.set_value("Sales Invoice", invoice.name, "status", "Unpaid and Discounted")
+        row = frappe.db.get_value(
+            "Member Payment History",
+            {"parent": member.name, "invoice": invoice.name},
+            ["outstanding_amount", "payment_status", "status"],
+            as_dict=True,
+        )
+        self.assertGreater(row.outstanding_amount, 0)
+        self.assertEqual(row.payment_status, "Unpaid")
+
+        job_ids, _result = self._enqueued_job_ids()
+
+        self.assertIn(f"fin_history_payment_{member.name}", job_ids)
+
+    def test_overdue_job_leaves_a_stale_row_that_is_repaired(self):
+        """Real writer: ERPNext's daily update_invoice_status marks the invoice Overdue."""
+        from erpnext.controllers.accounts_controller import update_invoice_status
+
+        member, invoice = self._drained_invoice("overdue")
+        frappe.db.sql(
+            "UPDATE `tabPayment Schedule` SET due_date = %s WHERE parent = %s",
+            (frappe.utils.add_days(frappe.utils.today(), -5), invoice.name),
+        )
+        update_invoice_status()
+        self.assertEqual(frappe.db.get_value("Sales Invoice", invoice.name, "status"), "Overdue")
+
+        job_ids, _result = self._enqueued_job_ids()
+
+        self.assertIn(f"fin_history_payment_{member.name}", job_ids)
+        self._assert_clean_after_drain(member)
+
+    def test_partly_paid_is_clean_after_drain(self):
+        """Flap control: a drained Partly Paid row is not re-reported."""
+        member, invoice = self._drained_invoice("partly")
+        receive_against_invoice(self, invoice.name, 10.0)
+        self.assertEqual(frappe.db.get_value("Sales Invoice", invoice.name, "status"), "Partly Paid")
+        self._assert_clean_after_drain(member)
+
+    def test_credit_note_is_clean_after_drain(self):
+        """Flap control: invoice + credit note rows are not re-reported after a drain."""
+        from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
+
+        member, invoice = self._drained_invoice("creditnote")
+        credit_note = make_sales_return(invoice.name)
+        credit_note.insert()
+        credit_note.submit()
+        self.track_doc("Sales Invoice", credit_note.name)
+        self._assert_clean_after_drain(member)
+
+    def test_fallback_row_without_status_is_clean_after_drain(self):
+        """Flap control: a row written by _minimal_entry (status NULL) is not stale forever.
+
+        The builder stays patched through the validate, so the fallback row is not
+        overwritten by a later real drain."""
+        from verenigingen.utils.background_jobs import drain_member_payment_history
+
+        member = self._make_member_with_customer("fallback")
+        invoice = build_eur_membership_invoice(self, member.customer, 42.0)
+        frappe.db.delete("Member Payment History", {"invoice": invoice.name})
+        # Mock justified: failure injection -- forces the builder's last-resort fallback row.
+        # The service imports the builder inside the method, so patch it at its source.
+        with patch("verenigingen.utils.payment_history_builder.build_payment_history_entry", return_value=None):
+            drain_member_payment_history(member.name, member.customer)
+            row = frappe.db.get_value(
+                "Member Payment History",
+                {"parent": member.name, "invoice": invoice.name},
+                ["status", "payment_status"],
+                as_dict=True,
+            )
+            self.assertIsNotNone(row, "Precondition: a fallback row must exist")
+            self.assertFalse(row.status, "Precondition: fallback row carries no status")
+            job_ids, _result = self._enqueued_job_ids()
+        self.assertNotIn(f"fin_history_payment_{member.name}", job_ids)
+
+    def test_member_over_the_row_cap_is_clean_after_drain(self):
+        """Flap control: 33 invoices, drain, validate. _trim_history keeps 30 rows, so the
+        3 dropped invoices must not be re-reported as missing every hour."""
+        from verenigingen.utils.payment_history_validator import PAYMENT_HISTORY_MAX_ROWS
+
+        member = self._make_member_with_customer("cap33")
+        for _ in range(PAYMENT_HISTORY_MAX_ROWS + 3):
+            build_eur_membership_invoice(self, member.customer, 42.0)
+        self._assert_clean_after_drain(member)
+        self.assertEqual(
+            frappe.db.count("Member Payment History", {"parent": member.name}), PAYMENT_HISTORY_MAX_ROWS
+        )

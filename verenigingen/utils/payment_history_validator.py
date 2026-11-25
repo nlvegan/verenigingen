@@ -25,6 +25,13 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 # per period, and no measurement here shows lost drains clustering later.
 RECONCILIATION_WINDOW_DAYS = 90
 
+# MemberFinancialHistoryManager._trim_history keeps at most this many payment
+# history rows per member (get_payment_history_manager's max_entries). Which rows
+# survive depends on drain order, not on invoice date, so a member already at the
+# cap cannot be repaired invoice-by-invoice: a drain re-drops some invoices and
+# they would read as "missing" every hour (#3190 review).
+PAYMENT_HISTORY_MAX_ROWS = 30
+
 # Upper bound on drain jobs enqueued per hourly run, so a wide window with many
 # gaps cannot flood the short queue. The remainder is picked up by later runs
 # (most recent invoices first); a drained member stops being a gap.
@@ -90,7 +97,7 @@ def validate_and_repair_payment_history():
         )
 
         # Partition on the pre-joined columns -- no further queries needed.
-        missing_invoices = [row for row in recent_invoices if not row.history_row]
+        missing_invoices = _drop_unplaceable_missing([row for row in recent_invoices if not row.history_row])
         stale_invoices = [row for row in recent_invoices if row.history_row and _is_stale_row(row)]
         gap_invoices = missing_invoices + stale_invoices
         validated_count = len(recent_invoices) - len(gap_invoices)
@@ -164,6 +171,30 @@ def validate_and_repair_payment_history():
         return {"success": False, "error": str(e), "timestamp": now_datetime()}
 
 
+def _drop_unplaceable_missing(missing_rows):
+    """Drop 'missing' invoices of members already at the history row cap.
+
+    A member at PAYMENT_HISTORY_MAX_ROWS rows has had older rows trimmed away on
+    purpose; draining again only re-trims, so the invoice would be re-reported
+    every hour. One grouped query over the members concerned.
+    """
+    members = sorted({row.member_name for row in missing_rows})
+    if not members:
+        return missing_rows
+    at_cap = {
+        r[0]
+        for r in frappe.db.sql(
+            """
+            SELECT parent FROM `tabMember Payment History`
+            WHERE parenttype = 'Member' AND parent IN %s
+            GROUP BY parent HAVING COUNT(*) >= %s
+            """,
+            (members, PAYMENT_HISTORY_MAX_ROWS),
+        )
+    }
+    return [row for row in missing_rows if row.member_name not in at_cap]
+
+
 def _is_stale_row(row):
     """True when an existing history row disagrees with its Sales Invoice (#3190).
 
@@ -177,7 +208,9 @@ def _is_stale_row(row):
 
     if flt(row.history_outstanding) != flt(row.outstanding_amount):
         return True
-    if (row.history_status or "") != (row.status or ""):
+    # A row written by the last-resort `_minimal_entry` fallback carries no status at
+    # all; comparing it would flag that row stale on every run, forever.
+    if row.history_status and row.history_status != (row.status or ""):
         return True
     invoice_shim = frappe._dict(
         docstatus=row.docstatus,
