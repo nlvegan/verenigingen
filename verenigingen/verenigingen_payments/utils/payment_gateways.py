@@ -75,7 +75,7 @@ def _refuse_sales_invoice(ref_doc):
     ``donor`` and write ``payment_id`` / ``sepa_mandate``, none of which a Sales Invoice has.
     They already failed closed, but only by accident and mid-way (Ponto leaked an internal
     AttributeError text to the caller). Maintainer ruling 2026-11-10: refuse BEFORE any side
-    effect, with the same wording as the Mollie gate (#2225), until #2244 is settled. Lives
+    effect (the wording the Mollie gate had, #2225; #2244 lifted that gate for Mollie only). Lives
     in the gateways, not the hook, so it covers every caller of ``process_payment``.
     """
     if getattr(ref_doc, "doctype", None) == "Sales Invoice":
@@ -195,15 +195,16 @@ class MollieGateway(PaymentGateway):
                 except Exception as e:
                     frappe.logger().error(f"📋 Error accessing donation.{attr}: {e}")
 
-            # GATE (maintainer ruling 2026-11-08): refuse a Sales Invoice BEFORE any Mollie call.
-            # Charging one would create a live payment that cannot be linked back: a Sales
-            # Invoice has no payment_id, so a repeat call creates a second payment, and the
-            # webhook resolver cannot map the payment to the invoice, so the money is never
-            # booked. Remove this gate only once #2244 is fixed. Placed here rather than in
-            # mollie_checkout so it covers every caller of process_payment.
-            refusal = _refuse_sales_invoice(donation)
-            if refusal:
-                return refusal
+            # A Sales Invoice is payable here only when it belongs to a Member (#2244, maintainer
+            # ruling 2026-11-20): the webhook books it through the dues path, which needs one.
+            # Refused BEFORE any Mollie call, so no payment is taken that cannot be booked.
+            if getattr(donation, "doctype", None) == "Sales Invoice" and not getattr(
+                donation, "member", None
+            ):
+                return {
+                    "status": "error",
+                    "message": _("This invoice cannot be paid through this page."),
+                }
 
             amount = self._amount_to_charge(donation)
             if amount is None:
@@ -503,12 +504,14 @@ class MollieGateway(PaymentGateway):
                 return {
                     "status": "Pending",
                     "payment_url": payment.checkout_url,
+                    "amount": self._payment_amount_value(payment),
                     "message": "Payment is being processed",
                 }
             elif payment.is_open():
                 return {
                     "status": "Open",
                     "payment_url": payment.checkout_url,
+                    "amount": self._payment_amount_value(payment),
                     "message": "Payment is waiting for completion",
                 }
             else:
@@ -555,6 +558,34 @@ class MollieGateway(PaymentGateway):
                 {"donation": donation.name if hasattr(donation, "name") else "Unknown"},
             )
             return create_error_response(_("Could not create new payment. Please try again."))
+
+    @staticmethod
+    def _payment_amount_value(payment):
+        """The amount (float) Mollie holds on ``payment``, or None when it cannot be read."""
+        amount = getattr(payment, "amount", None)
+        if not isinstance(amount, dict):
+            return None
+        try:
+            return flt(amount.get("value"))
+        except (TypeError, ValueError):
+            return None
+
+    def cancel_payment(self, payment_id):
+        """Best-effort cancel of an open Mollie payment; True when Mollie accepted it (#2244).
+
+        Used when an invoice's open payment no longer matches what is owed. A failure is an
+        Error Log row, not an exception: the caller creates the replacement anyway, and a stale
+        payment that is still paid is caught by the webhook (its id is no longer the invoice's).
+        """
+        try:
+            self.client.payments.delete(payment_id)
+            return True
+        except Exception:  # swallow-ok: best-effort; the replacement is created anyway (see docstring)
+            frappe.log_error(
+                title="Mollie Stale Payment Cancel Failed",
+                message=f"Could not cancel Mollie payment {payment_id}.\n{frappe.get_traceback()}",
+            )
+            return False
 
     @staticmethod
     def _amount_to_charge(doc):

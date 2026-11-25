@@ -101,7 +101,9 @@ class TestBulkImporterDuplicateDetection(EnhancedTestCase):
         """
         from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
 
-        company = frappe.get_list("Company", limit=1)[0].name
+        # The harness-owned company, not a pick-first scan: the dedup lookups below are scoped
+        # to an account (#2694), so which company the row lands on has to be one we name.
+        company = self._get_test_company()
         bank = get_or_create_unknown_bank()
         ba = frappe.new_doc("Bank Account")
         ba.account_name = f"Bulk Dedup Account {self.uid}"
@@ -128,23 +130,36 @@ class TestBulkImporterDuplicateDetection(EnhancedTestCase):
         """A submitted Bank Transaction carrying the Mollie payment id is detected
         as already-imported (the docstatus=1 duplicate path)."""
         payment_id = f"tr_seeded_{self.uid}"
-        self._seed_bank_transaction_with_mollie_id(payment_id, submit=True)
-        self.assertTrue(self.imp._check_existing_payment_transaction({"id": payment_id}))
+        bt = self._seed_bank_transaction_with_mollie_id(payment_id, submit=True)
+        # Scope explicitly: unscoped, the importer resolves its OWN target (user/Global Defaults
+        # company, its default or first Bank Account) and misses a row seeded elsewhere.
+        self.assertTrue(
+            self.imp._check_existing_payment_transaction(
+                {"id": payment_id}, bank_account=bt.bank_account, company=bt.company
+            )
+        )
 
     def test_check_existing_ignores_unsubmitted_payment(self):
         """A draft (docstatus=0) Bank Transaction must NOT count as already-imported
         for _check_existing_payment_transaction (which filters docstatus=1)."""
         payment_id = f"tr_draft_{self.uid}"
-        self._seed_bank_transaction_with_mollie_id(payment_id, submit=False)
-        self.assertFalse(self.imp._check_existing_payment_transaction({"id": payment_id}))
+        bt = self._seed_bank_transaction_with_mollie_id(payment_id, submit=False)
+        # Same scope as the positive test, so the draft is the ONLY reason this is False.
+        self.assertFalse(
+            self.imp._check_existing_payment_transaction(
+                {"id": payment_id}, bank_account=bt.bank_account, company=bt.company
+            )
+        )
 
     def test_validate_duplicate_finds_matching_payment_id(self):
         """_validate_duplicate_transaction detects a duplicate by Mollie payment id
         against a real (non-cancelled) Bank Transaction."""
         payment_id = f"tr_dup_{self.uid}"
-        self._seed_bank_transaction_with_mollie_id(payment_id, submit=False)
+        bt = self._seed_bank_transaction_with_mollie_id(payment_id, submit=False)
         self.assertTrue(
-            self.imp._validate_duplicate_transaction({"custom_mollie_payment_id": payment_id})
+            self.imp._validate_duplicate_transaction(
+                {"custom_mollie_payment_id": payment_id}, bank_account=bt.bank_account, company=bt.company
+            )
         )
 
 
