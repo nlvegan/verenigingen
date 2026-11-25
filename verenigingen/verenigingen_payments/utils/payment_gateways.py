@@ -9,7 +9,11 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
-from verenigingen.services.payment.sepa_mandate_consent import check_member_consent, record_member_consent
+from verenigingen.services.payment.sepa_mandate_consent import (
+    check_member_consent,
+    record_member_consent,
+    user_is_staff,
+)
 from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.secure_operations import save_as_system_user, secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, public_api
@@ -881,6 +885,10 @@ class SEPAGateway(PaymentGateway):
         if consent_refusal:
             return create_error_response(consent_refusal["error"])
 
+        member_refusal = self._member_linked_donor_refusal(donation)
+        if member_refusal:
+            return create_error_response(member_refusal)
+
         # Create or update SEPA mandate
         mandate = self._create_sepa_mandate(donation, iban, form_data)
 
@@ -890,14 +898,21 @@ class SEPAGateway(PaymentGateway):
             # donation flow already sets), so only the mandate link is persisted
             # here - the old db_set("payment_method", ...) wrote to a nonexistent
             # column and raised, aborting the otherwise-successful mandate flow.
-            donation.db_set("sepa_mandate", mandate.name)
-
-            return {
-                "status": "mandate_created",
-                "mandate_id": mandate.name,
-                "collection_date": self._calculate_collection_date(donation),
-                "message": _("SEPA mandate created successfully"),
-            }
+            try:
+                donation.db_set("sepa_mandate", mandate.name)
+                result = {
+                    "status": "mandate_created",
+                    "mandate_id": mandate.name,
+                    "collection_date": self._calculate_collection_date(donation),
+                    "message": _("SEPA mandate created successfully"),
+                }
+            except Exception:
+                # The mandate insert was committed (save_as_system_user), so a failure here
+                # would leave an Active mandate no donation points at. Cancel it, then re-raise
+                # so the caller reports the failure (#2423).
+                self._cancel_orphan_mandate(mandate)
+                raise
+            return result
         else:
             return create_error_response("Failed to create SEPA mandate")
 
@@ -917,6 +932,36 @@ class SEPAGateway(PaymentGateway):
         result = validate_iban(iban)
         return result["valid"]
 
+    @staticmethod
+    def _cancel_orphan_mandate(mandate):
+        """Cancel a just-created mandate whose donation link failed; never masks the real error."""
+        try:
+            frappe.db.set_value("SEPA Mandate", mandate.name, {"status": "Cancelled", "is_active": 0})
+        except Exception as cancel_error:
+            frappe.log_error(
+                title="SEPA Gateway Error",
+                message=f"Could not cancel orphan SEPA mandate {mandate.name}: {cancel_error}",
+            )
+
+    @staticmethod
+    def _member_linked_donor_refusal(donation):
+        """A refusal message when this session may not put a mandate on the donor's member (#2423).
+
+        A donor is matched to a member by an UNVERIFIED e-mail, and a donation mandate supersedes
+        the member's Active donation mandate. A Guest (or any other user) must therefore never be
+        allowed to do that: they could cancel a member's mandate and substitute their own IBAN.
+        Only the member's own user, or staff, may. Everyone else is told to pay another way.
+        """
+        member = frappe.db.get_value("Donor", donation.donor, "member")
+        if not member:
+            return None
+        if user_is_staff() or frappe.db.get_value("Member", member, "user") == frappe.session.user:
+            return None
+        return _(
+            "This donor is linked to a member account. Please log in to set up SEPA Direct Debit, "
+            "or choose another payment method."
+        )
+
     def _create_sepa_mandate(self, donation, iban, form_data):
         """Create SEPA mandate record"""
         # Checked again here, not only in process_payment: any caller of this method is held to
@@ -924,7 +969,7 @@ class SEPAGateway(PaymentGateway):
         consent_text, consent_refusal = check_member_consent(
             form_data.get("sepa_consent"), form_data.get("sepa_consent_text_hash")
         )
-        if consent_refusal:
+        if consent_refusal or self._member_linked_donor_refusal(donation):
             return None
         try:
             # Get donor information

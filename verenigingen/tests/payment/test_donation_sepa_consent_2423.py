@@ -124,9 +124,11 @@ class TestDonationSepaConsent2423(PortalSelfServiceTestMixin, EnhancedTestCase):
         self.assertEqual(result.get("status"), "mandate_required", result)
         self.assertEqual(len(self._mandates_2423()), 1)
         refused = frappe._dict({**form_data, "sepa_consent": False})
+        self.donation.reload()
         with self._as_user(self.user.name):
             result = get_public_donation_service().process_payment_method(self.donation, refused)
         self.assertEqual(result.get("status"), "error", result)
+        self.assertEqual(result.get("message"), consent_refusal()["error"])
         self.assertEqual(len(self._mandates_2423()), 1)
 
     def test_the_donate_page_context_carries_the_mandate_text_and_its_hash(self):
@@ -137,3 +139,83 @@ class TestDonationSepaConsent2423(PortalSelfServiceTestMixin, EnhancedTestCase):
         text = consent_module.get_mandate_consent_text()
         self.assertEqual(context.mandate_consent_text, text)
         self.assertEqual(context.mandate_consent_text_hash, hash_consent_text(text))
+
+    def _link_donor_to_member_2423(self):
+        frappe.db.set_value("Donor", self.donation.donor, "member", self.member.name)
+
+    def _member_mandate_2423(self):
+        """The member's existing Active donation mandate (staff-entered, as the Administrator)."""
+        doc = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "member": self.member.name,
+                "account_holder_name": "Existing Member Mandate",
+                "iban": generate_test_iban("TEST"),
+                "sign_date": frappe.utils.today(),
+                "status": "Active",
+                "is_active": 1,
+                "used_for_donations": 1,
+                "mandate_type": "RCUR",
+            }
+        )
+        doc.insert()
+        return doc.name
+
+    def test_a_guest_cannot_use_sepa_for_a_member_linked_donor(self):
+        """Takeover guard: the donor is matched by unverified e-mail, so a Guest must not
+        supersede the member's mandate. Refused up front, member's mandate untouched."""
+        self._link_donor_to_member_2423()
+        existing = self._member_mandate_2423()
+        result = self._initiate_2423(user="Guest", **self._consent_2423())
+        self.assertFalse(result["success"])
+        self.assertIn("log in", result["message"])
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", existing, "status"), "Active")
+        self.assertEqual(self._mandates_2423(), [])
+
+    def test_another_logged_in_user_cannot_use_sepa_for_a_member_linked_donor(self):
+        self._link_donor_to_member_2423()
+        existing = self._member_mandate_2423()
+        other = self._link_member_to_user(self.create_test_member(birth_date="1991-01-01"))
+        result = self._initiate_2423(user=other.name, **self._consent_2423())
+        self.assertFalse(result["success"])
+        self.assertIn("log in", result["message"])  # the up-front refusal, not a later failure
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", existing, "status"), "Active")
+        self.assertEqual(self._mandates_2423(), [])
+
+    def test_the_owning_member_can_use_sepa_for_their_linked_donor(self):
+        self._link_donor_to_member_2423()
+        existing = self._member_mandate_2423()
+        result = self._initiate_2423(**self._consent_2423())
+        self.assertTrue(result["success"], result)
+        self.assertEqual(len(self._mandates_2423()), 1)
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", existing, "status"), "Cancelled")
+
+    def test_the_form_submission_reports_failure_when_sepa_is_refused(self):
+        """The outer response must not say success when the payment step refused."""
+        from verenigingen.services.donation.public_donation_service import get_public_donation_service
+
+        email = f"refused2423.{frappe.generate_hash(length=6)}@example.com"
+        with self._as_user("Guest"):
+            result = get_public_donation_service().submit(
+                frappe._dict(
+                    {
+                        "donor_name": self.holder,
+                        "donor_email": email,
+                        "amount": 15,
+                        "payment_method": "SEPA Direct Debit",
+                        "donor_iban": self.iban,
+                    }
+                )
+            )
+        self.assertFalse(result["success"], result)
+        self.assertEqual(result["message"], consent_refusal()["error"])
+        self.assertEqual(self._mandates_2423(), [])
+
+    def test_a_failure_after_the_mandate_insert_leaves_no_active_orphan(self):
+        """Failure injected after the insert (stand-in: _calculate_collection_date raises)."""
+        with patch.object(pg.SEPAGateway, "_calculate_collection_date", side_effect=RuntimeError("boom")):
+            result = self._initiate_2423(**self._consent_2423())
+        self.assertFalse(result["success"])
+        mandates = self._mandates_2423()
+        self.assertEqual(len(mandates), 1)
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", mandates[0], "status"), "Cancelled")
