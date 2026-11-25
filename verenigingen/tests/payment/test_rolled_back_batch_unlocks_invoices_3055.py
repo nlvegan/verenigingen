@@ -12,6 +12,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
 
 
 class TestRolledBackBatchUnlocksInvoices3055(EnhancedTestCase):
@@ -40,8 +41,9 @@ class TestRolledBackBatchUnlocksInvoices3055(EnhancedTestCase):
         for name in reversed(self._batches3055):
             try:
                 frappe.delete_doc("Direct Debit Batch", name, force=True, ignore_permissions=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                # Not silent: a batch that survives teardown can leak into the next test.
+                get_harness_logger(__name__).warning("3055 teardown could not delete %s: %s", name, exc)
         frappe.db.commit()
         super().tearDown()
 
@@ -77,6 +79,21 @@ class TestRolledBackBatchUnlocksInvoices3055(EnhancedTestCase):
     def _invoice3055(self, batch):
         return batch.invoices[0].invoice
 
+    def _make_live_uncollected3055(self):
+        """PROBE SHORTCUT (declared): a real live-but-uncollected batch has Pending rows and an
+        Unpaid invoice, while mark-paid leaves the control Successful/Paid. A control left Successful
+        cannot catch a fix keyed on ROW status (`ddi.status != 'Pending'`), which would unlock a live
+        batch's uncollected invoice (double debit). The batch itself stays real-flow (not Rolled Back)."""
+        outstanding = frappe.db.get_value(
+            "Sales Invoice", self._invoice3055(self.rolled3055), "outstanding_amount"
+        )
+        frappe.db.set_value(
+            "Sales Invoice",
+            self._invoice3055(self.live3055),
+            {"outstanding_amount": outstanding, "status": "Unpaid"},
+        )
+        frappe.db.set_value("Direct Debit Batch Invoice", {"parent": self.live3055.name}, "status", "Pending")
+
     def test_fixture_is_the_real_rolled_back_state(self):
         """Premise: the real flow leaves the batch Rolled Back, row Pending, invoice Unpaid."""
         self.assertEqual(frappe.db.get_value("Direct Debit Batch", self.rolled3055.name, "status"), "Rolled Back")
@@ -96,17 +113,20 @@ class TestRolledBackBatchUnlocksInvoices3055(EnhancedTestCase):
         self.assertNotIn(self._invoice3055(self.rolled3055), locked)
 
     def test_open_batch_invoice_names_still_holds_a_live_batchs_invoice(self):
+        self._make_live_uncollected3055()
         from verenigingen.verenigingen_payments.api.sepa_batch_ui import get_open_batch_invoice_names
 
         self.assertIn(self._invoice3055(self.live3055), get_open_batch_invoice_names())
 
     def test_payment_retry_open_batch_guard(self):
+        self._make_live_uncollected3055()
         from verenigingen.verenigingen_payments.utils.payment_retry import _invoice_in_open_batch
 
         self.assertFalse(_invoice_in_open_batch(self._invoice3055(self.rolled3055)))
         self.assertTrue(_invoice_in_open_batch(self._invoice3055(self.live3055)))
 
     def test_conflict_detector_cross_batch_check(self):
+        self._make_live_uncollected3055()
         from verenigingen.verenigingen_payments.utils.sepa_conflict_detector import SEPAConflictDetector
 
         detector = SEPAConflictDetector()
@@ -116,6 +136,7 @@ class TestRolledBackBatchUnlocksInvoices3055(EnhancedTestCase):
         self.assertEqual([c.conflict_type for c in live], ["cross_batch_conflict"])
 
     def test_race_manager_batch_conflict_check(self):
+        self._make_live_uncollected3055()
         from verenigingen.verenigingen_payments.utils.sepa_race_condition_manager import (
             SEPABatchRaceConditionManager,
         )
@@ -234,3 +255,44 @@ class TestRolledBackBatchUnlocksInvoices3055(EnhancedTestCase):
         offered = {r["name"] for r in rows}
         self.assertIn(self.rolled3055.invoices[0].invoice, offered)
         self.assertNotIn(self.live3055.invoices[0].invoice, offered)
+
+    def test_rebatched_invoice_stays_locked_by_its_new_batch(self):
+        """Opposite harm: after the roll-back the invoice is re-batched through the real create
+        path, so it has TWO Pending rows (Rolled Back batch + new Draft batch). The new batch must
+        lock it on every predicate, or a double debit is possible."""
+        from verenigingen.verenigingen_payments.api.dd_batch_api import get_eligible_invoices
+        from verenigingen.verenigingen_payments.api.sepa_batch_ui import (
+            create_sepa_batch_validated,
+            get_open_batch_invoice_names,
+        )
+        from verenigingen.verenigingen_payments.utils.payment_retry import _invoice_in_open_batch
+        from verenigingen.verenigingen_payments.utils.sepa_conflict_detector import SEPAConflictDetector
+        from verenigingen.verenigingen_payments.utils.sepa_race_condition_manager import (
+            SEPABatchRaceConditionManager,
+        )
+
+        invoice = self._make_eligible3055(self.rolled3055)
+        created = create_sepa_batch_validated(**self._create_params3055(self.rolled3055))
+        self.assertTrue(created.get("success"), created)
+        self._batches3055.append(created["batch_name"])
+        pending = frappe.get_all(
+            "Direct Debit Batch Invoice",
+            filters={"invoice": invoice, "status": "Pending"},
+            pluck="parent",
+        )
+        self.assertCountEqual(pending, [self.rolled3055.name, created["batch_name"]])
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", created["batch_name"], "docstatus"), 0)
+
+        self.assertIn(invoice, get_open_batch_invoice_names())
+        self.assertTrue(_invoice_in_open_batch(invoice))
+        offered = {i["name"] for i in get_eligible_invoices({}).get("invoices", [])}
+        self.assertNotIn(invoice, offered)
+        conflicts = SEPAConflictDetector()._detect_cross_batch_conflicts([{"invoice": invoice}])
+        self.assertEqual([c.conflict_type for c in conflicts], ["cross_batch_conflict"])
+        race = SEPABatchRaceConditionManager()._detect_batch_conflicts([invoice], {})
+        self.assertEqual(len(race["conflicts"]), 1)
+        # A different date, or the duplicate-date check would refuse before the invoice lock is reached.
+        again = dict(self._create_params3055(self.rolled3055), batch_date=str(add_days(today(), 9)))
+        refused = create_sepa_batch_validated(**again)
+        self.assertFalse(refused.get("success"), refused)
+        self.assertIn("already in batch", str(refused), refused)
