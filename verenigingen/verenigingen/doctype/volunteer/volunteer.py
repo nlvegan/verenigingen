@@ -639,9 +639,7 @@ class Volunteer(Document):
 
         Delegates to VolunteerExpenseApproverService for business logic.
 
-        WARNING (#2683): this grants with system_operation, bypassing the acting user's
-        User write. The caller must derive user_email from an active Financial seat.
-
+        WARNING (#2683): grants as system_operation; derive user_email from a Financial seat.
         Args:
             user_email: User to assign role to
         """
