@@ -282,6 +282,9 @@ def assign_member_to_chapter(member, chapter, notify=None):
                 f"{result.get('error') or result.get('message') or 'unknown error'}",
             )
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # Not "non-critical": after a 1213 the approval's own writes are gone too (#2652).
+        raise
     except Exception:
         # Non-critical: the approval still proceeds, but the failure must be visible.
         frappe.log_error(

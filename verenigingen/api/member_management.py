@@ -454,6 +454,8 @@ def add_member_to_chapter_roster(member_name, new_chapter):
                     f"{result.get('error') or result.get('message')}",
                 )
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(f"Error updating chapter roster: {str(e)}", "Chapter Roster Update Error")
 

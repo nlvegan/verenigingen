@@ -1595,6 +1595,8 @@ class MijnroodCSVImport(Document):
                 full_error = f"Failed to assign member {member_doc.name} to chapter {chapter_name}: {error_msg}. Full result: {result}"
                 frappe.logger().error(full_error)
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             error_msg = f"Failed to assign member {member_doc.name} to chapter {chapter_name}: {str(e)}"
             frappe.logger().error(error_msg)
