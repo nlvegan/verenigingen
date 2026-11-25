@@ -213,11 +213,16 @@ def _reenable_ended_row_before_invoice(member, chapters):
     Returns the chapters whose row was re-enabled; a failed write is logged and leaves the row for
     assign_member_to_chapter after the core, as before.
     """
+    from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
     reenabled = []
     for chapter in dict.fromkeys(c for c in chapters if c):
         try:
             if _reenable_ended_row(member, chapter):
                 reenabled.append(chapter)
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the whole transaction back: carrying on would approve against lost writes.
+            raise
         except Exception:  # noqa: BLE001
             frappe.log_error(
                 title="Approval Chapter Row Not Reactivated",

@@ -7,8 +7,9 @@ custom_member_chapter=None (get_member_primary_chapter counts Active rows only).
 
 Real flow: MemberManager.add_member seats the earlier row, the real termination service (or the real
 remove_member) disables it, then submit_application -> confirm -> approve_application(create_invoice=True).
-PROBE SHORTCUTS, stated: the order pin wraps the core and calls through; the failure test injects a fault at
-the reactivation writer's boundary.
+PROBE SHORTCUTS, stated: the order pin wraps the core and calls through; the two failure tests inject a fault
+at the boundary of the reactivation write (secure_document_operation, only for the call whose justification
+starts "Reactivate rejoining"); every other call runs the real function.
 """
 
 from unittest.mock import patch
@@ -37,6 +38,18 @@ class TestRejoinerRowReactivatedBeforeInvoice2953(ApprovalCase):
             {"customer": frappe.db.get_value("Member", member, "customer")},
             pluck="custom_member_chapter",
         )
+
+    def _fail_reactivation_2953(self, error):
+        from verenigingen.utils import secure_operations
+
+        real = secure_operations.secure_document_operation
+
+        def flaky(*args, **kwargs):
+            if str(kwargs.get("justification", "")).startswith("Reactivate rejoining"):
+                raise error
+            return real(*args, **kwargs)
+
+        return patch("verenigingen.utils.secure_operations.secure_document_operation", side_effect=flaky)
 
     def _comments_2953(self, member, text):
         full_name = frappe.db.get_value("Member", member, "full_name")
@@ -100,6 +113,10 @@ class TestRejoinerRowReactivatedBeforeInvoice2953(ApprovalCase):
         self.assertTrue(result["success"], result)
         self.assertEqual(self._rows_2953(member.name, self.chapter.name), [("Active", 1)])
         self.assertEqual(self._invoice_chapters_2953(member.name), [self.chapter.name])
+        self.assertFalse(
+            frappe.db.get_value("Chapter Member", {"parent": self.chapter.name, "member": member.name}, "leave_reason"),
+            "the leave reason of the ended stay is cleared",
+        )
 
     def test_the_ended_row_is_already_active_when_the_core_runs(self):
         """Pins the ORDER: the outcome alone is also met by editing the invoice afterwards."""
@@ -183,3 +200,57 @@ class TestRejoinerRowReactivatedBeforeInvoice2953(ApprovalCase):
         )
         self.assertEqual(sorted(h.status for h in history).count("Active"), 1, history)
         self.assertNotIn("Pending", [h.status for h in history], history)
+
+    def test_a_failed_reactivation_is_logged_and_the_old_after_the_core_path_still_activates_the_row(self):
+        title = "Approval Chapter Row Not Reactivated"
+        self.expectErrorLog(title)
+        member = self._terminated_member_2953(self.chapter.name)
+        application = self._stage_without_chapter()
+
+        # Mock justified: fault injection at the reactivation write; every other write is the real one.
+        with self.assertErrorLog(title), self._fail_reactivation_2953(frappe.ValidationError("boom")):
+            result = self._approve_2953(application, self.chapter.name)
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(self._rows_2953(member.name, self.chapter.name), [("Active", 1)])
+
+    def test_a_deadlock_in_the_reactivation_propagates_and_is_not_swallowed(self):
+        member = self._terminated_member_2953(self.chapter.name)
+        application = self._stage_without_chapter()
+
+        # Mock justified: fault injection of MariaDB 1213 at the reactivation write.
+        with self._fail_reactivation_2953(frappe.QueryDeadlockError("1213")):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                self._approve_2953(application, self.chapter.name)
+
+        self.assertEqual(frappe.db.get_value("Member", member.name, "application_status"), "Pending")
+
+    def test_a_live_row_is_not_reset_by_the_approval(self):
+        """Control: an Active row of an applicant (a stale one the termination did not end) keeps its join date
+        and history, and gets no "Re-enabled" comment."""
+        member = self.create_test_member(email=self.email)
+        self.assertTrue(self._manager_2953(self.chapter.name).add_member(member.name, notify=False)["success"])
+        execute_real_termination(self, member.name, frappe.utils.today())
+        # Probe shortcut, stated: the termination ended the row; put back a live Active/enabled one directly.
+        frappe.db.set_value(
+            "Chapter Member",
+            {"parent": self.chapter.name, "member": member.name},
+            {"enabled": 1, "status": "Active", "chapter_join_date": "2020-01-01"},
+        )
+        history_before = frappe.get_all(
+            "Chapter Membership History", {"parent": member.name, "chapter_name": self.chapter.name}, ["name", "status"]
+        )
+        application = self._stage_without_chapter()
+
+        result = self._approve_2953(application, self.chapter.name)
+
+        self.assertTrue(result["success"], result)
+        row = frappe.get_all(
+            "Chapter Member", {"parent": self.chapter.name, "member": member.name}, ["status", "enabled", "chapter_join_date"]
+        )
+        self.assertEqual([(r.status, r.enabled, str(r.chapter_join_date)) for r in row], [("Active", 1, "2020-01-01")])
+        self.assertEqual(self._comments_2953(member.name, "Re-enabled member"), 0)
+        history_after = frappe.get_all(
+            "Chapter Membership History", {"parent": member.name, "chapter_name": self.chapter.name}, ["name", "status"]
+        )
+        self.assertEqual(sorted(h.name for h in history_after), sorted(h.name for h in history_before))
