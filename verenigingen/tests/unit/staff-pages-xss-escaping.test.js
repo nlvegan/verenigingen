@@ -721,7 +721,9 @@ describe('www/dues-invoice-manager.html', () => {
 		});
 		window.HTMLElement.prototype.scrollIntoView = jest.fn();
 		window.confirm = jest.fn(() => true);
-		return new Function(`${script}; return { checkMemberStatus, generateMissingInvoices };`)();
+		return new Function(
+			`${script}; return { checkMemberStatus, generateMissingInvoices, validateSepaEligibility };`
+		)();
 	}
 
 	const status = (categories) => (opts) =>
@@ -769,6 +771,31 @@ describe('www/dues-invoice-manager.html', () => {
 
 		const failed = load((opts) => opts.callback({ message: { success: false, errors: [PAYLOAD] } }));
 		failed.generateMissingInvoices();
+		expect(injected()).toEqual({ img: null, onerror: null });
+		expect(document.getElementById('results-content').textContent).toContain(PAYLOAD);
+	});
+
+	test.each([
+		[
+			'checkMemberStatus: success:false',
+			'checkMemberStatus',
+			(o) => o.callback({ message: { success: false, error: PAYLOAD } })
+		],
+		[
+			'generate: failed with a message',
+			'generateMissingInvoices',
+			(o) => o.callback({ message: { success: false, message: PAYLOAD } })
+		],
+		['generate: error callback', 'generateMissingInvoices', (o) => o.error({ message: PAYLOAD })],
+		[
+			'SEPA: success:false',
+			'validateSepaEligibility',
+			(o) => o.callback({ message: { success: false, error: PAYLOAD } })
+		],
+		['SEPA: error callback', 'validateSepaEligibility', (o) => o.error({ message: PAYLOAD })]
+	])('error text renders as text (%s)', (_name, fn, reply) => {
+		const page = load(reply);
+		page[fn]();
 		expect(injected()).toEqual({ img: null, onerror: null });
 		expect(document.getElementById('results-content').textContent).toContain(PAYLOAD);
 	});
@@ -985,6 +1012,49 @@ describe('public/js/membership_application.js', () => {
 		expect(invalid).toContain('text-danger');
 		expectNoInjection(invalid);
 		expectNoInjection(window.frappe.msgprint.mock.calls[0][0].message);
+	});
+
+	test('the SEPA IBAN error in step validation renders as text', () => {
+		const $ = (sel) => {
+			if (typeof sel === 'string' && sel.includes('payment_method')) return { val: () => 'SEPA Direct Debit' };
+			const chain = rec.$(sel);
+			return sel === '#iban'
+				? new Proxy(chain, { get: (t, k) => (k === 'val' ? () => 'NL00BAD' : t[k]) })
+				: chain;
+		};
+		window.$ = global.$ = $;
+		const ok = app.validateStepBasic.call(
+			{ getStepName: () => 'payment', performIBANValidation: () => ({ valid: false, error: PAYLOAD }) },
+			5
+		);
+		expect(ok).toBe(false);
+		expect(rec.all()).toContain('invalid-feedback');
+		expectNoInjection(rec.all());
+	});
+
+	test('membership type cards render type, tier, quick-amount and calculator text as text', () => {
+		window.frappe.format = () => '1';
+		app.createMembershipCard.call(
+			{},
+			{
+				name: PAYLOAD,
+				membership_type_name: PAYLOAD,
+				description: PAYLOAD,
+				amount: 10,
+				contribution_options: {
+					mode: 'Custom',
+					tiers: [{ name: 'a', display_name: PAYLOAD, description: PAYLOAD, amount: 5 }],
+					quick_amounts: [{ label: PAYLOAD, amount: 5 }],
+					calculator: { description: PAYLOAD }
+				}
+			}
+		);
+		const html = rec.all();
+		expect(html).toContain('tier-option');
+		expectNoInjection(html);
+		const box = document.createElement('div');
+		box.innerHTML = html;
+		expect(box.querySelector('.membership-type-card').getAttribute('data-type')).toBe(PAYLOAD);
 	});
 
 	test('the payment-step basic summary renders typed and server text as text', () => {

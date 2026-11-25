@@ -2494,12 +2494,12 @@ class _MembershipApplication {
 			type
 		});
 
-		let cardHTML = `<div class="membership-type-card" data-type="${type.name || ''}" data-amount="${amount}">`;
-		cardHTML += `<h5>${membershipTypeName}</h5>`;
+		let cardHTML = `<div class="membership-type-card" data-type="${escapeText(type.name || '')}" data-amount="${amount}">`;
+		cardHTML += `<h5>${escapeText(membershipTypeName)}</h5>`;
 		cardHTML += '<div class="membership-price">';
 		cardHTML += `${frappe.format(amount, { fieldtype: 'Currency' })} / ${billingPeriod}`;
 		cardHTML += '</div>';
-		cardHTML += `<p class="membership-description">${type.description || ''}</p>`;
+		cardHTML += `<p class="membership-description">${escapeText(type.description || '')}</p>`;
 
 		// Add contribution selection section if options are available
 		if (allowsContributionChoice) {
@@ -2517,10 +2517,10 @@ class _MembershipApplication {
 						description: tier.description
 					});
 					cardHTML += `<div class="tier-option" data-amount="${tierAmount}">`;
-					cardHTML += `<strong>${tier.display_name || tier.name}</strong>: `;
+					cardHTML += `<strong>${escapeText(tier.display_name || tier.name)}</strong>: `;
 					cardHTML += frappe.format(tierAmount, { fieldtype: 'Currency' });
 					if (tier.description) {
-						cardHTML += `<br><small class="text-muted">${tier.description}</small>`;
+						cardHTML += `<br><small class="text-muted">${escapeText(tier.description)}</small>`;
 					}
 					cardHTML += '</div>';
 				});
@@ -2538,7 +2538,7 @@ class _MembershipApplication {
 					});
 					cardHTML += `<span class="amount-pill" data-amount="${suggestionAmount}">`;
 					cardHTML += frappe.format(suggestionAmount, { fieldtype: 'Currency' });
-					cardHTML += `<br><small>${quickAmount.label || ''}</small>`;
+					cardHTML += `<br><small>${escapeText(quickAmount.label || '')}</small>`;
 					cardHTML += '</span>';
 				});
 				cardHTML += '</div>';
@@ -2568,7 +2568,7 @@ class _MembershipApplication {
 
 		if (contributionOptions.calculator && contributionOptions.calculator.description) {
 			cardHTML += '<div class="mt-2">';
-			cardHTML += `<small class="text-muted">${contributionOptions.calculator.description}</small>`;
+			cardHTML += `<small class="text-muted">${escapeText(contributionOptions.calculator.description)}</small>`;
 			cardHTML += '</div>';
 		}
 
