@@ -19,6 +19,7 @@ from verenigingen.services.infrastructure.base_service import DataService, State
 from verenigingen.tests.support.non_resumable_errors import deadlock, lock_wait_timeout
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.service_error_handler import ServiceError
+from verenigingen.utils.transaction_errors import DATABASE_ERROR
 
 
 def _svc_1188(tag):
@@ -61,6 +62,41 @@ class TestBaseServiceRollbackMasking1188(VereningingenTestCase):
             svc.execute_with_transaction(op)
         self.assertIs(ctx.exception.original_error, boom)
         self.assertFalse(svc._transaction_active)
+
+    def test_a_skipped_rollback_is_recorded_not_silently_swallowed(self):
+        """Pins the difference from a bare ``except Exception: pass`` around the rollback.
+
+        expectErrorLog only suppresses; this asserts the row exists. Error Log is MyISAM,
+        so it is matched by the unique savepoint name in the message, not by count of
+        the title alone.
+        """
+        self.expectErrorLog("svc_1188_skip_logged Error")
+        svc = _svc_1188("skip_logged")
+        seen = {}
+
+        def op():
+            seen["name"] = svc._savepoint_name
+            _destroy_savepoint_then_raise_1188(svc, ValueError("boom"))
+
+        with self.assertRaises(ServiceError):
+            svc.execute_with_transaction(op)
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"method": "Savepoint rollback skipped", "error": ["like", f"%{seen['name']}%"]},
+        )
+        self.assertEqual(len(rows), 1)
+
+    def test_a_rollback_failure_that_is_not_a_missing_savepoint_propagates(self):
+        """Real driver error, no mock: an invalid savepoint name is a MariaDB 1064."""
+        svc = _svc_1188("non_1305")
+
+        def op():
+            svc._savepoint_name = "not-a-valid-name"
+            raise ValueError("original")
+
+        with self.assertRaises(DATABASE_ERROR) as ctx:
+            svc.execute_with_transaction(op)
+        self.assertNotEqual(ctx.exception.args[0], 1305)
 
     def test_control_with_the_savepoint_intact_the_write_is_really_rolled_back(self):
         """Control: the fix must not turn rollback into a no-op."""
