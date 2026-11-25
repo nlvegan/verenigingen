@@ -3,9 +3,9 @@
 `Chapter.leave_chapter` (whitelisted) identifies the caller by Member.user (#2069,
 #1853) and then ran the Chapter save as that caller, so a Chapter Board Member
 profile user without Chapter:write on that chapter was refused for their own row. Callers here are
-real users with the real "Verenigingen Chapter Board Member" role profile (the least-privileged
-profile that clears @high_security_api; a plain Verenigingen Member is refused by that tier gate
-before any check under test, measured: PermissionError).
+real users with the real "Verenigingen Chapter Board Member" role profile (the endpoint was
+@high_security_api until #2456 made it @self_service_api; the plain Member is covered by
+test_chapter_leave_plain_member_2456).
 """
 
 import frappe
@@ -50,8 +50,14 @@ class TestChapterOwnRowLeaveAndRejoin(EnhancedTestCase):
         """Return (response, message_log tail added by the call, Error Log row count delta)."""
         frappe.local.message_log = []
         errors_before = frappe.db.count("Error Log")
-        with self.as_user(caller.user):
-            response = leave_chapter(member_name, self.chapter.name, "moving")
+        try:
+            with self.as_user(caller.user):
+                response = leave_chapter(
+                    member_name=member_name, chapter_name=self.chapter.name, leave_reason="moving"
+                )
+        except frappe.PermissionError as exc:
+            # #2456: the self-service gate now refuses a foreign or unknown id by raising.
+            response = (type(exc).__name__, str(exc))
         return response, list(frappe.local.message_log), frappe.db.count("Error Log") - errors_before
 
     def test_caller_has_no_chapter_write(self):
@@ -67,13 +73,14 @@ class TestChapterOwnRowLeaveAndRejoin(EnhancedTestCase):
     def test_member_cannot_leave_for_another_member(self):
         """The forbidden id (a real Active row) is refused and its row untouched."""
         response, _log, _errors = self._call_leave(self.me, self.other.member.name)
-        self.assertEqual(response, {"success": False, "removed": False})
+        self.assertIsInstance(response, tuple, response)
         row = self._row_2166(self.other.member)
         self.assertEqual((row.status, row.enabled), ("Active", 1))
 
     def test_forbidden_and_unknown_member_are_refused_identically(self):
         forbidden = self._call_leave(self.me, self.other.member.name)
         unknown = self._call_leave(self.me, "Assoc-Member-DOES-NOT-EXIST-2166")
+        self.assertIsInstance(forbidden[0], tuple, forbidden)
         self.assertEqual(forbidden, unknown)
 
     def test_manager_default_does_not_elevate(self):

@@ -79,6 +79,7 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
     high_security_api,
+    self_service_api,
     standard_api,
 )
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
@@ -1290,7 +1291,10 @@ def join_chapter(member_name: str, chapter_name: str, introduction: str = None, 
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
+# #2456: self-service tier, not HIGH. A plain "Verenigingen Member" never clears HIGH (profile-only),
+# so it could not leave its own chapter. The framework refuses any member_name but the caller's own,
+# identically for unknown and forbidden ids, and the body re-checks Member.user.
+@self_service_api(operation_type=OperationType.MEMBER_DATA)
 def leave_chapter(member_name: str, chapter_name: str, leave_reason: str = None):
     """Web method for a member to leave a chapter via portal"""
     # Use centralized chapter membership manager for consistency
