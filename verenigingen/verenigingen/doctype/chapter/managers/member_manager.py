@@ -1065,15 +1065,16 @@ class MemberManager(BaseManager):
         try:
             for member in enabled_members:
                 # Check if this is the member's primary chapter (first/most recent)
+                member_name = member.member
                 member_chapters = frappe.get_all(
                     "Chapter Member",
-                    filters={"member": member.member, "enabled": 1},
+                    filters={"member": member_name, "enabled": 1},
                     fields=["parent", "chapter_join_date"],
                 )
                 # Latest join date, the applied chapter on a tie (#2966).
                 from verenigingen.services.chapter.chapter_utils import order_chapters_primary_first
 
-                member_chapters = order_chapters_primary_first(member.member, member_chapters)
+                member_chapters = order_chapters_primary_first(member_name, member_chapters)
                 if member_chapters and member_chapters[0].parent == self.chapter_name:
                     primary_members += 1
         except Exception:
