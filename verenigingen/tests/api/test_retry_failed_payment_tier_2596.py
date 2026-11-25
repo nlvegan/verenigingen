@@ -51,11 +51,16 @@ class TestRetryFailedPaymentTier2596(EnhancedTestCase):
             if isinstance(cell.cell_contents, dict):
                 cell.cell_contents.clear()
 
-    def _dispatch_2596(self, user, invoice_id):
-        """Run the endpoint through the real whitelist gate; return (result, exc, channels)."""
-        saved = (getattr(frappe.local, "request", None), frappe.local.form_dict)
+    def _dispatch_2596(self, user, invoice_id, live_limiter=False):
+        """Run the endpoint through the real whitelist gate; return (result, exc, channels).
+
+        live_limiter lifts the engine's in_test bypass so the real COR rate limits apply.
+        """
+        saved = (getattr(frappe.local, "request", None), frappe.local.form_dict, frappe.flags.in_test)
         caller_before = frappe.session.user
         frappe.local.request = MagicMock(method="POST", environ={"REMOTE_ADDR": "203.0.113.9"})
+        if live_limiter:
+            frappe.flags.in_test = False  # Mock justified: the limiter skips itself under in_test
         frappe.set_user(user)
         frappe.local.form_dict = frappe._dict(invoice_id=invoice_id)
         log_len = len(frappe.local.message_log)
@@ -67,7 +72,7 @@ class TestRetryFailedPaymentTier2596(EnhancedTestCase):
             error = e
         finally:
             frappe.set_user(caller_before)
-            frappe.local.request, frappe.local.form_dict = saved  # Mock justified: request stub
+            frappe.local.request, frappe.local.form_dict, frappe.flags.in_test = saved  # Mock justified
         channels = {
             "message_log": [m.get("message") if isinstance(m, dict) else m for m in frappe.local.message_log[log_len:]],
             "error_logs": frappe.db.count("Error Log") - errors_before,
@@ -145,19 +150,18 @@ class TestRetryFailedPaymentTier2596(EnhancedTestCase):
         self.assertIn("permission", result["error"]["message"].lower())
         self.assertEqual(self._retry_rows_2596(), [])
 
-    def test_treasurer_only_user_cannot_retry_another_members_invoice(self):
-        """#1101 excludes treasurer and board: the staff set is Roles.ADMIN_ROLES."""
+    def test_treasurer_only_user_can_retry_another_members_invoice(self):
+        """Ruling 2026-11-25: the cross-member set is Roles.ADMIN_ROLES plus Treasurer."""
         # The Treasurer Role Profile bundles Verenigingen Staff, so use the bare roles
         treasurer = f"p2596-treas-{frappe.generate_hash(length=8)}@example.com"
-        self.create_test_user(treasurer, roles=["Verenigingen Treasurer", "Accounts User"])
+        self.create_test_user(treasurer, roles=[Roles.TREASURER, "Accounts User"])
         with self.as_user(treasurer):
             self.assertFalse(set(frappe.get_roles()) & Roles.ADMIN_ROLES, "setup: treasurer-only")
             self.assertTrue(frappe.has_permission("Sales Invoice", "write"), "setup: needs has_write")
         result, error, _ = self._dispatch_2596(treasurer, self.invoice.name)
         self.assertIsNone(error)
-        self.assertFalse(result["success"], result)
-        self.assertIn("permission", result["error"]["message"].lower())
-        self.assertEqual(self._retry_rows_2596(), [])
+        self.assertTrue(result["success"], result)
+        self.assertEqual(len(self._retry_rows_2596()), 1)
 
     def _assert_not_retryable_2596(self, invoice_name, caller):
         before = self._audit_names_2596()
@@ -247,35 +251,116 @@ class TestRetryFailedPaymentTier2596(EnhancedTestCase):
         self.assertIn("not found", cases["not found"][0][1]["error"].lower())
         self.assertIn("already", cases["already scheduled"][0][1]["error"].lower())
 
-    def test_the_cor_rate_limit_for_manual_retry_is_sane(self):
-        """The shipped rule was 5000/hour; a retry mails staff and writes records.
-
-        The fixture file is not loaded into existing sites (rules are seeded once, never
-        overwritten), and the engine reads the DB row, so this runs the patch against a row
-        still holding the old value and reads the row back.
-        """
+    def test_the_patch_splits_the_cor_rate_limits_and_is_idempotent(self):
+        """The fixture file is not loaded into existing sites (rules are seeded once, never
+        overwritten), and the engine reads the DB rows, so this runs the patch against rows in the
+        pre-change state and reads them back."""
         from verenigingen.patches.v2_2.lower_retry_failed_payment_rate_limit import execute
 
-        rule = "retry_failed_payment"
-        fields = ["rate_limit_calls", "rate_limit_period_seconds", "rate_limit_scope"]
-        original = frappe.db.get_value("Critical Operation Rule", rule, fields, as_dict=True)
-        self.assertIsNotNone(original, "rule row missing on this site")
-        self.addCleanup(
-            lambda: frappe.db.set_value(
-                "Critical Operation Rule", rule, dict(original), update_modified=False
-            )
+        staff_op, self_op = "retry_failed_payment", "retry_failed_payment_self"
+        staff_row = frappe.db.get_value("Critical Operation Rule", {"operation_name": staff_op}, "name")
+        self.assertIsNotNone(staff_row, "rule row missing on this site")
+        original = frappe.db.get_value(
+            "Critical Operation Rule", staff_row, ["rate_limit_calls", "rate_limit_period_seconds"], as_dict=True
         )
-        frappe.db.set_value("Critical Operation Rule", rule, "rate_limit_calls", 5000)
-        execute()
-        row = frappe.db.get_value("Critical Operation Rule", rule, fields, as_dict=True)
-        self.assertEqual(row.rate_limit_calls, 5)
-        self.assertEqual(row.rate_limit_period_seconds, 3600)
-        self.assertEqual(row.rate_limit_scope, "per_user")
+        self.addCleanup(
+            lambda: frappe.db.set_value("Critical Operation Rule", staff_row, dict(original), update_modified=False)
+        )
+        for old in (5000, 5):
+            frappe.db.delete("Critical Operation Rule", {"operation_name": self_op})
+            frappe.db.set_value("Critical Operation Rule", staff_row, "rate_limit_calls", old)
+            execute()
+            self.assertEqual(frappe.db.get_value("Critical Operation Rule", staff_row, "rate_limit_calls"), 30)
+            self_row = frappe.db.get_value(
+                "Critical Operation Rule",
+                {"operation_name": self_op},
+                ["rate_limit_calls", "rate_limit_period_seconds", "rate_limit_scope", "enabled"],
+                as_dict=True,
+            )
+            self.assertEqual((self_row.rate_limit_calls, self_row.rate_limit_scope, self_row.enabled), (5, "per_user", 1))
+            self.assertEqual(self_row.rate_limit_period_seconds, 3600)
 
-        # a row an operator tuned is left alone
-        frappe.db.set_value("Critical Operation Rule", rule, "rate_limit_calls", 77)
+        # idempotent, and a row an operator tuned is left alone
+        frappe.db.set_value("Critical Operation Rule", staff_row, "rate_limit_calls", 77)
+        frappe.db.set_value(
+            "Critical Operation Rule", {"operation_name": self_op}, "rate_limit_calls", 9
+        )
         execute()
-        self.assertEqual(frappe.db.get_value("Critical Operation Rule", rule, "rate_limit_calls"), 77)
+        self.assertEqual(frappe.db.get_value("Critical Operation Rule", staff_row, "rate_limit_calls"), 77)
+        self.assertEqual(frappe.db.count("Critical Operation Rule", {"operation_name": self_op}), 1)
+        self.assertEqual(
+            frappe.db.get_value("Critical Operation Rule", {"operation_name": self_op}, "rate_limit_calls"), 9
+        )
+
+    def test_staff_acting_cross_member_get_30_an_hour_and_the_31st_is_refused(self):
+        staff = self._user_2596("Verenigingen Staff")
+        self._arm_live_limits_2596()
+        for n in range(1, 31):
+            result, error, _ = self._dispatch_2596(staff, self.invoice.name, live_limiter=True)
+            self.assertIsNone(error, f"call {n} must not be rate limited")
+            if n == 1:
+                self.assertTrue(result["success"], result)  # a real retry was scheduled
+            else:  # reached the body's own checks: not turned away by the member's 5/hour budget
+                self.assertIn("already scheduled", result["error"]["message"].lower(), f"call {n}")
+        result, error, _ = self._dispatch_2596(staff, self.invoice.name, live_limiter=True)
+        self.assertIsInstance(error, frappe.PermissionError)
+        self.assertIn("rate limit", str(error).lower())
+
+    def test_a_members_own_sixth_retry_in_an_hour_is_refused_while_staff_are_not(self):
+        self._arm_live_limits_2596()
+        for n in range(1, 6):
+            result, error, _ = self._dispatch_2596(self.owner_email, self.invoice.name, live_limiter=True)
+            self.assertIsNone(error, f"call {n}")
+            if n == 1:
+                self.assertTrue(result["success"], result)
+        result, error, _ = self._dispatch_2596(self.owner_email, self.invoice.name, live_limiter=True)
+        self.assertIsNone(error)
+        self.assertFalse(result["success"], result)
+        self.assertIn("too many", result["error"]["message"].lower())
+        # control: the member's bucket is theirs; a staff caller on the same invoice is not refused
+        staff = self._user_2596("Verenigingen Staff")
+        result, error, _ = self._dispatch_2596(staff, self.invoice.name, live_limiter=True)
+        self.assertIsNone(error)
+        self.assertNotIn("too many", str((result.get("error") or {}).get("message")).lower())
+
+    def test_a_refused_stranger_does_not_spend_the_owners_budget(self):
+        """Authorization comes first: only the invoice owner's calls tick the self bucket."""
+        self._arm_live_limits_2596()
+        for _n in range(7):
+            self._dispatch_2596(self.other_email, self.invoice.name, live_limiter=True)
+        result, error, _ = self._dispatch_2596(self.other_email, self.invoice.name, live_limiter=True)
+        self.assertIsNone(error)
+        self.assertIn("permission", result["error"]["message"].lower())  # still the refusal, not "too many"
+
+    def _apply_cor_split_2596(self):
+        """Put the two COR rows in the state the patch leaves on an existing site (this site may
+        predate it), and put them back afterwards."""
+        from verenigingen.patches.v2_2.lower_retry_failed_payment_rate_limit import execute
+
+        staff_row = frappe.db.get_value("Critical Operation Rule", {"operation_name": "retry_failed_payment"})
+        original = frappe.db.get_value(
+            "Critical Operation Rule", staff_row, ["rate_limit_calls", "rate_limit_period_seconds"], as_dict=True
+        )
+        had_self = frappe.db.exists("Critical Operation Rule", {"operation_name": "retry_failed_payment_self"})
+
+        def restore():
+            frappe.db.set_value("Critical Operation Rule", staff_row, dict(original), update_modified=False)
+            if not had_self:
+                frappe.db.delete("Critical Operation Rule", {"operation_name": "retry_failed_payment_self"})
+
+        self.addCleanup(restore)
+        frappe.db.set_value("Critical Operation Rule", staff_row, "rate_limit_calls", 5000)
+        frappe.db.delete("Critical Operation Rule", {"operation_name": "retry_failed_payment_self"})
+        execute()
+
+    def _arm_live_limits_2596(self):
+        self._teardown_rate_limit_mocking()  # lifts the harness's rate-limit stub
+        self._apply_cor_split_2596()
+        import redis
+
+        r = redis.from_url(frappe.conf.redis_cache)
+        for k in r.keys(f"cor_rate_limit:{frappe.local.site}:*"):
+            r.delete(k)
 
     def test_a_paid_invoice_rejected_by_the_bank_logs_the_refused_retry(self):
         """pain.002 path: handle_payment_rejection drops schedule_retry's return value, so the
@@ -297,3 +382,17 @@ class TestRetryFailedPaymentTier2596(EnhancedTestCase):
         self.assertEqual(len(rows), 1, rows)
         self.assertIn("outstanding", rows[0].error.lower())
         self.assertIn("AC04", rows[0].error)
+
+    def test_an_outstanding_invoice_rejected_by_the_bank_logs_no_refusal(self):
+        """Success-path control for the refusal log: an allowed retry writes NO refusal row, so a
+        log-always mutant cannot pass."""
+        from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import (
+            handle_payment_rejection,
+        )
+
+        errors_before = frappe.db.count("Error Log", {"method": "SEPA rejection: retry not scheduled"})
+        handle_payment_rejection(f"E2E-{self.invoice.name}", "AC04", "Closed account")
+        self.assertTrue(frappe.db.exists("SEPA Payment Retry", {"invoice": self.invoice.name}))  # it WAS scheduled
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "SEPA rejection: retry not scheduled"}), errors_before
+        )

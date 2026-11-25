@@ -662,11 +662,26 @@ def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
     return result
 
 
+def _self_retry_limit_exceeded():
+    """Tick the caller's own-invoice retry bucket (COR retry_failed_payment_self, 5/hour).
+
+    The decorator's bucket (COR retry_failed_payment, 30/hour) is the staff cross-member
+    limit and also a ceiling for everyone; the member's tighter budget lives here because the
+    decorator runs before the endpoint can tell whose invoice it is.
+    """
+    from verenigingen.utils.security.rate_limit_engine import get_rate_limit_engine
+
+    key = f"{__name__}.retry_failed_payment_self"
+    return not get_rate_limit_engine().check_rate_limit(key).allowed
+
+
 def _retry_failed_payment(invoice_id):
     try:
         member = get_member_from_user()
         has_write = frappe.has_permission("Sales Invoice", "write")
-        may_act_for_members = has_write and bool(Roles.ADMIN_ROLES & set(frappe.get_roles()))
+        may_act_for_members = has_write and bool(
+            Roles.PAYMENT_RETRY_ON_BEHALF_ROLES & set(frappe.get_roles())
+        )
 
         # Resolve ownership from a cheap field lookup, not frappe.get_doc, and
         # decide authorization BEFORE deciding whether invoice_id exists at
@@ -690,6 +705,11 @@ def _retry_failed_payment(invoice_id):
 
         if not may_act_for_members and not is_owner:
             return OperationResult.fail(_("You don't have permission to retry this payment"))
+
+        # A member retrying their own invoice has the strict self-retry budget; staff acting
+        # cross-member are bounded only by the endpoint's own (higher) COR bucket (#2596).
+        if is_owner and _self_retry_limit_exceeded():
+            return OperationResult.fail(_("Too many retry attempts. Please try again later."))
 
         if not invoice_exists:
             return OperationResult.fail(_("Invoice not found"))
