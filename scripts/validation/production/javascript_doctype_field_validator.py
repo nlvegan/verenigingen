@@ -561,16 +561,16 @@ def main():
     """Main validation function"""
     import sys
     
-    # Get directory to validate (default to current app)
-    if len(sys.argv) > 1:
-        directory = sys.argv[1]
-    else:
+    # Targets: directories are scanned whole, files (what pre-commit passes) one by one (#3117).
+    # No arguments scans the default directory.
+    targets = [a for a in sys.argv[1:] if not a.startswith("-")]
+    if not targets:
         current_dir = Path(__file__).parent
-        directory = str(current_dir.parent.parent)  # verenigingen app root
+        targets = [str(current_dir.parent.parent)]  # verenigingen app root
     
     print("🔍 JavaScript Field Validator")
     print("=" * 45)
-    print(f"Validating directory: {directory}")
+    print(f"Validating: {', '.join(targets)}")
     print()
     
     # Create validator
@@ -580,8 +580,14 @@ def main():
     print("🔍 Scanning JavaScript files with context analysis...")
     print()
     
-    # Validate directory
-    results = validator.validate_directory(directory)
+    results = {}
+    for target in targets:
+        if os.path.isdir(target):
+            results.update(validator.validate_directory(target))
+        elif target.endswith('.js') and os.path.isfile(target) and 'node_modules' not in target:
+            issues = validator.validate_javascript_file(target)
+            if issues:
+                results[target] = issues
     
     # Generate and print report
     report = validator.generate_report(results)

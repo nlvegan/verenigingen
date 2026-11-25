@@ -46,32 +46,45 @@ def load_doctypes_from_app(app_path: str) -> Dict[str, Set[str]]:
     return load_doctypes_simple(current_app_path, verbose=False)
 
 
-def scan_all_files(base_path: str, doctypes: Dict[str, Set[str]]) -> Dict[str, List[Dict]]:
-    """Scan both HTML and JavaScript files for issues"""
-    
-    results = {"files_scanned": 0, "issues_found": [], "clean_files": []}
-    
-    # Find all HTML and JS files
+def _walk_scannable_files(base_path: str):
     for root, dirs, files in os.walk(base_path):
         for file in files:
             if file.endswith(('.html', '.js')):
-                file_path = os.path.join(root, file)
-                results["files_scanned"] += 1
-                
-                if file.endswith('.html'):
-                    # Skip Jinja2 validation for HTML files - they're processed server-side
-                    issues = scan_html_file_for_serious_issues(file_path, doctypes)
-                else:
-                    # Only scan .js files for Jinja2 mixing - this is where it's problematic
-                    issues = scan_js_file(file_path, doctypes)
-                    
-                if issues:
-                    results["issues_found"].append({
-                        "file": os.path.relpath(file_path, base_path),
-                        "issues": issues
-                    })
-                else:
-                    results["clean_files"].append(os.path.relpath(file_path, base_path))
+                yield os.path.join(root, file)
+
+
+def scan_all_files(base_path: str, doctypes: Dict[str, Set[str]],
+                   only_files: List[str] = None) -> Dict[str, List[Dict]]:
+    """Scan both HTML and JavaScript files for issues.
+
+    only_files (what pre-commit passes) limits the scan to those paths (#3117); None walks base_path.
+    """
+    
+    results = {"files_scanned": 0, "issues_found": [], "clean_files": []}
+    
+    if only_files is None:
+        candidates = _walk_scannable_files(base_path)
+    else:
+        candidates = [f for f in only_files if f.endswith(('.html', '.js')) and os.path.isfile(f)]
+    
+    for file_path in candidates:
+        file = os.path.basename(file_path)
+        results["files_scanned"] += 1
+        
+        if file.endswith('.html'):
+            # Skip Jinja2 validation for HTML files - they're processed server-side
+            issues = scan_html_file_for_serious_issues(file_path, doctypes)
+        else:
+            # Only scan .js files for Jinja2 mixing - this is where it's problematic
+            issues = scan_js_file(file_path, doctypes)
+            
+        if issues:
+            results["issues_found"].append({
+                "file": os.path.relpath(file_path, base_path),
+                "issues": issues
+            })
+        else:
+            results["clean_files"].append(os.path.relpath(file_path, base_path))
     
     return results
 
@@ -572,10 +585,13 @@ def main():
     doctypes = load_doctype_fields()
     print(f"Loaded {len(doctypes)} doctypes")
     
+    # pre-commit passes the staged files; no arguments (CI, manual) scans the tree (#3117)
+    named_files = [a for a in sys.argv[1:] if not a.startswith("-")]
+    
     print("🔍 Scanning HTML and JavaScript files for issues...")
     
     # Scan both templates and JavaScript files
-    results = scan_all_files(str(base_dir), doctypes)
+    results = scan_all_files(str(base_dir), doctypes, named_files or None)
     report = generate_report(results)
     
     print(report)
