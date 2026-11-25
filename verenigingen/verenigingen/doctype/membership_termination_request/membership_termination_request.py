@@ -167,7 +167,10 @@ class MembershipTerminationRequest(Document):
         return approval_service.submit_for_approval()
 
     @frappe.whitelist()
-    @critical_api(operation_type=OperationType.ADMIN)
+    # HIGH tier, not CRITICAL (#3286): the approvers are chapter board members, national board
+    # members and staff, and the HIGH profiles are exactly those. Who may approve THIS request is
+    # decided in TerminationApprovalService.validate_approver_permissions (role + chapter scope).
+    @high_security_api(operation_type=OperationType.ADMIN)
     def approve_request(self, decision, notes=""):
         """Approve or reject the termination request"""
         from verenigingen.services.approval import TerminationApprovalService
@@ -194,6 +197,16 @@ class MembershipTerminationRequest(Document):
             return
 
         from verenigingen.permissions import can_access_termination_functions, can_terminate_member
+        from verenigingen.services.approval import TerminationApprovalService
+        from verenigingen.utils.constants import Roles
+
+        # Staff and national board are unscoped approvers (#3286); they hold DocPerms on this doctype
+        # but are neither in the admin pair nor seated on the member's chapter, so the checks below
+        # would refuse every save of the request they were asked to approve. The admin pair keeps
+        # its existing path through the checks below.
+        roles = set(frappe.get_roles())
+        if not roles & Roles.ADMIN_PAIR and roles & TerminationApprovalService.UNSCOPED_APPROVAL_ROLES:
+            return
 
         # Check if user can access termination functions in general
         if not can_access_termination_functions():
@@ -252,7 +265,9 @@ class MembershipTerminationRequest(Document):
             if self.secondary_approver:
                 from verenigingen.services.approval import TerminationApprovalService
 
-                TerminationApprovalService().validate_approver_permissions(self.secondary_approver)
+                TerminationApprovalService().validate_approver_permissions(
+                    self.secondary_approver, self.member
+                )
 
     def validate_commitment_period(self):
         """

@@ -34,13 +34,20 @@ class TerminationApprovalService(StatefulService):
     # Termination types requiring secondary approval
     DISCIPLINARY_TERMINATION_TYPES = ["Policy Violation", "Disciplinary Action", "Expulsion"]
 
-    # Roles authorized to approve termination requests
-    APPROVAL_ROLES = [
-        Roles.SYSTEM_MANAGER,
-        Roles.VERENIGINGEN_ADMIN,
-        Roles.CHAPTER_ADMIN,
-        "Board Member",
-    ]
+    # Roles that may approve any member's termination request (maintainer ruling on #3286):
+    # staff and up, and national board members.
+    UNSCOPED_APPROVAL_ROLES = frozenset(
+        {
+            Roles.SYSTEM_MANAGER,
+            Roles.VERENIGINGEN_ADMIN,
+            Roles.VERENIGINGEN_STAFF,
+            Roles.NATIONAL_BOARD_MEMBER,
+        }
+    )
+
+    # Roles authorized to approve termination requests. A chapter board member is scoped to the
+    # members of their own chapter (validate_approver_permissions); the roles above are not.
+    APPROVAL_ROLES = [*sorted(UNSCOPED_APPROVAL_ROLES), Roles.CHAPTER_BOARD_MEMBER]
 
     def __init__(self, termination_request: "MembershipTerminationRequest" = None):
         """
@@ -144,6 +151,9 @@ class TerminationApprovalService(StatefulService):
         Raises:
             frappe.ValidationError: If validation fails
         """
+        # Before the status check: a refused caller must learn nothing about the request's state.
+        self.validate_approver_permissions(frappe.session.user)
+
         if self.request.status not in ["Pending", "Draft"]:
             frappe.throw(_("Only pending or draft requests can be approved/rejected"))
 
@@ -438,12 +448,14 @@ class TerminationApprovalService(StatefulService):
         except Exception as e:
             self.logger.error(f"Failed to create expulsion report entry: {str(e)}")
 
-    def validate_approver_permissions(self, user: str) -> None:
+    def validate_approver_permissions(self, user: str, member: Optional[str] = None) -> None:
         """
         Validate that the user has permission to approve termination requests.
 
         Args:
             user: User ID to validate
+            member: Member whose termination is at stake; defaults to the service's request.
+                A chapter board member is accepted only for a member of their own chapter.
 
         Raises:
             frappe.ValidationError: If user is not authorized
@@ -460,6 +472,17 @@ class TerminationApprovalService(StatefulService):
         user_roles = frappe.get_roles(user)
 
         if not any(role in user_roles for role in self.APPROVAL_ROLES):
+            frappe.throw(_("User {0} does not have permission to approve termination requests").format(user))
+
+        if self.UNSCOPED_APPROVAL_ROLES.intersection(user_roles):
+            return
+
+        # Chapter board only from here: the board of the member's own chapter (can_terminate_member
+        # is the app's "board member of the member's chapter" decision).
+        member = member or (self.request.member if self.request else None)
+        from verenigingen.permissions import can_terminate_member
+
+        if not member or not can_terminate_member(member, user):
             frappe.throw(_("User {0} does not have permission to approve termination requests").format(user))
 
     def get_eligible_approvers(
