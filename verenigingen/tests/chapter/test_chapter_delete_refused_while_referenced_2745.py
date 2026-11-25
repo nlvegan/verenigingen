@@ -156,6 +156,10 @@ class TestChapterDeleteRefusedWhileReferenced2745(VereningingenTestCase):
     def test_merge_rename_repoints_the_references_and_still_deletes_the_old_chapter(self):
         old, member, volunteer = self._seated_2745()
         target = self._chapter_2745()
+        old_doc = frappe.get_doc("Chapter", old.name)  # #2789: a merge needs the seats ended first
+        for row in old_doc.board_members:
+            row.is_active = 0
+        old_doc.save()
 
         frappe.rename_doc("Chapter", old.name, target.name, merge=True, force=True)
 
