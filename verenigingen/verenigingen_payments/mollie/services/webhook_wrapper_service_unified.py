@@ -1971,7 +1971,7 @@ class UnifiedWebhookWrapperService:
         todo = hold_unmatched_reversal(payment_id, reversal_type, reversal_id, amount, bank_transaction)
         message = (
             f"{reversal_type.capitalize()} {reversal_id} held: payment {payment_id} was never matched "
-            f"to an invoice (Bank Transaction {bank_transaction}); staff alerted via ToDo {todo}"
+            f"to an invoice (Bank Transaction {bank_transaction}); staff alerted (ToDo {todo or 'none, no Treasurer user'})"
         )
         self.logger.warning(message)
         return {

@@ -11,6 +11,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.sql_like import escape_sql_like_wildcards
 
 from .reversal_idempotency import build_reversal_key
 
@@ -27,34 +28,76 @@ def unmatched_payment_bank_transaction(payment_id: str):
     )
 
 
+def treasurer_users() -> list:
+    """Enabled users holding the Treasurer role. A ToDo's ``role`` field gates nothing: Frappe
+    shows a non-System-Manager only the ToDos allocated to, assigned by or owned by them."""
+    users = frappe.get_all(
+        "Has Role", filters={"role": Roles.TREASURER, "parenttype": "User"}, pluck="parent"
+    )
+    if not users:
+        return []
+    return frappe.get_all(
+        "User",
+        filters={"name": ["in", users], "enabled": 1, "user_type": "System User"},
+        pluck="name",
+    )
+
+
+def _existing_alert(key: str):
+    # The key is the LAST thing in the description, after a fixed label, so an anchored match is
+    # exact: holding re_12 must not suppress re_1, and `_` in an id is not a wildcard.
+    return frappe.db.get_value(
+        "ToDo", {"description": ["like", f"%{_LABEL}{escape_sql_like_wildcards(key)}"]}, "name"
+    )
+
+
+_LABEL = "Reference: "
+
+
 def hold_unmatched_reversal(
     payment_id: str, reversal_type: str, reversal_id: str, amount: float, bank_transaction: str
 ) -> str:
-    """Record the held reversal as ONE open ToDo for the treasurer; return its name.
+    """Record the held reversal as ONE ToDo per Treasurer user; return the first name.
 
-    Idempotent on the reversal key, which is written into the description: Mollie
-    redelivers, and staff must be alerted once, not once per retry. Any ToDo for the key
-    counts, closed ones included, so a handled item is not re-raised by a late redelivery.
+    Idempotent on the reversal key: Mollie redelivers, and staff must be alerted once, not once
+    per retry. Any ToDo for the key counts, closed ones included, so a handled item is not
+    re-raised by a late redelivery. With no Treasurer user the alert would reach nobody, so that
+    is logged to the Error Log instead of passing silently.
     """
     key = build_reversal_key(payment_id, reversal_type, reversal_id)
-    existing = frappe.db.get_value("ToDo", {"description": ["like", f"%{key}%"]}, "name")
+    existing = _existing_alert(key)
     if existing:
         return existing
 
-    todo = frappe.get_doc(
-        {
-            "doctype": "ToDo",
-            "description": _(
-                "Mollie {0} {1} of EUR {2} on payment {3} could not be booked: the payment was never "
-                "matched to an invoice, so there is no Payment Entry to reverse. Reconcile Bank "
-                "Transaction {4} first, then book the reversal by hand. Reference: {5}"
-            ).format(reversal_type, reversal_id, f"{float(amount):.2f}", payment_id, bank_transaction, key),
-            "priority": "High",
-            "status": "Open",
-            "role": Roles.TREASURER,
-            "reference_type": "Bank Transaction",
-            "reference_name": bank_transaction,
-        }
-    )
-    todo.insert(ignore_permissions=True)
-    return todo.name
+    description = _(
+        "Mollie {0} {1} of EUR {2} on payment {3} could not be booked: the payment was never "
+        "matched to an invoice, so there is no Payment Entry to reverse. Reconcile Bank "
+        "Transaction {4} first. Once the payment is matched, the scheduled rediscovery sweep books "
+        "the reversal itself, but only within 7 days of the reversal; after that, book it by hand."
+    ).format(reversal_type, reversal_id, f"{float(amount):.2f}", payment_id, bank_transaction)
+    description = f"{description}\n{_LABEL}{key}"
+
+    recipients = treasurer_users()
+    if not recipients:
+        frappe.log_error(
+            title="Mollie held reversal has no Treasurer to alert",
+            message=f"{description}\nNo enabled user holds the {Roles.TREASURER} role.",
+        )
+        return None
+
+    names = []
+    for user in recipients:
+        todo = frappe.get_doc(
+            {
+                "doctype": "ToDo",
+                "description": description,
+                "priority": "High",
+                "status": "Open",
+                "allocated_to": user,
+                "reference_type": "Bank Transaction",
+                "reference_name": bank_transaction,
+            }
+        )
+        todo.insert(ignore_permissions=True)
+        names.append(todo.name)
+    return names[0]
