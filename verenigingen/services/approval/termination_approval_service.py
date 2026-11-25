@@ -14,6 +14,7 @@ from frappe.utils import now
 
 from verenigingen.services.infrastructure.base_service import StatefulService
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 if TYPE_CHECKING:
     from verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request import (
@@ -167,6 +168,11 @@ class TerminationApprovalService(StatefulService):
 
     def _handle_approval(self, notes: str) -> None:
         """Handle approval of the request"""
+        if self.request.requires_secondary_approval:
+            # The approval role check must pass BEFORE anything below runs with elevated
+            # rights (the expulsion report entry is a system operation, #3281).
+            self.validate_approver_permissions(frappe.session.user)
+
         self.request.status = "Approved"
         self.request.approved_by = frappe.session.user
         self.request.approval_date = now()
@@ -176,6 +182,12 @@ class TerminationApprovalService(StatefulService):
         self.request.calculate_termination_date()
 
         self.request.add_audit_entry("Request Approved", f"Approved by {frappe.session.user}")
+
+        # Disciplinary approvals are recorded in the expulsion report (#3281). The approval
+        # itself has passed its role check by now; only the report entry is created as a
+        # system operation, so approver roles need no create permission on that doctype.
+        if self.request.requires_secondary_approval:
+            self._add_to_expulsion_report()
 
         # Send notification to requester
         self.send_approved_notification()
@@ -387,6 +399,12 @@ class TerminationApprovalService(StatefulService):
         if self.request.termination_type not in self.DISCIPLINARY_TERMINATION_TYPES:
             return
 
+        # Idempotent per request: handle_approved_status and _handle_approval both reach
+        # here, and a retry must not record the same expulsion twice (#3281).
+        request_marker = self._expulsion_request_marker()
+        if frappe.db.exists("Expulsion Report Entry", {"notes": request_marker}):
+            return
+
         try:
             from frappe.utils import today
 
@@ -400,6 +418,7 @@ class TerminationApprovalService(StatefulService):
             expulsion_entry.approved_by = self.request.approved_by
             expulsion_entry.documentation = self.request.disciplinary_documentation
             expulsion_entry.status = "Active"
+            expulsion_entry.notes = request_marker
 
             # Get member's primary chapter from Chapter Member table
             if frappe.has_permission("Chapter Member", "read"):
@@ -418,25 +437,40 @@ class TerminationApprovalService(StatefulService):
                     f"chapter information omitted from expulsion report"
                 )
 
-            # Use secure document operation
+            # System operation: the approver is a legitimate approver but need not hold
+            # create on Expulsion Report Entry (#3281). approved_by above records who approved.
             from verenigingen.utils.secure_operations import secure_document_operation
 
             expulsion_result = secure_document_operation(
                 operation="insert",
                 doc=expulsion_entry,
                 justification=f"Expulsion report entry creation for member termination {self.request.name}",
-                required_permissions=["Expulsion Report:create"],
+                system_operation=True,
             )
 
             if not expulsion_result.success:
-                self.logger.error(
-                    f"Failed to create expulsion report entry: {'; '.join(expulsion_result.errors)}"
-                )
+                self._log_expulsion_report_failure("; ".join(expulsion_result.errors))
+                return
 
             self.logger.info(f"Added expulsion report entry for {self.request.member_name}")
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
-            self.logger.error(f"Failed to create expulsion report entry: {str(e)}")
+            self._log_expulsion_report_failure(str(e))
+
+    def _expulsion_request_marker(self) -> str:
+        """Idempotency key: Expulsion Report Entry has no request link, so notes carries it."""
+        return f"Termination request {self.request.name}"
+
+    def _log_expulsion_report_failure(self, detail: str) -> None:
+        """Make a missing entry visible. The approval stands: it was legitimate, and a
+        failed report row must not undo it (matches the pre-existing swallow-and-continue)."""
+        frappe.log_error(
+            title="Expulsion report entry not created",
+            message=f"Termination request {self.request.name} (member {self.request.member}) was "
+            f"approved but its Expulsion Report Entry could not be created: {detail}",
+        )
 
     def validate_approver_permissions(self, user: str) -> None:
         """
