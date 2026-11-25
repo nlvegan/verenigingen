@@ -3363,8 +3363,9 @@ class CoreFactoryCleanupCommitMakesDeletesDurableTest(unittest.TestCase):
         """Ordering contract (#489/#842): `cleanup(commit=True)` only AFTER `super().tearDown()`.
 
         The commit is connection-wide; before the base teardown's rollback it would make
-        every other uncommitted row permanent. Source-order check on the two converted
-        tearDowns, since the ordering is a property of the CALLERS, not of the factory.
+        every other uncommitted row permanent. Source-order check on the converted
+        tearDown (EdgeCaseScalabilityTest; BackgroundJobScalabilityTest's was deleted in #3025),
+        since the ordering is a property of the CALLERS, not of the factory.
         """
         import ast
         import os
@@ -3396,7 +3397,9 @@ class CoreFactoryCleanupCommitMakesDeletesDurableTest(unittest.TestCase):
                 self.assertLess(super_line, commit_line, f"tearDown at line {node.lineno}: commit before super")
                 checked.append(node.lineno)
 
-        self.assertEqual(2, len(checked), "control: expected exactly the two converted tearDowns")
+        self.assertEqual(
+            1, len(checked), "control: expected exactly the one converted tearDown (EdgeCaseScalabilityTest)"
+        )
 
 
 class _BorrowedChapterFixture:
