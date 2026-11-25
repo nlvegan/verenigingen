@@ -13,6 +13,7 @@ success, but write nothing here.
 """
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import frappe
 
@@ -107,3 +108,37 @@ class TestSecurityHelperFlagsRestored(FlagRestoreCase):
         for fn in (validate_and_insert, validate_and_save):
             self._both(["skip_non_critical_validations"], lambda fn=fn: fn(doc, skip_validation=True))
 
+
+    def test_flags_restored_even_if_a_later_finally_statement_raises(self):
+        """The guard is closed explicitly, FIRST in the finally block.
+
+        Fault injected: ``frappe.set_user`` raises when migration_context switches back
+        to the caller. Flags are checked while the traceback (and so the suspended
+        generator) is still alive: a guard left to the garbage collector would not yet
+        have been closed, which is what made dropping the explicit ``__exit__`` invisible.
+        """
+        names = ["in_migration", "migration_operation", "migration_initiated_by"]
+        self._arm(names, SENTINEL)
+        real_set_user = frappe.set_user
+        caller = frappe.session.user
+
+        def set_user(user, *args, **kwargs):
+            if user == caller:
+                raise RuntimeError("set_user failed on the way out")
+            return real_set_user(user, *args, **kwargs)
+
+        # Mock justified: fault injection, the only way to make the exit path raise
+        with patch.object(frappe, "set_user", side_effect=set_user):
+            try:
+                with migration_context("general", user="Guest"):
+                    pass
+            except RuntimeError as exc:
+                held = exc  # keeps the traceback, hence the generator frame, alive
+                for name in names:
+                    self.assertEqual(
+                        frappe.flags.get(name), SENTINEL, f"{name} not restored before GC (#3221)"
+                    )
+            else:
+                self.fail("the injected set_user failure did not propagate")
+        self.assertIsNotNone(held)
+        real_set_user(caller)

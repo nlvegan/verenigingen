@@ -76,10 +76,11 @@ def migration_context(operation_type: str = "general", user: Optional[str] = Non
         yield
 
     finally:
+        # First, so a raising set_user below cannot skip the flag restore (#3221)
+        flag_guard.__exit__(None, None, None)
         # Restore original user (only if we switched)
         if current_user != migration_user:
             frappe.set_user(current_user)
-        flag_guard.__exit__(None, None, None)
 
 
 def has_migration_permission(operation_type: str) -> bool:
@@ -157,18 +158,14 @@ def validate_and_insert(doc, skip_validation: bool = False):
             # Only skip non-critical validations, never skip permissions
             frappe.flags.skip_non_critical_validations = True
 
-        try:
-            doc.insert()
+        doc.insert()
 
-            # Log for audit trail
-            frappe.logger().info(
-                f"Migration insert: {doc.doctype} {doc.name} "
-                f"by {frappe.flags.migration_initiated_by} "
-                f"(operation: {operation_type})"
-            )
-
-        finally:
-            pass  # skip_non_critical_validations is put back by restored_flags above (#3221)
+        # Log for audit trail
+        frappe.logger().info(
+            f"Migration insert: {doc.doctype} {doc.name} "
+            f"by {frappe.flags.migration_initiated_by} "
+            f"(operation: {operation_type})"
+        )
 
     return doc
 
@@ -198,16 +195,12 @@ def validate_and_save(doc, skip_validation: bool = False):
         if skip_validation:
             frappe.flags.skip_non_critical_validations = True
 
-        try:
-            doc.save()
+        doc.save()
 
-            # Log for audit trail
-            frappe.logger().info(
-                f"Migration save: {doc.doctype} {doc.name} " f"by {frappe.flags.migration_initiated_by}"
-            )
-
-        finally:
-            pass  # skip_non_critical_validations is put back by restored_flags above (#3221)
+        # Log for audit trail
+        frappe.logger().info(
+            f"Migration save: {doc.doctype} {doc.name} " f"by {frappe.flags.migration_initiated_by}"
+        )
 
     return doc
 
@@ -288,7 +281,7 @@ def cleanup_context():
         yield
 
     finally:
-        flag_guard.__exit__(None, None, None)
+        flag_guard.__exit__(None, None, None)  # sole statement here (#3221)
 
 
 @contextmanager
@@ -465,6 +458,10 @@ def migration_transaction(
         raise
 
     finally:
+        # Hand back the caller's transaction flags FIRST, so a raising cleanup
+        # below cannot skip it (#3221)
+        flag_guard.__exit__(None, None, None)
+
         # Cleanup. A `finally:` clobbers a propagating exception with a new one
         # from inside it EXACTLY the same way an `except:` block does -- Python's
         # exception-replacement mechanics do not differ by block type. What
@@ -498,9 +495,6 @@ def migration_transaction(
 
         # Restore original user
         frappe.set_user(current_user)
-
-        # Hand back the caller's transaction flags (#3221)
-        flag_guard.__exit__(None, None, None)
 
 
 @contextmanager
@@ -595,11 +589,11 @@ def atomic_migration_operation(operation_type: str = "general"):
         raise
 
     finally:
+        # Flags first, so a raising set_user cannot skip the restore (#3221)
+        flag_guard.__exit__(None, None, None)
+
         # Restore original user
         frappe.set_user(current_user)
-
-        # Hand back the caller's atomic flags (#3221)
-        flag_guard.__exit__(None, None, None)
 
 
 def ensure_migration_user_setup():
