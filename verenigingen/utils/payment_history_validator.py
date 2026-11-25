@@ -18,6 +18,18 @@ from frappe.utils import add_days, add_to_date, now_datetime, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
+# Scan window for the reconciliation (#3190). 90 days covers the longest short
+# billing cycle (quarterly) plus a full cycle of grace, so a lost drain after a
+# payment on a quarterly invoice is still caught on its next cycle; it was 7.
+# Annual invoices outside it are not scanned: the cost is one more row per member
+# per period, and no measurement here shows lost drains clustering later.
+RECONCILIATION_WINDOW_DAYS = 90
+
+# Upper bound on drain jobs enqueued per hourly run, so a wide window with many
+# gaps cannot flood the short queue. The remainder is picked up by later runs
+# (most recent invoices first); a drained member stops being a gap.
+MAX_MEMBER_DRAINS_PER_RUN = 200
+
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
@@ -35,8 +47,7 @@ def validate_and_repair_payment_history():
     """
 
     try:
-        # Check invoices from the last 7 days to catch any missed entries
-        cutoff_date = add_days(today(), -7)
+        cutoff_date = add_days(today(), -RECONCILIATION_WINDOW_DAYS)
 
         # Single batched query: every in-window submitted, member-linked invoice,
         # LEFT JOINed against Member Payment History so "missing from payment
@@ -50,10 +61,15 @@ def validate_and_repair_payment_history():
                 si.grand_total,
                 si.outstanding_amount,
                 si.status,
+                si.docstatus,
                 si.creation,
                 si.modified,
                 m.name as member_name,
-                mph.name as history_row
+                mph.name as history_row,
+                mph.outstanding_amount as history_outstanding,
+                mph.status as history_status,
+                mph.payment_status as history_payment_status,
+                mph.paid_amount as history_paid_amount
             FROM `tabSales Invoice` si
             LEFT JOIN `tabMember` m ON si.customer = m.customer
             LEFT JOIN `tabMember Payment History` mph
@@ -73,13 +89,16 @@ def validate_and_repair_payment_history():
             f"Validating payment history for {len(recent_invoices)} recent invoices"
         )
 
-        # Partition on the pre-joined NULL check -- no further queries needed.
+        # Partition on the pre-joined columns -- no further queries needed.
         missing_invoices = [row for row in recent_invoices if not row.history_row]
-        validated_count = len(recent_invoices) - len(missing_invoices)
+        stale_invoices = [row for row in recent_invoices if row.history_row and _is_stale_row(row)]
+        gap_invoices = missing_invoices + stale_invoices
+        validated_count = len(recent_invoices) - len(gap_invoices)
 
         # Log summary statistics
         frappe.logger("payment_history_validator").info(
-            f"Payment history validation: {validated_count} verified, {len(missing_invoices)} missing"
+            f"Payment history validation: {validated_count} verified, {len(missing_invoices)} missing, "
+            f"{len(stale_invoices)} stale"
         )
 
         # Reconcile against source-of-truth: drive the real drain job once per
@@ -88,8 +107,11 @@ def validate_and_repair_payment_history():
         # re-queues through the batch processor and always returns True without
         # verifying a row ever lands.
         members_with_gaps = {}
-        for invoice_data in missing_invoices:
+        for invoice_data in sorted(gap_invoices, key=lambda r: r.creation, reverse=True):
             members_with_gaps.setdefault(invoice_data.member_name, invoice_data.customer)
+
+        deferred_members = max(len(members_with_gaps) - MAX_MEMBER_DRAINS_PER_RUN, 0)
+        members_with_gaps = dict(list(members_with_gaps.items())[:MAX_MEMBER_DRAINS_PER_RUN])
 
         success_count = 0
         error_count = 0
@@ -121,14 +143,16 @@ def validate_and_repair_payment_history():
                 )
 
         # Create alert if significant issues found
-        if len(missing_invoices) > 10:  # Alert threshold
-            _create_payment_history_alert(len(missing_invoices), success_count, error_count)
+        if len(gap_invoices) > 10:  # Alert threshold
+            _create_payment_history_alert(len(gap_invoices), success_count, error_count)
 
         return {
             "success": True,
             "total_invoices": len(recent_invoices),
             "validated": validated_count,
             "missing_found": len(missing_invoices),
+            "stale_found": len(stale_invoices),
+            "deferred_members": deferred_members,
             "repaired": success_count,
             "errors": error_count,
             "timestamp": now_datetime(),
@@ -138,6 +162,31 @@ def validate_and_repair_payment_history():
         frappe.logger("payment_history_validator").error(f"Payment history validation failed: {e}")
         frappe.log_error(str(e), "Payment History Validator Critical Error")
         return {"success": False, "error": str(e), "timestamp": now_datetime()}
+
+
+def _is_stale_row(row):
+    """True when an existing history row disagrees with its Sales Invoice (#3190).
+
+    Compares outstanding amount, invoice status and the derived payment status.
+    The payment status is derived exactly as the row writer derives it (same
+    util, the row's own paid_amount), so an up-to-date row never compares stale.
+    """
+    from frappe.utils import flt
+
+    from verenigingen.utils import determine_payment_status
+
+    if flt(row.history_outstanding) != flt(row.outstanding_amount):
+        return True
+    if (row.history_status or "") != (row.status or ""):
+        return True
+    invoice_shim = frappe._dict(
+        docstatus=row.docstatus,
+        status=row.status,
+        outstanding_amount=flt(row.outstanding_amount),
+        grand_total=flt(row.grand_total),
+    )
+    expected = determine_payment_status(invoice_shim, flt(row.history_paid_amount))
+    return (row.history_payment_status or "") != expected
 
 
 def _create_payment_history_alert(missing_count, repaired_count, error_count):
