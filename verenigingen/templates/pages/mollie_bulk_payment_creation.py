@@ -21,6 +21,9 @@ from verenigingen.utils.member_utils import require_login
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.settings_utils import populate_mollie_context
 from verenigingen.verenigingen_payments.mollie.services.shared.csv_utils import sanitize_csv_field
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    split_mollie_customer_ids,
+)
 
 # Configuration constants
 MAX_CSV_SIZE = 1024 * 1024  # 1MB limit for CSV uploads
@@ -185,7 +188,7 @@ def validate_csv_members(
         if customer_ids:
             for m in frappe.get_all(
                 "Member",
-                filters={"mollie_customer_id": ["in", customer_ids]},
+                or_filters=[["mollie_customer_id", "like", f"%{cid}%"] for cid in customer_ids],
                 fields=[
                     "name",
                     "member_id",
@@ -195,7 +198,9 @@ def validate_csv_members(
                     "mollie_customer_id",
                 ],
             ):
-                members_by_customer_id.setdefault(m.mollie_customer_id, []).append(m)
+                # The field may hold a comma-separated list (#2675): index per individual id.
+                for listed_id in split_mollie_customer_ids(m.mollie_customer_id):
+                    members_by_customer_id.setdefault(listed_id, []).append(m)
 
         for row in all_rows:
             customer_id = (row.get("customer_id") or "").strip()

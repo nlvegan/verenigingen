@@ -13,6 +13,10 @@ from typing import Dict, List, Optional
 
 import frappe
 
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    split_mollie_customer_ids,
+)
+
 
 # Centralized Payment Description Patterns
 class PaymentPatterns:
@@ -189,9 +193,26 @@ class DatabaseLookupClassification(PaymentClassificationRule):
 
         Neither Mollie id field is unique, so get_value would silently pick one.
         """
+        if field_name == "mollie_customer_id":
+            return _names_listing_customer_id(doctype, field_value)
         return frappe.get_all(
             doctype, filters={field_name: field_value}, pluck="name", order_by="name asc", limit=3
         )
+
+
+def _names_listing_customer_id(doctype: str, customer_id: str) -> List[str]:
+    """Rows whose ``mollie_customer_id`` lists this id (#2675).
+
+    The field may hold a comma-separated list. The LIKE only narrows the candidates (and would
+    also hit ``cst_123`` for ``cst_12``); the exact per-token test is what decides.
+    """
+    rows = frappe.get_all(
+        doctype,
+        filters={"mollie_customer_id": ["like", f"%{customer_id}%"]},
+        fields=["name", "mollie_customer_id"],
+        order_by="name asc",
+    )
+    return [r.name for r in rows if customer_id in split_mollie_customer_ids(r.mollie_customer_id)][:3]
 
 
 def _ambiguous_result(
@@ -573,7 +594,8 @@ class PaymentClassifier:
             if subscription_ids:
                 filters.append(["mollie_subscription_id", "in", list(subscription_ids)])
             if customer_ids:
-                filters.append(["mollie_customer_id", "in", list(customer_ids)])
+                # LIKE, not IN: the field may hold a list (#2675); the per-id index below decides
+                filters.extend(["mollie_customer_id", "like", f"%{cid}%"] for cid in customer_ids)
 
             members = frappe.db.get_all(
                 "Member",
@@ -584,8 +606,8 @@ class PaymentClassifier:
             for member in members:
                 if member.mollie_subscription_id:
                     member_by_subscription.setdefault(member.mollie_subscription_id, []).append(member.name)
-                if member.mollie_customer_id:
-                    member_by_customer.setdefault(member.mollie_customer_id, []).append(member.name)
+                for customer_id in split_mollie_customer_ids(member.mollie_customer_id):
+                    member_by_customer.setdefault(customer_id, []).append(member.name)
 
         # Pre-fetch Donor lookups in batch (single query)
         donor_by_subscription = {}
@@ -596,7 +618,8 @@ class PaymentClassifier:
             if subscription_ids:
                 filters.append(["mollie_subscription_id", "in", list(subscription_ids)])
             if customer_ids:
-                filters.append(["mollie_customer_id", "in", list(customer_ids)])
+                # LIKE, not IN: the field may hold a list (#2675); the per-id index below decides
+                filters.extend(["mollie_customer_id", "like", f"%{cid}%"] for cid in customer_ids)
 
             donors = frappe.db.get_all(
                 "Donor",
@@ -607,8 +630,8 @@ class PaymentClassifier:
             for donor in donors:
                 if donor.mollie_subscription_id:
                     donor_by_subscription.setdefault(donor.mollie_subscription_id, []).append(donor.name)
-                if donor.mollie_customer_id:
-                    donor_by_customer.setdefault(donor.mollie_customer_id, []).append(donor.name)
+                for customer_id in split_mollie_customer_ids(donor.mollie_customer_id):
+                    donor_by_customer.setdefault(customer_id, []).append(donor.name)
 
         # Now classify each payment using pre-fetched data
         results = []

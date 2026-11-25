@@ -18,6 +18,10 @@ from typing import Optional, Tuple
 
 import frappe
 
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    index_rows_by_customer_id,
+)
+
 
 class MemberPaymentMatcher:
     """
@@ -117,9 +121,8 @@ class MemberPaymentMatcher:
 
         # Build customer_id lookup map. The id is not unique on Member (#2576): a shared id is
         # kept OUT of the map, so no lookup can silently return whichever row came last.
-        by_customer_id: dict = {}
-        for m in self._all_members:
-            by_customer_id.setdefault(m.mollie_customer_id, []).append(m)
+        # The field may hold a comma-separated list (#2675): index and refuse per individual id.
+        by_customer_id = index_rows_by_customer_id(self._all_members)
         self._customer_id_map = {cid: rows[0] for cid, rows in by_customer_id.items() if len(rows) == 1}
         self._shared_customer_ids = {
             cid: sorted(r.name for r in rows)[:3] for cid, rows in by_customer_id.items() if len(rows) > 1
