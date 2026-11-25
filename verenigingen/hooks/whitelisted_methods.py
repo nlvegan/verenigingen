@@ -21,4 +21,10 @@ override_whitelisted_methods = {
     "frappe.client.get_doc_permissions": [
         "verenigingen.utils.security.core_client_permission_oracle.get_doc_permissions"
     ],
+    # #2889: core counts connections with frappe.get_all (no permissions) and trusts a
+    # caller-supplied `items`. See
+    # verenigingen/utils/security/permission_aware_open_count.py.
+    "frappe.desk.notifications.get_open_count": [
+        "verenigingen.utils.security.permission_aware_open_count.get_open_count"
+    ],
 }
