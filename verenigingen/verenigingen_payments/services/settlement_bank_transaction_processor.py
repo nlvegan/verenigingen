@@ -364,7 +364,10 @@ class SettlementBankTransactionProcessor:
         Returns:
             dict: {"exists": bool, "name": str or None}
         """
-        existing_bt = frappe.db.get_value("Bank Transaction", {"reference_number": settlement_id}, "name")
+        # A cancelled row frees its #1267 key (#2626), so it must not count as "already processed".
+        existing_bt = frappe.db.get_value(
+            "Bank Transaction", {"reference_number": settlement_id, "docstatus": ["!=", 2]}, "name"
+        )
 
         return {"exists": bool(existing_bt), "name": existing_bt}
 

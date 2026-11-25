@@ -1811,12 +1811,12 @@ class UnifiedWebhookWrapperService:
         *before* its ``if not force:`` guard, so ``force=True`` cannot remove a
         submitted document anyway, and a cancelled row is auditable.
 
-        A leftover here is not harmless. ``BankTransactionCreator``'s existence check
-        does **not** filter ``docstatus``, so a surviving cancelled Bank Transaction
-        is returned on the next delivery, the Journal Entry is then reconciled
-        against a cancelled document, and that failure is swallowed one level down --
-        a booked reversal with no bank line and nothing said. So the outcome is
-        re-read and reported rather than assumed.
+        A leftover here is not harmless. A Bank Transaction that is still submitted
+        (the cancel failed) is returned by ``BankTransactionCreator``'s existence
+        check on the next delivery, and the Journal Entry is then reconciled against
+        an unwanted withdrawal. (A *cancelled* row is ignored by that check and frees
+        its reference key, #2626.) So the outcome is re-read and reported rather than
+        assumed.
         """
         try:
             bt = frappe.get_doc("Bank Transaction", bank_transaction_name)
@@ -1830,8 +1830,8 @@ class UnifiedWebhookWrapperService:
             message = (
                 f"Bank Transaction {bank_transaction_name} is at docstatus={docstatus} after its "
                 f"Journal Entry failed. It is an unreconciled withdrawal for money that was never "
-                f"booked out, and because the creator's existence check ignores docstatus it will "
-                f"be adopted by the next delivery of this reversal. Cancel it by hand."
+                f"booked out, and because it is still active the creator's existence check will "
+                f"adopt it on the next delivery of this reversal. Cancel it by hand."
             )
             self.logger.error(f"❌ {message}")
             frappe.log_error(title="Mollie Reversal Cleanup Failed", message=message)

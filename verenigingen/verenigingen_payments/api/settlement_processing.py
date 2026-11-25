@@ -179,7 +179,9 @@ def get_settlement_status(settlement_id: str) -> Dict:
     try:
         # Check if Bank Transaction exists
         existing_bt = frappe.db.get_value(
-            "Bank Transaction", {"reference_number": settlement_id}, ["name", "date", "deposit"]
+            "Bank Transaction",
+            {"reference_number": settlement_id, "docstatus": ["!=", 2]},
+            ["name", "date", "deposit"],
         )
 
         result = {"settlement_id": settlement_id, "processed": bool(existing_bt)}

@@ -12,7 +12,7 @@ still refused: the fix must narrow the guard to non-cancelled rows, not remove i
 """
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.utils import today
@@ -150,3 +150,63 @@ class TestCancelledBankTransactionFreesItsKey(_BankTxnFixtureMixin, EnhancedTest
 
         self.assertIsNone(self._reference_key_of(old_cancelled.name))
         self.assertIsNotNone(self._reference_key_of(live.name), "the patch released a LIVE row's key")
+
+    def _settlement_processor(self):
+        from verenigingen.verenigingen_payments.services.settlement_bank_transaction_processor import (
+            SettlementBankTransactionProcessor,
+        )
+
+        with patch.object(SettlementBankTransactionProcessor, "__init__", lambda self: None):
+            return SettlementBankTransactionProcessor()
+
+    def test_settlement_processor_existence_check_ignores_a_cancelled_row(self):
+        # Real rows, no get_value stub: one cancelled and (control) one live for another id.
+        processor = self._settlement_processor()
+        cancelled_id = f"stl_{frappe.generate_hash(length=10)}"
+        live_id = f"stl_{frappe.generate_hash(length=10)}"
+        cancelled = self._make_submitted(cancelled_id)
+        live = self._make_submitted(live_id)
+        self._cancel(cancelled.name)
+
+        self.assertEqual(processor._check_existing_bank_transaction(cancelled_id), {"exists": False, "name": None})
+        self.assertEqual(
+            processor._check_existing_bank_transaction(live_id), {"exists": True, "name": live.name}
+        )
+
+    def test_process_settlement_deposit_does_not_report_a_cancelled_row_as_processed(self):
+        # Injected: the Mollie lookups, the config and the creator (so no commit/Mollie call
+        # happens). The real part is the Bank Transaction rows the existence check reads.
+        processor = self._settlement_processor()
+        settlement_id = f"stl_{frappe.generate_hash(length=10)}"
+        settlement = SimpleNamespace(id=settlement_id, reference="1234.5678.90", amount=None, settled_at=today())
+        processor._get_settlement = MagicMock(return_value=settlement)
+        processor._reconcile_settlement_from_object = MagicMock(return_value={})
+        processor._validate_configuration = MagicMock(
+            return_value={"status": "ok", "bank_account": self.bank_account, "company": COMPANY}
+        )
+        processor._build_settlement_description = MagicMock(return_value="x")
+        processor.bank_tx_creator = MagicMock()
+        processor.bank_tx_creator.create_from_settlement.return_value = None
+
+        cancelled = self._make_submitted(settlement_id)
+        self._cancel(cancelled.name)
+        result = processor.process_settlement_deposit(settlement_id=settlement_id)
+        self.assertNotEqual(result["status"], "already_processed", result)
+        processor.bank_tx_creator.create_from_settlement.assert_called_once()
+
+    def test_settlement_status_api_does_not_report_a_cancelled_row_as_processed(self):
+        from verenigingen.verenigingen_payments.api import settlement_processing
+
+        cancelled_id = f"stl_{frappe.generate_hash(length=10)}"
+        live_id = f"stl_{frappe.generate_hash(length=10)}"
+        cancelled = self._make_submitted(cancelled_id)
+        live = self._make_submitted(live_id)
+        self._cancel(cancelled.name)
+
+        with patch.object(settlement_processing, "SettlementBankTransactionProcessor", side_effect=RuntimeError("no mollie")):
+            gone = settlement_processing.get_settlement_status(cancelled_id)
+            kept = settlement_processing.get_settlement_status(live_id)
+        self.assertFalse(gone["processed"], gone)
+        self.assertNotIn("bank_transaction", gone)
+        self.assertTrue(kept["processed"], kept)
+        self.assertEqual(kept["bank_transaction"], live.name)
