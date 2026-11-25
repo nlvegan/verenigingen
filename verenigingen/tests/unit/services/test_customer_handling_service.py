@@ -39,7 +39,7 @@ class TestCustomerHandlingService(unittest.TestCase):
 
             # Verify
             self.assertEqual(result, "CUST-001")
-            mock_create_customer.assert_called_once_with(member_doc)
+            mock_create_customer.assert_called_once_with(member_doc, suppress_error_log=True)
 
     @patch("frappe.get_all")
     def test_check_similar_customers(self, mock_get_all):
