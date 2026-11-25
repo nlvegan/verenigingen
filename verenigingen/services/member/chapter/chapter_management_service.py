@@ -24,6 +24,7 @@ from typing import Any, Dict, List
 import frappe
 from frappe import _
 
+from verenigingen.services.chapter.chapter_utils import order_chapters_primary_first
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.transaction_errors import DATABASE_ERROR
 
@@ -202,11 +203,13 @@ class ChapterManagementService(StatelessService):
                     AND cbm.volunteer = v.name
                     AND cbm.is_active = 1
                 WHERE cm.member = %s AND cm.enabled = 1
-                ORDER BY cm.chapter_join_date DESC
                 """,
                 (member_name, member_name),
                 as_dict=True,
             )
+            # Date ties (approval activates the applied and the reviewer's chapter together) resolve to
+            # the applied chapter, so is_primary agrees with the invoice attribution (#2966).
+            chapters_data = order_chapters_primary_first(member_name, chapters_data, chapter_key="chapter")
 
             chapters = []
             for idx, chapter_data in enumerate(chapters_data):
@@ -287,8 +290,8 @@ class ChapterManagementService(StatelessService):
                 "Chapter Member",
                 filters={"member": member_name, "enabled": 1},
                 fields=["parent", "chapter_join_date", "status"],
-                order_by="chapter_join_date desc",
             )
+            chapter_members = order_chapters_primary_first(member_name, chapter_members)
 
             if not chapter_members:
                 return []

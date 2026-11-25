@@ -632,11 +632,16 @@ def get_member_chapter_info(member_name):
     """
     try:
         # Try to get member's primary chapter first
-        member_chapter = frappe.db.get_value(
+        from verenigingen.services.chapter.chapter_utils import order_chapters_primary_first
+
+        active_rows = frappe.db.get_all(
             "Chapter Member",
             {"member": member_name, "enabled": 1, "status": "Active"},
-            "parent",
-            order_by="chapter_join_date desc",
+            ["parent", "chapter_join_date"],
+        )
+        # Latest join date, the applied chapter on a tie (#2966).
+        member_chapter = (
+            order_chapters_primary_first(member_name, active_rows)[0].parent if active_rows else None
         )
 
         # Fall back to national chapter if no active chapter membership

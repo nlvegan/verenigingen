@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
+from frappe.utils import getdate
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import (
@@ -454,9 +455,44 @@ def invalidate_chapter_access_cache(user_email: Optional[str] = None):
         frappe.logger().error(f"Error clearing chapter access cache for {user_email}: {str(e)}")
 
 
+def get_applied_chapter(member_name: str) -> Optional[str]:
+    """The chapter the member's most recent approved application named, or None.
+
+    Maintainer ruling on #2966: when the reviewer assigns a chapter other than the applied one, approval
+    activates both rows on the same chapter_join_date, and the APPLIED chapter is primary. This is the stored
+    fact the tiebreak reads; nothing else on the Member or its Chapter Member rows says which row came from
+    the application.
+    """
+    if not member_name:
+        return None
+    return frappe.db.get_value(
+        "Membership Application Submission",
+        {"member": member_name, "status": "Approved", "chapter": ["is", "set"]},
+        "chapter",
+        order_by="review_date desc, creation desc",
+    )
+
+
+def order_chapters_primary_first(member_name: str, rows: list, chapter_key: str = "parent") -> list:
+    """Order Chapter Member rows so index 0 is the member's primary chapter, deterministically (#2966).
+
+    The most recent chapter_join_date wins; on a date tie the applied chapter (get_applied_chapter) wins,
+    then the chapter name. SQL ``ORDER BY chapter_join_date DESC`` alone leaves a tie to the database, and
+    the invoice attribution and Member.current_chapter then read different rows.
+    """
+    applied = get_applied_chapter(member_name)
+
+    def sort_key(row):
+        join_date = row.get("chapter_join_date")
+        ordinal = getdate(join_date).toordinal() if join_date else 0
+        return (-ordinal, row.get(chapter_key) != applied, row.get(chapter_key) or "")
+
+    return sorted(rows, key=sort_key)
+
+
 def get_member_primary_chapter(member_name: str) -> Optional[str]:
     """
-    Get the primary (first active) chapter for a member.
+    Get the primary chapter of a member: the one with the most recent active join date.
 
     Args:
         member_name: Name of the Member document
@@ -465,8 +501,9 @@ def get_member_primary_chapter(member_name: str) -> Optional[str]:
         Chapter name or None if member has no active chapter membership
 
     Note:
-        For members with multiple chapters, returns the first active one.
-        Most members will only belong to one chapter.
+        For members with multiple chapters, returns the most recently joined active one. Rows that tie on
+        the join date (approval activates the applied and the reviewer's chapter together) resolve to the
+        applied chapter, then by chapter name (#2966).
     """
     if not member_name:
         return None
@@ -475,21 +512,19 @@ def get_member_primary_chapter(member_name: str) -> Optional[str]:
     # Note: Chapter Member is a child table, so `parent` field contains the Chapter name
     chapters = frappe.db.sql(
         """
-        SELECT cm.parent as chapter
+        SELECT cm.parent as chapter, cm.chapter_join_date
         FROM `tabChapter` c
         INNER JOIN `tabChapter Member` cm ON cm.parent = c.name
         WHERE cm.member = %(member)s
             AND cm.enabled = 1
             AND cm.status = 'Active'
             AND c.status = 'Active'
-        ORDER BY cm.chapter_join_date DESC
-        LIMIT 1
         """,
         {"member": member_name},
         as_dict=True,
     )
-
-    return chapters[0].chapter if chapters else None
+    ordered = order_chapters_primary_first(member_name, chapters, chapter_key="chapter")
+    return ordered[0].chapter if ordered else None
 
 
 def get_chapter_split_percentage(chapter_name: str) -> float:
