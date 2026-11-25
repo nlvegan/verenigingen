@@ -67,6 +67,13 @@ class TemplateFieldValidatorFilenames(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(_scanned(result.stdout), 1, result.stdout)
 
+    def test_every_named_file_is_checked_not_just_the_first(self):
+        # pre-commit passes many files; the bad one is deliberately second.
+        result = _run(_FIELD, self.clean, self.bad)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(_scanned(result.stdout), 2, result.stdout)
+        self.assertIn("Jinja2 template syntax", result.stdout)
+
     def test_no_arguments_is_still_tree_mode(self):
         result = _run(_FIELD)
         self.assertGreater(_scanned(result.stdout), 1, result.stdout)
@@ -99,6 +106,11 @@ class JavascriptDoctypeValidatorFilenames(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertNotIn("zzz_not_a_member_field_3117", result.stdout)
 
+    def test_every_named_file_is_validated_not_just_the_first(self):
+        result = _run(_JS, self.clean, self.bad)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("zzz_not_a_member_field_3117", result.stdout)
+
     def test_a_directory_argument_still_scans_the_directory(self):
         result = _run(_JS, self.dir)
         self.assertEqual(result.returncode, 1, result.stdout)
@@ -113,6 +125,10 @@ class TemplateVariableValidatorFilenames(unittest.TestCase):
     def test_a_named_template_is_the_only_one_validated(self):
         template = next((_APP / "verenigingen" / "templates").rglob("*.html"))
         self.assertEqual(self._found(template.relative_to(_APP)), 1)
+
+    def test_every_named_template_is_validated_not_just_the_first(self):
+        templates = list((_APP / "verenigingen" / "templates").rglob("*.html"))[:2]
+        self.assertEqual(self._found(*[t.relative_to(_APP) for t in templates]), 2)
 
     def test_no_arguments_is_still_tree_mode(self):
         self.assertGreater(self._found(), 1)
