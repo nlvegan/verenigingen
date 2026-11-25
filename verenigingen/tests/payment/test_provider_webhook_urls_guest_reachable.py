@@ -671,6 +671,55 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         self.assertEqual(books["outstanding"], 0.0)
         self.assertEqual([k.payment_entry for k in books["links"]], [books["pes"][0].name])
 
+    COVERAGE_LESS_SIGNAL_TITLE = "Mollie dues: payment not matched to an open invoice without coverage dates"
+
+    def test_a_paid_payment_against_a_coverage_less_open_invoice_stays_a_bank_transaction_and_names_it(self):
+        """#2543 ruling: no matcher change. The payment is NOT allocated (staff reconcile) and
+        the Error Log names the coverage-less invoice. Real Guest dispatch; the invoice is
+        built without coverage dates by the fixture (no field shortcut)."""
+        frappe.db.set_value(
+            "Sales Invoice",
+            self.invoice_name,
+            {"custom_coverage_start_date": None, "custom_coverage_end_date": None},
+            update_modified=False,
+        )
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+
+        self._post_mollie_notification(payment)
+
+        books = self._allocation_state(payment_id)
+        self.assertEqual((len(books["bts"]), books["pes"]), (1, []))
+        self.assertEqual(books["outstanding"], float(self.invoice_total))
+        rows = self._error_log_rows(self.COVERAGE_LESS_SIGNAL_TITLE, payment_id)
+        self.assertEqual(len(rows), 1, rows)
+        self.assertIn(self.invoice_name, rows[0].error)
+
+    def test_a_covered_invoice_still_matches_and_writes_no_coverage_signal(self):
+        """Control: the fixture invoice carries coverage dates, so it matches and no signal."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+
+        self._post_mollie_notification(payment)
+
+        books = self._allocation_state(payment_id)
+        self.assertEqual([p.docstatus for p in books["pes"]], [1])
+        self.assertEqual(books["outstanding"], 0.0)
+        self.assertEqual(self._error_log_rows(self.COVERAGE_LESS_SIGNAL_TITLE, payment_id), [])
+
+    def test_no_coverage_signal_when_the_member_has_no_open_invoice_at_all(self):
+        """Control: nothing matches because the only invoice was cancelled (a real cancel);
+        no open coverage-less invoice exists, so no signal may claim one does."""
+        frappe.get_doc("Sales Invoice", self.invoice_name).cancel()
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+
+        self._post_mollie_notification(payment)
+
+        books = self._allocation_state(payment_id)
+        self.assertEqual((len(books["bts"]), books["pes"]), (1, []))
+        self.assertEqual(self._error_log_rows(self.COVERAGE_LESS_SIGNAL_TITLE, payment_id), [])
+
     def test_a_redelivery_after_staff_cancelled_the_payment_entry_is_acknowledged_and_not_rebooked(self):
         """#2406 ruling through the real Guest dispatch: staff cancelled the allocated PE the
         webhook booked, Mollie re-delivers. The matched invoice is open again, so the #1803 path

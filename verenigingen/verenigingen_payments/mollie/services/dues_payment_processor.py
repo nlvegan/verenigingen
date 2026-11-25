@@ -1055,7 +1055,47 @@ class DuesPaymentProcessor:
             payment_amount=extractor.extract_amount(payment),
             check_overlap=False,
         )
+        if not match.invoice_name:
+            self._signal_coverage_less_open_invoices(member_name, payment)
         return match.invoice_name
+
+    def _signal_coverage_less_open_invoices(self, member_name: str, payment) -> None:
+        """Make the intended "no coverage dates, no match" refusal visible (#2543).
+
+        The matcher keys on the coverage dates, by ruling (no amount/member fallback), so an
+        open dues invoice without them is never matched and the payment stays a Bank
+        Transaction. Without a signal staff see an unexplained unallocated payment; this
+        names the invoice(s) in the Error Log so they can reconcile by hand or fix the data.
+        """
+        customer = frappe.db.get_value("Member", member_name, "customer")
+        if not customer:
+            return
+        invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "customer": customer,
+                "is_membership_invoice": 1,
+                "docstatus": 1,
+                "outstanding_amount": [">", 0],
+            },
+            or_filters={
+                "custom_coverage_start_date": ["is", "not set"],
+                "custom_coverage_end_date": ["is", "not set"],
+            },
+            pluck="name",
+            order_by="creation asc",
+        )
+        if not invoices:
+            return
+        frappe.log_error(
+            title="Mollie dues: payment not matched to an open invoice without coverage dates",
+            message=(
+                f"Mollie payment {getattr(payment, 'id', None)} for member {member_name} was left a "
+                f"Bank Transaction because the member has open dues invoice(s) with no coverage "
+                f"dates, which are never matched automatically: {', '.join(invoices)}. Reconcile "
+                f"the payment to the right invoice by hand, or fill in the invoice's coverage dates."
+            ),
+        )
 
     def _relink_unlinked_bank_transaction(self, payment_id: str, pe_name: str, result: dict) -> None:
         """Retry a BT -> PE link that failed earlier for an already-booked payment.
