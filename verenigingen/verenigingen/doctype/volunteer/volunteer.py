@@ -427,11 +427,9 @@ class Volunteer(Document):
 
     def on_trash(self):
         """Clean up child table records before deletion to prevent orphaned data"""
-        # #2471: end board seats + withdraw role while Volunteer -> Member -> User still resolves.
         from verenigingen.services.chapter import board_seat_withdrawal_service as seats
 
-        seats.end_seats_for_deleted_volunteer(self.name)
-        # Clean up volunteer assignment history child table
+        seats.end_seats_for_deleted_volunteer(self.name)  # #2471: before the Member/User chain is gone
         # SECURITY: Whitelist of valid child tables to prevent SQL injection
         VALID_CHILD_TABLES = {
             "tabVolunteer Assignment",
