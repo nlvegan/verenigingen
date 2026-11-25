@@ -331,7 +331,6 @@ COMMIT_EXEMPT services/csv_import/test_member_import_service.py::2  # order-dep-
 COMMIT_EXEMPT tests/api/test_bool_flags_over_http_2377.py::4  # order-dep-exempt
 COMMIT_EXEMPT tests/api/test_bool_flags_over_http_2385.py::3  # order-dep-exempt
 COMMIT_EXEMPT tests/api/test_email_template_manager.py::1  # order-dep-exempt
-COMMIT_EXEMPT tests/api/test_unlink_donor_customer_remove_flag_2327.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_chapter_assignment_edge_cases.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_history_audit_improvements.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/backend/components/test_membership_analytics_permissions.py::4  # order-dep-exempt
@@ -441,6 +440,7 @@ COMMIT_EXEMPT tests/services/test_field_sync_integration.py::1  # order-dep-exem
 COMMIT_EXEMPT tests/services/test_member_cleanup_service.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/services/test_member_lookup_service.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/setup/__init__.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/support/linked_donor_fixture.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/support/test_sepa_test_company.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/support/wsgi_http_session.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/test_enhanced_test_factory_drain.py::7  # order-dep-exempt

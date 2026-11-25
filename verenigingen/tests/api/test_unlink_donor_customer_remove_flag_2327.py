@@ -8,9 +8,9 @@ a Verenigingen Administrator. Where that profile may not delete a Customer, an a
 shows up as a refusal (``DONOR_CUSTOMER_UNLINK_ERROR``, unlink rolled back); where it may, it
 really removes the Customer (the data-loss path). The test reads which applies.
 
-On a fresh install (CI) ``custom_docperm_setup.apply_custom_permissions`` writes Customer Custom
-DocPerm rows, so only Sales Master Manager can delete and CI always takes the refused branch; the
-real-delete branch runs only on a site that grants the admin Customer delete.
+Since #2328 ``custom_docperm_setup.apply_custom_permissions`` grants Customer delete to the
+Verenigingen Administrator role, so a migrated site takes the real-delete branch; the refused
+branch runs only on a site that has not applied the grant yet.
 
 Donors/Customers are committed because the WSGI child is another DB connection; removed afterwards.
 
@@ -22,6 +22,7 @@ Usage:
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.linked_donor_fixture import LinkedDonorFixtureMixin
 from verenigingen.tests.support.wsgi_http_session import (
     CommittedLoginUsersMixin,
     api_path,
@@ -32,7 +33,11 @@ from verenigingen.tests.support.wsgi_http_session import (
 ENDPOINT = api_path("verenigingen.api.donor_customer_management.unlink_donor_customer")
 
 
-class TestUnlinkDonorCustomerRemoveFlag2327(CommittedLoginUsersMixin, EnhancedTestCase):
+class TestUnlinkDonorCustomerRemoveFlag2327(
+    LinkedDonorFixtureMixin, CommittedLoginUsersMixin, EnhancedTestCase
+):
+    donor_name_prefix = "Flag2327"
+
     def setUp(self):
         super().setUp()
         self.admin = self._create_login_users(admin="Verenigingen Administrator")["admin"]
@@ -42,29 +47,6 @@ class TestUnlinkDonorCustomerRemoveFlag2327(CommittedLoginUsersMixin, EnhancedTe
             self.admin_can_delete = bool(frappe.has_permission("Customer", "delete"))
         self._donors = []
         self.addCleanup(self._cleanup_donors)
-
-    def _cleanup_donors(self):
-        frappe.db.rollback()
-        for donor, customer in self._donors:
-            for doctype, name in (("Donor", donor), ("Customer", customer)):
-                if name and frappe.db.exists(doctype, name):
-                    frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
-        frappe.db.commit()
-
-    def _create_linked_donor(self):
-        donor = frappe.new_doc("Donor")
-        donor.donor_name = f"Flag2327 {frappe.generate_hash(length=6)}"
-        donor.donor_type = "Individual"
-        donor.donor_email = f"f{frappe.generate_hash(length=6)}@example.com"
-        donor.flags.enable_customer_sync_in_test = True  # sync is gated off in tests otherwise
-        donor.save()
-        donor.reload()
-        customer = donor.customer
-        self.assertTrue(customer, "Donor.save is expected to create and link a Customer")
-        self._donors.append((donor.name, customer))
-        frappe.db.set_value("Customer", customer, "donor", donor.name)
-        frappe.db.commit()
-        return donor.name, customer
 
     def _case(self, name, user, donor, flag):
         return {

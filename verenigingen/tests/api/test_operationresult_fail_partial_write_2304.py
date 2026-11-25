@@ -8,7 +8,7 @@ auth in a SUBPROCESS, and read back on a FRESH connection:
 
 * ``unlink_donor_customer(remove_customer=1)``: saves the Donor (customer cleared) and clears
   ``Customer.donor``, THEN ``Customer.delete()`` raises PermissionError for the plain
-  "Verenigingen Administrator" (no role in that profile may delete a Customer; the
+  "Verenigingen Treasurer" (no role in that profile may delete a Customer, #2328 granted it to the Administrator role only; the
   endpoint is ADMIN-tier, so this caller reaches it). The half-unlink was committed.
 * ``update_anbi_consent(consent=0, reason=...)``: writes the "consent withdrawn" audit Comment
   (``add_comment`` ignores permissions), THEN ``donor.save()`` is refused because the stored
@@ -101,7 +101,7 @@ _PROBE = textwrap.dedent(
                                            "content": ["like", "ANBI consent withdrawn%"]}})
 
     try:
-        admin = make_user("Verenigingen Administrator")
+        admin = make_user("Verenigingen Treasurer")
 
         # unlink: the admin may not delete the Customer (remove_customer=1); without it there is no delete
         blocked_donor, blocked_customer = make_donor()
@@ -281,7 +281,7 @@ class TestRollbackIsScopedAndDeadlockPropagates2304(VereningingenTestCase):
         user = self.create_test_user(
             f"half2304-{frappe.generate_hash(length=6)}0@example.com", roles=["Employee"]
         ).name
-        assign_role_profile_to_user(user, "Verenigingen Administrator")
+        assign_role_profile_to_user(user, "Verenigingen Treasurer")
         return user
 
     def _linked_donor(self):
