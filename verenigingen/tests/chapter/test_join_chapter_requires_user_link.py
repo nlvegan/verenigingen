@@ -112,7 +112,10 @@ class TestSelfServiceChapterRequiresUserLink(EnhancedTestCase):
                 **form,
             }
         )
-        frappe.local.request = frappe._dict(method="POST")
+        from werkzeug.test import EnvironBuilder
+        from werkzeug.wrappers import Request
+
+        frappe.local.request = Request(EnvironBuilder(method="POST", path="/chapter_join").get_environ())
         ctx = frappe._dict()
         with self.as_user(user):
             page.get_context(ctx)
@@ -137,10 +140,23 @@ class TestSelfServiceChapterRequiresUserLink(EnhancedTestCase):
     def test_nested_join_chapter_page_does_not_join_an_email_only_user(self):
         self._assert_page_refuses_email_only_user("verenigingen.templates.pages.verenigingen.join_chapter")
 
-    def test_portal_page_still_joins_a_linked_member(self):
+    def test_portal_page_files_a_request_for_a_linked_member(self):
         ctx = self._post_page("verenigingen.templates.pages.chapter_join", self.linked.user)
         self.assertTrue(ctx.get("join_success"), msg=ctx.get("join_error"))
-        self.assertTrue(
+        self.assertEqual(
+            len(
+                frappe.get_all(
+                    "Chapter Join Request",
+                    filters={
+                        "member": self.linked.member.name,
+                        "chapter": self.chapter.name,
+                        "status": "Pending",
+                    },
+                )
+            ),
+            1,
+        )
+        self.assertFalse(
             frappe.db.exists(
                 "Chapter Member", {"member": self.linked.member.name, "parent": self.chapter.name}
             )

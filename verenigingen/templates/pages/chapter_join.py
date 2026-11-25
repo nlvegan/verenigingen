@@ -6,10 +6,6 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.member_utils import get_current_user_linked_member_name
-from verenigingen.utils.secure_operations import (
-    get_system_user_for_operation,
-    secure_user_context,
-)
 
 
 def get_context(context):
@@ -57,8 +53,15 @@ def get_context(context):
     return context
 
 
-def handle_join_chapter_request(context, chapter, member):
-    """Handle the chapter join request"""
+def handle_join_chapter_request(context, chapter, member, introduction=None):
+    """File a Pending Chapter Join Request for the session member (#3273).
+
+    The portal never adds the Chapter Member row itself: it calls the same whitelisted
+    `api.chapter_join.join_chapter` the chapter page button uses, so the board's approval and
+    every refusal rule (non-Active member, inactive chapter, existing pending request, already a
+    member) live in one place. `join_chapter` runs as the caller, so no elevation is needed.
+    `introduction` defaults to the form value; join-chapter passes its own (with the website).
+    """
     try:
         if not member:
             frappe.throw(
@@ -66,56 +69,19 @@ def handle_join_chapter_request(context, chapter, member):
                 frappe.DoesNotExistError,
             )
 
-        # Get form data
-        introduction = (frappe.form_dict.get("introduction") or "").strip()
-
-        # Validate required fields
+        if introduction is None:
+            introduction = (frappe.form_dict.get("introduction") or "").strip()
         if not introduction:
             frappe.throw(_("Introduction is required"))
 
-        # Check if already a member
-        existing_membership = frappe.db.exists("Chapter Member", {"member": member, "parent": chapter.name})
+        from verenigingen.api.chapter_join import join_chapter
 
-        if existing_membership:
-            frappe.throw(_("You are already a member of this chapter"))
+        result = join_chapter(chapter.name, introduction)
+        if not result.get("success"):
+            frappe.throw((result.get("error") or {}).get("message") or _("Unable to join chapter"))
 
-        # Add member to chapter by creating Chapter Member record directly
-        chapter_doc = frappe.get_doc("Chapter", chapter.name)
-
-        # Add to members child table. Mirror ChapterMemberManager.add_member: a
-        # member who is not Active (Terminated / Deceased / Suspended) joins
-        # disabled/Inactive, so a terminated member who still has a login cannot
-        # self-re-enable through this portal.
-        is_active_member = frappe.db.get_value("Member", member, "status") == "Active"
-        chapter_doc.append(
-            "members",
-            {
-                "member": member,
-                "chapter_join_date": frappe.utils.today(),
-                "enabled": 1 if is_active_member else 0,
-                "status": "Active" if is_active_member else "Inactive",
-            },
-        )
-
-        # SELF-SERVICE PORTAL FLOW: the caller is a plain Verenigingen Member who
-        # does not hold "Chapter:write" and is not in ESCALATION_ALLOWED_ROLES, so
-        # secure_document_operation(required_permissions=["Chapter:write"]) used to
-        # raise "You do not have permission to request elevated system operations"
-        # for EVERY portal user — making this page unusable. Mirror the public
-        # donation flow (donate.py): perform the privileged save under the
-        # configured system user via secure_user_context(). Ownership is already
-        # established above — `member` is the caller's own session-derived record
-        # and a duplicate-membership guard ran just before this.
-        system_user = get_system_user_for_operation("chapter_join_portal")
-        with secure_user_context(
-            system_user, f"Add member {member} to chapter {chapter_doc.name} via chapter join portal"
-        ):
-            chapter_doc.save()
-            frappe.db.commit()
-
-        # Set success context
         context.join_success = True
-        frappe.msgprint(_("Successfully joined chapter {0}!").format(chapter.name), indicator="green")
+        frappe.msgprint((result.get("data") or {}).get("message"), indicator="green")
 
     except Exception as e:
         frappe.log_error(f"Error in chapter join request: {str(e)}")
