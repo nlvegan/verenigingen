@@ -18,7 +18,11 @@ from typing import Any, Dict, List, Set
 import frappe
 from frappe.utils import get_datetime, now
 
-from verenigingen.utils.transaction_errors import release_savepoint_if_present, rollback_to_savepoint
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    release_savepoint_if_present,
+    rollback_to_savepoint,
+)
 
 # #829: how many times one (member, invoice) update may miss its invoice before
 # Member._get_invoice_with_retry gives up and logs it. Counted across drains in
@@ -111,8 +115,23 @@ class FinancialHistoryBatchProcessor:
         if not (cls._payment_queue or cls._expense_queue):
             return
         callbacks = frappe.db.before_commit
-        if cls.force_process_all not in getattr(callbacks, "_functions", ()):
-            callbacks.add(cls.force_process_all)
+        if cls._drain_before_commit not in getattr(callbacks, "_functions", ()):
+            callbacks.add(cls._drain_before_commit)
+
+    @classmethod
+    def _drain_before_commit(cls):
+        """Fail-soft wrapper: history is a derived record, so a failed drain must not abort
+        the caller's COMMIT (``CallbackManager.run`` has no try/except, so a raising callback
+        would). A deadlock/timeout still propagates: the transaction is dead anyway."""
+        try:
+            cls.force_process_all()
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            frappe.log_error(
+                title="Financial History Drain Before Commit Failed (#2746)",
+                message=frappe.get_traceback(),
+            )
 
     @classmethod
     def _maybe_process_batches(cls):

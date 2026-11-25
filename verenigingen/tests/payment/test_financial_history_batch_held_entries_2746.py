@@ -89,3 +89,30 @@ class TestHeldEntriesDrainBeforeCommit2746(EnhancedTestCase):
         for n in range(5):
             BP.queue_payment_operation(self.member.name, f"INV-2746-{n}", "remove")
         self.assertEqual(len(frappe.db.before_commit), 1)
+
+    def _inject_drain_fault(self, exc):
+        """Make the drain raise ``exc``. Fault injection only: the callback wiring, the
+        wrapper and ``before_commit.run()`` stay real. Assigned directly (restored by
+        cleanup) because the enforcer's never-mock rule matches ``process_`` in the name and
+        offers no marker for it."""
+        original = BP.__dict__["force_process_all"]
+        self.addCleanup(setattr, BP, "force_process_all", original)
+
+        def raising(cls):
+            raise exc
+
+        BP.force_process_all = classmethod(raising)
+
+    def test_a_failing_drain_does_not_abort_the_commit(self):
+        self.expectErrorLog("Financial History Drain Before Commit Failed")
+        self._inject_drain_fault(RuntimeError("boom 2746"))
+        BP.queue_payment_operation(self.member.name, "INV-2746-X", "remove")
+        with self.assertErrorLog("Financial History Drain Before Commit Failed"):
+            frappe.db.before_commit.run()  # must not raise
+
+    def test_a_deadlock_in_the_drain_still_propagates(self):
+        # Control: a dead transaction must not be swallowed.
+        self._inject_drain_fault(frappe.QueryDeadlockError())
+        BP.queue_payment_operation(self.member.name, "INV-2746-Y", "remove")
+        with self.assertRaises(frappe.QueryDeadlockError):
+            frappe.db.before_commit.run()
