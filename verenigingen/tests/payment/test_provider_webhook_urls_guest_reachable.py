@@ -671,6 +671,122 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         self.assertEqual(books["outstanding"], 0.0)
         self.assertEqual([k.payment_entry for k in books["links"]], [books["pes"][0].name])
 
+    COVERAGE_LESS_MARKER = "open dues invoice without coverage dates"
+
+    def _coverage_less_comments(self, payment_id):
+        """The visible signal: Comments (readable by Treasurers, unlike Error Log) on the
+        Bank Transaction(s) booked for this payment."""
+        bts = [b.name for b in self._allocation_state(payment_id)["bts"]]
+        return frappe.get_all(
+            "Comment",
+            filters={
+                "reference_doctype": "Bank Transaction",
+                "reference_name": ["in", bts or [""]],
+                "comment_type": "Comment",
+                "content": ["like", f"%{self.COVERAGE_LESS_MARKER}%"],
+            },
+            fields=["name", "content"],
+        )
+
+    def _strip_coverage(self, **fields):
+        frappe.db.set_value(
+            "Sales Invoice",
+            self.invoice_name,
+            fields or {"custom_coverage_start_date": None, "custom_coverage_end_date": None},
+            update_modified=False,
+        )
+
+    def test_a_paid_payment_against_a_coverage_less_open_invoice_stays_a_bank_transaction_and_names_it(self):
+        """#2543 ruling: no matcher change. The payment is NOT allocated (staff reconcile) and
+        a Comment on its Bank Transaction names the coverage-less invoice. Real Guest
+        dispatch; the invoice is stripped of coverage dates by writing the matcher's input."""
+        self._strip_coverage()
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+
+        self._post_mollie_notification(payment)
+
+        books = self._allocation_state(payment_id)
+        self.assertEqual((len(books["bts"]), books["pes"]), (1, []))
+        self.assertEqual(books["outstanding"], float(self.invoice_total))
+        comments = self._coverage_less_comments(payment_id)
+        self.assertEqual(len(comments), 1, comments)
+        self.assertIn(self.invoice_name, comments[0].content)
+
+    def test_a_partial_coverage_invoice_is_named_too(self):
+        """Start set, end missing: the matcher cannot use it either."""
+        self._strip_coverage(custom_coverage_end_date=None)
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+
+        self._post_mollie_notification(self._paid_dues_payment(payment_id, float(self.invoice_total)))
+
+        books = self._allocation_state(payment_id)
+        self.assertEqual((len(books["bts"]), books["pes"]), (1, []))
+        comments = self._coverage_less_comments(payment_id)
+        self.assertEqual(len(comments), 1, comments)
+        self.assertIn(self.invoice_name, comments[0].content)
+
+    def test_redelivered_notifications_leave_exactly_one_signal(self):
+        """Mollie re-posts the same payment; the Bank Transaction is reused and the signal
+        is not repeated."""
+        self._strip_coverage()
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+
+        for _ in range(3):
+            self._post_mollie_notification(payment)
+
+        self.assertEqual(len(self._allocation_state(payment_id)["bts"]), 1)
+        self.assertEqual(len(self._coverage_less_comments(payment_id)), 1)
+
+    def test_no_coverage_claim_when_the_amount_is_what_stops_the_match(self):
+        """The coverage-less invoice would NOT have matched this payment anyway (amount + 7),
+        so the signal must not blame the missing coverage."""
+        self._strip_coverage()
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+
+        self._post_mollie_notification(self._paid_dues_payment(payment_id, float(self.invoice_total) + 7))
+
+        self.assertEqual(len(self._allocation_state(payment_id)["bts"]), 1)
+        self.assertEqual(self._coverage_less_comments(payment_id), [])
+
+    def test_a_covered_invoice_still_matches_and_writes_no_coverage_signal(self):
+        """Control: the fixture invoice carries coverage dates, so it matches and no signal."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
+
+        self._post_mollie_notification(payment)
+
+        books = self._allocation_state(payment_id)
+        self.assertEqual([p.docstatus for p in books["pes"]], [1])
+        self.assertEqual(books["outstanding"], 0.0)
+        self.assertEqual(self._coverage_less_comments(payment_id), [])
+
+    def test_no_coverage_signal_for_an_open_covered_invoice_that_is_merely_out_of_reach(self):
+        """Control with a REAL candidate: the invoice is open, same amount, has coverage
+        dates (years before the payment), so it is unmatched for a reason other than
+        missing coverage and the signal must stay silent."""
+        self._age_the_invoice_out_of_reach()
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+
+        self._post_mollie_notification(self._paid_dues_payment(payment_id, float(self.invoice_total)))
+
+        books = self._allocation_state(payment_id)
+        self.assertEqual((len(books["bts"]), books["pes"]), (1, []))
+        self.assertEqual(books["outstanding"], float(self.invoice_total), "fixture: invoice must stay open")
+        self.assertEqual(self._coverage_less_comments(payment_id), [])
+
+    def test_no_coverage_signal_when_the_member_has_no_open_invoice_at_all(self):
+        """Control: nothing matches because the only invoice was cancelled (a real cancel)."""
+        frappe.get_doc("Sales Invoice", self.invoice_name).cancel()
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+
+        self._post_mollie_notification(self._paid_dues_payment(payment_id, float(self.invoice_total)))
+
+        books = self._allocation_state(payment_id)
+        self.assertEqual((len(books["bts"]), books["pes"]), (1, []))
+        self.assertEqual(self._coverage_less_comments(payment_id), [])
+
     def test_a_redelivery_after_staff_cancelled_the_payment_entry_is_acknowledged_and_not_rebooked(self):
         """#2406 ruling through the real Guest dispatch: staff cancelled the allocated PE the
         webhook booked, Mollie re-delivers. The matched invoice is open again, so the #1803 path

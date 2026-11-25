@@ -21,7 +21,7 @@ from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_e
 from verenigingen.e_boekhouden.utils.security_helper import migration_context
 from verenigingen.services.billing.coverage_calculator import calculate_coverage_for_payment_date
 from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
-from verenigingen.services.billing.invoice_matcher import find_matching_invoice
+from verenigingen.services.billing.invoice_matcher import INVOICE_AMOUNT_TOLERANCE_EUR, find_matching_invoice
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.utils.retry_utilities import execute_with_deadlock_retry
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, insert_and_submit_atomically
@@ -944,6 +944,8 @@ class DuesPaymentProcessor:
                     if already_complete:
                         result["skipped_reason"] = "Bank Transaction already exists (Bank Transaction mode)"
                     result["bank_transaction"] = bt_name
+                    if not invoice_name:
+                        self._signal_coverage_less_open_invoices(member_name, payment, bt_name)
 
                     # If an invoice is known, also create the PE and reconcile. Only against
                     # a SUBMITTED Bank Transaction: a draft one (its submit failed) is left
@@ -1080,6 +1082,65 @@ class DuesPaymentProcessor:
             check_overlap=False,
         )
         return match.invoice_name
+
+    COVERAGE_LESS_COMMENT_MARKER = "Not allocated automatically: open dues invoice without coverage dates"
+
+    def _signal_coverage_less_open_invoices(self, member_name: str, payment, bt_name: str) -> None:
+        """Make the intended "no coverage dates, no match" refusal visible (#2543).
+
+        The matcher keys on the coverage dates, by ruling (no amount/member fallback), so an
+        open dues invoice without them is never matched and the payment stays a Bank
+        Transaction. Staff see an unexplained unallocated payment, so a Comment on that Bank
+        Transaction (which Treasurers can read; Error Log is System-Manager-only) names the
+        invoice(s). Only invoices whose amount equals the payment are named: those are the
+        ones the matcher would have taken had they carried coverage dates, so the cause is
+        stated, not guessed. Once per Bank Transaction: a redelivery adds nothing.
+        """
+        customer = frappe.db.get_value("Member", member_name, "customer")
+        amount = flt(get_payment_data_extractor().extract_amount(payment))
+        if not customer or not bt_name:
+            return
+        invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "customer": customer,
+                "is_membership_invoice": 1,
+                "docstatus": 1,
+                "outstanding_amount": [">", 0],
+                "grand_total": [
+                    "between",
+                    [amount - INVOICE_AMOUNT_TOLERANCE_EUR, amount + INVOICE_AMOUNT_TOLERANCE_EUR],
+                ],
+            },
+            or_filters={
+                "custom_coverage_start_date": ["is", "not set"],
+                "custom_coverage_end_date": ["is", "not set"],
+            },
+            pluck="name",
+            order_by="creation asc",
+        )
+        if not invoices or self._has_coverage_less_comment(bt_name):
+            return
+        frappe.get_doc("Bank Transaction", bt_name).add_comment(
+            "Comment",
+            f"{self.COVERAGE_LESS_COMMENT_MARKER}: {', '.join(invoices)} has the same amount as "
+            f"this Mollie payment {getattr(payment, 'id', None)} but no coverage start/end date, "
+            f"which automatic matching requires. Reconcile this transaction to the invoice by "
+            f"hand, or fill in the invoice's coverage dates.",
+        )
+
+    def _has_coverage_less_comment(self, bt_name: str) -> bool:
+        return bool(
+            frappe.db.exists(
+                "Comment",
+                {
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bt_name,
+                    "comment_type": "Comment",
+                    "content": ["like", f"%{self.COVERAGE_LESS_COMMENT_MARKER}%"],
+                },
+            )
+        )
 
     def _relink_unlinked_bank_transaction(self, payment_id: str, pe_name: str, result: dict) -> None:
         """Retry a BT -> PE link that failed earlier for an already-booked payment.
