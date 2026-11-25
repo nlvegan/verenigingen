@@ -319,3 +319,27 @@ class TestManagerSeesDonationReversals(_RefundFixtureMixin, EnhancedTestCase):
         self.addCleanup(frappe.db.set_value, "Account", self.receivable, "disabled", 0)
         self.assertIsNone(self._book_refund_pe())
         self._assert_failed_submit_frees_the_key()
+
+    def test_a_stranded_draft_payment_entry_is_not_booked_2609(self):
+        """A draft Payment Entry (docstatus 0) under the key is work nobody will submit, not a booking.
+
+        Probe shortcut, stated: the draft is stranded by making the submit AND its discard fail
+        (`frappe.delete_doc` patched to raise); no real cause for the discard to fail was found
+        (#2609). Control: the same entry once submitted IS booked.
+        """
+        from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
+
+        self.expectErrorLog("Unified Payment Entry Creation")
+        self.expectErrorLog("Mollie Payment Entry Discard Failed")
+        self.expectErrorLog("Mollie Payment Entry Still Claims Its Key")
+        with patch.object(PaymentEntry, "submit", side_effect=frappe.ValidationError("period closed")):
+            with patch("frappe.delete_doc", side_effect=frappe.ValidationError("blocked")):
+                self.assertIsNone(self._book_refund_pe())
+        draft = frappe.get_all(
+            "Payment Entry", filters={"reference_no": self.key, "docstatus": 0}, pluck="name"
+        )
+        self.assertEqual(len(draft), 1, "fixture problem: no stranded draft Payment Entry")
+        self.assertIsNone(find_booked_reversal(self.key, 100.0), "a draft Payment Entry counted as booked")
+
+        frappe.get_doc("Payment Entry", draft[0]).submit()
+        self.assertEqual(find_booked_reversal(self.key, 100.0), ("Payment Entry", draft[0]))

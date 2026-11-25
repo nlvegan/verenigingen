@@ -114,7 +114,9 @@ def find_booked_reversal(reversal_key: str, expected_amount: Optional[float]) ->
             # Bank Transaction rebuilt or reconciled, because the caller sees "booked".
             existing = _resolve_draft(reversal_key, expected_amount)
         else:
-            existing = frappe.db.get_value(doctype, {field: reversal_key, "docstatus": ["!=", 2]}, "name")
+            # Submitted only: a draft Payment Entry is a submit that failed and whose discard
+            # also failed (#2384), so it is a stranded artefact, not a booking (#2609).
+            existing = frappe.db.get_value(doctype, {field: reversal_key, "docstatus": 1}, "name")
         if existing:
             return doctype, existing
 
