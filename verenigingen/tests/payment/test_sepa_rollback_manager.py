@@ -752,17 +752,34 @@ class TestRollbackResetsCollectedBatchRows3021(EnhancedTestCase):
         self._rollback3021(batch, "full_batch")
         self.assertEqual(self._batch_status3054(batch), "Rolled Back")
 
-    def test_rolled_back_invoice_of_a_partial_rollback_lock_state_3054(self):
-        """Records (not endorses) how the open-batch lock treats the Pending row of a
-        partially rolled-back batch: see the PR body. Fails loudly if #3055 changes it."""
+    def test_untouched_invoice_of_a_partial_rollback_stays_locked_3054(self):
         from verenigingen.verenigingen_payments.api.sepa_batch_ui import get_open_batch_invoice_names
 
         batch = self._collected_batch3021()
         affected, untouched = [r.invoice for r in batch.invoices]
         self._rollback3021(batch, "partial_batch", affected)
-        locked = get_open_batch_invoice_names()
-        self.assertIn(untouched, locked)
-        self.assertIn(affected, locked)
+        self.assertIn(untouched, get_open_batch_invoice_names())
+
+    @unittest.expectedFailure
+    def test_PRODUCT_BUG_3222_partially_rolled_back_invoice_stays_locked(self):
+        """#3222: the open-batch lock ignores row status, and a partial rollback keeps the
+        batch status, so the rolled-back invoice stays locked out of a new batch. Expected
+        to fail until #3222 is decided; then drop the decorator."""
+        from verenigingen.verenigingen_payments.api.sepa_batch_ui import get_open_batch_invoice_names
+
+        batch = self._collected_batch3021()
+        affected, _untouched = [r.invoice for r in batch.invoices]
+        self._rollback3021(batch, "partial_batch", affected)
+        self.assertNotIn(affected, get_open_batch_invoice_names())
+
+    def test_partial_scope_naming_one_invoice_twice_keeps_the_batch_status_3054(self):
+        """A duplicated name must not count as covering the batch (a length comparison would)."""
+        batch = self._collected_batch3021()
+        prior = self._batch_status3054(batch)
+        self.assertEqual(len(batch.invoices), 2)  # control: two invoices, so "<a>,<a>" is 2 names
+        affected = batch.invoices[0].invoice
+        self._rollback3021(batch, "partial_batch", f"{affected},{affected}")
+        self.assertEqual(self._batch_status3054(batch), prior)
 
     def test_failed_row_is_left_alone(self):
         batch = self._collected_batch3021()
