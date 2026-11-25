@@ -310,7 +310,8 @@ class TestOtherReaders(MultiIdBase):
         self.assertEqual(asked, [self.id_a, self.id_b])
         self.assertEqual(info["subscription_status"], "active")
 
-    def test_bulk_checker_checks_each_listed_customer(self):
+    def _bulk_checker(self, per_id):
+        """A BulkPaymentChecker whose per-customer Mollie call is replaced by ``per_id[customer_id]``."""
         from verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker import (
             BulkPaymentChecker,
         )
@@ -320,23 +321,95 @@ class TestOtherReaders(MultiIdBase):
 
         def _fake(customer_id, member_name, from_date=None, limit=250):
             asked.append(customer_id)
-            return {
-                "customer_id": customer_id,
-                "member": member_name,
-                "payments": [{"id": customer_id}],
-                "total_found": 1,
-                "new_payments": 1,
-                "error": None,
-                "filtered_by_date": 0,
-                "filtered_by_duplicate": 0,
-            }
+            return {"customer_id": customer_id, "member": member_name, **per_id[customer_id]}
 
         # Mock justified: the per-customer Mollie API call is the boundary; the per-id fan-out is the subject.
         checker.check_payments_for_customer = _fake
-        merged = checker.check_payments_for_member(f"{self.id_a}, {self.id_b}", self.members[0].name)
+        return checker, asked
+
+    @staticmethod
+    def _part(pid, total, new, by_date, by_dup, error=None):
+        return {
+            "payments": [{"id": pid}],
+            "total_found": total,
+            "new_payments": new,
+            "filtered_by_date": by_date,
+            "filtered_by_duplicate": by_dup,
+            "error": error,
+        }
+
+    def test_bulk_checker_checks_each_listed_customer_and_merges_every_counter(self):
+        # distinct values per counter so a dropped or doubled counter cannot cancel out
+        per_id = {
+            self.id_a: self._part("pay_a", 1, 2, 4, 8),
+            self.id_b: self._part("pay_b", 16, 32, 64, 128),
+        }
+        checker, asked = self._bulk_checker(per_id)
+        field = f"{self.id_a}, {self.id_b}"
+        merged = checker.check_payments_for_member(field, self.members[0].name)
         self.assertEqual(asked, [self.id_a, self.id_b])
-        self.assertEqual(merged["total_found"], 2)
-        self.assertEqual(len(merged["payments"]), 2)
+        self.assertEqual(merged["customer_id"], field)
+        self.assertEqual([p["id"] for p in merged["payments"]], ["pay_a", "pay_b"])
+        self.assertEqual(merged["total_found"], 17)
+        self.assertEqual(merged["new_payments"], 34)
+        self.assertEqual(merged["filtered_by_date"], 68)
+        self.assertEqual(merged["filtered_by_duplicate"], 136)
+        self.assertIsNone(merged["error"])
+
+    def test_bulk_checker_keeps_the_first_error_and_the_healthy_ids_payments(self):
+        per_id = {
+            self.id_a: self._part("pay_a", 1, 1, 0, 0, error="first failure"),
+            self.id_b: self._part("pay_b", 5, 5, 0, 0),
+            self.id_c: self._part("pay_c", 7, 7, 0, 0, error="second failure"),
+        }
+        checker, asked = self._bulk_checker(per_id)
+        merged = checker.check_payments_for_member(
+            f"{self.id_a}, {self.id_b}, {self.id_c}", self.members[0].name
+        )
+        self.assertEqual(asked, [self.id_a, self.id_b, self.id_c], "a failing id must not stop the rest")
+        self.assertEqual(merged["error"], "first failure")
+        self.assertEqual(merged["total_found"], 13)
+
+    def test_bulk_checker_error_on_a_later_id_is_not_lost(self):
+        per_id = {
+            self.id_a: self._part("pay_a", 1, 1, 0, 0),
+            self.id_b: self._part("pay_b", 1, 1, 0, 0, error="late failure"),
+        }
+        checker, _asked = self._bulk_checker(per_id)
+        merged = checker.check_payments_for_member(f"{self.id_a}, {self.id_b}", self.members[0].name)
+        self.assertEqual(merged["error"], "late failure")
+
+    def test_bulk_checker_single_id_is_passed_through_unmerged(self):
+        per_id = {self.id_a: self._part("pay_a", 3, 2, 1, 0)}
+        checker, asked = self._bulk_checker(per_id)
+        result = checker.check_payments_for_member(f" {self.id_a} ", self.members[0].name)
+        self.assertEqual(asked, [self.id_a], "the stripped id, not the raw field")
+        self.assertEqual(result["customer_id"], self.id_a)
+        self.assertEqual(result["total_found"], 3)
+
+    def test_bulk_run_over_a_listing_member_checks_each_id_and_aggregates(self):
+        """Drives check_all_customers_for_new_payments (members stubbed), not just the per-member helper."""
+        per_id = {
+            self.id_a: self._part("pay_a", 1, 2, 4, 8),
+            self.id_b: self._part("pay_b", 16, 32, 64, 128, error="b failed"),
+        }
+        checker, asked = self._bulk_checker(per_id)
+        field = f"{self.id_a}, {self.id_b}"
+        # Mock justified: the member query is not the subject; the listing member is the fixture.
+        checker.get_members_with_mollie_customers = lambda limit=None: {
+            "members": [{"name": self.members[0].name, "full_name": "x", "mollie_customer_id": field}],
+            "total_count": 1,
+        }
+        result = checker.check_all_customers_for_new_payments(days_back=7)
+        self.assertEqual(asked, [self.id_a, self.id_b])
+        self.assertEqual(result["members_checked"], 1)
+        self.assertEqual(result["total_payments_found"], 17)
+        self.assertEqual(result["total_new_payments"], 34)
+        self.assertEqual(result["total_filtered_by_date"], 68)
+        self.assertEqual(result["total_filtered_by_duplicate"], 136)
+        self.assertEqual(result["total_payments_after_filtering"], 2)
+        self.assertEqual(result["errors"], 1, "one member with a failing id counts as ONE error")
+        self.assertEqual(result["error_details"][0]["error"], "b failed")
 
     def test_debug_lookup_finds_rows_listing_the_id(self):
         from verenigingen.services.mollie_debug_service import MollieDebugService
@@ -370,3 +443,109 @@ class TestWebhookDonorUpdateKeepsTheList(MultiIdBase):
             {"id": "tr_2675", "customer_id": self.id_b, "metadata": {}, "amount": {"value": "5.00", "currency": "EUR"}},
         )
         self.assertEqual(frappe.db.get_value("Donor", self.donors[0].name, "mollie_customer_id"), value)
+
+    def test_an_unlisted_webhook_id_is_appended_to_the_donor_list(self):
+        from types import SimpleNamespace
+
+        from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
+            UnifiedWebhookWrapperService,
+        )
+
+        self._set("Donor", self.donors[0].name, "mollie_customer_id", f"{self.id_a}, {self.id_b}")
+        UnifiedWebhookWrapperService()._update_donor_record(
+            SimpleNamespace(donor=self.donors[0].name, name="DON-2675", amount=5),
+            {"id": "tr_2675", "customer_id": self.id_c, "metadata": {}, "amount": {"value": "5.00", "currency": "EUR"}},
+        )
+        stored = frappe.db.get_value("Donor", self.donors[0].name, "mollie_customer_id")
+        self.assertEqual(split_mollie_customer_ids(stored), [self.id_a, self.id_b, self.id_c])
+
+    def test_a_single_id_donor_gets_the_unlisted_webhook_id_appended(self):
+        """Control: a one-id value is a list of one; the new id joins it rather than replacing it."""
+        from types import SimpleNamespace
+
+        from verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified import (
+            UnifiedWebhookWrapperService,
+        )
+
+        self._set("Donor", self.donors[0].name, "mollie_customer_id", self.id_a)
+        UnifiedWebhookWrapperService()._update_donor_record(
+            SimpleNamespace(donor=self.donors[0].name, name="DON-2675", amount=5),
+            {"id": "tr_2675", "customer_id": self.id_c, "metadata": {}, "amount": {"value": "5.00", "currency": "EUR"}},
+        )
+        stored = frappe.db.get_value("Donor", self.donors[0].name, "mollie_customer_id")
+        self.assertEqual(split_mollie_customer_ids(stored), [self.id_a, self.id_c])
+
+
+class TestDebugCopiesUseTheSharedHelper(MultiIdBase):
+    """F4/F2: the debug_customer copies in core/client.py and mollie/utils/test_helpers.py."""
+
+    def setUp(self):
+        super().setUp()
+        self._list_on(self.members[0], self.id_a, self.id_b)
+        self._list_on(self.donors[0], self.id_b, self.id_c, doctype="Donor")
+
+    def test_core_client_debug_customer_finds_rows_listing_the_id(self):
+        from types import SimpleNamespace
+
+        from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
+
+        client = object.__new__(MollieClient)
+        subs = SimpleNamespace(list=lambda: [])
+        raw = SimpleNamespace(customers=SimpleNamespace(get=lambda _id: SimpleNamespace(subscriptions=subs)))
+        # Mock justified: the Mollie API is the boundary; the DB lookup of rows listing the id is the subject.
+        client.is_test_mode = lambda: True
+        client.get_customer = lambda _id: SimpleNamespace(id=_id, name="n", email="e", created_at="c", mode="test")
+        client._get_mollie_client = lambda: raw
+        client.list_mandates = lambda _id: []
+        result = MollieClient.debug_customer(client, self.id_b)
+        self.assertEqual([m["name"] for m in result["database_records"]["members"]], [self.members[0].name])
+        self.assertEqual([d["name"] for d in result["database_records"]["donors"]], [self.donors[0].name])
+
+    def test_dev_helper_debug_customer_finds_rows_listing_the_id(self):
+        from unittest.mock import patch
+
+        from verenigingen.verenigingen_payments.mollie.utils import test_helpers
+
+        class _FailingClient:
+            def is_test_mode(_self):
+                return True
+
+            def get_customer(_self, _id):
+                raise RuntimeError("API half fails and is recorded; the DB half is the subject")
+
+        fn = test_helpers.debug_mollie_customer
+        while hasattr(fn, "__wrapped__"):  # strip the dev-only/audit decorators
+            fn = fn.__wrapped__
+        # Mock justified: the Mollie API is the boundary.
+        with patch("verenigingen.verenigingen_payments.mollie.core.client.MollieClient", _FailingClient):
+            result = fn(self.id_b)
+        self.assertEqual(result["database_records"]["member"]["name"], self.members[0].name)
+        self.assertEqual(result["database_records"]["donor"]["name"], self.donors[0].name)
+
+
+class TestWebhookServiceListingAsksEachId(MultiIdBase):
+    def test_subscription_listing_tries_each_listed_id_and_reports_the_one_that_answered(self):
+        from verenigingen.services.payment.mollie_webhook_service import MollieWebhookService
+
+        sub_id = f"sub_{frappe.generate_hash(length=10)}"
+        self._list_on(self.members[0], self.id_a, self.id_b)
+        self._set("Member", self.members[0].name, "mollie_subscription_id", sub_id)
+        self._set("Member", self.members[0].name, "subscription_status", "Active")
+        asked = []
+
+        class _Debug:
+            def debug_subscription(_self, subscription_id, customer_id):
+                asked.append(customer_id)
+                if customer_id != self.id_b:
+                    return {"subscription_found": False, "error": "404"}
+                return {"subscription_found": True, "subscription_data": {"status": "active"}}
+
+        service = object.__new__(MollieWebhookService)
+        service._debug_service = _Debug()
+        service.get_default_webhook_url = lambda: {"webhook_url": "u", "test_mode": True}
+        service._report_progress = lambda *a, **k: None
+        result = service.get_active_subscriptions_with_webhooks()
+        rows = [r for r in result["subscriptions"] if r["member_id"] == self.members[0].name]
+        self.assertEqual(asked.count(self.id_a), 1)
+        self.assertEqual(asked.count(self.id_b), 1)
+        self.assertEqual([r["customer_id"] for r in rows], [self.id_b])

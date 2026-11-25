@@ -14,6 +14,7 @@ from frappe import _
 
 from verenigingen.services.mollie_debug_service import MollieDebugService
 from verenigingen.utils.constants import Roles
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import split_mollie_customer_ids
 
 
 class MollieWebhookService:
@@ -107,10 +108,16 @@ class MollieWebhookService:
         for idx, member in enumerate(members_with_subscriptions):
             try:
                 # Get subscription details from Mollie
-                result = self.debug_service.debug_subscription(
-                    member.mollie_subscription_id,
-                    member.mollie_customer_id,
-                )
+                # The field may hold a comma-separated list (#2675): the subscription lives under
+                # exactly one listed customer, so ask for each id in turn.
+                result = {}
+                for listed_id in split_mollie_customer_ids(member.mollie_customer_id):
+                    result = self.debug_service.debug_subscription(member.mollie_subscription_id, listed_id)
+                    if result.get("subscription_found"):
+                        customer_id = listed_id
+                        break
+                else:
+                    customer_id = member.mollie_customer_id
 
                 if result.get("subscription_found"):
                     sub_data = result.get("subscription_data", {})
@@ -118,7 +125,7 @@ class MollieWebhookService:
                         {
                             "member_id": member.name,
                             "member_name": member.full_name or member.name,
-                            "customer_id": member.mollie_customer_id,
+                            "customer_id": customer_id,
                             "subscription_id": member.mollie_subscription_id,
                             "status": sub_data.get("status"),
                             "current_webhook_url": sub_data.get("webhook_url"),

@@ -11,6 +11,7 @@ from frappe.utils import add_months, flt, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 from verenigingen.utils.security_decorators import audit_operation, development_only
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import names_listing_customer_id
 
 
 @frappe.whitelist()
@@ -422,7 +423,7 @@ def debug_mollie_customer(customer_id):
         # Check Member records
         members = frappe.get_all(
             "Member",
-            filters={"mollie_customer_id": customer_id},
+            filters={"name": ["in", names_listing_customer_id("Member", customer_id, limit=None)]},
             fields=["name", "full_name", "mollie_subscription_id", "subscription_status", "payment_method"],
         )
 
@@ -438,7 +439,9 @@ def debug_mollie_customer(customer_id):
 
         # Check Donor records
         donors = frappe.get_all(
-            "Donor", filters={"mollie_customer_id": customer_id}, fields=["name", "donor_name", "member"]
+            "Donor",
+            filters={"name": ["in", names_listing_customer_id("Donor", customer_id, limit=None)]},
+            fields=["name", "donor_name", "member"],
         )
 
         if donors:

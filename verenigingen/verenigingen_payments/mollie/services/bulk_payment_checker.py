@@ -350,6 +350,11 @@ class BulkPaymentChecker:
 
         The field may hold a comma-separated list; each id is a separate Mollie customer, so each
         gets its own API check and the results are merged into one per-member result.
+
+        Partial failure: ids are all checked even when one errors; the FIRST error message is kept
+        in ``error`` while payments and counters of the healthy ids are still merged. The member
+        then counts as ONE error toward ``errors`` and the circuit breaker, however many of its
+        ids failed.
         """
         ids = split_mollie_customer_ids(customer_id_field)
         if len(ids) <= 1:
