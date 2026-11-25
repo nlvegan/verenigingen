@@ -537,12 +537,23 @@ class TestMemberRoleService(EnhancedTestCase):
         return user
 
     def test_add_roles_no_permission(self):
-        """Returns None when user lacks write permission on User."""
+        """Returns None and leaves the user's roles untouched when the caller lacks write on User."""
         svc = self._get_service()
         user = self._throwaway_user()
+        roles_before = sorted(frappe.get_all("Has Role", filters={"parent": user.name}, pluck="role"))
+        self.assertTrue(roles_before, "fixture: throwaway user needs roles for the control")
         with self.as_user("Guest"):
             self.expectErrorLog("Insufficient permissions")
+            log_start = len(frappe.local.message_log)
             self.assertIsNone(svc.add_member_roles_to_user(user.name))
+            # Discriminates the explicit check: without it the later user.save() also fails
+            # (roles stay untouched either way), but not with this message.
+            refusals = [str(m) for m in frappe.local.message_log[log_start:]]
+            self.assertTrue(
+                any("Insufficient permissions to modify user roles" in m for m in refusals), refusals
+            )
+        self.assertEqual(sorted(frappe.get_all("Has Role", filters={"parent": user.name}, pluck="role")), roles_before)
+        self.assertEqual(frappe.db.get_value("User", user.name, "role_profile_name"), None)
 
     # --- create_verenigingen_member_role ---
     def test_create_role_idempotent(self):

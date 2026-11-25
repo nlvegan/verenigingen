@@ -94,8 +94,9 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
         user_type = frappe.db.get_value("User", "Administrator", "user_type")
         self.assertTrue(before, "fixture: Administrator must have roles")
 
-        self.expectErrorLog("Refusing to replace the roles")
-        result = self.service.add_member_roles_to_user("Administrator")
+        with self.assertErrorLog("Member roles NOT applied"):
+            result = self.service.add_member_roles_to_user("Administrator")
+        self.expectErrorLog("Member roles NOT applied")
 
         self.assertIsNone(result)
         self.assertEqual(self._has_role_names_3217("Administrator"), before)
@@ -106,8 +107,9 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
         user = self._make_user(roles=["System Manager"])
         before = self._has_role_names_3217(user.name)
 
-        self.expectErrorLog("Refusing to replace the roles")
-        result = self.service.add_member_roles_to_user(user.name)
+        with self.assertErrorLog("Member roles NOT applied"):
+            result = self.service.add_member_roles_to_user(user.name)
+        self.expectErrorLog("Member roles NOT applied")
 
         self.assertIsNone(result)
         self.assertEqual(self._has_role_names_3217(user.name), before)
