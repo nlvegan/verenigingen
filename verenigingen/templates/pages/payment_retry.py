@@ -7,7 +7,7 @@ from urllib.parse import quote
 import frappe
 from frappe import _
 
-from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.member_utils import get_current_user_member_name, member_solely_holds_customer
 
 
 def get_context(context):
@@ -43,8 +43,13 @@ def get_context(context):
             invoice = frappe.get_doc("Sales Invoice", invoice_id)
 
             # Verify the invoice belongs to this member. Most real invoices leave `member` blank
-            # and carry only the member's Customer, which is still the member's own invoice.
-            if invoice.member == member_id or (not invoice.member and invoice.customer == member.customer):
+            # and carry only the member's Customer, which is still the member's own invoice unless
+            # another Member shares that Customer (#2493).
+            if invoice.member == member_id or (
+                not invoice.member
+                and invoice.customer == member.customer
+                and member_solely_holds_customer(member_id, invoice.customer)
+            ):
                 context.member = member
                 context.invoice = invoice
 
