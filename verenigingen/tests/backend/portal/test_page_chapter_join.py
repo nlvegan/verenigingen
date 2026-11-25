@@ -55,8 +55,13 @@ class TestPageChapterJoin(EnhancedTestCase):
         return email
 
     class _FakeRequest:
-        def __init__(self, method):
-            self.method = method
+        """A real werkzeug Request: join_chapter's security decorators read headers/IP."""
+
+        def __new__(cls, method):
+            from werkzeug.test import EnvironBuilder
+            from werkzeug.wrappers import Request
+
+            return Request(EnvironBuilder(method=method, path="/chapter_join").get_environ())
 
     # ----- get_context -------------------------------------------------
 
@@ -103,22 +108,54 @@ class TestPageChapterJoin(EnhancedTestCase):
 
     # ----- handle_join_chapter_request (via POST) ----------------------
 
-    def test_post_join_adds_chapter_member(self):
+    def _requests_3273(self, member=None):
+        return frappe.get_all(
+            "Chapter Join Request",
+            filters={"member": member or self.member.name, "chapter": self.chapter.name},
+            fields=["name", "status", "docstatus"],
+        )
+
+    def _post_3273(self, user=None, **form):
         from verenigingen.templates.pages.chapter_join import get_context
 
         frappe.form_dict = frappe._dict(
-            {"chapter": self.chapter.name, "introduction": "I want to help out locally."}
+            {"chapter": self.chapter.name, "introduction": "I want to help out locally.", **form}
         )
         frappe.local.request = self._FakeRequest("POST")
-        with self.as_user(self.user):
-            ctx = frappe._dict()
+        ctx = frappe._dict()
+        with self.as_user(user or self.user):
             get_context(ctx)
+        return ctx
 
-        self.assertTrue(ctx.get("join_success"))
-        # Side effect: Chapter Member row now exists.
-        self.assertTrue(
+    def test_post_join_files_pending_request_not_chapter_member(self):
+        """#3273: a POST files a Pending submitted Chapter Join Request for the session member
+        and adds NO Chapter Member row (board approval applies)."""
+        self.member.db_set("status", "Active")
+        ctx = self._post_3273()
+
+        self.assertTrue(ctx.get("join_success"), msg=ctx.get("join_error"))
+        requests = self._requests_3273()
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].status, "Pending")
+        self.assertEqual(requests[0].docstatus, 1)
+        self.assertFalse(
             frappe.db.exists("Chapter Member", {"member": self.member.name, "parent": self.chapter.name})
         )
+
+    def test_post_join_twice_is_refused_by_the_api_rule(self):
+        self.member.db_set("status", "Active")
+        self.assertTrue(self._post_3273().get("join_success"))
+        self.expectErrorLog("Chapter Join Request Error")
+        ctx = self._post_3273()
+        self.assertFalse(ctx.get("join_success"))
+        self.assertIn("Unable to submit chapter join request", ctx.get("join_error") or "")
+        self.assertEqual(len(self._requests_3273()), 1)
+
+    def test_guest_post_files_nothing(self):
+        self.member.db_set("status", "Active")
+        ctx = self._post_3273(user="Guest")
+        self.assertNotIn("join_success", ctx)
+        self.assertEqual(self._requests_3273(), [])
 
     def test_post_join_without_introduction_records_error(self):
         from verenigingen.templates.pages.chapter_join import get_context
@@ -146,6 +183,7 @@ class TestPageChapterJoin(EnhancedTestCase):
         )
         chapter_doc.save()
 
+        self.expectErrorLog("Chapter Join Request Error")
         frappe.form_dict = frappe._dict({"chapter": self.chapter.name, "introduction": "Joining again"})
         frappe.local.request = self._FakeRequest("POST")
         with self.as_user(self.user):
@@ -156,55 +194,32 @@ class TestPageChapterJoin(EnhancedTestCase):
         self.assertTrue(ctx.get("join_error"))
 
     def test_post_join_ignores_attacker_supplied_member(self):
-        """IDOR guard: the joined member is ALWAYS the session-derived record,
-        never a `member` value smuggled in via form_dict. A regression that read
-        the member from form input would add the foreign member and fail here."""
-        from verenigingen.templates.pages.chapter_join import get_context
-
+        """IDOR guard: the request is ALWAYS for the session-derived member, never a `member`
+        value smuggled in via form_dict."""
+        self.member.db_set("status", "Active")
         other_email = f"chapjoin-other-{frappe.generate_hash()[:8]}@example.com"
         other = self.create_test_member(
             first_name="Other", last_name="Member", email=other_email, birth_date="1985-01-01"
         )
+        other.db_set("status", "Active")
 
-        frappe.form_dict = frappe._dict(
-            {
-                "chapter": self.chapter.name,
-                "introduction": "Joining as myself.",
-                "member": other.name,  # attacker-controlled — must be ignored
-            }
-        )
-        frappe.local.request = self._FakeRequest("POST")
-        with self.as_user(self.user):
-            get_context(frappe._dict())
+        self._post_3273(member=other.name)  # attacker-controlled, must be ignored
 
-        # The SESSION member was added; the smuggled member was NOT.
-        self.assertTrue(
-            frappe.db.exists("Chapter Member", {"member": self.member.name, "parent": self.chapter.name})
-        )
+        self.assertEqual(len(self._requests_3273()), 1)
+        self.assertEqual(self._requests_3273(other.name), [])
         self.assertFalse(
             frappe.db.exists("Chapter Member", {"member": other.name, "parent": self.chapter.name})
         )
 
-    def test_post_join_terminated_member_added_disabled(self):
-        """A non-Active member who still has a login joins disabled/Inactive
-        (mirrors ChapterMemberManager.add_member) so they cannot self-re-enable."""
-        from verenigingen.templates.pages.chapter_join import get_context
-
+    def test_post_join_non_active_member_is_refused(self):
+        """A non-Active member gets neither a request nor a Chapter Member row (#2021)."""
         self.member.db_set("status", "Terminated")
-
-        frappe.form_dict = frappe._dict(
-            {"chapter": self.chapter.name, "introduction": "Rejoining after termination."}
+        self.expectErrorLog("Error in chapter join request")
+        self.expectErrorLog("Chapter Join Request Error")
+        ctx = self._post_3273(introduction="Rejoining after termination.")
+        self.assertTrue(ctx.get("join_error"))
+        self.assertFalse(ctx.get("join_success"))
+        self.assertEqual(self._requests_3273(), [])
+        self.assertFalse(
+            frappe.db.exists("Chapter Member", {"member": self.member.name, "parent": self.chapter.name})
         )
-        frappe.local.request = self._FakeRequest("POST")
-        with self.as_user(self.user):
-            get_context(frappe._dict())
-
-        row = frappe.db.get_value(
-            "Chapter Member",
-            {"member": self.member.name, "parent": self.chapter.name},
-            ["enabled", "status"],
-            as_dict=True,
-        )
-        self.assertIsNotNone(row)
-        self.assertEqual(row.enabled, 0)
-        self.assertEqual(row.status, "Inactive")

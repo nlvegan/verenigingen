@@ -13,7 +13,6 @@
 	{% if already_member %}
 		<p>You are already a member of {{ chapter.name|e }}!</p>
 		{{ chapter_button() }}
-		<p><a href="">Leave Chapter</a></p>
 	{% else %}
 		{% if request and request.method=='POST' %}
 			<p>Welcome to chapter {{ chapter.name|e }}!</p>
