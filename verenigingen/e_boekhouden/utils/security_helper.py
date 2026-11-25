@@ -13,6 +13,7 @@ from typing import Any, Callable, List, Optional
 import frappe
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.flag_restore import restored_flags
 from verenigingen.utils.transaction_errors import (
     NON_RESUMABLE_DB_ERRORS,
     release_savepoint_if_present,
@@ -52,6 +53,9 @@ def migration_context(operation_type: str = "general", user: Optional[str] = Non
 
     migration_user = user or MIGRATION_SYSTEM_USER
 
+    # #3221: hand back the caller's flag values on exit, not False/None
+    flag_guard = restored_flags("in_migration", "migration_operation", "migration_initiated_by")
+    flag_guard.__enter__()
     try:
         # Check if current user has required roles (skip check if we're already using system user)
         if current_user != MIGRATION_SYSTEM_USER and not has_migration_permission(operation_type):
@@ -75,9 +79,7 @@ def migration_context(operation_type: str = "general", user: Optional[str] = Non
         # Restore original user (only if we switched)
         if current_user != migration_user:
             frappe.set_user(current_user)
-        frappe.flags.in_migration = False
-        frappe.flags.migration_operation = None
-        frappe.flags.migration_initiated_by = None
+        flag_guard.__exit__(None, None, None)
 
 
 def has_migration_permission(operation_type: str) -> bool:
@@ -150,7 +152,7 @@ def validate_and_insert(doc, skip_validation: bool = False):
 
     operation_type = operation_map.get(doc.doctype, "general")
 
-    with migration_context(operation_type):
+    with migration_context(operation_type), restored_flags("skip_non_critical_validations"):
         if skip_validation:
             # Only skip non-critical validations, never skip permissions
             frappe.flags.skip_non_critical_validations = True
@@ -166,8 +168,7 @@ def validate_and_insert(doc, skip_validation: bool = False):
             )
 
         finally:
-            if skip_validation:
-                frappe.flags.skip_non_critical_validations = False
+            pass  # skip_non_critical_validations is put back by restored_flags above (#3221)
 
     return doc
 
@@ -193,7 +194,7 @@ def validate_and_save(doc, skip_validation: bool = False):
 
     operation_type = operation_map.get(doc.doctype, "general")
 
-    with migration_context(operation_type):
+    with migration_context(operation_type), restored_flags("skip_non_critical_validations"):
         if skip_validation:
             frappe.flags.skip_non_critical_validations = True
 
@@ -206,8 +207,7 @@ def validate_and_save(doc, skip_validation: bool = False):
             )
 
         finally:
-            if skip_validation:
-                frappe.flags.skip_non_critical_validations = False
+            pass  # skip_non_critical_validations is put back by restored_flags above (#3221)
 
     return doc
 
@@ -263,6 +263,8 @@ def cleanup_context():
     """
     current_user = frappe.session.user
 
+    flag_guard = restored_flags("in_cleanup", "cleanup_initiated_by")  # #3221
+    flag_guard.__enter__()
     try:
         # Verify user has delete permissions
         if not any(
@@ -286,8 +288,7 @@ def cleanup_context():
         yield
 
     finally:
-        frappe.flags.in_cleanup = False
-        frappe.flags.cleanup_initiated_by = None
+        flag_guard.__exit__(None, None, None)
 
 
 @contextmanager
@@ -316,6 +317,10 @@ def migration_transaction(
     """
     current_user = frappe.session.user
     start_time = time.time()
+    flag_guard = restored_flags(
+        "in_migration_transaction", "migration_transaction_type", "migration_initiated_by"
+    )
+    flag_guard.__enter__()  # #3221: restored in the finally below
 
     # Transaction state - includes last_commit_time for time-based auto-commit
     transaction_state = {
@@ -494,10 +499,8 @@ def migration_transaction(
         # Restore original user
         frappe.set_user(current_user)
 
-        # Clear transaction flags
-        frappe.flags.in_migration_transaction = False
-        frappe.flags.migration_transaction_type = None
-        frappe.flags.migration_initiated_by = None
+        # Hand back the caller's transaction flags (#3221)
+        flag_guard.__exit__(None, None, None)
 
 
 @contextmanager
@@ -516,6 +519,8 @@ def atomic_migration_operation(operation_type: str = "general"):
     """
     current_user = frappe.session.user
 
+    flag_guard = restored_flags("in_atomic_migration", "atomic_operation_type", "atomic_initiated_by")
+    flag_guard.__enter__()  # #3221: restored in the finally below
     try:
         # Check permissions
         if not has_migration_permission(operation_type):
@@ -593,10 +598,8 @@ def atomic_migration_operation(operation_type: str = "general"):
         # Restore original user
         frappe.set_user(current_user)
 
-        # Clear atomic flags
-        frappe.flags.in_atomic_migration = False
-        frappe.flags.atomic_operation_type = None
-        frappe.flags.atomic_initiated_by = None
+        # Hand back the caller's atomic flags (#3221)
+        flag_guard.__exit__(None, None, None)
 
 
 def ensure_migration_user_setup():
