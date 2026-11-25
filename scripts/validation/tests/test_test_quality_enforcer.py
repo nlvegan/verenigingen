@@ -1226,7 +1226,68 @@ class ReassignEvasionShapesTest(unittest.TestCase):
         self._assert_clean("frappe.flags.a, frappe.local.b = 1, 2", resolves_nothing=False)
 
     def test_control_a_receiver_merely_named_setattr_is_not_monkeypatch(self):
-        self._assert_clean('foo.setattr(frappe, "get_all", x)')
+        # #2847: a `.setattr` on a receiver NOT named `monkeypatch` is only a
+        # monkeypatch when it has the (frappe base, literal name, VALUE) shape.
+        self._assert_clean('foo.setattr(some_module, "get_all", x)')
+        self._assert_clean('foo.setattr(frappe, "get_all")')
+        self._assert_clean('foo.setattr("frappe.get_all")')
+        self._assert_clean('foo.setattr("other.get_all", x)')
+
+    # ---- #2847: shapes #1576 still missed ----
+
+    def test_shape8_monkeypatch_fixture_under_another_name(self):
+        self._assert_db_mock('mp.setattr(frappe, "get_all", lambda *a, **k: [])',
+                             "", "frappe.get_all")
+        self._assert_db_mock('mp.setattr("frappe.db.sql", lambda *a, **k: [])',
+                             "", "frappe.db.sql")
+        self._assert_db_mock('mp.setattr(frappe.db, "sql", value=lambda *a, **k: [])',
+                             "", "frappe.db.sql")
+
+    def test_shape8b_pytest_monkeypatch_instance(self):
+        self._assert_db_mock('pytest.MonkeyPatch().setattr(frappe, "get_all", x)',
+                             "", "frappe.get_all")
+
+    def test_shape9_augmented_assignment(self):
+        self._assert_db_mock("frappe.get_all += x", "", "frappe.get_all")
+        self._assert_db_mock("fdb.sql |= x", "from frappe import db as fdb\n", "frappe.db.sql")
+
+    def test_shape10_with_as_attribute(self):
+        self._assert_db_mock("with ctx() as frappe.db.sql:\n            pass",
+                             "", "frappe.db.sql")
+        self._assert_db_mock("with a() as x, b() as frappe.get_all:\n            pass",
+                             "", "frappe.get_all")
+
+    def test_shape10b_for_and_comprehension_target(self):
+        self._assert_db_mock("for frappe.get_all in fakes:\n            pass",
+                             "", "frappe.get_all")
+        self._assert_db_mock("[0 for frappe.db.sql in fakes]", "", "frappe.db.sql")
+
+    def test_shape11_namespace_subscript_write(self):
+        self._assert_db_mock('frappe.__dict__["get_all"] = x', "", "frappe.get_all")
+        self._assert_db_mock('vars(frappe.db)["sql"] = x', "", "frappe.db.sql")
+        self._assert_db_mock('frappe.db.__dict__["sql"] += x', "", "frappe.db.sql")
+        self._assert_db_mock('vars(fdb)["sql"] = x', "from frappe import db as fdb\n",
+                             "frappe.db.sql")
+
+    def test_shape11b_namespace_update_and_setdefault(self):
+        self._assert_db_mock('vars(frappe).update({"get_all": x})', "", "frappe.get_all")
+        self._assert_db_mock("vars(frappe.db).update(sql=x)", "", "frappe.db.sql")
+        self._assert_db_mock('frappe.db.__dict__.update({"sql": x})', "", "frappe.db.sql")
+        self._assert_db_mock('vars(frappe).setdefault("get_all", x)', "", "frappe.get_all")
+
+    def test_control_2847_shapes_on_other_objects_and_unpoliced_targets(self):
+        self._assert_clean("self.get_all += 1")
+        self._assert_clean("with ctx() as self.sql:\n            pass")
+        self._assert_clean("with ctx() as sql:\n            pass")
+        self._assert_clean("for item in frappe.get_all('X'):\n            pass",
+                           resolves_nothing=False)
+        self._assert_clean('vars(self)["get_all"] = x')
+        self._assert_clean('self.__dict__["get_all"] = x')
+        self._assert_clean('vars(other).update({"get_all": x})')
+        self._assert_clean('frappe.__dict__[key] = x')
+        self._assert_clean('frappe.db.__dict__.pop("sql", None)', resolves_nothing=False)
+        self._assert_clean('frappe.__dict__["flags"] = x', resolves_nothing=False)
+        self._assert_clean("frappe.flags.count += 1", resolves_nothing=False)
 
     def test_control_a_relative_import_is_not_the_frappe_module(self):
         self._assert_clean("db.get_value = 1", "from .frappe import db\n")
