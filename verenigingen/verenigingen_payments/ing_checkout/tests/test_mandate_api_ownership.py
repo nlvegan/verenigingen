@@ -326,6 +326,39 @@ class TestExecuteDebitOwnership(_Base):
         self.assertEqual(result, {"success": True})
         self.assertEqual(len(recorder.calls), 1)
 
+    def test_blank_member_invoice_with_a_shared_customer_refused_2493(self):
+        """Ruling (a) of #2493: the pairing is refused when another Member shares the Customer.
+
+        Refused like an unknown pairing, and nothing is debited.
+        """
+        self.assertFalse(frappe.db.get_value("Sales Invoice", self.own_invoice.name, "member"))
+        housemate = self.create_test_member(first_name="IngDebitHousemate")
+        frappe.db.set_value("Member", housemate.name, "customer", self.attacker_customer)
+        recorder = self._ownership_1089_patch_service()
+        with self.set_user(self.attacker), self._bypass_tier_gate():
+            shared = self._observe(
+                mandate_api.execute_debit_for_invoice, self.own_mandate.name, self.own_invoice.name
+            )
+            foreign = self._observe(
+                mandate_api.execute_debit_for_invoice, self.own_mandate.name, self.victim_invoice.name
+            )
+        self.assertEqual(shared["outcome"][0], "raised", shared)
+        self.assertIs(shared["outcome"][1], frappe.PermissionError)
+        self.assertEqual(shared["outcome"], foreign["outcome"])
+        self.assertEqual(shared["message_log"], foreign["message_log"])
+        self.assertEqual(recorder.calls, [])
+
+    def test_member_set_invoice_with_a_shared_customer_unaffected_2493(self):
+        """CONTROL: an invoice naming the mandate owner is still theirs when the Customer is shared."""
+        housemate = self.create_test_member(first_name="IngDebitHousemate")
+        frappe.db.set_value("Member", housemate.name, "customer", self.attacker_customer)
+        frappe.db.set_value("Sales Invoice", self.own_invoice.name, "member", self.attacker_member.name)
+        recorder = self._ownership_1089_patch_service()
+        with self.set_user(self.attacker), self._bypass_tier_gate():
+            result = mandate_api.execute_debit_for_invoice(self.own_mandate.name, self.own_invoice.name)
+        self.assertEqual(result, {"success": True})
+        self.assertEqual(len(recorder.calls), 1)
+
     def test_staff_may_debit_another_members_invoice(self):
         recorder = self._ownership_1089_patch_service()
         staff = self._staff_user()

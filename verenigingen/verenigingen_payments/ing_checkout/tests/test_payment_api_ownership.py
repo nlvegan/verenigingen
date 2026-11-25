@@ -175,13 +175,24 @@ class TestGetPaymentStatusOwnership(_Pay2814Base):
                 payment_api.get_payment_status(foreign)
         self.fake_client.get_order.assert_called_once_with(own)
 
-    def test_recorded_limitation_members_sharing_a_customer_share_orders_2493(self):
-        """RECORDED LIMITATION (#2493), not endorsed behaviour.
+    def test_blank_member_invoice_order_refused_when_its_customer_is_shared_2493(self):
+        """Ruling (a) of #2493: a second Member linked to the victim's Customer is refused.
 
-        The Sales Invoice owner rule is `invoice.customer == caller Member.customer`, the same
-        rule mandate.py uses. A second Member linked to the victim's Customer therefore reads the
-        victim's order status. #2493 owns the decision; if it changes the rule, update this test.
+        Refused exactly like an unknown order on every channel, and Pay.nl is never asked.
         """
+        self.assertFalse(frappe.db.get_value("Sales Invoice", self.victim_invoice.name, "member"))
+        frappe.db.set_value("Member", self.attacker_member.name, "customer", self.victim_customer)
+        with self.set_user(self.attacker):
+            unknown = self._observe(payment_api.get_payment_status, UNKNOWN_ORDER)
+            shared = self._observe(payment_api.get_payment_status, self.victim_order)
+        self.assertEqual(shared["outcome"][0], "raised", shared)
+        self.assertIs(shared["outcome"][1], frappe.PermissionError)
+        self.assertEqual(unknown, shared)
+        self.fake_client.get_order.assert_not_called()
+
+    def test_member_set_invoice_order_unaffected_when_customer_is_shared_2493(self):
+        """CONTROL: the rule is about blank-member invoices; one naming a member keeps the customer rule."""
+        frappe.db.set_value("Sales Invoice", self.victim_invoice.name, "member", self.attacker_member.name)
         frappe.db.set_value("Member", self.attacker_member.name, "customer", self.victim_customer)
         with self.set_user(self.attacker):
             result = payment_api.get_payment_status(self.victim_order)

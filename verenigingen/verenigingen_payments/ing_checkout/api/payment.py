@@ -13,7 +13,7 @@ import frappe
 from frappe import _
 from frappe.utils import get_url
 
-from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.member_utils import get_current_user_member_name, member_solely_holds_customer
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
 from verenigingen.verenigingen_payments.ing_checkout.api.mandate import _is_staff, _refuse_mandate_access
@@ -46,6 +46,7 @@ def _caller_owns_reference(reference_doctype, reference_name) -> bool:
     # Looked up for every doctype so a Member- or Payment Plan Payment-referenced order costs the
     # same queries as an invoice-referenced (or unknown) one (#1328).
     member_customer = frappe.db.get_value("Member", current_member, "customer") if current_member else None
+    sole_customer_holder = member_solely_holds_customer(current_member, member_customer)
     if reference_doctype == "Member":
         owner = frappe.db.get_value("Member", reference_name, "name")
         mine = current_member
@@ -53,10 +54,13 @@ def _caller_owns_reference(reference_doctype, reference_name) -> bool:
         owner = frappe.db.get_value("Payment Plan Payment", reference_name, "member")
         mine = current_member
     elif reference_doctype == "Sales Invoice":
-        # Same customer rule as mandate.py. Two Members linked to one Customer both pass it
-        # (recorded limitation, not settled here: #2493).
-        owner = frappe.db.get_value("Sales Invoice", reference_name, "customer")
+        # Same customer rule as mandate.py. A blank-member invoice is claimed through its Customer
+        # alone, which is refused when another Member shares that Customer (#2493).
+        invoice = frappe.db.get_value("Sales Invoice", reference_name, ["customer", "member"], as_dict=True)
+        owner = invoice.customer if invoice else None
         mine = member_customer
+        if invoice and not invoice.member and not sole_customer_holder:
+            mine = None
     else:
         return False
     return bool(owner and mine and owner == mine)
