@@ -65,9 +65,9 @@ def get_context(context):
 
     # Get workflow status - ensure it's always defined
     try:
-        from verenigingen.api.dues_invoice_workflow import get_workflow_status
+        from verenigingen.api.dues_invoice_workflow import _workflow_status
 
-        workflow_data = get_workflow_status()
+        workflow_data = _workflow_status()
         context.workflow_status = workflow_data
     except Exception as e:
         # Fallback to empty data if API call fails. Pass the long detail as the

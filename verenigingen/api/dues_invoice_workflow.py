@@ -538,8 +538,15 @@ def _unwrap_api_result(result):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.FINANCIAL)
 def get_workflow_status() -> OperationResult[Dict[str, Any]]:
+    """Get current status of the dues invoice workflow (see _workflow_status)."""
+    return _workflow_status()
+
+
+def _workflow_status() -> OperationResult[Dict[str, Any]]:
     """
-    Get current status of the dues invoice workflow
+    Undecorated body of get_workflow_status, for in-process callers (the dues invoice debugger
+    page): calling the endpoint would tick a second rate-limit bucket and re-run its security
+    stack inside the page render (#2927).
 
     Returns:
         OperationResult with workflow status information

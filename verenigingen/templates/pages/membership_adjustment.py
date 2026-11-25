@@ -223,8 +223,12 @@ def get_effective_fee_for_member(member, membership):
                 "reason": "Legacy fee override (consider migrating to dues schedule)",
             }
 
-        # PRIORITY 4: Fall back to member's get_current_membership_fee method
-        return member.get_current_membership_fee()
+        # PRIORITY 4: Fall back to the fee service (not the whitelisted Member method: #2927)
+        from verenigingen.services.member.financial.member_fee_calculation_service import (
+            get_member_fee_calculation_service,
+        )
+
+        return get_member_fee_calculation_service().get_current_membership_fee(member)
 
     except Exception as e:
         frappe.log_error(
