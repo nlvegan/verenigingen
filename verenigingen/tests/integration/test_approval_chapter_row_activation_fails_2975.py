@@ -19,6 +19,7 @@ import frappe
 
 from verenigingen.tests.integration.test_application_record_approval import SUBMISSION, ApprovalCase
 from verenigingen.utils import secure_operations
+from verenigingen.verenigingen.doctype.member.member import Member
 
 STALE_PROFILE = "No Such Role Profile 2975"
 ACTIVATION = "Activate chapter member"
@@ -56,11 +57,23 @@ class TestApprovalChapterRowActivationFails2975(ApprovalCase):
         if exc is frappe.ValidationError:
             self.expectErrorLog("Chapter Activation Error")
         target = fault.pop("target")
-        with self._break_activation_of_2975(target, **fault):
-            with self.assertRaises(exc) as ctx:
-                self._approve_as(
-                    application, membership_type=self.membership_type.name, chapter=chapter, create_invoice=True
-                )
+        core_calls = []
+        real_core = Member.create_membership_on_approval
+
+        def core_spy(member, *args, **kwargs):
+            core_calls.append(member.name)
+            return real_core(member, *args, **kwargs)
+
+        # Mock justified: recording pass-through spy on the core; the real method still runs if it is reached.
+        with patch.object(Member, "create_membership_on_approval", core_spy):
+            with self._break_activation_of_2975(target, **fault):
+                with self.assertRaises(exc) as ctx:
+                    self._approve_as(
+                        application, membership_type=self.membership_type.name, chapter=chapter, create_invoice=True
+                    )
+        # The failure must come BEFORE the core: _finish_reviewer_chapter_row re-activates after it and would also
+        # fail the approval, but the core can commit (Pattern 1), leaving a committed half-approved Member.
+        self.assertEqual(core_calls, [], "the core (create_membership_on_approval) must never run")
         if exc is not frappe.ValidationError:
             return ctx.exception  # a simulated 1213: the server's own rollback is not simulated, see the test
         self.assertEqual(frappe.db.get_value(SUBMISSION, application, "status"), "Pending Review", "still pending")
