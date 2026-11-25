@@ -482,6 +482,68 @@ class TestConfigFaultAlerts2309(EnhancedTestCase):
 
         self.assertEqual(self._alert_events("mijnrood_role_mapping_invalid"), [])
 
+    def _inactive_chapter_role(self):
+        """A real Chapter Role inserted active, then deactivated through save (the real writer)."""
+        role = frappe.get_doc(
+            {"doctype": "Chapter Role", "role_name": f"Test2504 {frappe.generate_hash(length=6)}", "is_active": 1}
+        ).insert()
+        role.is_active = 0
+        role.save()
+        return role
+
+    def _board_rows(self, division, member):
+        chapter = frappe.get_value("Chapter", {"mijnrood_division_id": division}, "name")
+        volunteer = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
+        return frappe.get_all(
+            "Chapter Board Member",
+            {"parent": chapter, "volunteer": volunteer},
+            ["chapter_role", "is_active"],
+        )
+
+    def test_an_inactive_chapter_role_is_refused_and_alerts_staff_users(self):
+        """#2504 (ruling a): no board seat is written and staff are alerted (real users, not a role ToDo)."""
+        self._give_member_a_volunteer()
+        division = self._mapped_division()
+        role = self._inactive_chapter_role()
+
+        result = self._division_contact([division], add_to_chapter_board=True, chapter_role=role.name)
+
+        self.assertIn(f"Chapter Role '{role.name}' is not active", result["message"])
+        self.assertEqual(self._board_rows(division, self.member), [], "an inactive role must not be seated")
+        subject = f"MijnRood role mapping invalid: Chapter Role '{role.name}' is not active"
+        self.assertGreater(self._sent(subject), 0)
+        (alert,) = self._alert_events("mijnrood_role_mapping_invalid")
+        self.assertEqual((alert.outcome, alert.requires_action), ("Delivered", 1))
+        self.assertIn(self.admin_user, self._recipients(subject))
+        self.assertNotIn("Administrator", self._recipients(subject))
+
+    def test_the_same_inactive_chapter_role_does_not_alert_again_within_24h(self):
+        self._give_member_a_volunteer()
+        division = self._mapped_division()
+        role = self._inactive_chapter_role()
+        subject = f"MijnRood role mapping invalid: Chapter Role '{role.name}' is not active"
+        self._division_contact([division], add_to_chapter_board=True, chapter_role=role.name)
+        first = self._sent(subject)
+        self.assertGreater(first, 0, "control: the first event must have alerted")
+
+        self._division_contact([division], add_to_chapter_board=True, chapter_role=role.name)
+
+        self.assertEqual(self._sent(subject), first)
+
+    def test_an_active_chapter_role_is_still_seated_without_an_inactive_alert(self):
+        """Control with a real row: the active role is seated and no 'not active' alert is raised."""
+        self._give_member_a_volunteer()
+        division = self._mapped_division()
+        role = frappe.get_doc(
+            {"doctype": "Chapter Role", "role_name": f"Test2504 {frappe.generate_hash(length=6)}", "is_active": 1}
+        ).insert()
+
+        self._division_contact([division], add_to_chapter_board=True, chapter_role=role.name)
+
+        rows = self._board_rows(division, self.member)
+        self.assertEqual([(r.chapter_role, r.is_active) for r in rows], [(role.name, 1)])
+        self.assertEqual(self._sent("MijnRood role mapping invalid: Chapter Role% is not active"), 0)
+
     def test_a_missing_role_alerts(self):
         self._give_member_a_volunteer()
         frappe.db.set_value("Member", self.member.name, "user", self.admin_user)  # stands in for account creation
