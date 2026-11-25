@@ -700,3 +700,93 @@ describe('www/dues-coverage-manager.html', () => {
 		expect(document.querySelector('.member-checkbox').dataset.member).toBe(BREAKOUT);
 	});
 });
+
+describe('www/dues-invoice-manager.html', () => {
+	const REL = 'verenigingen/www/dues-invoice-manager.html';
+
+	/** Run the real page script; `reply(opts)` answers each frappe.call. Returns its functions. */
+	function load(reply) {
+		// Jinja is neutralised, so the page's config falls back to can_generate_invoices:false;
+		// grant it so generateMissingInvoices reaches the code under test.
+		const script = pageScript(REL, 'function showResults').replace(
+			'can_generate_invoices: false',
+			'can_generate_invoices: true'
+		);
+		skeleton(script, ['status', 'generation', 'sepa'].map((k) => `<div id="${k}-spinner"></div>`).join(''));
+		baseFrappe({
+			call: (opts) => {
+				reply(opts);
+				return { fail: () => ({}) }; // the page chains .fail() for 403s
+			}
+		});
+		window.HTMLElement.prototype.scrollIntoView = jest.fn();
+		window.confirm = jest.fn(() => true);
+		return new Function(`${script}; return { checkMemberStatus, generateMissingInvoices };`)();
+	}
+
+	const status = (categories) => (opts) =>
+		opts.callback({
+			message: {
+				success: true,
+				data: { summary: { members_without_membership: 0 }, member_categories: categories }
+			}
+		});
+
+	test('member names, ids and category descriptions render as text', () => {
+		const member = { member_name: PAYLOAD, member_id: PAYLOAD };
+		const page = load(
+			status({
+				already_covered: { count: 1, description: PAYLOAD },
+				needs_invoicing: { count: 1, description: PAYLOAD, members: [member] },
+				gap_reset: { count: 1, description: PAYLOAD, members: [PAYLOAD] },
+				ineligible_status: { count: 1, description: PAYLOAD },
+				no_customer: { count: 1, description: PAYLOAD },
+				duplicate_coverage: { count: 2, description: PAYLOAD, members: [PAYLOAD, member, { x: PAYLOAD }] }
+			})
+		);
+		page.checkMemberStatus();
+		expect(injected()).toEqual({ img: null, onerror: null });
+		expect(document.getElementById('analysis-content').textContent).toContain(PAYLOAD);
+		const hrefs = [...document.querySelectorAll('#analysis-content a')].map((a) => a.getAttribute('href'));
+		expect(hrefs.length).toBe(2);
+		hrefs.forEach((h) => expect(h).toBe(`/app/member/${encodeURIComponent(PAYLOAD)}`));
+	});
+
+	test('server error text in the results panel renders as text', () => {
+		const page = load((opts) => opts.error({ message: PAYLOAD }));
+		page.checkMemberStatus();
+		expect(injected()).toEqual({ img: null, onerror: null });
+		expect(document.getElementById('results-content').textContent).toContain(PAYLOAD);
+	});
+
+	test('queued-job message, note, job id and failure list render as text', () => {
+		const queued = load((opts) =>
+			opts.callback({ message: { success: true, message: PAYLOAD, data: { job_id: PAYLOAD, note: PAYLOAD } } })
+		);
+		queued.generateMissingInvoices();
+		expect(injected()).toEqual({ img: null, onerror: null });
+		expect(document.getElementById('results-content').textContent).toContain(PAYLOAD);
+
+		const failed = load((opts) => opts.callback({ message: { success: false, errors: [PAYLOAD] } }));
+		failed.generateMissingInvoices();
+		expect(injected()).toEqual({ img: null, onerror: null });
+		expect(document.getElementById('results-content').textContent).toContain(PAYLOAD);
+	});
+
+	test('control: ordinary text and markup-free ids survive unchanged', () => {
+		const page = load(
+			status({
+				needs_invoicing: {
+					count: 1,
+					description: 'Plain note',
+					members: [{ member_name: 'Jan Jansen', member_id: 'MEM-1' }]
+				}
+			})
+		);
+		page.checkMemberStatus();
+		expect(document.querySelector('#analysis-content a').getAttribute('href')).toBe('/app/member/MEM-1');
+		const text = document.getElementById('analysis-content').textContent;
+		expect(text).toContain('Jan Jansen');
+		expect(text).toContain('Plain note');
+	});
+});
