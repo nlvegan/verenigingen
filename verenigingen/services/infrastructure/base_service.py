@@ -25,6 +25,7 @@ from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.client_ip import get_client_ip_or_none
 from verenigingen.utils.service_error_handler import ServiceError, create_service_result, handle_service_error
 from verenigingen.utils.service_logger import get_service_logger
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
 
 class BaseService(ABC):
@@ -288,10 +289,15 @@ class StatefulService(BaseService):
             self._transaction_active = False
 
     def rollback_transaction(self):
-        """Roll back to the savepoint, undoing only this nested transaction."""
+        """Roll back to the savepoint, undoing only this nested transaction.
+
+        Called from ``except`` blocks, so it must not raise 1305 when a 1213 deadlock or
+        a nested commit has already destroyed the savepoint: that would replace the real
+        error (#1188, #561).
+        """
         if self._transaction_active:
             if self._savepoint_name:
-                frappe.db.rollback(save_point=self._savepoint_name)
+                rollback_to_savepoint(self._savepoint_name)
             else:
                 frappe.logger().error(
                     f"{self.service_name}: rollback_transaction with no savepoint name (inconsistent state)"
@@ -601,6 +607,11 @@ class DataService(StatefulService):
                 self.commit_transaction()
                 self.logger.info(f"Processed batch {i // batch_size + 1}: {len(batch)} items")
 
+            except NON_RESUMABLE_DB_ERRORS:
+                # A 1213/1205 is not "one bad batch": carrying on would run the
+                # remaining batches against a transaction the server has thrown away.
+                self.rollback_transaction()
+                raise
             except Exception as e:
                 self.rollback_transaction()
                 error_msg = f"Batch {i // batch_size + 1} failed: {str(e)}"
