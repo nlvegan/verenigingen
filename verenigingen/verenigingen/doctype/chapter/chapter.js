@@ -1240,7 +1240,9 @@ window.approve_chapter_join_request = function (request_name, _chapter_name) {
 						// Refresh the current form to update the display
 						cur_frm.refresh();
 					} else {
-						frappe.msgprint(__('Failed to approve request: {0}', [r.message.error || 'Unknown error']));
+						frappe.msgprint(
+							__('Failed to approve request: {0}', [(r.message && r.message.error) || 'Unknown error'])
+						);
 					}
 				},
 				error(r) {
@@ -1293,7 +1295,9 @@ window.reject_chapter_join_request = function (request_name, _chapter_name) {
 						// Refresh the current form to update the display
 						cur_frm.refresh();
 					} else {
-						frappe.msgprint(__('Failed to reject request: {0}', [r.message.error || 'Unknown error']));
+						frappe.msgprint(
+							__('Failed to reject request: {0}', [(r.message && r.message.error) || 'Unknown error'])
+						);
 					}
 				},
 				error(r) {

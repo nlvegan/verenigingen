@@ -231,7 +231,7 @@ function fix_single_member(member_id) {
 				load_diagnostics(cur_page.page);
 			} else {
 				frappe.show_alert({
-					message: __('Failed to fix issues: {0}', [r.message.error]),
+					message: __('Failed to fix issues: {0}', [(r.message && r.message.error) || __('Unknown error')]),
 					indicator: 'red'
 				});
 			}

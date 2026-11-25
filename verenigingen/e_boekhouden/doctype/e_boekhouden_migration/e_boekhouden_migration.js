@@ -1129,7 +1129,7 @@ function perform_cleanup(frm, delete_all_accounts) {
 			} else {
 				frappe.msgprint({
 					title: __('Cleanup Failed'),
-					message: r.message.error || 'Unknown error',
+					message: (r.message && r.message.error) || 'Unknown error',
 					indicator: 'red'
 				});
 			}
@@ -1249,7 +1249,7 @@ function update_single_account_type(account_name, new_type, company, button) {
 				button.prop('disabled', false).text('Update');
 				frappe.msgprint({
 					title: __('Update Failed'),
-					message: r.message.error || 'Unknown error',
+					message: (r.message && r.message.error) || 'Unknown error',
 					indicator: 'red'
 				});
 			}
@@ -1683,7 +1683,7 @@ function import_transactions_rest(frm, options, import_type = 'all') {
 									} else {
 										frappe.msgprint({
 											title: __('Import Failed'),
-											message: r.message.error || __('Unknown error occurred'),
+											message: (r.message && r.message.error) || __('Unknown error occurred'),
 											indicator: 'red'
 										});
 									}

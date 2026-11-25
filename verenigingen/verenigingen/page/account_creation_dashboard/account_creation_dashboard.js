@@ -355,7 +355,7 @@ function retry_request(request_name) {
 					});
 					load_dashboard_data();
 				} else {
-					frappe.msgprint(`Failed to retry request: ${r.message.error || 'Unknown error'}`);
+					frappe.msgprint(`Failed to retry request: ${(r.message && r.message.error) || 'Unknown error'}`);
 				}
 			}
 		});
