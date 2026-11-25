@@ -93,8 +93,12 @@ class TestRemainingDedupeRaceSites3186(VereningingenTestCase):
         amendment = self._applied_amendment()
         self.expectErrorLog(ERROR_TITLE)
         with self._race_get_job(f"mollie_sync_{amendment.name}", attempts=2):
-            status = self._apply(amendment)
+            self._apply(amendment)
         self.assertEqual(len(self.fired), 2, "both attempts must have raced")
+        # The hook already COMMITTED "Queued"; a later rollback of the caller's transaction must
+        # not resurrect it, so "Failed" has to be committed too.
+        frappe.db.rollback()
+        status = frappe.db.get_value("Contribution Amendment Request", amendment.name, "mollie_sync_status")
         self.assertEqual(status, "Failed", "a lost sync job must not leave the row 'Queued'")
 
     def test_amendment_failed_by_a_lost_job_is_retried_by_the_next_applied_save(self):
