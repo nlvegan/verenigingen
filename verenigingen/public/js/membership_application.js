@@ -116,6 +116,15 @@ function getBillingPeriod(membershipType, defaultValue = 'year') {
 	);
 }
 
+/**
+ * Escape server-supplied or applicant-typed text before it is interpolated into an HTML string
+ * (issue #2586). Values go through verenigingen.utils.escapeHtml; do not wrap numbers or
+ * text that is already escaped.
+ */
+function escapeText(value) {
+	return verenigingen.utils.escapeHtml(value);
+}
+
 // Form Validator class - needed by BaseStep
 class FormValidator {
 	validateRequired(selector) {
@@ -335,7 +344,7 @@ class _MembershipApplication {
 				select.empty().append('<option value="">Select Country...</option>');
 
 				countries.forEach((country) => {
-					select.append(`<option value="${country.name}">${country.name}</option>`);
+					select.append(`<option value="${escapeText(country.name)}">${escapeText(country.name)}</option>`);
 				});
 
 				// Set Netherlands as default
@@ -366,7 +375,9 @@ class _MembershipApplication {
 							displayText += ` (${locationInfo.join(', ')})`;
 						}
 
-						select.append(`<option value="${chapter.name}">${displayText}</option>`);
+						select.append(
+							`<option value="${escapeText(chapter.name)}">${escapeText(displayText)}</option>`
+						);
 					});
 				}
 			} else {
@@ -686,7 +697,7 @@ class _MembershipApplication {
 							console.log('IBAN validation failed:', validation.error);
 							$('#iban').removeClass('is-valid').addClass('is-invalid');
 							$('#iban').siblings('.invalid-feedback').remove();
-							$('#iban').after(`<div class="invalid-feedback">${validation.error}</div>`);
+							$('#iban').after(`<div class="invalid-feedback">${escapeText(validation.error)}</div>`);
 							isValid = false;
 						} else {
 							// Format the IBAN if valid
@@ -1064,7 +1075,7 @@ class _MembershipApplication {
 
 		if (!validation.valid) {
 			ibanField.removeClass('is-valid').addClass('is-invalid');
-			ibanField.after(`<div class="invalid-feedback">${validation.error}</div>`);
+			ibanField.after(`<div class="invalid-feedback">${escapeText(validation.error)}</div>`);
 
 			// Clear BIC field if IBAN is invalid
 			$('#bic').val('');
@@ -2132,7 +2143,7 @@ class _MembershipApplication {
 		select.empty().append('<option value="">Select Country...</option>');
 
 		countries.forEach((country) => {
-			select.append(`<option value="${country.name}">${country.name}</option>`);
+			select.append(`<option value="${escapeText(country.name)}">${escapeText(country.name)}</option>`);
 		});
 
 		select.val('Netherlands');
@@ -2201,15 +2212,15 @@ class _MembershipApplication {
 		// Personal Information Column
 		content += '<div class="col-md-6">';
 		content += '<h6>Personal Information</h6>';
-		content += `<p><strong>Name:</strong> ${data.first_name || ''} ${data.last_name || ''}</p>`;
-		content += `<p><strong>Email:</strong> ${data.email || ''}</p>`;
+		content += `<p><strong>Name:</strong> ${escapeText(data.first_name || '')} ${escapeText(data.last_name || '')}</p>`;
+		content += `<p><strong>Email:</strong> ${escapeText(data.email || '')}</p>`;
 
 		if (data.birth_date) {
-			content += `<p><strong>Birth Date:</strong> ${data.birth_date}</p>`;
+			content += `<p><strong>Birth Date:</strong> ${escapeText(data.birth_date)}</p>`;
 		}
 
 		if (data.contact_number) {
-			content += `<p><strong>Contact:</strong> ${data.contact_number}</p>`;
+			content += `<p><strong>Contact:</strong> ${escapeText(data.contact_number)}</p>`;
 		}
 		content += '</div>';
 
@@ -2217,9 +2228,9 @@ class _MembershipApplication {
 		content += '<div class="col-md-6">';
 		content += '<h6>Address</h6>';
 		if (data.address_line1) {
-			content += `<p><strong>Address:</strong> ${data.address_line1}</p>`;
-			content += `<p>${data.city || ''} ${data.postal_code || ''}</p>`;
-			content += `<p>${data.country || ''}</p>`;
+			content += `<p><strong>Address:</strong> ${escapeText(data.address_line1)}</p>`;
+			content += `<p>${escapeText(data.city || '')} ${escapeText(data.postal_code || '')}</p>`;
+			content += `<p>${escapeText(data.country || '')}</p>`;
 		}
 		content += '</div>';
 
@@ -2236,7 +2247,7 @@ class _MembershipApplication {
 
 			if (membershipType) {
 				const typeName = membershipType.membership_type_name || membershipType.name;
-				content += `<p><strong>Type:</strong> ${typeName}</p>`;
+				content += `<p><strong>Type:</strong> ${escapeText(typeName)}</p>`;
 
 				// Format amount with billing period
 				const amount = data.custom_contribution_fee || membershipType.amount;
@@ -2251,7 +2262,7 @@ class _MembershipApplication {
 					content += '<p><em>Custom contribution amount</em></p>';
 				}
 			} else {
-				content += `<p><strong>Type:</strong> ${data.selected_membership_type}</p>`;
+				content += `<p><strong>Type:</strong> ${escapeText(data.selected_membership_type)}</p>`;
 				if (data.custom_contribution_fee) {
 					const formattedAmount = `EUR ${parseFloat(data.custom_contribution_fee).toFixed(2)}`;
 					content += `<p><strong>Amount:</strong> ${formattedAmount}</p>`;
@@ -2262,7 +2273,7 @@ class _MembershipApplication {
 		}
 
 		if (data.selected_chapter) {
-			content += `<p><strong>Chapter:</strong> ${data.selected_chapter}</p>`;
+			content += `<p><strong>Chapter:</strong> ${escapeText(data.selected_chapter)}</p>`;
 		}
 		content += '</div>';
 
@@ -2273,30 +2284,30 @@ class _MembershipApplication {
 		if (data.interested_in_volunteering) {
 			content += '<p><strong>Volunteering:</strong> Yes</p>';
 			if (data.volunteer_availability) {
-				content += `<p><strong>Availability:</strong> ${data.volunteer_availability}</p>`;
+				content += `<p><strong>Availability:</strong> ${escapeText(data.volunteer_availability)}</p>`;
 			}
 		}
 
 		if (data.payment_method) {
-			content += `<p><strong>Payment Method:</strong> ${data.payment_method}</p>`;
+			content += `<p><strong>Payment Method:</strong> ${escapeText(data.payment_method)}</p>`;
 
 			// Show bank details for SEPA Direct Debit
 			if (data.payment_method === 'SEPA Direct Debit') {
 				if (data.iban) {
-					content += `<p><strong>IBAN:</strong> ${data.iban}</p>`;
+					content += `<p><strong>IBAN:</strong> ${escapeText(data.iban)}</p>`;
 				}
 				if (data.bank_account_name) {
-					content += `<p><strong>Account Holder:</strong> ${data.bank_account_name}</p>`;
+					content += `<p><strong>Account Holder:</strong> ${escapeText(data.bank_account_name)}</p>`;
 				}
 			}
 
 			// Show bank transfer account details for Bank Transfer
 			if (data.payment_method === 'Bank Transfer') {
 				if (data.transfer_iban) {
-					content += `<p><strong>Transfer Account (IBAN):</strong> ${data.transfer_iban}</p>`;
+					content += `<p><strong>Transfer Account (IBAN):</strong> ${escapeText(data.transfer_iban)}</p>`;
 				}
 				if (data.transfer_account_name) {
-					content += `<p><strong>Account Holder:</strong> ${data.transfer_account_name}</p>`;
+					content += `<p><strong>Account Holder:</strong> ${escapeText(data.transfer_account_name)}</p>`;
 				}
 				if (!data.transfer_iban && !data.transfer_account_name) {
 					content += '<p><em>Account details will be provided via email</em></p>';
@@ -2406,24 +2417,24 @@ class _MembershipApplication {
 					if (validation.valid) {
 						// Show formatted IBAN with bank info
 						const bankName = this.getBankNameFromIBAN(iban);
-						bankInfo += `IBAN: ${validation.formatted}`;
+						bankInfo += `IBAN: ${escapeText(validation.formatted)}`;
 						if (bankName) {
-							bankInfo += ` (${bankName})`;
+							bankInfo += ` (${escapeText(bankName)})`;
 						}
 
 						// Also show BIC if derivable
 						const bic = this.deriveBICFromIBAN(iban);
 						if (bic) {
-							bankInfo += `<br>BIC: ${bic}`;
+							bankInfo += `<br>BIC: ${escapeText(bic)}`;
 						}
 					} else {
 						// Show IBAN with error indication
-						bankInfo += `<span class="text-danger">IBAN: ${iban} - ${validation.error}</span>`;
+						bankInfo += `<span class="text-danger">IBAN: ${escapeText(iban)} - ${escapeText(validation.error)}</span>`;
 						// Optionally, you could prevent form submission here
 						if (typeof frappe !== 'undefined' && frappe.msgprint) {
 							frappe.msgprint({
 								title: 'Invalid IBAN',
-								message: `The IBAN you entered is invalid: ${validation.error}. Please go back to the payment step to correct it.`,
+								message: `The IBAN you entered is invalid: ${escapeText(validation.error)}. Please go back to the payment step to correct it.`,
 								indicator: 'red'
 							});
 						}
@@ -2433,7 +2444,7 @@ class _MembershipApplication {
 					if (bankInfo) {
 						bankInfo += '<br>';
 					}
-					bankInfo += `Account Holder: ${accountHolder}`;
+					bankInfo += `Account Holder: ${escapeText(accountHolder)}`;
 				}
 				$('#confirm-bank-info').html(bankInfo);
 				$('#confirm-bank-details').show();
@@ -2567,19 +2578,19 @@ class _MembershipApplication {
 	}
 
 	createPaymentMethodCard(method) {
-		let methodCardHTML = `<div class="payment-method-option" data-method="${method.name}">`;
+		let methodCardHTML = `<div class="payment-method-option" data-method="${escapeText(method.name)}">`;
 		methodCardHTML += '<div class="d-flex align-items-center">';
 		methodCardHTML += '<div class="payment-method-icon">';
-		methodCardHTML += `<i class="fa ${method.icon || 'fa-university'}"></i>`;
+		methodCardHTML += `<i class="fa ${escapeText(method.icon || 'fa-university')}"></i>`;
 		methodCardHTML += '</div>';
 		methodCardHTML += '<div class="payment-method-info flex-grow-1">';
-		methodCardHTML += `<h6>${method.name}</h6>`;
+		methodCardHTML += `<h6>${escapeText(method.name)}</h6>`;
 		methodCardHTML += '<div class="text-muted">';
-		methodCardHTML += `${method.description}<br>`;
-		methodCardHTML += `<small><strong>Processing:</strong> ${method.processing_time}</small>`;
+		methodCardHTML += `${escapeText(method.description)}<br>`;
+		methodCardHTML += `<small><strong>Processing:</strong> ${escapeText(method.processing_time)}</small>`;
 
 		if (method.requires_mandate) {
-			methodCardHTML += `<br><small class="text-warning"><strong>Note:</strong> ${method.note}</small>`;
+			methodCardHTML += `<br><small class="text-warning"><strong>Note:</strong> ${escapeText(method.note)}</small>`;
 		}
 
 		methodCardHTML += '</div>';
@@ -2587,9 +2598,9 @@ class _MembershipApplication {
 		methodCardHTML += '<div class="payment-method-selector">';
 		methodCardHTML += '<div class="form-check">';
 
-		const radioId = `payment_${method.name.replace(/\s+/g, '_').toLowerCase()}`;
+		const radioId = escapeText(`payment_${method.name.replace(/\s+/g, '_').toLowerCase()}`);
 		methodCardHTML += '<input class="form-check-input payment-method-radio" type="radio" ';
-		methodCardHTML += `name="payment_method_selection" value="${method.name}" id="${radioId}">`;
+		methodCardHTML += `name="payment_method_selection" value="${escapeText(method.name)}" id="${radioId}">`;
 		methodCardHTML += `<label class="form-check-label" for="${radioId}">`;
 		methodCardHTML += 'Select';
 		methodCardHTML += '</label>';
@@ -2861,7 +2872,7 @@ class _MembershipApplication {
 		const formattedAmount = `EUR ${parseFloat(amount).toFixed(2)}`;
 
 		// Build the display content
-		let content = `<p><strong>Type:</strong> ${membershipTypeName}</p>`;
+		let content = `<p><strong>Type:</strong> ${escapeText(membershipTypeName)}</p>`;
 		content += `<p><strong>Amount:</strong> ${formattedAmount} ${periodText}`;
 
 		if (isCustom) {
@@ -2871,7 +2882,7 @@ class _MembershipApplication {
 		content += '</p>';
 
 		if (membershipTypeDetails && membershipTypeDetails.description) {
-			content += `<p><strong>Description:</strong> ${membershipTypeDetails.description}</p>`;
+			content += `<p><strong>Description:</strong> ${escapeText(membershipTypeDetails.description)}</p>`;
 		}
 
 		feeDetails.html(content);
@@ -3337,7 +3348,7 @@ class AddressStep extends BaseStep {
 			select.empty().append('<option value="">Select Country...</option>');
 
 			countries.forEach((country) => {
-				select.append(`<option value="${country.name}">${country.name}</option>`);
+				select.append(`<option value="${escapeText(country.name)}">${escapeText(country.name)}</option>`);
 			});
 
 			// Set Netherlands as default
@@ -3415,7 +3426,7 @@ class VolunteerStep extends BaseStep {
 
 			chapters.forEach((chapter) => {
 				const displayText = chapter.region ? `${chapter.name} - ${chapter.region}` : chapter.name;
-				select.append(`<option value="${chapter.name}">${displayText}</option>`);
+				select.append(`<option value="${escapeText(chapter.name)}">${escapeText(displayText)}</option>`);
 			});
 
 			// Show chapter selection section if chapters are available
@@ -3430,15 +3441,15 @@ class VolunteerStep extends BaseStep {
 		container.empty();
 
 		areas.forEach((area) => {
-			const checkboxId = `interest_${area.name.replace(/\s+/g, '_')}`;
+			const checkboxId = escapeText(`interest_${area.name.replace(/\s+/g, '_')}`);
 			let checkboxHTML = '<div class="form-check">';
 			checkboxHTML += '<input class="form-check-input" type="checkbox" ';
-			checkboxHTML += `value="${area.name}" id="${checkboxId}">`;
+			checkboxHTML += `value="${escapeText(area.name)}" id="${checkboxId}">`;
 			checkboxHTML += `<label class="form-check-label" for="${checkboxId}">`;
-			checkboxHTML += area.name;
+			checkboxHTML += escapeText(area.name);
 
 			if (area.description) {
-				checkboxHTML += `<small class="text-muted d-block">${area.description}</small>`;
+				checkboxHTML += `<small class="text-muted d-block">${escapeText(area.description)}</small>`;
 			}
 
 			checkboxHTML += '</label>';
@@ -3533,19 +3544,19 @@ class PaymentStep extends BaseStep {
 	}
 
 	createPaymentMethodCard(method) {
-		let methodCardHTML = `<div class="payment-method-option" data-method="${method.name}">`;
+		let methodCardHTML = `<div class="payment-method-option" data-method="${escapeText(method.name)}">`;
 		methodCardHTML += '<div class="d-flex align-items-center">';
 		methodCardHTML += '<div class="payment-method-icon">';
-		methodCardHTML += `<i class="fa ${method.icon || 'fa-university'}"></i>`;
+		methodCardHTML += `<i class="fa ${escapeText(method.icon || 'fa-university')}"></i>`;
 		methodCardHTML += '</div>';
 		methodCardHTML += '<div class="payment-method-info flex-grow-1">';
-		methodCardHTML += `<h6>${method.name}</h6>`;
+		methodCardHTML += `<h6>${escapeText(method.name)}</h6>`;
 		methodCardHTML += '<div class="text-muted">';
-		methodCardHTML += `${method.description}<br>`;
-		methodCardHTML += `<small><strong>Processing:</strong> ${method.processing_time}</small>`;
+		methodCardHTML += `${escapeText(method.description)}<br>`;
+		methodCardHTML += `<small><strong>Processing:</strong> ${escapeText(method.processing_time)}</small>`;
 
 		if (method.requires_mandate) {
-			methodCardHTML += `<br><small class="text-warning"><strong>Note:</strong> ${method.note}</small>`;
+			methodCardHTML += `<br><small class="text-warning"><strong>Note:</strong> ${escapeText(method.note)}</small>`;
 		}
 
 		methodCardHTML += '</div>';
@@ -3553,9 +3564,9 @@ class PaymentStep extends BaseStep {
 		methodCardHTML += '<div class="payment-method-selector">';
 		methodCardHTML += '<div class="form-check">';
 
-		const radioId = `payment_${method.name.replace(/\s+/g, '_').toLowerCase()}`;
+		const radioId = escapeText(`payment_${method.name.replace(/\s+/g, '_').toLowerCase()}`);
 		methodCardHTML += '<input class="form-check-input payment-method-radio" type="radio" ';
-		methodCardHTML += `name="payment_method_selection" value="${method.name}" id="${radioId}">`;
+		methodCardHTML += `name="payment_method_selection" value="${escapeText(method.name)}" id="${radioId}">`;
 		methodCardHTML += `<label class="form-check-label" for="${radioId}">`;
 		methodCardHTML += 'Select';
 		methodCardHTML += '</label>';
@@ -3711,8 +3722,8 @@ class PaymentStep extends BaseStep {
 		let content = '<div class="row">';
 		content += '<div class="col-md-6">';
 		content += '<h6>Personal Information</h6>';
-		content += `<p><strong>Name:</strong> ${$('#first_name').val() || ''} ${$('#last_name').val() || ''}</p>`;
-		content += `<p><strong>Email:</strong> ${$('#email').val() || ''}</p>`;
+		content += `<p><strong>Name:</strong> ${escapeText($('#first_name').val() || '')} ${escapeText($('#last_name').val() || '')}</p>`;
+		content += `<p><strong>Email:</strong> ${escapeText($('#email').val() || '')}</p>`;
 
 		const age = this.calculateAge($('#birth_date').val());
 		if (age > 0) {
@@ -3728,7 +3739,7 @@ class PaymentStep extends BaseStep {
 			const membershipTypes = state.get('membershipTypes') || [];
 			const membershipType = membershipTypes.find((t) => t.name === membership.type);
 			if (membershipType) {
-				content += `<p><strong>Type:</strong> ${membershipType.membership_type_name}</p>`;
+				content += `<p><strong>Type:</strong> ${escapeText(membershipType.membership_type_name)}</p>`;
 				content += `<p><strong>Amount:</strong> ${frappe.format(membership.amount, { fieldtype: 'Currency' })}</p>`;
 				if (membership.isCustom) {
 					content += '<p><em>Custom contribution selected</em></p>';
@@ -3740,7 +3751,7 @@ class PaymentStep extends BaseStep {
 		content += '</div>';
 
 		if ($('#selected_chapter').val()) {
-			content += `<p><strong>Chapter:</strong> ${$('#selected_chapter option:selected').text()}</p>`;
+			content += `<p><strong>Chapter:</strong> ${escapeText($('#selected_chapter option:selected').text())}</p>`;
 		}
 
 		if ($('#interested_in_volunteering').is(':checked')) {
@@ -3749,7 +3760,7 @@ class PaymentStep extends BaseStep {
 
 		const paymentMethod = $('input[name="payment_method_selection"]:checked').val() || $('#payment_method').val();
 		if (paymentMethod) {
-			content += `<p><strong>Payment Method:</strong> ${paymentMethod}</p>`;
+			content += `<p><strong>Payment Method:</strong> ${escapeText(paymentMethod)}</p>`;
 		}
 
 		summary.html(content);

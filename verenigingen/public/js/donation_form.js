@@ -111,6 +111,11 @@ document.addEventListener('DOMContentLoaded', () => {
  */
 
 // Function to convert technical interval to friendly text
+// Escape server-supplied or donor-typed text interpolated into an HTML string (issue #2586).
+function escapeText(value) {
+	return verenigingen.utils.escapeHtml(value);
+}
+
 function getFrequencyDisplayText(interval) {
 	switch (interval) {
 		case '1 month':
@@ -499,7 +504,7 @@ function populateConfirmation() {
         </div>
         <div class="summary-row">
             <span>${__('Frequency')}:</span>
-            <span>${frequencyText}</span>
+            <span>${escapeText(frequencyText)}</span>
         </div>`;
 
 	// Add next payment info for recurring donations only
@@ -507,22 +512,22 @@ function populateConfirmation() {
 		summaryHtml += `
         <div class="summary-row">
             <span>${__('Next Payment')}:</span>
-            <span>${nextPaymentText}</span>
+            <span>${escapeText(nextPaymentText)}</span>
         </div>`;
 	}
 
 	summaryHtml += `
         <div class="summary-row">
             <span>${__('Purpose')}:</span>
-            <span>${getPurposeSummary()}</span>
+            <span>${escapeText(getPurposeSummary())}</span>
         </div>
         <div class="summary-row">
             <span>${__('Donor')}:</span>
-            <span>${donorName} (${donorEmail})</span>
+            <span>${escapeText(donorName)} (${escapeText(donorEmail)})</span>
         </div>
         <div class="summary-row">
             <span>${__('Payment Method')}:</span>
-            <span>${paymentMethodText}</span>
+            <span>${escapeText(paymentMethodText)}</span>
         </div>
         <div class="summary-row">
             <span>${__('Total Amount')}:</span>
@@ -581,7 +586,7 @@ function submitDonation() {
 				showSuccessStep(data);
 			} else {
 				const errorMsg = verenigingen.utils.getErrorMessage(response.message, __('An error occurred'));
-				showAlert(errorMsg, 'danger');
+				showAlert(escapeText(errorMsg), 'danger');
 			}
 		},
 		error(error) {
@@ -605,7 +610,7 @@ function showSuccessStep(response) {
 	// Populate success details
 	let successContent = `
         <div class="alert alert-success">
-            <strong>${__('Donation ID')}:</strong> ${response.donation_id}<br>
+            <strong>${__('Donation ID')}:</strong> ${escapeText(response.donation_id)}<br>
             <strong>${__('Amount')}:</strong> €${parseFloat(window.formData.amount).toFixed(2)}
         </div>
     `;
@@ -616,15 +621,15 @@ function showSuccessStep(response) {
 			successContent += `
                 <div class="bank-details">
                     <h5>${__('Bank Transfer Details')}</h5>
-                    <p><strong>${__('Account Holder')}:</strong> ${response.payment_info.bank_details.account_holder}</p>
-                    <p><strong>${__('IBAN')}:</strong> ${response.payment_info.bank_details.iban}
-                       <button class="copy-button" onclick="copyToClipboard('${response.payment_info.bank_details.iban}')">${__('Copy')}</button></p>
-                    <p><strong>${__('BIC')}:</strong> ${response.payment_info.bank_details.bic}</p>
-                    <p><strong>${__('Reference')}:</strong> ${response.payment_info.bank_details.reference}
-                       <button class="copy-button" onclick="copyToClipboard('${response.payment_info.bank_details.reference}')">${__('Copy')}</button></p>
-                    <p><strong>${__('Amount')}:</strong> €${response.payment_info.bank_details.amount}</p>
+                    <p><strong>${__('Account Holder')}:</strong> ${escapeText(response.payment_info.bank_details.account_holder)}</p>
+                    <p><strong>${__('IBAN')}:</strong> ${escapeText(response.payment_info.bank_details.iban)}
+                       <button class="copy-button" data-copy="${escapeText(response.payment_info.bank_details.iban)}" onclick="copyToClipboard(this.dataset.copy)">${__('Copy')}</button></p>
+                    <p><strong>${__('BIC')}:</strong> ${escapeText(response.payment_info.bank_details.bic)}</p>
+                    <p><strong>${__('Reference')}:</strong> ${escapeText(response.payment_info.bank_details.reference)}
+                       <button class="copy-button" data-copy="${escapeText(response.payment_info.bank_details.reference)}" onclick="copyToClipboard(this.dataset.copy)">${__('Copy')}</button></p>
+                    <p><strong>${__('Amount')}:</strong> €${escapeText(response.payment_info.bank_details.amount)}</p>
                 </div>
-                <p class="text-info">${response.payment_info.instructions}</p>
+                <p class="text-info">${escapeText(response.payment_info.instructions)}</p>
             `;
 		} else if (
 			response.payment_info.status === 'subscription_redirect_required' &&
@@ -634,13 +639,13 @@ function showSuccessStep(response) {
 			successContent += `
                 <div class="alert alert-success">
                     <h5>${__('Setting Up Your Recurring Donation')}</h5>
-                    <p>${response.payment_info.message}</p>
-                    <p><small>${response.payment_info.info}</small></p>
+                    <p>${escapeText(response.payment_info.message)}</p>
+                    <p><small>${escapeText(response.payment_info.info)}</small></p>
                     <div style="margin-top: 10px;">
                         <strong>Details:</strong><br>
-                        • Subscription ID: ${response.payment_info.subscription_id}<br>
-                        • Amount: €${window.formData.amount}<br>
-                        • Frequency: ${getFrequencyDisplayText(window.formData.subscription_interval || '1 month')}<br>
+                        • Subscription ID: ${escapeText(response.payment_info.subscription_id)}<br>
+                        • Amount: €${escapeText(window.formData.amount)}<br>
+                        • Frequency: ${escapeText(getFrequencyDisplayText(window.formData.subscription_interval || '1 month'))}<br>
                     </div>
                 </div>
                 <p class="text-primary">${__('You will be redirected to complete the initial payment in 3 seconds...')}</p>
@@ -655,10 +660,10 @@ function showSuccessStep(response) {
 			successContent += `
                 <div class="alert alert-info">
                     <h5>${__('Redirecting to Payment Provider')}</h5>
-                    <p>${response.payment_info.message}</p>
-                    <p>${response.payment_info.info}</p>
+                    <p>${escapeText(response.payment_info.message)}</p>
+                    <p>${escapeText(response.payment_info.info)}</p>
                     <div style="margin-top: 15px;">
-                        <button type="button" class="btn btn-primary" onclick="window.open('${response.payment_info.payment_url}', '_self')">
+                        <button type="button" class="btn btn-primary" data-url="${escapeText(response.payment_info.payment_url)}" onclick="window.open(this.dataset.url, '_self')">
                             ${__('Complete Payment')} →
                         </button>
                     </div>
@@ -673,8 +678,8 @@ function showSuccessStep(response) {
 		} else {
 			successContent += `
                 <div class="alert alert-info">
-                    ${response.payment_info.message || ''}
-                    ${response.payment_info.info ? `<br><small>${response.payment_info.info}</small>` : ''}
+                    ${escapeText(response.payment_info.message || '')}
+                    ${response.payment_info.info ? `<br><small>${escapeText(response.payment_info.info)}</small>` : ''}
                 </div>
             `;
 		}

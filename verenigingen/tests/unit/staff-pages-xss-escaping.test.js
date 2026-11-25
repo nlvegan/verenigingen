@@ -790,3 +790,351 @@ describe('www/dues-invoice-manager.html', () => {
 		expect(text).toContain('Plain note');
 	});
 });
+
+/**
+ * jQuery stand-in for applicant JS: records every HTML string handed to `$(html)`, append, after,
+ * before, prepend and html, and returns a chainable proxy for everything else.
+ */
+function makeHtmlRecorder() {
+	const sinks = [];
+	const chain = () =>
+		new Proxy(() => {}, {
+			get(_t, key) {
+				if (key === Symbol.toPrimitive) return () => '';
+				if (typeof key === 'symbol') return undefined;
+				if (key === 'length') return 1;
+				if (key === 'children') return () => ({ length: 0 });
+				if (['append', 'after', 'before', 'prepend', 'html'].includes(key)) {
+					return (arg) => {
+						if (typeof arg === 'string') sinks.push(arg);
+						return arg === undefined ? '' : chain();
+					};
+				}
+				return () => chain();
+			},
+			apply: () => chain()
+		});
+	const $ = (arg) => {
+		if (typeof arg === 'string' && arg.trim().startsWith('<')) sinks.push(arg);
+		return chain();
+	};
+	return { $, sinks, all: () => sinks.join('') };
+}
+
+describe('public/js/membership_application.js', () => {
+	let app;
+	let steps;
+	let rec;
+
+	beforeAll(() => {
+		baseFrappe();
+		window.eval(
+			`${read('verenigingen/public/js/membership_application.js')}\n;window.__appSteps = { PaymentStep, AddressStep, VolunteerStep };`
+		);
+		app = window.MembershipApplication.prototype;
+		steps = window.__appSteps;
+	});
+
+	beforeEach(() => {
+		baseFrappe();
+		rec = makeHtmlRecorder();
+		window.$ = rec.$;
+		global.$ = rec.$;
+	});
+
+	afterEach(() => {
+		delete window.$;
+		delete global.$;
+	});
+
+	const country = { name: PAYLOAD };
+	const method = {
+		name: PAYLOAD,
+		description: PAYLOAD,
+		icon: PAYLOAD,
+		processing_time: PAYLOAD,
+		requires_mandate: true,
+		note: PAYLOAD
+	};
+
+	test('country and chapter dropdown options render as text (main app)', () => {
+		const state = { get: () => null };
+		app.loadStaticData.call(
+			{ state, loadMembershipTypes() {}, loadPaymentMethods() {}, loadVolunteerAreas() {} },
+			{
+				countries: [country],
+				chapters: [{ name: PAYLOAD, region: PAYLOAD }]
+			}
+		);
+		expect(rec.all()).toContain('<option');
+		expectNoInjection(rec.all()); // not wrapped in <select>: its parser would silently drop an injected <img>
+	});
+
+	test('country and chapter options render as text (step classes)', () => {
+		steps.AddressStep.prototype.loadCountries.call({}, [country]);
+		steps.VolunteerStep.prototype.loadChapters.call({}, [{ name: PAYLOAD, region: PAYLOAD }]);
+		expect(rec.all()).toContain('<option');
+		expectNoInjection(rec.all()); // not wrapped in <select>: its parser would silently drop an injected <img>
+	});
+
+	test('main-app loadCountries renders as text', () => {
+		app.loadCountries.call({}, [country]);
+		expectNoInjection(rec.all()); // not wrapped in <select>: its parser would silently drop an injected <img>
+	});
+
+	test('payment method cards render as text (both copies)', () => {
+		app.createPaymentMethodCard.call({}, method);
+		steps.PaymentStep.prototype.createPaymentMethodCard.call({}, method);
+		const html = rec.all();
+		expect(html).toContain('payment-method-option');
+		expectNoInjection(html);
+		const box = document.createElement('div');
+		box.innerHTML = html;
+		// attribute context: the payload must stay inside the attribute value
+		expect(box.querySelector('.payment-method-option').getAttribute('data-method')).toBe(PAYLOAD);
+		expect(box.querySelector('input').getAttribute('value')).toBe(PAYLOAD);
+	});
+
+	// Ids are built from the name with whitespace replaced by '_', so the payload must hold none.
+	const NOSPACE = '"><svg/onload=alert(1)>';
+
+	test('payment card radio id and volunteer checkbox id cannot break out of the attribute', () => {
+		app.createPaymentMethodCard.call({}, { ...method, name: NOSPACE });
+		steps.PaymentStep.prototype.createPaymentMethodCard.call({}, { ...method, name: NOSPACE });
+		steps.VolunteerStep.prototype.renderVolunteerAreas.call({}, [{ name: NOSPACE }]);
+		const box = document.createElement('div');
+		box.innerHTML = rec.all();
+		expect(box.querySelector('svg')).toBeNull();
+		expect(box.querySelectorAll('input').length).toBe(3);
+	});
+
+	test('volunteer interest checkboxes render as text', () => {
+		steps.VolunteerStep.prototype.renderVolunteerAreas.call({}, [{ name: PAYLOAD, description: PAYLOAD }]);
+		expectNoInjection(rec.all());
+	});
+
+	test('IBAN validation error renders as text (field handler)', () => {
+		app.validateIBAN.call({ performIBANValidation: () => ({ valid: false, error: PAYLOAD }) });
+		// $('#iban').val() is a proxy in the recorder; reaching .after() is enough
+		expect(rec.all()).toContain('invalid-feedback');
+		expectNoInjection(rec.all());
+	});
+
+	test('summary, fee display and application summary render as text', () => {
+		const type = { name: 'T1', membership_type_name: PAYLOAD, description: PAYLOAD, billing_frequency: 'Annual' };
+		const data = {
+			first_name: PAYLOAD,
+			last_name: PAYLOAD,
+			email: PAYLOAD,
+			birth_date: PAYLOAD,
+			contact_number: PAYLOAD,
+			address_line1: PAYLOAD,
+			city: PAYLOAD,
+			postal_code: PAYLOAD,
+			country: PAYLOAD,
+			selected_membership_type: 'T1',
+			custom_contribution_fee: 10,
+			selected_chapter: PAYLOAD,
+			interested_in_volunteering: true,
+			volunteer_availability: PAYLOAD,
+			payment_method: 'SEPA Direct Debit',
+			iban: PAYLOAD,
+			bank_account_name: PAYLOAD
+		};
+		app.updateApplicationSummary.call({ getAllFormData: () => data, membershipTypes: [type] });
+		// branches the first call does not reach: unknown type, other payment method, bank transfer fields
+		const unknown = { ...data, selected_membership_type: PAYLOAD, payment_method: PAYLOAD };
+		app.updateApplicationSummary.call({ getAllFormData: () => unknown, membershipTypes: [] });
+		const transfer = {
+			...data,
+			payment_method: 'Bank Transfer',
+			transfer_iban: PAYLOAD,
+			transfer_account_name: PAYLOAD
+		};
+		app.updateApplicationSummary.call({ getAllFormData: () => transfer, membershipTypes: [type] });
+		app.updateMembershipFeeDisplay.call({ membershipTypes: [type] }, 'T1', 10, false);
+		const html = rec.all();
+		expect(html).toContain('Personal Information');
+		expect(html).toContain('Description:');
+		expectNoInjection(html);
+	});
+
+	test('confirmation bank info renders IBAN, bank, BIC and holder as text', () => {
+		const data = { payment_method: 'sepa_direct_debit', iban: PAYLOAD, bank_account_name: PAYLOAD };
+		const run = (validation) => {
+			rec.sinks.length = 0;
+			// the confirmation reads the radio via $(...).val(); the recorder cannot, so drive it with a real value
+			const realDollar = rec.$;
+			window.$ = global.$ = (arg) =>
+				typeof arg === 'string' && arg.includes('payment_method')
+					? { val: () => 'sepa_direct_debit', text() {} }
+					: realDollar(arg);
+			app.updateConfirmationDisplay.call({
+				getAllFormData: () => data,
+				state: { get: () => null },
+				performIBANValidation: () => validation,
+				getBankNameFromIBAN: () => PAYLOAD,
+				deriveBICFromIBAN: () => PAYLOAD
+			});
+			return rec.all();
+		};
+		const valid = run({ valid: true, formatted: PAYLOAD });
+		expect(valid).toContain('BIC:');
+		expectNoInjection(valid);
+		const invalid = run({ valid: false, error: PAYLOAD });
+		expect(invalid).toContain('text-danger');
+		expectNoInjection(invalid);
+		expectNoInjection(window.frappe.msgprint.mock.calls[0][0].message);
+	});
+
+	test('the payment-step basic summary renders typed and server text as text', () => {
+		const values = {
+			'#first_name': PAYLOAD,
+			'#last_name': PAYLOAD,
+			'#email': PAYLOAD,
+			'#birth_date': '',
+			'#selected_chapter': PAYLOAD,
+			'#payment_method': PAYLOAD
+		};
+		const type = { name: 'T1', membership_type_name: PAYLOAD };
+		const state = {
+			get: (key) => ({ membership: { type: 'T1', amount: 10 }, membershipTypes: [type] })[key]
+		};
+		window.frappe.format = () => '10';
+		const $ = (sel) => ({
+			val: () => values[sel],
+			text: () => PAYLOAD,
+			is: () => true,
+			html: (h) => rec.sinks.push(h)
+		});
+		window.$ = global.$ = $;
+		steps.PaymentStep.prototype.updateBasicSummary.call({ calculateAge: () => 0 }, state);
+		expect(rec.all()).toContain('Personal Information');
+		expectNoInjection(rec.all());
+	});
+
+	test('control: ordinary names survive unescaped-looking but unchanged', () => {
+		app.loadCountries.call({}, [{ name: 'Netherlands' }]);
+		expect(rec.all()).toContain('<option value="Netherlands">Netherlands</option>');
+	});
+});
+
+describe('public/js/donation_form.js', () => {
+	beforeEach(() => {
+		baseFrappe();
+		document.body.innerHTML =
+			'<div id="form-progress"></div><div id="success-details"></div><div id="donation-summary"></div><div id="alert-container"></div>';
+		window.formData = { amount: '10', subscription_interval: '1 month' };
+		window.eval(read('verenigingen/public/js/donation_form.js'));
+		window.formData = { amount: '10', subscription_interval: '1 month' };
+		window.copyToClipboard = jest.fn();
+	});
+
+	const success = (payment_info, donation_id = 'D1') => {
+		window.showSuccessStep({ donation_id, payment_info });
+		return document.getElementById('success-details');
+	};
+
+	test.each([
+		['a tag/quote payload', PAYLOAD],
+		['a JS-string breakout', BREAKOUT]
+	])('bank transfer details render as text and the copy buttons receive the value verbatim (%s)', (_n, value) => {
+		const box = success(
+			{
+				status: 'awaiting_transfer',
+				instructions: PAYLOAD,
+				bank_details: { account_holder: PAYLOAD, iban: value, bic: PAYLOAD, reference: value, amount: PAYLOAD }
+			},
+			PAYLOAD
+		);
+		expect(injected()).toEqual({ img: null, onerror: null });
+		expect(box.textContent).toContain(PAYLOAD);
+		box.querySelectorAll('.copy-button').forEach((b) => b.click());
+		expect(window.__pwned).toBeUndefined();
+		expect(window.copyToClipboard.mock.calls.map((c) => c[0])).toEqual([value, value]);
+	});
+
+	test.each([
+		['a tag/quote payload', PAYLOAD],
+		['a JS-string breakout', BREAKOUT]
+	])(
+		'Mollie redirect and subscription details render as text; Complete Payment passes the URL verbatim (%s)',
+		(_n, value) => {
+			window.open = jest.fn();
+			jest.useFakeTimers();
+			window.formData = { amount: value, subscription_interval: value };
+			const redirect = success({
+				status: 'redirect_required',
+				payment_url: value,
+				message: PAYLOAD,
+				info: PAYLOAD
+			});
+			expect(injected()).toEqual({ img: null, onerror: null });
+			redirect.querySelector('button').click();
+			expect(window.__pwned).toBeUndefined();
+			expect(window.open).toHaveBeenCalledWith(value, '_self');
+
+			const sub = success({
+				status: 'subscription_redirect_required',
+				payment_url: 'https://pay.example/x',
+				message: PAYLOAD,
+				info: PAYLOAD,
+				subscription_id: PAYLOAD
+			});
+			expect(injected()).toEqual({ img: null, onerror: null });
+			expect(sub.textContent).toContain(PAYLOAD);
+
+			const other = success({ status: 'other', message: PAYLOAD, info: PAYLOAD });
+			expect(injected()).toEqual({ img: null, onerror: null });
+			expect(other.textContent).toContain(PAYLOAD);
+			jest.useRealTimers();
+		}
+	);
+
+	test('a server error shown through showAlert renders as text', () => {
+		window.validateCurrentStep = () => true;
+		window.collectAllStepData = () => {};
+		document.body.insertAdjacentHTML(
+			'beforeend',
+			'<button id="submit-btn"></button><span id="submit-text"></span><span id="submit-loading"></span>'
+		);
+		window.frappe.call = (opts) => opts.callback({ message: { success: false, error: PAYLOAD } });
+		window.submitDonation();
+		expect(injected()).toEqual({ img: null, onerror: null });
+		expect(document.getElementById('alert-container').textContent).toContain(PAYLOAD);
+	});
+
+	test('the confirmation summary renders donor-typed text as text', () => {
+		window.collectAllStepData = () => {};
+		window.formData = {
+			amount: '10',
+			donor_name: PAYLOAD,
+			donor_email: PAYLOAD,
+			payment_method: PAYLOAD,
+			donation_purpose_type: 'Specific Goal',
+			specific_goal_description: PAYLOAD,
+			donation_status: 'Recurring',
+			subscription_interval: PAYLOAD
+		};
+		window.populateConfirmation();
+		expect(injected()).toEqual({ img: null, onerror: null });
+		expect(document.getElementById('donation-summary').textContent).toContain(PAYLOAD);
+	});
+
+	test('control: plain bank details render and copy', () => {
+		const box = success({
+			status: 'awaiting_transfer',
+			instructions: 'Pay soon',
+			bank_details: {
+				account_holder: 'Vereniging',
+				iban: 'NL00BANK0123456789',
+				bic: 'BANKNL2A',
+				reference: 'REF1',
+				amount: '10.00'
+			}
+		});
+		expect(box.textContent).toContain('NL00BANK0123456789');
+		box.querySelector('.copy-button').click();
+		expect(window.copyToClipboard).toHaveBeenCalledWith('NL00BANK0123456789');
+	});
+});
