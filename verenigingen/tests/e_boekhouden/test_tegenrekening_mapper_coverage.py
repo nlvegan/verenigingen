@@ -42,6 +42,7 @@ from verenigingen.e_boekhouden.utils.smart_tegenrekening_mapper import (
     get_item_for_purchase_transaction,
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, shared_fixture
+from verenigingen.tests.utils.secure_operation_race_helpers import duplicate_key_result
 from verenigingen.utils.secure_operations import SecureOperationResult
 
 
@@ -204,20 +205,12 @@ class TestCreateFallbackItemRace(EnhancedTestCase):
 
         cls.company = get_eur_test_company()
 
-    def _duplicate_key_result(self):
-        result = SecureOperationResult(False, "test_fallback_item_race")
-        result.add_error(
-            "Operation failed: ('Item', 'EB-GENERIC-INCOME', "
-            "IntegrityError(1062, \"Duplicate entry 'EB-GENERIC-INCOME' for key 'PRIMARY'\"))"
-        )
-        return result
-
     def test_duplicate_key_swallow_is_ignored_silently(self):
         mapper = SmartTegenrekeningMapper(company=self.company)
 
         with patch(
             "verenigingen.utils.secure_operations.secure_document_operation",
-            return_value=self._duplicate_key_result(),
+            return_value=duplicate_key_result("Item", "EB-GENERIC-INCOME"),
         ):
             with self.assertNoErrorLog():
                 mapper._create_fallback_item(

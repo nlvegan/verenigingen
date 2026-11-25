@@ -18,6 +18,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.setup import workflow_setup as wf
+from verenigingen.tests.utils.secure_operation_race_helpers import duplicate_key_result
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import SecureOperationResult
 
@@ -75,14 +76,6 @@ class TestWorkflowMasterDuplicateRace(FrappeTestCase):
     passes through untouched.
     """
 
-    def _duplicate_key_result(self, doctype, name):
-        result = SecureOperationResult(False, "test_master_race")
-        result.add_error(
-            f"Operation failed: ('{doctype}', '{name}', "
-            f"IntegrityError(1062, \"Duplicate entry '{name}' for key 'PRIMARY'\"))"
-        )
-        return result
-
     def _fake_exists_missing_for(self, doctype, name):
         real_exists = frappe.db.exists
 
@@ -102,7 +95,7 @@ class TestWorkflowMasterDuplicateRace(FrappeTestCase):
             with patch.object(
                 wf,
                 "secure_document_operation",
-                return_value=self._duplicate_key_result("Workflow State", "Executed"),
+                return_value=duplicate_key_result("Workflow State", "Executed"),
             ):
                 created = wf.create_workflow_state_masters()
 
@@ -123,7 +116,7 @@ class TestWorkflowMasterDuplicateRace(FrappeTestCase):
             with patch.object(
                 wf,
                 "secure_document_operation",
-                return_value=self._duplicate_key_result("Workflow Action Master", "Execute"),
+                return_value=duplicate_key_result("Workflow Action Master", "Execute"),
             ):
                 created = wf.create_workflow_action_masters()
 
