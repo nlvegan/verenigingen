@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, getdate, now_datetime, today
+from frappe.utils import add_days, flt, getdate, now_datetime, today
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.notification_helpers import resolve_admin_recipients
@@ -199,12 +199,18 @@ class PaymentRetryManager:
 
     def escalate_payment_failure(self, retry_record):
         """Escalate payment failure after max retries"""
+        # schedule_retry re-enters here for every failure after exhaustion; the member is
+        # told once per exhausted payment, so remember whether this record already was (#3103).
+        already_escalated = retry_record.status == "Escalated"
         retry_record.status = "Escalated"
         retry_record.escalated_on = now_datetime()
         retry_record.save()
 
         # Send notification to administrators
         self.send_escalation_notification(retry_record)
+
+        if not already_escalated:
+            self.send_member_exhaustion_notification(retry_record)
 
         # Audit trail. The membership is nullable on the record (only an Active
         # membership is stored), so a lapsed member's escalation is noted on the
@@ -218,6 +224,46 @@ class PaymentRetryManager:
             membership.save()
         else:
             retry_record.add_comment("Comment", comment)
+
+    def send_member_exhaustion_notification(self, retry_record):
+        """Tell the member their payment failed for good (maintainer ruling on #3103: members
+        are mailed on retry exhaustion only, never on an individual failure).
+
+        A failed member mail must not undo the escalation, so it is logged, not raised.
+        """
+        if not retry_record.member:
+            return
+        try:
+            member = frappe.get_doc("Member", retry_record.member)
+            if not member.email:
+                return
+            from verenigingen.services.communication.email_service import get_email_service
+
+            result = get_email_service().send_templated_email(
+                template_name="payment_failure_final",
+                recipients=[member.email],
+                context={
+                    "member": member,
+                    "failure_count": retry_record.retry_count,
+                    "payment_status": "failed",
+                    "amount": flt(retry_record.original_amount),
+                    "next_payment_date": member.next_payment_date,
+                    "company": get_mollie_config().get_default_company(),
+                },
+                reference_doctype="Member",
+                reference_name=member.name,
+                notification_key="payment_failure_final",
+            )
+            if not result.success:
+                frappe.log_error(
+                    title="Payment failure member notification",
+                    message=f"Member {member.name}, invoice {retry_record.invoice}: {result.error_message}",
+                )
+        except Exception:
+            frappe.log_error(
+                title="Payment failure member notification",
+                message=f"Member {retry_record.member}, invoice {retry_record.invoice}\n{frappe.get_traceback()}",
+            )
 
     def send_escalation_notification(self, retry_record):
         """Send notification about escalated payment failure"""
