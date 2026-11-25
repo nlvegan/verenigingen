@@ -120,34 +120,55 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
     def _has_role_names_3218(self, user_name):
         return frappe.get_all("Has Role", filters={"parent": user_name, "parenttype": "User"}, pluck="role")
 
-    def test_direct_system_manager_gets_member_profile_and_keeps_roles(self):
+    def _save_user_plain(self, user_name):
+        frappe.get_doc("User", user_name).save()
+
+    def test_direct_system_manager_gets_member_role_without_profile_and_survives_save(self):
+        # Ruling "profile if safe, else role": no profile may be attached, or the next save drops System Manager.
         self._require_role_profiles()
         user = self._make_user(roles=["System Manager", "Accounts User"])
         self.assertFalse(self._profile_names(user.name), "fixture: no profile yet")
-        self._assert_staff_gets_member_profile_3218(
-            user, ["System Manager", "Accounts User"], ["Verenigingen Member"]
-        )
+        held_before = self._has_role_names_3218(user.name)
+        self.assertIn("System Manager", held_before)  # control: real Has Role rows pre-call
+        with self.assertNoErrorLog():
+            result = self.service.add_member_roles_to_user(user.name)
+        self.assertEqual(result, user.name)
+        self.assertFalse(self._profile_names(user.name))
+        self._save_user_plain(user.name)
+        held = set(self._has_role_names_3218(user.name))
+        self.assertTrue({"System Manager", "Accounts User", "Verenigingen Member"} <= held)
 
     def test_profile_staff_keeps_first_profile_and_gets_member_as_second(self):
         self._require_role_profiles()
         user = self._make_user()
         user.set("role_profiles", [{"role_profile": "Verenigingen System Administrator"}])
         user.save(ignore_permissions=True)
-        # Held directly, supplied by no profile. A User.save() would drop it (that is the
-        # trap under test), so it is written as a Has Role row, as the sync's own restore does.
+        self.assertIn("System Manager", self._has_role_names_3218(user.name))  # control
+        self._assert_staff_gets_member_profile_3218(
+            user,
+            ["System Manager", "Verenigingen Administrator"],
+            ["Verenigingen System Administrator", "Verenigingen Member"],
+        )
+        self._save_user_plain(user.name)
+        self.assertIn("System Manager", self._has_role_names_3218(user.name))
+
+    def test_mixed_staff_with_unprofiled_direct_role_takes_role_path(self):
+        self._require_role_profiles()
+        user = self._make_user()
+        user.set("role_profiles", [{"role_profile": "Verenigingen System Administrator"}])
+        user.save(ignore_permissions=True)
         from verenigingen.services.member.account.user_role_profile_calculator import (
             _restore_direct_roles,
         )
 
+        # Held directly, supplied by no profile (a User.save() would drop it, so a Has Role row).
         _restore_direct_roles(user.name, ["Accounts User"])
-        held_before = self._has_role_names_3218(user.name)
-        self.assertIn("System Manager", held_before)
-        self.assertIn("Accounts User", held_before)  # control: the direct role exists pre-call
-        self._assert_staff_gets_member_profile_3218(
-            user,
-            ["System Manager", "Verenigingen Administrator", "Accounts User"],
-            ["Verenigingen System Administrator", "Verenigingen Member"],
-        )
+        self.assertIn("Accounts User", self._has_role_names_3218(user.name))  # control
+        with self.assertNoErrorLog():
+            self.assertEqual(self.service.add_member_roles_to_user(user.name), user.name)
+        self.assertEqual(self._profile_names(user.name), ["Verenigingen System Administrator"])
+        held = set(self._has_role_names_3218(user.name))
+        self.assertTrue({"System Manager", "Accounts User", "Verenigingen Member"} <= held)
 
     def test_staff_with_missing_profile_still_keeps_roles_and_gets_member_role(self):
         self._require_role_profiles()

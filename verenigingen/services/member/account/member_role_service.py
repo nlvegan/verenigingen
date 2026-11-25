@@ -150,39 +150,61 @@ class MemberRoleService(StatelessService):
             return None
 
     def _add_member_profile_to_staff(self, user_name: str, role_profile_name: Optional[str]) -> str:
-        """Add the member profile to a staff account WITHOUT replacing anything (#3218, per #1969).
+        """Give a staff account member access WITHOUT replacing anything (#3218, per #1969).
 
-        Existing profiles stay. Roles held directly (supplied by none of the user's
-        profiles) are written back after the save, because User.validate() re-derives
-        ``roles`` from ``role_profiles`` and would drop them (same trap as the nightly sync).
+        "Profile if safe, else role" (maintainer ruling on #3218): attach the member profile
+        as a second profile only when that cannot let a later User.save() drop a role the
+        user holds now; otherwise grant the Verenigingen Member role directly, which no
+        later save can strip because no profile re-derives the roles.
         """
-        from verenigingen.services.member.account.user_role_profile_calculator import (
-            _direct_roles,
-            _restore_direct_roles,
-            record_requested_profile,
-        )
-
         role_profile_name = role_profile_name or "Verenigingen Member"
         user = frappe.get_doc("User", user_name)
         held_profiles = [row.role_profile for row in user.get("role_profiles")]
-        keep_roles = _direct_roles(user_name, held_profiles)
 
-        if frappe.db.exists("Role Profile", role_profile_name):
-            if role_profile_name not in held_profiles:
-                user.append("role_profiles", {"role_profile": role_profile_name})
-            record_requested_profile(user, role_profile_name, keep_existing=True)
+        if frappe.db.exists("Role Profile", role_profile_name) and self._profile_attach_is_safe(
+            user_name, held_profiles, role_profile_name
+        ):
+            self._attach_member_profile(user, held_profiles, role_profile_name)
         else:
-            self.logger.warning(f"Role Profile {role_profile_name} does not exist. Adding member role only.")
-            if not frappe.db.exists("Role", "Verenigingen Member"):
-                self.create_verenigingen_member_role()
-            keep_roles = [*keep_roles, "Verenigingen Member"]
+            self._grant_member_role_directly(user_name)
+        self.logger.info(f"Added member access '{role_profile_name}' to staff user {user_name}")
+        return user.name
 
+    @staticmethod
+    def _profile_attach_is_safe(user_name: str, held_profiles: list, new_profile: str) -> bool:
+        """True when every role the user holds now is supplied by their profiles plus ``new_profile``.
+
+        User.validate() re-derives ``roles`` from ``role_profiles`` on every save and drops
+        any role no profile supplies. Attaching a profile therefore makes the user's
+        directly-held roles (e.g. a System Manager with no profile) disappear on the next
+        plain save, unless the profiles already cover them.
+        """
+        supplied = set()
+        for profile in [*held_profiles, new_profile]:
+            supplied.update(r.role for r in frappe.get_cached_doc("Role Profile", profile).roles)
+        held = frappe.get_all("Has Role", filters={"parent": user_name, "parenttype": "User"}, pluck="role")
+        return set(held) <= supplied
+
+    @staticmethod
+    def _attach_member_profile(user, held_profiles: list, role_profile_name: str) -> None:
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            record_requested_profile,
+        )
+
+        if role_profile_name not in held_profiles:
+            user.append("role_profiles", {"role_profile": role_profile_name})
+        record_requested_profile(user, role_profile_name, keep_existing=True)
         if not user.enabled:
             user.enabled = 1
         user.save()
-        _restore_direct_roles(user_name, keep_roles)
-        self.logger.info(f"Added member profile '{role_profile_name}' to staff user {user_name}")
-        return user.name
+
+    def _grant_member_role_directly(self, user_name: str) -> None:
+        """Write the Verenigingen Member role as a Has Role row; no profile, no role replacement."""
+        if not frappe.db.exists("Role", "Verenigingen Member"):
+            self.create_verenigingen_member_role()
+        if not frappe.db.get_value("User", user_name, "enabled"):
+            frappe.db.set_value("User", user_name, "enabled", 1)
+        ensure_role_survives_profile_resync(user_name, "Verenigingen Member")
 
     @staticmethod
     def _is_staff_account(user_name: str) -> bool:
