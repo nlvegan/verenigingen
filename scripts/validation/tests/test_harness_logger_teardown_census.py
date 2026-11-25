@@ -145,7 +145,10 @@ MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 24, 5, 13
 # (EnhancedTestCase._member_has_blocked_schedule). It enters at WARNING, so
 # NAME_ERRORS does NOT move -- only the call count.
 # 43, 13 -> 44, 14 (#2271): the same single route as the MRO note above, at ERROR.
-NAME_CALLS, NAME_ERRORS = 44, 14
+# 44, 14 -> 45, 14 (#3055): the rolled-back-batch test tearDown logs a failed delete_doc at
+# WARNING via get_harness_logger (it used to `except Exception: pass`); name-mode only, so
+# NAME_ERRORS and every MRO figure stay put.
+NAME_CALLS, NAME_ERRORS = 45, 14
 RESIDUAL_BELOW_ERROR = 19  # 17 -> 18 (#1154's WARNING success-path sweep, dropped by the
 # mirror knowingly); UNCHANGED at 18 when its ERROR failure-path sibling landed, because
 # that one entered at ERROR and moved MRO_ERRORS with it. 18 -> 19 (#1306 round 5):
