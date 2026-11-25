@@ -170,6 +170,60 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
         held = set(self._has_role_names_3218(user.name))
         self.assertTrue({"System Manager", "Accounts User", "Verenigingen Member"} <= held)
 
+    def test_disabled_direct_role_staff_stays_disabled(self):
+        # #3218 review: the staff path must never re-enable a disabled staff account.
+        self._require_role_profiles()
+        user = self._make_user(roles=["System Manager", "Accounts User"])
+        frappe.db.set_value("User", user.name, "enabled", 0)
+        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)  # control
+        with self.assertNoErrorLog():
+            self.service.add_member_roles_to_user(user.name)
+        self.assertIn("Verenigingen Member", self._has_role_names_3218(user.name))  # role WAS granted
+        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)
+
+    def test_disabled_profile_staff_stays_disabled(self):
+        self._require_role_profiles()
+        user = self._make_user()
+        user.set("role_profiles", [{"role_profile": "Verenigingen System Administrator"}])
+        user.save()
+        frappe.db.set_value("User", user.name, "enabled", 0)
+        with self.assertNoErrorLog():
+            self.service.add_member_roles_to_user(user.name)
+        self.assertIn("Verenigingen Member", self._profile_names(user.name))  # profile WAS attached
+        self.assertEqual(frappe.db.get_value("User", user.name, "enabled"), 0)
+
+    def test_staff_profile_clause_for_new_profile_attaches_when_member_role_held_directly(self):
+        # The held-role set must be covered by held profiles PLUS the profile being attached:
+        # a direct "Verenigingen Member" row is supplied by the member profile itself, so
+        # attaching is safe and must be chosen over the direct-role path.
+        self._require_role_profiles()
+        user = self._make_user()
+        user.set("role_profiles", [{"role_profile": "Verenigingen System Administrator"}])
+        user.save()
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            _restore_direct_roles,
+        )
+
+        _restore_direct_roles(user.name, ["Verenigingen Member"])
+        self.assertIn("Verenigingen Member", self._has_role_names_3218(user.name))  # control
+        self.assertNotIn("Verenigingen Member", self._profile_names(user.name))  # control
+        with self.assertNoErrorLog():
+            self.service.add_member_roles_to_user(user.name)
+        self.assertIn("Verenigingen Member", self._profile_names(user.name))
+
+    def test_staff_path_ignores_caller_supplied_role_profile(self):
+        # The staff path attaches only the member profile, never a caller-named one.
+        self._require_role_profiles()
+        user = self._make_user()
+        user.set("role_profiles", [{"role_profile": "Verenigingen System Administrator"}])
+        user.save()
+        self.assertTrue(frappe.db.exists("Role Profile", "Verenigingen Volunteer"))  # control
+        with self.assertNoErrorLog():
+            self.service.add_member_roles_to_user(user.name, role_profile_name="Verenigingen Volunteer")
+        profiles = self._profile_names(user.name)
+        self.assertIn("Verenigingen Member", profiles)
+        self.assertNotIn("Verenigingen Volunteer", profiles)
+
     def test_staff_with_missing_profile_still_keeps_roles_and_gets_member_role(self):
         self._require_role_profiles()
         user = self._make_user(roles=["System Manager", "Accounts User"])

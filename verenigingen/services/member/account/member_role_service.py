@@ -57,6 +57,7 @@ class MemberRoleService(StatelessService):
             user_name: Username/email of the user
             role_profile_name: Optional role profile to assign. If not provided,
                               defaults to "Verenigingen Member"
+                              Ignored for staff accounts, which always get "Verenigingen Member".
 
         Returns:
             Optional[str]: Username if successful, None if failed
@@ -88,7 +89,7 @@ class MemberRoleService(StatelessService):
             # #3218 (maintainer ruling 2026-11-25): a System Manager who is also a member gets
             # the member profile as a SECOND profile, additively; staff roles are kept.
             if self._is_staff_account(user_name):
-                return self._add_member_profile_to_staff(user_name, role_profile_name)
+                return self._add_member_profile_to_staff(user_name)
 
             # Use provided role profile or default to Verenigingen Member
             if not role_profile_name:
@@ -149,15 +150,21 @@ class MemberRoleService(StatelessService):
             )
             return None
 
-    def _add_member_profile_to_staff(self, user_name: str, role_profile_name: Optional[str]) -> str:
+    def _add_member_profile_to_staff(self, user_name: str) -> str:
         """Give a staff account member access WITHOUT replacing anything (#3218, per #1969).
 
         "Profile if safe, else role" (maintainer ruling on #3218): attach the member profile
         as a second profile only when that cannot let a later User.save() drop a role the
         user holds now; otherwise grant the Verenigingen Member role directly, which no
         later save can strip because no profile re-derives the roles.
+
+        The profile is hard-wired to "Verenigingen Member": a caller-supplied profile could
+        carry more roles than member access, and a staff account must not gain them here.
+        A disabled staff account stays disabled; ``enabled`` is never touched on this path.
+        Limit: a plain ``User.save()`` keeps these roles, but the event-mode
+        ``sync_user_role_profile`` strips direct roles (pre-existing, tracked in #3269).
         """
-        role_profile_name = role_profile_name or "Verenigingen Member"
+        role_profile_name = "Verenigingen Member"
         user = frappe.get_doc("User", user_name)
         held_profiles = [row.role_profile for row in user.get("role_profiles")]
 
@@ -194,16 +201,12 @@ class MemberRoleService(StatelessService):
         if role_profile_name not in held_profiles:
             user.append("role_profiles", {"role_profile": role_profile_name})
         record_requested_profile(user, role_profile_name, keep_existing=True)
-        if not user.enabled:
-            user.enabled = 1
         user.save()
 
     def _grant_member_role_directly(self, user_name: str) -> None:
         """Write the Verenigingen Member role as a Has Role row; no profile, no role replacement."""
         if not frappe.db.exists("Role", "Verenigingen Member"):
             self.create_verenigingen_member_role()
-        if not frappe.db.get_value("User", user_name, "enabled"):
-            frappe.db.set_value("User", user_name, "enabled", 1)
         ensure_role_survives_profile_resync(user_name, "Verenigingen Member")
 
     @staticmethod
