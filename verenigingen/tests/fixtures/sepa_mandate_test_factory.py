@@ -746,3 +746,15 @@ class SEPAMandateTestMixin:
             elif rule == "sepa_scheme_compliance":
                 self.assertEqual(mandate.scheme, "SEPA", "SEPA scheme required")
             # Add more validation rules as needed
+
+def donation_sepa_consent_fields_2423():
+    """The form fields a donor sends after reading the mandate text and ticking consent (#2423).
+
+    Derived from the live text the server will check against, never a hardcoded hash.
+    """
+    from verenigingen.services.payment.sepa_mandate_consent import get_mandate_consent_text, hash_consent_text
+
+    return {
+        "sepa_consent": True,
+        "sepa_consent_text_hash": hash_consent_text(get_mandate_consent_text()),
+    }

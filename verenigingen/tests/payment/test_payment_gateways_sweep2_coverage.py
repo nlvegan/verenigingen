@@ -42,6 +42,7 @@ import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.utils import payment_gateways as pg
+from verenigingen.tests.fixtures.sepa_mandate_test_factory import donation_sepa_consent_fields_2423
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +412,7 @@ class TestSEPAMandateFailure(EnhancedTestCase):
         frappe.db.set_value("Donation", donation.name, "donor", "Donor-NONEXISTENT-XYZ")
         donation.reload()
         result = pg.SEPAGateway().process_payment(
-            donation, {"donor_iban": "NL39RABO0300065264", "donor_name": "x"}
+            donation, {**donation_sepa_consent_fields_2423(), "donor_iban": "NL39RABO0300065264", "donor_name": "x"}
         )
         self.assertEqual(result["status"], "error")
         self.assertIn("Failed to create SEPA mandate", result["message"])

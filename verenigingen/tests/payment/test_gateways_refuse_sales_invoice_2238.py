@@ -16,9 +16,8 @@ Only method AVAILABILITY (settings reads) and Ponto's HTTP client are stubbed.
 Probe shortcut (stated): the invoice's ``contact_email`` is set with ``db_set`` after submit,
 as the Mollie gate tests do, so the guest endpoint's ownership check can resolve it.
 
-SEPA caveat: through the hook SEPA is currently refused with "IBAN is required" for EVERY
-reference because the hook sends ``iban`` while the gateway reads ``donor_iban`` (#2423, not
-fixed here). So the SEPA Donation control calls the gateway directly with ``donor_iban``.
+SEPA: the hook-to-gateway ``iban``/``donor_iban`` mismatch is fixed (#2423); the SEPA Donation
+control still calls the gateway directly, with the consent fields #2423 now requires.
 """
 
 import types
@@ -29,6 +28,7 @@ import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.hooks.payment_hook import PaymentHook
 from verenigingen.verenigingen_payments.utils import payment_gateways as pg
+from verenigingen.tests.fixtures.sepa_mandate_test_factory import donation_sepa_consent_fields_2423
 
 GATE_MESSAGE = "Paying an invoice through this page is not available yet."
 IBAN = "NL39RABO0300065264"
@@ -166,7 +166,7 @@ class TestGatewaysRefuseSalesInvoice(EnhancedTestCase):
 
     def test_control_sepa_still_creates_a_mandate_for_a_donation(self):
         donation = self._gate_donation()
-        result = pg.SEPAGateway().process_payment(donation, {"donor_iban": IBAN, "donor_name": "X"})
+        result = pg.SEPAGateway().process_payment(donation, {**donation_sepa_consent_fields_2423(), "donor_iban": IBAN, "donor_name": "X"})
         self.assertEqual(result["status"], "mandate_created", result)
 
     def test_control_only_a_sales_invoice_is_refused(self):

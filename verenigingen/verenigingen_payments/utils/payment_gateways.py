@@ -9,8 +9,13 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.services.payment.sepa_mandate_consent import (
+    check_member_consent,
+    record_member_consent,
+    user_is_staff,
+)
 from verenigingen.utils.member_utils import validate_member_ownership
-from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.secure_operations import save_as_system_user, secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, public_api
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
@@ -872,6 +877,14 @@ class SEPAGateway(PaymentGateway):
         if not validation_result["valid"]:
             return create_error_response(validation_result["message"])
 
+        # Server-side consent gate (#2423): before anything is written. _create_sepa_mandate
+        # checks again, so a direct caller of it is held to the same rule.
+        _consent_text, consent_refusal = check_member_consent(
+            form_data.get("sepa_consent"), form_data.get("sepa_consent_text_hash")
+        )
+        if consent_refusal:
+            return create_error_response(consent_refusal["error"])
+
         # Create or update SEPA mandate
         mandate = self._create_sepa_mandate(donation, iban, form_data)
 
@@ -881,14 +894,21 @@ class SEPAGateway(PaymentGateway):
             # donation flow already sets), so only the mandate link is persisted
             # here - the old db_set("payment_method", ...) wrote to a nonexistent
             # column and raised, aborting the otherwise-successful mandate flow.
-            donation.db_set("sepa_mandate", mandate.name)
-
-            return {
-                "status": "mandate_created",
-                "mandate_id": mandate.name,
-                "collection_date": self._calculate_collection_date(donation),
-                "message": _("SEPA mandate created successfully"),
-            }
+            try:
+                donation.db_set("sepa_mandate", mandate.name)
+                result = {
+                    "status": "mandate_created",
+                    "mandate_id": mandate.name,
+                    "collection_date": self._calculate_collection_date(donation),
+                    "message": _("SEPA mandate created successfully"),
+                }
+            except Exception:
+                # The mandate insert was committed (save_as_system_user), so a failure here
+                # would leave an Active mandate no donation points at. Cancel it, then re-raise
+                # so the caller reports the failure (#2423).
+                self._cancel_orphan_mandate(mandate)
+                raise
+            return result
         else:
             return create_error_response("Failed to create SEPA mandate")
 
@@ -908,8 +928,55 @@ class SEPAGateway(PaymentGateway):
         result = validate_iban(iban)
         return result["valid"]
 
+    @staticmethod
+    def _cancel_orphan_mandate(mandate):
+        """Cancel a just-created mandate whose donation link failed; never masks the real error."""
+        try:
+            # Same committing path as the insert: a plain set_value is rolled back with a GET
+            # request, leaving the orphan Active. Fields mirror cancel_active_mandates.
+            orphan = frappe.get_doc("SEPA Mandate", mandate.name)
+            orphan.status = "Cancelled"
+            orphan.is_active = 0
+            orphan.cancelled_date = frappe.utils.today()
+            orphan.cancellation_reason = "Donation link failed after mandate creation (#2423)"
+            save_as_system_user(
+                orphan,
+                "save",
+                "public_donation_sepa_mandate",
+                f"Cancel orphan SEPA mandate {mandate.name}: donation link failed",
+            )
+        except Exception as cancel_error:
+            frappe.log_error(
+                title="SEPA Gateway Error",
+                message=f"Could not cancel orphan SEPA mandate {mandate.name}: {cancel_error}",
+            )
+
+    @staticmethod
+    def _member_the_session_may_link(donation):
+        """The donor's member, but only when this session is that member's user or staff (#2423).
+
+        A donor is matched to a member by an UNVERIFIED e-mail, and linking a donation mandate to
+        a member supersedes the member's Active donation mandate. Anyone else (a Guest typing a
+        member's e-mail) therefore gets a member-less mandate for the donation only: it is not
+        linked to the member and supersedes nothing. No refusal is shown, so the response is the
+        same as for a non-member e-mail (maintainer ruling on #2423, 2026-11-25).
+        """
+        member = frappe.db.get_value("Donor", donation.donor, "member")
+        if not member:
+            return None
+        if user_is_staff() or frappe.db.get_value("Member", member, "user") == frappe.session.user:
+            return member
+        return None
+
     def _create_sepa_mandate(self, donation, iban, form_data):
         """Create SEPA mandate record"""
+        # Checked again here, not only in process_payment: any caller of this method is held to
+        # the same consent, so a mandate is never built without it (#2423).
+        consent_text, consent_refusal = check_member_consent(
+            form_data.get("sepa_consent"), form_data.get("sepa_consent_text_hash")
+        )
+        if consent_refusal:
+            return None
         try:
             # Get donor information
             donor = frappe.get_doc("Donor", donation.donor)
@@ -943,13 +1010,18 @@ class SEPAGateway(PaymentGateway):
                 }
             )
 
+            # Stamp the verified consent (who/when/which text) and mark it server-verified,
+            # which is what enforce_consent_provenance accepts from a non-staff donor.
+            record_member_consent(mandate, consent_text)
+
             # Link the mandate to the donor's member (when the donor is a member)
             # so it appears in the member's mandate list and member-scoped
             # permission queries. SEPA Mandate is member-scoped (no donor field);
             # a donor with no linked member yields a member-less mandate, which is
             # acceptable. `member` is not a required field.
-            if donor.member:
-                mandate.member = donor.member
+            linked_member = self._member_the_session_may_link(donation)
+            if linked_member:
+                mandate.member = linked_member
 
                 # A member holds at most one Active mandate (#584). Without this the
                 # insert below would be rejected for any member-donor who already has
@@ -961,26 +1033,23 @@ class SEPAGateway(PaymentGateway):
                 # Donations only: a member's membership mandate is a different
                 # collection and must not be cancelled by donating (#584).
                 superseded = cancel_active_mandates(
-                    donor.member,
+                    linked_member,
                     f"Replaced by a donation mandate for donation {donation.name}",
                     purposes=["used_for_donations"],
                 )
                 carry_forward_purposes(mandate, superseded["purposes"])
                 mandate.used_for_donations = 1
 
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            mandate_result = secure_document_operation(
-                operation="insert",
-                doc=mandate,
-                justification=f"Create SEPA mandate for donation {donation.name} - {mandate.mandate_type} mandate for donor {form_data.get('donor_name', donor.donor_name)}",
-                required_permissions=["SEPA Mandate:create"],
+            # Written as the configured system user (the public-donation pattern): a guest or
+            # plain donor holds no create permission on SEPA Mandate, and
+            # secure_document_operation refuses them outright (#2423). The consent just verified
+            # above is what authorises the write; enforce_consent_provenance re-checks it on insert.
+            save_as_system_user(
+                mandate,
+                "insert",
+                "public_donation_sepa_mandate",
+                f"Create SEPA mandate for donation {donation.name} with the donor's verified consent",
             )
-            if not mandate_result.success:
-                frappe.log_error(
-                    f"Failed to create SEPA mandate for donation {donation.name}: {'; '.join(mandate_result.errors)}",
-                    "SEPA Gateway Error",
-                )
-                return None
             return mandate
 
         except Exception as e:

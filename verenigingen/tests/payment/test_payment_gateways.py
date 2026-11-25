@@ -17,6 +17,7 @@ import frappe
 from frappe.utils import getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.sepa_mandate_test_factory import donation_sepa_consent_fields_2423
 from verenigingen.verenigingen_payments.utils.payment_gateways import (
     BankTransferGateway,
     CashGateway,
@@ -139,7 +140,7 @@ class TestSEPAGatewayMandateCreation(EnhancedTestCase):
             amount=20.0, mode_of_payment="SEPA Direct Debit", donor=donor.name, paid=0
         )
         result = SEPAGateway().process_payment(
-            donation, {"donor_iban": "NL39RABO0300065264", "donor_name": "SEPA Gateway Donor"}
+            donation, {**donation_sepa_consent_fields_2423(), "donor_iban": "NL39RABO0300065264", "donor_name": "SEPA Gateway Donor"}
         )
         self.assertEqual(result["status"], "mandate_created")
         mandate_name = result["mandate_id"]
@@ -164,7 +165,7 @@ class TestSEPAGatewayMandateCreation(EnhancedTestCase):
             amount=25.0, mode_of_payment="SEPA Direct Debit", donor=donor.name, paid=0
         )
         result = SEPAGateway().process_payment(
-            donation, {"donor_iban": "NL39RABO0300065264", "donor_name": "Member-Linked Donor"}
+            donation, {**donation_sepa_consent_fields_2423(), "donor_iban": "NL39RABO0300065264", "donor_name": "Member-Linked Donor"}
         )
         self.assertEqual(result["status"], "mandate_created")
         self.assertEqual(
@@ -177,7 +178,7 @@ class TestSEPAGatewayMandateCreation(EnhancedTestCase):
             amount=30.0, mode_of_payment="SEPA Direct Debit", donor=donor.name, paid=0, status="Recurring"
         )
         result = SEPAGateway().process_payment(
-            donation, {"donor_iban": "NL39RABO0300065264", "donor_name": "Recurring SEPA Donor"}
+            donation, {**donation_sepa_consent_fields_2423(), "donor_iban": "NL39RABO0300065264", "donor_name": "Recurring SEPA Donor"}
         )
         self.assertEqual(result["status"], "mandate_created")
         self.assertEqual(

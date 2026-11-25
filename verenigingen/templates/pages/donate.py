@@ -152,6 +152,16 @@ def get_context(context):
         },
     }
 
+    # The mandate text a donor agrees to when choosing SEPA Direct Debit (#2423). The form
+    # sends back the hash of what it displayed; the server refuses a stale one.
+    from verenigingen.services.payment.sepa_mandate_consent import (
+        get_mandate_consent_text,
+        hash_consent_text,
+    )
+
+    context.mandate_consent_text = get_mandate_consent_text()
+    context.mandate_consent_text_hash = hash_consent_text(context.mandate_consent_text)
+
     context.payment_methods = [
         method_display[m["id"]] for m in available_methods if m["id"] in method_display
     ]
@@ -202,7 +212,7 @@ def get_context(context):
     return context
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=True, methods=["POST"])
 @public_api(operation_type=OperationType.FINANCIAL)
 def submit_donation(**kwargs):
     """Process donation form submission (delegates to PublicDonationService)."""

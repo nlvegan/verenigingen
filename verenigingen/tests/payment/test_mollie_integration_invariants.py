@@ -1298,7 +1298,6 @@ KNOWN_ORPHAN_FORM_DATA_READS = {
     # Transfer. donate.html does not collect them today, so those branches are
     # unreachable FROM THIS FORM -- but submit_donation is a public endpoint and
     # other callers may supply them. Listed rather than deleted for that reason.
-    "donor_iban": "PaymentHook payer_info (SEPA); not collected by donate.html",
     "account_holder": "PaymentHook payer_info (SEPA); not collected by donate.html",
     "is_recurring": "PaymentHook recurring flag; the form posts donation_status instead",
     "payment_method_preference": "Mollie method hint; not collected by donate.html",
@@ -1332,6 +1331,10 @@ def _donate_form_writers():
         writers |= set(re.findall(r"""\bname=["']([A-Za-z_][\w]*)["']""", template))
         writers |= set(re.findall(r"""\bid=["']([A-Za-z_][\w]*)["']""", template))
     js = _read_text(DONATE_JS)
+    # Inputs the JS renders itself (showPaymentDetails builds the SEPA block as a template
+    # literal): the browser posts them via collectAllStepData() on `input.name` (#2423).
+    # Only on a rendered control: `[name="x"]` in a querySelector is a READ, not a writer.
+    writers |= set(re.findall(r"""<(?:input|select|textarea)\b[^>]*\bname=["']([A-Za-z_][\w]*)["']""", js))
     writers |= set(re.findall(r"""formData\.([A-Za-z_][\w]*)""", js))
     writers |= set(re.findall(r"""formData\[["']([A-Za-z_][\w]*)["']\]""", js))
     writers |= set(re.findall(r"""getElementById\(["']([A-Za-z_][\w]*)["']\)""", js))
@@ -1474,6 +1477,15 @@ class TestDonateFormKeysHaveWriters(unittest.TestCase):
             f"Scanner found no writer for anonymous in campaign.html; "
             f"writers={sorted(self.writers)[:40]}",
         )
+
+    def test_the_scanner_sees_inputs_the_js_renders_itself(self):
+        """CONTROL (#2423). SEPA consent inputs exist only inside a template literal in
+        donation_form.js; before the scan read those, the real hash key looked orphaned.
+        A `[name="x"]` querySelector is a read and must NOT count: anbi_agreement_number
+        is selected that way in the JS and is still an orphan."""
+        for key in ("sepa_consent", "sepa_consent_text_hash", "donor_iban"):
+            self.assertIn(key, self.writers)
+        self.assertNotIn("anbi_agreement_number", self.writers)
 
     def test_956_known_readers_are_in_the_scanned_set(self):
         """CONTROL for #956. The campaign entry point (donation_api.py), the

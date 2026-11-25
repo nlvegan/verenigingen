@@ -1,0 +1,326 @@
+"""SEPA mandate consent on the donation path (#2423, ruling (a) of 2026-11-25).
+
+Driven through the real ``PaymentHook.initiate_payment`` and the real ``SEPAGateway`` with a
+real Donor/Donation and a real non-staff session user. Stand-in, stated: only
+``PaymentHook._get_sepa_config`` is replaced (availability depends on site payment settings
+this test does not own); everything after it is real.
+"""
+
+import json
+import os
+from unittest.mock import patch
+
+import frappe
+
+from verenigingen.services.payment import sepa_mandate_consent as consent_module
+from verenigingen.services.payment.sepa_mandate_consent import consent_refusal, hash_consent_text
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.portal_self_service_mixin import PortalSelfServiceTestMixin
+from verenigingen.utils.validation.iban_validator import generate_test_iban
+from verenigingen.verenigingen_payments.hooks import PaymentHook
+from verenigingen.verenigingen_payments.utils import payment_gateways as pg
+
+
+class TestDonationSepaConsent2423(PortalSelfServiceTestMixin, EnhancedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.member = self.create_test_member(birth_date="1990-01-01")
+        self.user = self._link_member_to_user(self.member)
+        patcher = patch.object(PaymentHook, "_get_sepa_config", return_value={"available": True})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.iban = generate_test_iban("TEST")
+        self.holder = f"Consent Donor {frappe.generate_hash(length=6)}"
+        donor = self.create_test_donor(donor_name=self.holder)
+        self.donation = self.create_test_donation(
+            donor=donor.name, amount=15.0, mode_of_payment="SEPA Direct Debit", paid=0
+        )
+
+    def _initiate_2423(self, user=None, **payer_extra):
+        payer_info = {"email": "donor2423@example.com", "name": self.holder, "iban": self.iban}
+        payer_info.update(payer_extra)
+        with self._as_user(user or self.user.name):
+            return PaymentHook.initiate_payment(
+                method=PaymentHook.SEPA,
+                amount=15.0,
+                reference_doctype="Donation",
+                reference_name=self.donation.name,
+                payer_info=payer_info,
+            )
+
+    def _consent_2423(self):
+        return {
+            "sepa_consent": True,
+            "sepa_consent_text_hash": hash_consent_text(consent_module.get_mandate_consent_text()),
+        }
+
+    def _mandates_2423(self):
+        return frappe.get_all("SEPA Mandate", filters={"account_holder_name": self.holder}, pluck="name")
+
+    def test_consent_through_the_hook_creates_a_mandate_with_the_consent_record(self):
+        result = self._initiate_2423(**self._consent_2423())
+        self.assertTrue(result["success"], result)
+        mandates = self._mandates_2423()
+        self.assertEqual(len(mandates), 1)
+        row = frappe.db.get_value(
+            "SEPA Mandate", mandates[0], ["consent_source", "consent_text", "iban"], as_dict=True
+        )
+        self.assertEqual(row.consent_source, "Member consent")
+        self.assertEqual(row.consent_text, consent_module.get_mandate_consent_text())
+        self.assertEqual(row.iban.replace(" ", ""), self.iban.replace(" ", ""))
+        self.assertEqual(frappe.db.get_value("Donation", self.donation.name, "sepa_mandate"), mandates[0])
+
+    def test_no_consent_is_refused_and_creates_nothing(self):
+        result = self._initiate_2423()
+        self.assertFalse(result["success"])
+        self.assertEqual(result["message"], consent_refusal()["error"])
+        self.assertEqual(self._mandates_2423(), [])
+
+    def test_a_false_or_zero_consent_is_refused(self):
+        for value in (False, 0, "0", "false", "", None):
+            with self.subTest(consent=value):
+                result = self._initiate_2423(
+                    sepa_consent=value, sepa_consent_text_hash=self._consent_2423()["sepa_consent_text_hash"]
+                )
+                self.assertFalse(result["success"])
+        self.assertEqual(self._mandates_2423(), [])
+
+    def test_consent_to_a_stale_text_is_refused(self):
+        result = self._initiate_2423(sepa_consent=True, sepa_consent_text_hash=hash_consent_text("old text"))
+        self.assertFalse(result["success"])
+        self.assertEqual(self._mandates_2423(), [])
+
+    def test_the_gateway_itself_refuses_without_consent(self):
+        """Server-side, not only the hook: a direct gateway call with a valid IBAN and no consent."""
+        with self._as_user(self.user.name):
+            result = pg.SEPAGateway().process_payment(
+                self.donation, frappe._dict({"donor_iban": self.iban, "donor_name": self.holder})
+            )
+        self.assertEqual(result.get("status"), "error")
+        self.assertEqual(result.get("message"), consent_refusal()["error"])
+        self.assertEqual(self._mandates_2423(), [])
+
+    def test_a_guest_donor_with_consent_gets_a_mandate(self):
+        result = self._initiate_2423(user="Guest", **self._consent_2423())
+        self.assertTrue(result["success"], result)
+        self.assertEqual(len(self._mandates_2423()), 1)
+
+    def test_the_donation_service_forwards_the_form_consent(self):
+        from verenigingen.services.donation.public_donation_service import get_public_donation_service
+
+        # Shortcut, stated: the fixture force-submits (docstatus=1 via set_value); the public form
+        # saves a donation it has just created as a draft, so put it back to that state.
+        frappe.db.set_value("Donation", self.donation.name, "docstatus", 0)
+        self.donation.reload()
+        form_data = frappe._dict(
+            {
+                "payment_method": "SEPA Direct Debit",
+                "donor_email": "donor2423@example.com",
+                "donor_name": self.holder,
+                "donor_iban": self.iban,
+                **self._consent_2423(),
+            }
+        )
+        with self._as_user(self.user.name):
+            result = get_public_donation_service().process_payment_method(self.donation, form_data)
+        self.assertEqual(result.get("status"), "mandate_required", result)
+        self.assertEqual(len(self._mandates_2423()), 1)
+        refused = frappe._dict({**form_data, "sepa_consent": False})
+        self.donation.reload()
+        with self._as_user(self.user.name):
+            result = get_public_donation_service().process_payment_method(self.donation, refused)
+        self.assertEqual(result.get("status"), "error", result)
+        self.assertEqual(result.get("message"), consent_refusal()["error"])
+        self.assertEqual(len(self._mandates_2423()), 1)
+
+    def test_the_donate_page_context_carries_the_mandate_text_and_its_hash(self):
+        from verenigingen.templates.pages import donate
+
+        context = frappe._dict()
+        donate.get_context(context)
+        text = consent_module.get_mandate_consent_text()
+        self.assertEqual(context.mandate_consent_text, text)
+        self.assertEqual(context.mandate_consent_text_hash, hash_consent_text(text))
+
+    def _link_donor_to_member_2423(self):
+        frappe.db.set_value("Donor", self.donation.donor, "member", self.member.name)
+
+    def _member_mandate_2423(self):
+        """The member's existing Active donation mandate (staff-entered, as the Administrator)."""
+        doc = frappe.get_doc(
+            {
+                "doctype": "SEPA Mandate",
+                "member": self.member.name,
+                "account_holder_name": "Existing Member Mandate",
+                "iban": generate_test_iban("TEST"),
+                "sign_date": frappe.utils.today(),
+                "status": "Active",
+                "is_active": 1,
+                "used_for_donations": 1,
+                "mandate_type": "RCUR",
+            }
+        )
+        doc.insert()
+        return doc.name
+
+    def test_a_guest_with_a_members_email_gets_a_memberless_mandate(self):
+        """Ruling on #2423 (2026-11-25): the donor is matched by unverified e-mail, so a Guest gets
+        a mandate for the donation only: not linked to the member, supersedes nothing."""
+        self._link_donor_to_member_2423()
+        existing = self._member_mandate_2423()
+        result = self._initiate_2423(user="Guest", **self._consent_2423())
+        self.assertTrue(result["success"], result)
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", existing, "status"), "Active")
+        (created,) = self._mandates_2423()
+        self.assertNotEqual(created, existing)
+        self.assertFalse(frappe.db.get_value("SEPA Mandate", created, "member"))
+        self.assertEqual(frappe.db.get_value("Donation", self.donation.name, "sepa_mandate"), created)
+
+    def test_another_logged_in_user_gets_a_memberless_mandate(self):
+        self._link_donor_to_member_2423()
+        existing = self._member_mandate_2423()
+        other = self._link_member_to_user(self.create_test_member(birth_date="1991-01-01"))
+        result = self._initiate_2423(user=other.name, **self._consent_2423())
+        self.assertTrue(result["success"], result)
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", existing, "status"), "Active")
+        (created,) = self._mandates_2423()
+        self.assertFalse(frappe.db.get_value("SEPA Mandate", created, "member"))
+
+    def test_a_members_email_is_indistinguishable_from_a_non_member_email(self):
+        """No enumeration oracle: same outcome, message and message_log for both donors."""
+
+        def observe():
+            frappe.local.message_log = []
+            result = self._initiate_2423(user="Guest", **self._consent_2423())
+            mandate_id = result["data"]["mandate_id"]
+            result = json.loads(json.dumps(result, default=str).replace(mandate_id, "<mandate>"))
+            return result, list(frappe.local.message_log)
+
+        non_member = observe()
+        frappe.db.set_value("Donation", self.donation.name, "sepa_mandate", None)
+        for name in self._mandates_2423():
+            frappe.db.set_value("SEPA Mandate", name, {"status": "Cancelled", "is_active": 0})
+        self._link_donor_to_member_2423()
+        member_linked = observe()
+        self.assertTrue(non_member[0]["success"], non_member)
+        self.assertEqual(member_linked, non_member)
+
+    def test_the_owning_member_can_use_sepa_for_their_linked_donor(self):
+        self._link_donor_to_member_2423()
+        existing = self._member_mandate_2423()
+        result = self._initiate_2423(**self._consent_2423())
+        self.assertTrue(result["success"], result)
+        self.assertEqual(len(self._mandates_2423()), 1)
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", existing, "status"), "Cancelled")
+
+    def test_the_form_submission_reports_failure_when_sepa_is_refused(self):
+        """The outer response must not say success when the payment step refused."""
+        from verenigingen.services.donation.public_donation_service import get_public_donation_service
+
+        email = f"refused2423.{frappe.generate_hash(length=6)}@example.com"
+        with self._as_user("Guest"):
+            result = get_public_donation_service().submit(
+                frappe._dict(
+                    {
+                        "donor_name": self.holder,
+                        "donor_email": email,
+                        "amount": 15,
+                        "payment_method": "SEPA Direct Debit",
+                        "donor_iban": self.iban,
+                    }
+                )
+            )
+        self.assertFalse(result["success"], result)
+        self.assertEqual(result["message"], consent_refusal()["error"])
+        self.assertEqual(self._mandates_2423(), [])
+
+    def test_a_failure_after_the_mandate_insert_leaves_no_active_orphan(self):
+        """Failure injected after the insert (stand-in: _calculate_collection_date raises)."""
+        with patch.object(pg.SEPAGateway, "_calculate_collection_date", side_effect=RuntimeError("boom")):
+            result = self._initiate_2423(**self._consent_2423())
+        self.assertFalse(result["success"])
+        mandates = self._mandates_2423()
+        self.assertEqual(len(mandates), 1)
+        self.assertEqual(frappe.db.get_value("SEPA Mandate", mandates[0], "status"), "Cancelled")
+
+    def test_the_orphan_cancellation_survives_a_request_rollback(self):
+        """Frappe rolls a GET back; the cancel must be committed like the insert was (#2423)."""
+        with patch.object(pg.SEPAGateway, "_calculate_collection_date", side_effect=RuntimeError("boom")):
+            self._initiate_2423(**self._consent_2423())
+        frappe.db.rollback()
+        (name,) = self._mandates_2423()
+        row = frappe.db.get_value(
+            "SEPA Mandate", name, ["status", "is_active", "cancelled_date", "cancellation_reason"], as_dict=True
+        )
+        self.assertEqual(row.status, "Cancelled")
+        self.assertEqual(row.is_active, 0)
+        self.assertTrue(row.cancelled_date)
+        self.assertTrue(row.cancellation_reason)
+
+    def test_submit_donation_accepts_post_only(self):
+        from verenigingen.templates.pages.donate import submit_donation
+
+        self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[submit_donation], ["POST"])
+
+    # ---- the real browser payload (#2423): keys come from donation_form.js itself ----
+
+    def _browser_sepa_payload_2423(self, hash_value=None):
+        """The field set donation_form.js posts for SEPA, built from the names it renders.
+
+        Names are read out of the JS's own SEPA template literal, values are what the page
+        would put there: the hash from the rendered donate.html source element, the tick as
+        the checkbox boolean collectAllStepData() sends.
+        """
+        import re
+
+        import verenigingen
+
+        js_path = os.path.join(os.path.dirname(verenigingen.__file__), "public", "js", "donation_form.js")
+        with open(js_path, encoding="utf-8") as handle:
+            js = handle.read()
+        block = js.split("case 'SEPA Direct Debit':", 1)[1].split("case '", 1)[0]
+        names = set(re.findall(r"""<input[^>]*\bname=["']([A-Za-z_]\w*)["']""", block))
+        self.assertTrue({"donor_iban", "sepa_consent", "sepa_consent_text_hash"} <= names, names)
+        from verenigingen.templates.pages import donate
+
+        context = frappe._dict()
+        donate.get_context(context)
+        values = {
+            "donor_iban": self.iban,
+            "sepa_consent": True,
+            "sepa_consent_text_hash": context.mandate_consent_text_hash if hash_value is None else hash_value,
+        }
+        payload = {name: values[name] for name in names if name in values}
+        payload.update(
+            {
+                "donor_name": self.holder,
+                "donor_email": f"browser2423.{frappe.generate_hash(length=6)}@example.com",
+                "amount": 15,
+                "payment_method": "SEPA Direct Debit",
+            }
+        )
+        return frappe._dict(payload)
+
+    def _submit_browser_payload_2423(self, payload):
+        from verenigingen.services.donation.public_donation_service import get_public_donation_service
+
+        with self._as_user("Guest"):
+            return get_public_donation_service().submit(payload)
+
+    def test_the_browser_payload_with_the_right_hash_is_accepted(self):
+        result = self._submit_browser_payload_2423(self._browser_sepa_payload_2423())
+        self.assertTrue(result["success"], result)
+        self.assertEqual(len(self._mandates_2423()), 1)
+
+    def test_the_browser_payload_without_a_hash_is_refused(self):
+        payload = self._browser_sepa_payload_2423()
+        del payload["sepa_consent_text_hash"]
+        result = self._submit_browser_payload_2423(payload)
+        self.assertFalse(result["success"], result)
+        self.assertEqual(self._mandates_2423(), [])
+
+    def test_the_browser_payload_with_a_wrong_hash_is_refused(self):
+        for bad in (hash_consent_text("some older mandate text"), ""):
+            result = self._submit_browser_payload_2423(self._browser_sepa_payload_2423(hash_value=bad))
+            self.assertFalse(result["success"], result)
+        self.assertEqual(self._mandates_2423(), [])
