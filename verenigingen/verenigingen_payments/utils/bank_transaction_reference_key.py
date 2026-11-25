@@ -238,3 +238,18 @@ def set_bank_transaction_reference_key(doc, method=None):
             doc.get(SYSTEM_ISSUED_FIELDNAME),
         ),
     )
+
+
+def release_bank_transaction_reference_key(doc, method=None):
+    """`before_cancel` on Bank Transaction: a cancelled row frees its key (#2626).
+
+    A cancel never runs `validate`, so `set_bank_transaction_reference_key` cannot release
+    it, and the unique index is docstatus-agnostic: the cancelled row kept the key and
+    rebooking the same Mollie reference (donation, dues, settlement, reversal) died on
+    IntegrityError 1062. The maintainer ruled on 2026-11-25 that a cancel frees the key.
+    The cancelled row keeps its `reference_number` as the audit trail; only the derived
+    key goes, and only this row's. `before_cancel`, not `on_cancel`, so the NULL is part of
+    the cancel's own save.
+    """
+    if doc.meta.has_field(FIELDNAME):
+        doc.set(FIELDNAME, None)

@@ -11,10 +11,10 @@ Each route only ever checked its own doctype, so a refund already booked as a
 Journal Entry was booked again as a Payment Entry (#370). The key was never the
 problem -- both routes build the identical string. The lookup was.
 
-Note the ``docstatus != 2`` predicate. This answers "has this reversal been
-booked?", which is not the same question as "was the original payment booked?".
-A *draft* artefact is work already in flight, so treating it as absent is what
-produces the second booking; only a cancelled one frees the key. (The forward
+Note the predicates. This answers "has this reversal been booked?", which is not
+the same question as "was the original payment booked?". A draft Journal Entry is
+work in flight (it is finished on discovery, #2535); a draft Payment Entry is a
+stranded submit and does not count (#2609). A cancelled artefact frees the key. (The forward
 "was this payment booked?" predicate is submitted-only, deliberately -- a draft
 forward booking is not a payment.)
 """
@@ -48,9 +48,10 @@ def total_reversed(payment_id: str) -> float:
     payment id *contains* an underscore: unescaped, ``tr_abc\_%`` would also
     match reversals of ``trXabc``. MariaDB's default LIKE escape is ``\``.
 
-    Drafts count, cancelled do not -- the same predicate as
-    :func:`find_booked_reversal`, and for the same reason: a draft is a booking
-    already in flight. Unlike ``find_booked_reversal`` this is a pure read: a
+    Drafts count, cancelled do not. This is deliberately wider than
+    :func:`find_booked_reversal` (which counts a draft Payment Entry as not booked,
+    #2609): over-counting here is fail-safe, because it can only block a further
+    reversal, never allow one above the payment. Unlike ``find_booked_reversal`` this is a pure read: a
     prefix scan holds no per-reversal amount to check a draft against, so it
     never submits one (#2535).
 
@@ -114,7 +115,9 @@ def find_booked_reversal(reversal_key: str, expected_amount: Optional[float]) ->
             # Bank Transaction rebuilt or reconciled, because the caller sees "booked".
             existing = _resolve_draft(reversal_key, expected_amount)
         else:
-            existing = frappe.db.get_value(doctype, {field: reversal_key, "docstatus": ["!=", 2]}, "name")
+            # Submitted only: a draft Payment Entry is a submit that failed and whose discard
+            # also failed (#2384), so it is a stranded artefact, not a booking (#2609).
+            existing = frappe.db.get_value(doctype, {field: reversal_key, "docstatus": 1}, "name")
         if existing:
             return doctype, existing
 
@@ -150,8 +153,8 @@ def find_booked_payment(payment_id: str) -> Optional[Tuple[str, str, str]]:
     ``doctype``/``name`` identify the artefact that booked it.
 
     Submitted only, deliberately: a draft forward booking is not a payment. This
-    is the opposite of :func:`find_booked_reversal`, which counts drafts because
-    it is answering "is a booking already in flight?".
+    is the opposite of :func:`find_booked_reversal`, which counts a draft Journal Entry
+    (it finishes it, #2535) but not a draft Payment Entry (#2609).
 
     **The Donation record decides donation-ness, not the artefact shape.** Today a
     donation books a Journal Entry and dues book a Payment Entry, so it is

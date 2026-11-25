@@ -923,9 +923,9 @@ class BankTransactionCreator:
                             )
                             return existing_match.name
 
-                        # The unique key also covers CANCELLED rows, which the lookup above
-                        # rightly skips. Say so instead of reporting a race nobody lost (#1803):
-                        # the reference belongs to a Bank Transaction staff cancelled.
+                        # A cancel now frees the unique key (#2626), so a cancelled row holds it
+                        # only if it was cancelled before that fix and the release patch has not
+                        # run. Say so instead of reporting a race nobody lost (#1803).
                         cancelled_bt = frappe.db.get_value(
                             "Bank Transaction", {"reference_number": reference_number, "docstatus": 2}, "name"
                         )
@@ -935,8 +935,8 @@ class BankTransactionCreator:
                                 message=(
                                     f"Not booking {reference_number} again: its Bank Transaction "
                                     f"{cancelled_bt} was cancelled and still holds the unique "
-                                    f"reference (bank_account={bank_account}). Staff decide whether "
-                                    f"to book it by hand."
+                                    f"reference (bank_account={bank_account}); run the migrate patch "
+                                    f"release_cancelled_bank_transaction_reference_keys_2626."
                                 ),
                             )
                             return None

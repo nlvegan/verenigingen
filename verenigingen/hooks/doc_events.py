@@ -379,6 +379,10 @@ doc_events = {
         "validate": [
             "verenigingen.verenigingen_payments.utils.bank_transaction_reference_key.set_bank_transaction_reference_key",
         ],
+        # A cancel never runs `validate`, so release the key here (#2626).
+        "before_cancel": [
+            "verenigingen.verenigingen_payments.utils.bank_transaction_reference_key.release_bank_transaction_reference_key",
+        ],
         "on_submit": "verenigingen.services.member.donor.donor_auto_creation.process_payment_for_donor_creation",
     },
     # The producer none of the registrations above can see: UnreconcilePayment.on_submit
