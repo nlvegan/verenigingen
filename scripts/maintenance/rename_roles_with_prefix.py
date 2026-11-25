@@ -242,6 +242,11 @@ def get_current_role_status():
     
     return status
 
+def expected_rollback_mappings():
+    """{new_name: old_name}, the reverse of ROLE_MAPPINGS"""
+    return {new_name: old_name for old_name, new_name in ROLE_MAPPINGS.items()}
+
+
 def rollback_role_rename(role_mappings=None):
     """
     Rollback role renames if needed
@@ -252,8 +257,17 @@ def rollback_role_rename(role_mappings=None):
     
     if not role_mappings:
         # Default rollback mappings (reverse of ROLE_MAPPINGS)
-        role_mappings = {new_name: old_name for old_name, new_name in ROLE_MAPPINGS.items()}
-    
+        role_mappings = expected_rollback_mappings()
+
+    # A rollback may only reverse renames ROLE_MAPPINGS describes (#1098); anything else would make
+    # this an arbitrary Role-rename primitive. Refuse before renaming anything.
+    unexpected = {n: o for n, o in role_mappings.items() if expected_rollback_mappings().get(n) != o}
+    if unexpected:
+        frappe.throw(
+            _("Refusing rollback: mappings not in ROLE_MAPPINGS: {0}").format(unexpected),
+            frappe.ValidationError,
+        )
+
     results = {
         "success": [],
         "errors": [],
