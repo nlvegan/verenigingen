@@ -212,7 +212,7 @@ def get_context(context):
     return context
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=True, methods=["POST"])
 @public_api(operation_type=OperationType.FINANCIAL)
 def submit_donation(**kwargs):
     """Process donation form submission (delegates to PublicDonationService)."""

@@ -6,6 +6,7 @@ real Donor/Donation and a real non-staff session user. Stand-in, stated: only
 this test does not own); everything after it is real.
 """
 
+import json
 from unittest.mock import patch
 
 import frappe
@@ -161,26 +162,47 @@ class TestDonationSepaConsent2423(PortalSelfServiceTestMixin, EnhancedTestCase):
         doc.insert()
         return doc.name
 
-    def test_a_guest_cannot_use_sepa_for_a_member_linked_donor(self):
-        """Takeover guard: the donor is matched by unverified e-mail, so a Guest must not
-        supersede the member's mandate. Refused up front, member's mandate untouched."""
+    def test_a_guest_with_a_members_email_gets_a_memberless_mandate(self):
+        """Ruling on #2423 (2026-11-25): the donor is matched by unverified e-mail, so a Guest gets
+        a mandate for the donation only: not linked to the member, supersedes nothing."""
         self._link_donor_to_member_2423()
         existing = self._member_mandate_2423()
         result = self._initiate_2423(user="Guest", **self._consent_2423())
-        self.assertFalse(result["success"])
-        self.assertIn("log in", result["message"])
+        self.assertTrue(result["success"], result)
         self.assertEqual(frappe.db.get_value("SEPA Mandate", existing, "status"), "Active")
-        self.assertEqual(self._mandates_2423(), [])
+        (created,) = self._mandates_2423()
+        self.assertNotEqual(created, existing)
+        self.assertFalse(frappe.db.get_value("SEPA Mandate", created, "member"))
+        self.assertEqual(frappe.db.get_value("Donation", self.donation.name, "sepa_mandate"), created)
 
-    def test_another_logged_in_user_cannot_use_sepa_for_a_member_linked_donor(self):
+    def test_another_logged_in_user_gets_a_memberless_mandate(self):
         self._link_donor_to_member_2423()
         existing = self._member_mandate_2423()
         other = self._link_member_to_user(self.create_test_member(birth_date="1991-01-01"))
         result = self._initiate_2423(user=other.name, **self._consent_2423())
-        self.assertFalse(result["success"])
-        self.assertIn("log in", result["message"])  # the up-front refusal, not a later failure
+        self.assertTrue(result["success"], result)
         self.assertEqual(frappe.db.get_value("SEPA Mandate", existing, "status"), "Active")
-        self.assertEqual(self._mandates_2423(), [])
+        (created,) = self._mandates_2423()
+        self.assertFalse(frappe.db.get_value("SEPA Mandate", created, "member"))
+
+    def test_a_members_email_is_indistinguishable_from_a_non_member_email(self):
+        """No enumeration oracle: same outcome, message and message_log for both donors."""
+
+        def observe():
+            frappe.local.message_log = []
+            result = self._initiate_2423(user="Guest", **self._consent_2423())
+            mandate_id = result["data"]["mandate_id"]
+            result = json.loads(json.dumps(result, default=str).replace(mandate_id, "<mandate>"))
+            return result, list(frappe.local.message_log)
+
+        non_member = observe()
+        frappe.db.set_value("Donation", self.donation.name, "sepa_mandate", None)
+        for name in self._mandates_2423():
+            frappe.db.set_value("SEPA Mandate", name, {"status": "Cancelled", "is_active": 0})
+        self._link_donor_to_member_2423()
+        member_linked = observe()
+        self.assertTrue(non_member[0]["success"], non_member)
+        self.assertEqual(member_linked, non_member)
 
     def test_the_owning_member_can_use_sepa_for_their_linked_donor(self):
         self._link_donor_to_member_2423()
@@ -219,3 +241,22 @@ class TestDonationSepaConsent2423(PortalSelfServiceTestMixin, EnhancedTestCase):
         mandates = self._mandates_2423()
         self.assertEqual(len(mandates), 1)
         self.assertEqual(frappe.db.get_value("SEPA Mandate", mandates[0], "status"), "Cancelled")
+
+    def test_the_orphan_cancellation_survives_a_request_rollback(self):
+        """Frappe rolls a GET back; the cancel must be committed like the insert was (#2423)."""
+        with patch.object(pg.SEPAGateway, "_calculate_collection_date", side_effect=RuntimeError("boom")):
+            self._initiate_2423(**self._consent_2423())
+        frappe.db.rollback()
+        (name,) = self._mandates_2423()
+        row = frappe.db.get_value(
+            "SEPA Mandate", name, ["status", "is_active", "cancelled_date", "cancellation_reason"], as_dict=True
+        )
+        self.assertEqual(row.status, "Cancelled")
+        self.assertEqual(row.is_active, 0)
+        self.assertTrue(row.cancelled_date)
+        self.assertTrue(row.cancellation_reason)
+
+    def test_submit_donation_accepts_post_only(self):
+        from verenigingen.templates.pages.donate import submit_donation
+
+        self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[submit_donation], ["POST"])

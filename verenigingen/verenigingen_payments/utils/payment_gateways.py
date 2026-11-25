@@ -885,10 +885,6 @@ class SEPAGateway(PaymentGateway):
         if consent_refusal:
             return create_error_response(consent_refusal["error"])
 
-        member_refusal = self._member_linked_donor_refusal(donation)
-        if member_refusal:
-            return create_error_response(member_refusal)
-
         # Create or update SEPA mandate
         mandate = self._create_sepa_mandate(donation, iban, form_data)
 
@@ -936,7 +932,19 @@ class SEPAGateway(PaymentGateway):
     def _cancel_orphan_mandate(mandate):
         """Cancel a just-created mandate whose donation link failed; never masks the real error."""
         try:
-            frappe.db.set_value("SEPA Mandate", mandate.name, {"status": "Cancelled", "is_active": 0})
+            # Same committing path as the insert: a plain set_value is rolled back with a GET
+            # request, leaving the orphan Active. Fields mirror cancel_active_mandates.
+            orphan = frappe.get_doc("SEPA Mandate", mandate.name)
+            orphan.status = "Cancelled"
+            orphan.is_active = 0
+            orphan.cancelled_date = frappe.utils.today()
+            orphan.cancellation_reason = "Donation link failed after mandate creation (#2423)"
+            save_as_system_user(
+                orphan,
+                "save",
+                "public_donation_sepa_mandate",
+                f"Cancel orphan SEPA mandate {mandate.name}: donation link failed",
+            )
         except Exception as cancel_error:
             frappe.log_error(
                 title="SEPA Gateway Error",
@@ -944,23 +952,21 @@ class SEPAGateway(PaymentGateway):
             )
 
     @staticmethod
-    def _member_linked_donor_refusal(donation):
-        """A refusal message when this session may not put a mandate on the donor's member (#2423).
+    def _member_the_session_may_link(donation):
+        """The donor's member, but only when this session is that member's user or staff (#2423).
 
-        A donor is matched to a member by an UNVERIFIED e-mail, and a donation mandate supersedes
-        the member's Active donation mandate. A Guest (or any other user) must therefore never be
-        allowed to do that: they could cancel a member's mandate and substitute their own IBAN.
-        Only the member's own user, or staff, may. Everyone else is told to pay another way.
+        A donor is matched to a member by an UNVERIFIED e-mail, and linking a donation mandate to
+        a member supersedes the member's Active donation mandate. Anyone else (a Guest typing a
+        member's e-mail) therefore gets a member-less mandate for the donation only: it is not
+        linked to the member and supersedes nothing. No refusal is shown, so the response is the
+        same as for a non-member e-mail (maintainer ruling on #2423, 2026-11-25).
         """
         member = frappe.db.get_value("Donor", donation.donor, "member")
         if not member:
             return None
         if user_is_staff() or frappe.db.get_value("Member", member, "user") == frappe.session.user:
-            return None
-        return _(
-            "This donor is linked to a member account. Please log in to set up SEPA Direct Debit, "
-            "or choose another payment method."
-        )
+            return member
+        return None
 
     def _create_sepa_mandate(self, donation, iban, form_data):
         """Create SEPA mandate record"""
@@ -969,7 +975,7 @@ class SEPAGateway(PaymentGateway):
         consent_text, consent_refusal = check_member_consent(
             form_data.get("sepa_consent"), form_data.get("sepa_consent_text_hash")
         )
-        if consent_refusal or self._member_linked_donor_refusal(donation):
+        if consent_refusal:
             return None
         try:
             # Get donor information
@@ -1013,8 +1019,9 @@ class SEPAGateway(PaymentGateway):
             # permission queries. SEPA Mandate is member-scoped (no donor field);
             # a donor with no linked member yields a member-less mandate, which is
             # acceptable. `member` is not a required field.
-            if donor.member:
-                mandate.member = donor.member
+            linked_member = self._member_the_session_may_link(donation)
+            if linked_member:
+                mandate.member = linked_member
 
                 # A member holds at most one Active mandate (#584). Without this the
                 # insert below would be rejected for any member-donor who already has
@@ -1026,7 +1033,7 @@ class SEPAGateway(PaymentGateway):
                 # Donations only: a member's membership mandate is a different
                 # collection and must not be cancelled by donating (#584).
                 superseded = cancel_active_mandates(
-                    donor.member,
+                    linked_member,
                     f"Replaced by a donation mandate for donation {donation.name}",
                     purposes=["used_for_donations"],
                 )
