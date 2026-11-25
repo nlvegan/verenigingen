@@ -343,3 +343,34 @@ class TestManagerSeesDonationReversals(_RefundFixtureMixin, EnhancedTestCase):
 
         frappe.get_doc("Payment Entry", draft[0]).submit()
         self.assertEqual(find_booked_reversal(self.key, 100.0), ("Payment Entry", draft[0]))
+
+    def test_a_redelivery_rebooks_over_a_stranded_draft_payment_entry_2609(self):
+        """Real redelivery over a stranded draft: the draft is discarded and the refund booked anew.
+
+        The draft is stranded as in the test above (submit and discard both fail, a probe
+        shortcut); the redelivery itself runs unpatched.
+        """
+        from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
+
+        self.expectErrorLog("Unified Payment Entry Creation")
+        self.expectErrorLog("Mollie Payment Entry Discard Failed")
+        self.expectErrorLog("Mollie Payment Entry Still Claims Its Key")
+        with patch.object(PaymentEntry, "submit", side_effect=frappe.ValidationError("period closed")):
+            with patch("frappe.delete_doc", side_effect=frappe.ValidationError("blocked")):
+                self.assertIsNone(self._book_refund_pe())
+        stranded = frappe.get_all("Payment Entry", filters={"reference_no": self.key}, pluck="name")
+        self.assertEqual(len(stranded), 1, "fixture problem: no stranded draft")
+        # The naming series reuses a deleted draft's name, so identify the draft by its row.
+        draft_creation = frappe.db.get_value("Payment Entry", stranded[0], "creation")
+
+        pe = self._book_refund_pe()
+
+        self.assertIsNotNone(pe, "the redelivery did not rebook the refund")
+        self.assertEqual(frappe.db.get_value("Payment Entry", pe.name, "docstatus"), 1)
+        self.assertNotEqual(
+            frappe.db.get_value("Payment Entry", pe.name, "creation"), draft_creation, "the stranded draft was kept"
+        )
+        self.assertEqual(
+            frappe.get_all("Payment Entry", filters={"reference_no": self.key, "docstatus": ["!=", 2]}, pluck="name"),
+            [pe.name],
+        )

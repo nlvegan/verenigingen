@@ -85,6 +85,12 @@ def create_unified_payment_entry(
         # _discard_unposted_payment_entry, and the retry must book anew rather than be
         # handed that cancelled entry (#2384 reversals, #2406 forward payments).
         existing_filters["docstatus"] = ["!=", 2]
+        if payment_type == "Pay":
+            # A reversal draft is a submit that failed and whose discard failed too (#2384).
+            # Retry the discard, then only a submitted entry counts (#2609): handing the
+            # draft back reported "booked" for a refund nobody posted.
+            _discard_stranded_reversal_drafts(reference_no, customer)
+            existing_filters["docstatus"] = 1
         existing_pe = frappe.db.get_value("Payment Entry", existing_filters, "name")
         if not existing_pe:
             if payment_type == "Pay":
@@ -223,6 +229,21 @@ def create_unified_payment_entry(
         return None
 
 
+def _discard_stranded_reversal_drafts(reference_no: str, customer: str) -> None:
+    """Retry the discard of draft reversal Payment Entries under this key (#2609).
+
+    A draft also keeps ``custom_mollie_idempotency_key`` (unique), so without this the
+    rebooking's insert would collide. A draft that still cannot be discarded is reported
+    by ``_discard_unposted_payment_entry``.
+    """
+    for name in frappe.get_all(
+        "Payment Entry",
+        filters={"payment_type": "Pay", "reference_no": reference_no, "party": customer, "docstatus": 0},
+        pluck="name",
+    ):
+        _discard_unposted_payment_entry(name, "stranded draft found on redelivery")
+
+
 def _free_cancelled_reversal_keys(reference_no: str, customer: str) -> None:
     """Release the unique idempotency key held by a cancelled reversal PE (#2384).
 
@@ -243,9 +264,9 @@ def _free_cancelled_reversal_keys(reference_no: str, customer: str) -> None:
 def _discard_unposted_payment_entry(payment_entry_name: str, error_message: str) -> None:
     """Free the reference key held by a Payment Entry whose submit failed (#2384).
 
-    ``find_booked_reversal`` counts every ``docstatus != 2`` row as booked, so an
-    entry left behind makes every redelivery answer "already booked" -- the refund
-    is never booked and the report looks clean. Where the row ends up depends on
+    An entry left behind holds the reversal's unique key. A redelivery retries the discard
+    (``_discard_stranded_reversal_drafts``, #2609), and ``find_booked_reversal`` no longer
+    counts a draft, but a live (docstatus 1) one still reads as "already booked". Where the row ends up depends on
     where submit raised: ``validate``/``before_submit`` leave a draft (0), while
     ``on_submit`` (the GL post) fails AFTER ``docstatus = 1`` was written, with the
     ledger not posted -- the same shape ``discard_unposted_journal_entry`` documents.

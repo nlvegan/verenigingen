@@ -66,7 +66,7 @@ class TestCancelledBankTransactionFreesItsKey(_BankTxnFixtureMixin, EnhancedTest
         doc.submit()
         return doc
 
-    def _key(self, name):
+    def _reference_key_of(self, name):
         return frappe.db.get_value("Bank Transaction", name, FIELDNAME)
 
     def _cancel(self, name):
@@ -76,14 +76,14 @@ class TestCancelledBankTransactionFreesItsKey(_BankTxnFixtureMixin, EnhancedTest
     def test_cancel_clears_the_key_and_the_reference_can_be_booked_again(self):
         ref = f"SYSREF-{self._ref('cancel')}"
         first = self._make_submitted(ref)
-        self.assertIsNotNone(self._key(first.name), "fixture problem: no key before the cancel")
+        self.assertIsNotNone(self._reference_key_of(first.name), "fixture problem: no key before the cancel")
 
         self._cancel(first.name)
 
-        self.assertIsNone(self._key(first.name), "a cancelled Bank Transaction still holds its key")
+        self.assertIsNone(self._reference_key_of(first.name), "a cancelled Bank Transaction still holds its key")
         second = self._make_submitted(ref)
         self.assertNotEqual(second.name, first.name)
-        self.assertIsNotNone(self._key(second.name))
+        self.assertIsNotNone(self._reference_key_of(second.name))
 
     def test_an_active_duplicate_is_still_refused_beside_a_cancelled_row(self):
         # Control with a real candidate: a cancelled row AND a live row share the reference.
@@ -99,7 +99,7 @@ class TestCancelledBankTransactionFreesItsKey(_BankTxnFixtureMixin, EnhancedTest
         keep = self._make_submitted(f"SYSREF-{self._ref('keep')}")
         drop = self._make_submitted(f"SYSREF-{self._ref('drop')}")
         self._cancel(drop.name)
-        self.assertIsNotNone(self._key(keep.name))
+        self.assertIsNotNone(self._reference_key_of(keep.name))
 
     def test_settlement_creator_rebooks_after_a_cancel(self):
         settlement_id = f"stl_{frappe.generate_hash(length=10)}"
@@ -148,5 +148,5 @@ class TestCancelledBankTransactionFreesItsKey(_BankTxnFixtureMixin, EnhancedTest
 
         execute()
 
-        self.assertIsNone(self._key(old_cancelled.name))
-        self.assertIsNotNone(self._key(live.name), "the patch released a LIVE row's key")
+        self.assertIsNone(self._reference_key_of(old_cancelled.name))
+        self.assertIsNotNone(self._reference_key_of(live.name), "the patch released a LIVE row's key")
