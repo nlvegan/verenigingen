@@ -33,10 +33,9 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
     @classmethod
     def tearDownClass(cls):
         # #1982: tests here delete the fixture-shipped payment_failure_* templates;
-        # restore the shipped rows (payment_failure_generic is shipped since #2008).
+        # restore the shipped rows
         _cleanup_stock_email_templates(
-            ["payment_failure_first", "payment_failure_second", "payment_failure_final",
-             "payment_failure_generic", "subscription_cancelled", "subscription_suspended"]
+            ["payment_failure_final", "subscription_cancelled", "subscription_suspended"]
         )
         super().tearDownClass()
 
@@ -62,8 +61,6 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
     def ensure_email_templates_exist(self):
         """Ensure payment failure email templates exist for testing"""
         templates = [
-            "payment_failure_first",
-            "payment_failure_second",
             "payment_failure_final",
             "subscription_cancelled",
             "subscription_suspended"
@@ -116,8 +113,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
         Helper method to delete all payment failure templates for testing.
         Permission bypasses allowed in helper methods.
         """
-        template_names = ["payment_failure_first", "payment_failure_second",
-                         "payment_failure_final", "payment_failure_generic"]
+        template_names = ["payment_failure_final"]
         for template_name in template_names:
             self.delete_specific_template(template_name)
 
