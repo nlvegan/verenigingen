@@ -243,14 +243,22 @@ class TestNightlyRoleProfileSync(VereningingenTestCase):
         self.assertTrue(frappe.db.get_value("User", user, "module_profile"), "module not applied")
         self.assertIn(DIRECT_ROLE, frappe.get_roles(user))
 
-    def test_event_path_still_replaces_direct_roles(self):
-        """Control: only the nightly path preserves (#1293 tracks the event path)."""
+    def test_event_path_keeps_direct_roles_like_the_nightly_job(self):
+        """#3269 (maintainer ruling): the event path no longer replaces direct roles. The role
+        only the lost Volunteer profile supplied is still withdrawn (control)."""
         user = self._nightly_member_user()
         self._drift_to_volunteer(user)
         self._grant_direct_role(user, DIRECT_ROLE)
         sync_user_role_profile(user)
         frappe.clear_cache(user=user)
-        self.assertNotIn(DIRECT_ROLE, frappe.get_roles(user))
+        self.assertNotIn(PROFILE_VOLUNTEER, calc.get_user_role_profiles(user), "fixture: profile not lost")
+        self.assertIn(DIRECT_ROLE, frappe.get_roles(user))
+        gone = {r.role for r in frappe.get_doc("Role Profile", PROFILE_VOLUNTEER).roles} - {
+            r.role for r in frappe.get_doc("Role Profile", PROFILE_MEMBER).roles
+        }
+        self.assertTrue(gone - {DIRECT_ROLE}, "fixture: Volunteer adds nothing over Member")
+        for role in gone - {DIRECT_ROLE}:
+            self.assertNotIn(role, frappe.get_roles(user))
 
     def _assert_hand_assigned_survives_two_nights(self, profile):
         user = self._nightly_member_user()

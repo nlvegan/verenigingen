@@ -959,8 +959,8 @@ def sync_user_role_profile(
             the user's old profiles, are kept across the save (User.validate otherwise
             resets roles to the profiles' roles). (3) A write inside a savepoint that
             fails is rolled back. (A deadlock/timeout is re-raised for EVERY caller, not
-            only this mode: see Raises.) The event-driven callers keep the replace
-            behaviour (#1293).
+            only this mode: see Raises.) (2) is no longer nightly-only: the event-driven
+            callers keep directly held roles too (#3269, maintainer ruling).
 
     Raises:
         frappe.QueryDeadlockError, frappe.QueryTimeoutError: always (#1888). After a 1213
@@ -1115,7 +1115,9 @@ def sync_user_role_profile(
         changed = role_changed or module_changed
 
         if changed and not dry_run:
-            direct_roles = _direct_roles(user, existing_profiles) if nightly else []
+            # Both modes keep roles no CURRENT profile supplies (#3269): a role only a profile
+            # the user is losing supplied is not direct, so it is still withdrawn.
+            direct_roles = _direct_roles(user, existing_profiles)
             # TODO: When Frappe v16 lands with multi-profile support,
             # use calculate_all_user_role_profiles() + _has_multi_profile_support()
             # to assign all applicable profiles instead of just the highest.
