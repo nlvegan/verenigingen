@@ -480,14 +480,32 @@ def order_chapters_primary_first(member_name: str, rows: list, chapter_key: str 
     then the chapter name. SQL ``ORDER BY chapter_join_date DESC`` alone leaves a tie to the database, and
     the invoice attribution and Member.current_chapter then read different rows.
     """
-    applied = get_applied_chapter(member_name)
 
-    def sort_key(row):
+    def ordinal(row):
         join_date = row.get("chapter_join_date")
-        ordinal = getdate(join_date).toordinal() if join_date else 0
-        return (-ordinal, row.get(chapter_key) != applied, row.get(chapter_key) or "")
+        return getdate(join_date).toordinal() if join_date else 0
 
-    return sorted(rows, key=sort_key)
+    ordered = sorted(rows, key=lambda row: (-ordinal(row), row.get(chapter_key) or ""))
+    # The applied chapter only matters on a tie for first place; skip its lookup otherwise.
+    if len(ordered) < 2 or ordinal(ordered[0]) != ordinal(ordered[1]):
+        return ordered
+    applied = get_applied_chapter(member_name)
+    return sorted(
+        ordered, key=lambda row: (-ordinal(row), row.get(chapter_key) != applied, row.get(chapter_key) or "")
+    )
+
+
+def primary_chapter_order_sql(member_expr: str, alias: str = "cm") -> str:
+    """ORDER BY terms for a SQL sub-select that picks the primary chapter (same rule as above, #2966).
+
+    member_expr is a trusted SQL literal naming the member column (e.g. ``m.name``), never user input.
+    """
+    return (
+        f"{alias}.chapter_join_date DESC, ({alias}.parent = (SELECT mas.chapter FROM "
+        "`tabMembership Application Submission` mas WHERE mas.member = "
+        f"{member_expr} AND mas.status = 'Approved' AND mas.chapter IS NOT NULL "
+        f"ORDER BY mas.review_date DESC, mas.creation DESC LIMIT 1)) DESC, {alias}.parent"
+    )
 
 
 def get_member_primary_chapter(member_name: str) -> Optional[str]:
