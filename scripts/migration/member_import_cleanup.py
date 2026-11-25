@@ -238,9 +238,9 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
             results["summary"] = "\n".join(summary_lines)
             return results
 
-        # ACTUAL DELETION
-        frappe.db.begin()
-
+        # ACTUAL DELETION. No begin(): it raises ImplicitCommitError once the
+        # request has written anything (@critical_api's audit row), and the ambient
+        # transaction is released by the commit()/rollback() below (#1169).
         try:
             # Delete orphaned invoices first (with proper GL cleanup)
             # Note: We manually delete GL entries instead of using doc.cancel() because:
@@ -587,8 +587,7 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
             return results
 
         # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
-        frappe.db.begin()
-
+        # No begin(): see #1169 -- the ambient transaction ends at the commit()/rollback() below.
         try:
             for parenttype, bucket in (("Address", "addresses"), ("Contact", "contacts")):
                 for name in orphaned[parenttype]:
@@ -1211,9 +1210,9 @@ def _execute_cleanup(sets, results, dry_run, label):
         #
         # Committing here also keeps the audit row: it records that the operation
         # was attempted, and must survive a rollback of the cleanup itself.
+        # No begin() afterwards: commit() already starts the next transaction.
         frappe.db.commit()
 
-        frappe.db.begin()
         try:
             _run_cleanup_phases(sets, results, dry_run=False)
             frappe.db.commit()
@@ -2014,8 +2013,8 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             return results
 
         # ========== ACTUAL TRUNCATE OPERATION ==========
-        frappe.db.begin()
-
+        # No begin(): raises ImplicitCommitError after @critical_api's audit write (#1169).
+        # The ambient transaction ends at the commit()/rollback() below.
         try:
             # PHASE 1: Clear references in related tables first
             frappe.logger().info("Phase 1: Clearing foreign key references...")
@@ -2174,8 +2173,8 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             # Re-enable foreign key checks
             frappe.db.sql_ddl("SET FOREIGN_KEY_CHECKS = 1")
 
-            # Start new transaction for remaining cleanup
-            frappe.db.begin()
+            # sql_ddl() committed, and commit() starts the next transaction, so the
+            # remaining cleanup already runs in a fresh one (no begin() needed; #1169).
 
             # PHASE 7: Special handling for Membership Dues Schedule (preserve templates)
             frappe.logger().info("Phase 7: Cleaning Membership Dues Schedules (preserving templates)...")

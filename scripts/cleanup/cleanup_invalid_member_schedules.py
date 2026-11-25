@@ -81,9 +81,6 @@ def cleanup_invalid_schedules(dry_run=True):
     cleanup_actions = []
     
     try:
-        if not dry_run:
-            frappe.db.begin()
-        
         for schedule_data in invalid_schedules:
             schedule_name = schedule_data['name']
             member_name = schedule_data['member']

@@ -41,7 +41,7 @@ def fix_sepa_invoice_index():
         # Drop existing index
         print("\n2. Dropping existing incomplete index...")
         try:
-            frappe.db.sql("DROP INDEX `idx_sepa_invoice_lookup` ON `tabSales Invoice`")
+            frappe.db.sql_ddl("DROP INDEX `idx_sepa_invoice_lookup` ON `tabSales Invoice`")
             print("   ✅ Index dropped successfully")
         except Exception as e:
             if "Can't DROP" in str(e):
@@ -57,7 +57,7 @@ def fix_sepa_invoice_index():
             (`docstatus`, `status`, `outstanding_amount`, `posting_date`, `membership_dues_schedule_display`)
         """
 
-        frappe.db.sql(create_sql)
+        frappe.db.sql_ddl(create_sql)
         print("   ✅ Index created with all 5 columns")
 
         # Verify new index
