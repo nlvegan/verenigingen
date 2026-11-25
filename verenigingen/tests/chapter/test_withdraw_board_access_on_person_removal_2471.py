@@ -222,6 +222,23 @@ class TestWithdrawBoardAccessOnPersonRemoval2471(VereningingenTestCase):
             "an already-disabled user's re-seat was ended by an unrelated save",
         )
 
+    def test_disabling_an_unseated_users_account_keeps_its_direct_roles(self):
+        """The role sync is a REPLACE: running it for a user with no seat and no board role would
+        strip direct roles. Disabling such a user must not touch the role set."""
+        person = self._person_2471("Unseated")
+        user_doc = frappe.get_doc("User", person.user)
+        user_doc.append("roles", {"role": "Report Manager"})
+        user_doc.save()
+        before = self._roles_2471(person.user)
+        self.assertIn("Report Manager", before, "control: the direct role is held")
+        self.assertNotIn(BOARD_ROLE, before, "control: no board role")
+        self.assertFalse(self._seat_rows_2471(person.volunteer), "control: no seat")
+
+        self._disable_2471(person.user)
+
+        self.assertEqual(frappe.db.get_value("User", person.user, "enabled"), 0, "control: disabled")
+        self.assertEqual(self._roles_2471(person.user), before, "disable rewrote an unseated user's roles")
+
     def test_a_failed_role_withdrawal_on_disable_is_logged_and_the_disable_succeeds(self):
         self.expectErrorLog("Board seats not ended for disabled user")
         person = self._person_2471("SoftFail")
