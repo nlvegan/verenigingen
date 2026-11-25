@@ -200,7 +200,60 @@ def _create_pending_row_for_reviewer_chapter(member, reviewer_chapter):
     return bool(create_pending_chapter_membership(member, reviewer_chapter))
 
 
-def _finish_reviewer_chapter_row(member, chapter):
+def _reenable_ended_row_before_invoice(member, chapters):
+    """Reactivate a rejoining applicant's earlier disabled/Inactive row in the assigned chapters, BEFORE the
+    first invoice (#2953, maintainer ruling 2026-11-25).
+
+    #2943's writer leaves an existing row of any status for add_member (one row per member and chapter,
+    #2210), which re-enables it only after the core, so the first invoice had no chapter. The row is
+    brought back the way an application's row is written, enabled and Pending, so that
+    _activate_pending_rows_before_invoice flips it Active through the same step (and its history entry).
+    request_to_join cannot do this: it refuses a Member that is not Active (#2021). Rows that are Pending
+    or already live are left alone, as are rows in chapters the approval does not name.
+    Returns the chapters whose row was re-enabled; a failed write is logged and leaves the row for
+    assign_member_to_chapter after the core, as before.
+    """
+    from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
+    reenabled = []
+    for chapter in dict.fromkeys(c for c in chapters if c):
+        try:
+            if _reenable_ended_row(member, chapter):
+                reenabled.append(chapter)
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the whole transaction back: carrying on would approve against lost writes.
+            raise
+        except Exception:  # noqa: BLE001
+            frappe.log_error(
+                title="Approval Chapter Row Not Reactivated",
+                message=f"Member {member.name}, chapter {chapter}:\n{frappe.get_traceback()}",
+            )
+    return reenabled
+
+
+def _reenable_ended_row(member, chapter):
+    from verenigingen.utils.secure_operations import secure_document_operation
+
+    chapter_doc = frappe.get_doc("Chapter", chapter)
+    row = next((r for r in chapter_doc.members if r.member == member.name), None)
+    if not row or row.status == "Pending" or (row.enabled and row.status != "Inactive"):
+        return False
+    row.enabled = 1
+    row.status = "Pending"
+    row.leave_reason = None
+    result = secure_document_operation(
+        operation="save",
+        doc=chapter_doc,
+        justification=f"Reactivate rejoining member {member.name} in chapter {chapter}",
+        required_permissions=["Chapter:write"],
+        allow_system_user=True,
+    )
+    if not result.success:
+        frappe.throw(_("Failed to reactivate chapter member: {0}").format("; ".join(result.errors)))
+    return True
+
+
+def _finish_reviewer_chapter_row(member, chapter, reenabled=False):
     """What assign_member_to_chapter does for a NEW row, for a row written before the core (#2943).
 
     Once the row exists add_member answers already_exists and stops, which skips the tracking fields, the
@@ -209,6 +262,8 @@ def _finish_reviewer_chapter_row(member, chapter):
     wrote it. As in add_member (#1842) the comment, tracking fields and mail follow only a row that really is
     Active and enabled: if it is still not, the failure is logged with the member and chapter and none of the
     three is written. add_member cannot be the fallback for it: the row exists, so it answers already_exists.
+    A rejoiner's re-enabled row (#2953) gets what add_member's re-enable branch wrote: a "Re-enabled" comment,
+    the tracking fields, and NO welcome mail.
     Returns the chapters this call activated, for the board join mail.
     """
     from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
@@ -227,12 +282,15 @@ def _finish_reviewer_chapter_row(member, chapter):
         return activated
     chapter_doc = frappe.get_doc("Chapter", chapter)
     chapter_doc.member_manager.create_comment(  # ast-skip: @property not field
-        "Info", _("Added member {0} to chapter").format(member.full_name)
+        "Info",
+        (_("Re-enabled member {0}") if reenabled else _("Added member {0} to chapter")).format(
+            member.full_name
+        ),
     )
     ChapterMembershipManager._update_member_tracking_fields(
         member_id=member.name, reason="Membership application approval", assigned_by=frappe.session.user
     )
-    if ChapterMembershipManager._assignment_notifications_wanted(None):
+    if not reenabled and ChapterMembershipManager._assignment_notifications_wanted(None):
         chapter_doc.communication_manager.notify_member_added(member.name)  # ast-skip: @property not field
     return activated
 
@@ -745,6 +803,7 @@ def _approve_membership_application_locked(
     create_member_iban_history(member)
 
     reviewer_row_written = _create_pending_row_for_reviewer_chapter(member, chapter)
+    reviewer_row_reenabled = bool(_reenable_ended_row_before_invoice(member, [chapter]))
     activated_chapters = _activate_pending_rows_before_invoice(member, applied_chapter, chapter)
 
     approval_fields = _prepare_approval_fields(member, membership_type, notes)
@@ -765,8 +824,8 @@ def _approve_membership_application_locked(
     # before the flip, it read 'Pending' and wrote the row enabled=0/Inactive, which the
     # activation step (it only flips 'Pending' rows) never repaired.
     assign_member_to_chapter(member, chapter)
-    if reviewer_row_written:
-        activated_chapters += _finish_reviewer_chapter_row(member, chapter)
+    if reviewer_row_written or reviewer_row_reenabled:
+        activated_chapters += _finish_reviewer_chapter_row(member, chapter, reenabled=reviewer_row_reenabled)
     _tell_boards_of_activated_joins(member, activated_chapters)
     if chapter:
         member.reload()
