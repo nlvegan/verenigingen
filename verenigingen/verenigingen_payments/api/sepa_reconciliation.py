@@ -90,7 +90,11 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, insert_and_submit_atomically
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    atomic_status_transition,
+    insert_and_submit_atomically,
+)
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
@@ -1435,17 +1439,20 @@ def manual_sepa_reconciliation(bank_transaction_name: str, batch_items_json: str
         bank_transaction.check_permission("write")
         batch_items = json.loads(batch_items_json)
 
+        # #2760 (maintainer ruling): all-or-nothing across items. One savepoint around the
+        # whole batch, so a later failure undoes the Payment Entries already booked for
+        # earlier items; the except below then reports the failure. No commit may run inside.
         reconciled_items = []
+        with atomic_status_transition("manual_sepa_recon"):
+            for item in batch_items:
+                if item.get("reconcile", False):
+                    # Create payment entry for this specific item
+                    result = create_manual_payment_entry(bank_transaction, item)
+                    reconciled_items.append(result)
 
-        for item in batch_items:
-            if item.get("reconcile", False):
-                # Create payment entry for this specific item
-                result = create_manual_payment_entry(bank_transaction, item)
-                reconciled_items.append(result)
-
-        # Update bank transaction status
-        bank_transaction.custom_processing_status = "Manually Reconciled"
-        bank_transaction.save()
+            # Update bank transaction status
+            bank_transaction.custom_processing_status = "Manually Reconciled"
+            bank_transaction.save()
 
         return {
             "success": True,

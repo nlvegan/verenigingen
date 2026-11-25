@@ -102,6 +102,59 @@ class TestManualReconciliationFailedSubmit(_SepaFixture):
         self._assert_sepa_booked_once_2447(bt, retry["reconciled_items"][0]["payment_entry"])
 
 
+class TestManualReconciliationAllOrNothing2760(_SepaFixture):
+    """#2760 (maintainer ruling 2026-11-25): a batch is all-or-nothing across items.
+
+    Real flow, no injected fault: item 2 names an invoice that does not exist, so the real
+    ``create_manual_payment_entry`` throws "Invoice ... not found" after item 1's Payment
+    Entry was already booked."""
+
+    def _three_items_2760(self, name):
+        its = [self._make_member_with_invoice(first_name=f"{name}{i}", grand_total=25.0) for i in range(3)]
+        batch = self._make_batch(its)
+        bt = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="SEPA DD")
+        items = [
+            {"reconcile": True, "member": it["member"].name, "invoice": it["invoice"].name, "amount": 25.0}
+            for it in its
+        ]
+        return its, bt, items
+
+    def test_a_failing_later_item_leaves_no_payment_entry_booked(self):
+        _, bt, items = self._three_items_2760("A2760")
+        items[1]["invoice"] = "ACC-SINV-DOES-NOT-EXIST-2760"
+        self.expectErrorLog("Error in manual SEPA reconciliation")
+        result = recon.manual_sepa_reconciliation(bt.name, json.dumps(items))
+        self.assertFalse(result["success"], result)
+        self.assertIn("not found", result["error"])
+        self.assertEqual(self._rows(bt), [], "item 1's Payment Entry stayed booked")
+        self.assertNotEqual(
+            frappe.db.get_value("Bank Transaction", bt.name, "custom_processing_status"),
+            "Manually Reconciled",
+        )
+
+    def test_control_an_all_good_batch_books_every_item(self):
+        its, bt, items = self._three_items_2760("C2760")
+        result = recon.manual_sepa_reconciliation(bt.name, json.dumps(items))
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["total_reconciled"], 3)
+        self.assertEqual(len([r for r in self._rows(bt) if r.docstatus == 1]), 3)
+
+    def test_a_deadlock_on_a_later_item_still_propagates(self):
+        _, bt, items = self._three_items_2760("D2760")
+        real = recon.create_manual_payment_entry
+        calls = []
+
+        def second_call_deadlocks(bank_transaction, item):
+            calls.append(item)
+            if len(calls) == 2:
+                raise frappe.QueryDeadlockError("1213 injected")
+            return real(bank_transaction, item)
+
+        with patch.object(recon, "create_manual_payment_entry", side_effect=second_call_deadlocks):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                recon.manual_sepa_reconciliation(bt.name, json.dumps(items))
+
+
 class TestDuplicatePreventionFailedSubmit(_SepaFixture):
     def _payment_data(self, it, batch, bt):
         invoice = frappe.get_doc("Sales Invoice", it["invoice"].name)
