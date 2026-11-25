@@ -1649,10 +1649,12 @@ def can_view_financial_info(doctype, name=None, user=None):
         target_member_chapters = frappe.get_all(
             "Chapter Member",
             filters={"member": target_member.name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-            limit=1,
+            fields=["parent", "chapter_join_date"],
         )
+        # The primary chapter: latest join date, the applied chapter on a tie (#2966).
+        from verenigingen.services.chapter.chapter_utils import order_chapters_primary_first
+
+        target_member_chapters = order_chapters_primary_first(target_member.name, target_member_chapters)
     except Exception as e:
         frappe.logger().error(f"Permission check query failed for member {target_member.name}: {str(e)}")
         return False
@@ -1696,10 +1698,12 @@ def check_member_payment_access(member_name, user=None):
     member_chapters = frappe.get_all(
         "Chapter Member",
         filters={"member": member.name, "enabled": 1},
-        fields=["parent"],
-        order_by="chapter_join_date desc",
-        limit=1,
+        fields=["parent", "chapter_join_date"],
     )
+    # Latest join date, the applied chapter on a tie (#2966).
+    from verenigingen.services.chapter.chapter_utils import order_chapters_primary_first
+
+    member_chapters = order_chapters_primary_first(member.name, member_chapters)
     if member_chapters:
         chapter = frappe.get_doc("Chapter", member_chapters[0].parent)
         return chapter.can_view_member_payments(viewer_member)

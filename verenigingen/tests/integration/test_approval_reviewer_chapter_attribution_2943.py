@@ -144,8 +144,8 @@ class TestReviewerChapterBeforeInvoice2943(ApprovalCase):
         member = result["member"]
         for chapter in (self.chapter.name, other.name):
             self.assertEqual([(r.status, r.enabled) for r in self._rows_2943(member, chapter)], [("Active", 1)])
-        # DERIVED, not a policy: get_member_primary_chapter picks it; either chapter is attributed.
-        self.assertIn(self._invoice_chapters_2943(member), ([self.chapter.name], [other.name]))
+        # Policy (#2966, ruling 2026-11-25): the applied chapter is primary, so it is the one attributed.
+        self.assertEqual(self._invoice_chapters_2943(member), [self.chapter.name])
 
     def test_approval_without_an_invoice_still_leaves_one_active_reviewer_row(self):
         application = self._stage_without_chapter()

@@ -406,10 +406,12 @@ class TerminationApprovalService(StatefulService):
                 member_chapters = frappe.get_all(
                     "Chapter Member",
                     filters={"member": self.request.member, "enabled": 1},
-                    fields=["parent"],
-                    order_by="chapter_join_date desc",
-                    limit=1,
+                    fields=["parent", "chapter_join_date"],
                 )
+                # Latest join date, the applied chapter on a tie (#2966).
+                from verenigingen.services.chapter.chapter_utils import order_chapters_primary_first
+
+                member_chapters = order_chapters_primary_first(self.request.member, member_chapters)
                 if member_chapters:
                     expulsion_entry.chapter_involved = member_chapters[0].parent
             else:

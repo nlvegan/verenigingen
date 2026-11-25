@@ -202,6 +202,10 @@ def get_data(filters):
 
     # Get comprehensive member and account creation data
     # Check for actual record existence first, then linking status
+    # The primary chapter: latest join date, the applied chapter on a tie (#2966).
+    from verenigingen.services.chapter.chapter_utils import primary_chapter_order_sql
+
+    chapter_order = primary_chapter_order_sql("m.name")
     data = frappe.db.sql(
         f"""
         SELECT
@@ -214,7 +218,7 @@ def get_data(filters):
                 WHERE cm.member = m.name
                     AND cm.enabled = 1
                     AND cm.status = 'Active'
-                ORDER BY cm.chapter_join_date DESC
+                ORDER BY {chapter_order}
                 LIMIT 1
             ) as active_chapter,
             m.interested_in_volunteering,
