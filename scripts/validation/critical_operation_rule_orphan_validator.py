@@ -92,7 +92,14 @@ FIXTURE_FILES = (
 # design -- rate_limit_engine._get_cor_config() falls back to it BY LITERAL
 # NAME when no specific rule matches (see the module docstring). It is a
 # deliberate sentinel, not a stale rename.
-ALLOWLIST = {"_generic_api_fallback"}
+#
+# retry_failed_payment_self (#2596) is the member self-retry bucket (5/hour). It
+# is ticked BY NAME from _self_retry_limit_exceeded (verenigingen/api/
+# payment_dashboard.py), not by a decorator, because the decorator runs before
+# the endpoint knows whose invoice it is. So it has a real reader but no def of
+# that name. AllowlistReadersExistTest pins that the literal stays in non-test
+# code, so this entry cannot outlive its reader.
+ALLOWLIST = {"_generic_api_fallback", "retry_failed_payment_self"}
 
 # The roots that can define a function `frappe.get_attr`/an operation_key can
 # ever name. `scripts/` is a real importable package at the app root (it has
