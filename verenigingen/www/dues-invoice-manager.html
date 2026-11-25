@@ -413,7 +413,7 @@ function checkMemberStatus() {
                     html += `
                         <div class="border-l-4 border-green-500 bg-green-50 p-4 rounded">
                             <div class="font-semibold text-green-800">✓ Members with Coverage (${categories.already_covered.count})</div>
-                            <div class="text-sm text-green-700 mt-1">${categories.already_covered.description}</div>
+                            <div class="text-sm text-green-700 mt-1">${escapeHtml(categories.already_covered.description)}</div>
                         </div>
                     `;
                 }
@@ -425,13 +425,13 @@ function checkMemberStatus() {
                             <summary class="cursor-pointer font-semibold text-amber-800">
                                 ⚠ Needs Invoicing (${categories.needs_invoicing.count})
                             </summary>
-                            <div class="text-sm text-amber-700 mt-2">${categories.needs_invoicing.description}</div>
+                            <div class="text-sm text-amber-700 mt-2">${escapeHtml(categories.needs_invoicing.description)}</div>
                             ${categories.needs_invoicing.members && categories.needs_invoicing.members.length > 0 ? `
                                 <ul class="mt-2 space-y-1 text-sm">
                                     ${categories.needs_invoicing.members.map(m => `
                                         <li class="text-amber-600">
-                                            ${m.member_name}
-                                            <a href="/app/member/${m.member_id}" class="text-blue-600 hover:text-blue-800 ml-2" target="_blank">[view]</a>
+                                            ${escapeHtml(m.member_name)}
+                                            <a href="/app/member/${encodeURIComponent(m.member_id)}" class="text-blue-600 hover:text-blue-800 ml-2" target="_blank">[view]</a>
                                         </li>
                                     `).join('')}
                                 </ul>
@@ -447,10 +447,10 @@ function checkMemberStatus() {
                             <summary class="cursor-pointer font-semibold text-blue-800">
                                 🔄 Coverage Gap Reset (${categories.gap_reset.count})
                             </summary>
-                            <div class="text-sm text-blue-700 mt-2">${categories.gap_reset.description}</div>
+                            <div class="text-sm text-blue-700 mt-2">${escapeHtml(categories.gap_reset.description)}</div>
                             ${categories.gap_reset.members && categories.gap_reset.members.length > 0 ? `
                                 <ul class="mt-2 space-y-1 text-sm">
-                                    ${categories.gap_reset.members.slice(0, 10).map(m => `<li class="text-blue-600">${m}</li>`).join('')}
+                                    ${categories.gap_reset.members.slice(0, 10).map(m => `<li class="text-blue-600">${escapeHtml(m)}</li>`).join('')}
                                     ${categories.gap_reset.members.length > 10 ? `<li class="text-blue-500 italic">...and ${categories.gap_reset.members.length - 10} more</li>` : ''}
                                 </ul>
                             ` : ''}
@@ -465,7 +465,7 @@ function checkMemberStatus() {
                             <summary class="cursor-pointer font-semibold text-gray-700">
                                 ⊘ Ineligible Status (${categories.ineligible_status.count})
                             </summary>
-                            <div class="text-sm text-gray-600 mt-2">${categories.ineligible_status.description}</div>
+                            <div class="text-sm text-gray-600 mt-2">${escapeHtml(categories.ineligible_status.description)}</div>
                         </details>
                     `;
                 }
@@ -487,7 +487,7 @@ function checkMemberStatus() {
                             <summary class="cursor-pointer font-semibold text-orange-800">
                                 ⚠ Missing Customer Records (${categories.no_customer.count})
                             </summary>
-                            <div class="text-sm text-orange-700 mt-2">${categories.no_customer.description}</div>
+                            <div class="text-sm text-orange-700 mt-2">${escapeHtml(categories.no_customer.description)}</div>
                         </details>
                     `;
                 }
@@ -499,17 +499,17 @@ function checkMemberStatus() {
                             <summary class="cursor-pointer font-semibold text-purple-800">
                                 ⚠ Duplicate Coverage (${categories.duplicate_coverage.count})
                             </summary>
-                            <div class="text-sm text-purple-700 mt-2">${categories.duplicate_coverage.description}</div>
+                            <div class="text-sm text-purple-700 mt-2">${escapeHtml(categories.duplicate_coverage.description)}</div>
                             ${categories.duplicate_coverage.members && categories.duplicate_coverage.members.length > 0 ? `
                                 <ul class="mt-2 space-y-1 text-sm">
                                     ${categories.duplicate_coverage.members.slice(0, 20).map(m => {
                                         // Handle both string and object formats
                                         if (typeof m === 'string') {
-                                            return `<li class="text-purple-600">${m}</li>`;
+                                            return `<li class="text-purple-600">${escapeHtml(m)}</li>`;
                                         } else if (m && m.member_name) {
-                                            return `<li class="text-purple-600">${m.member_name} <a href="/app/member/${m.member_id}" class="text-blue-600 hover:text-blue-800 ml-2" target="_blank">[view]</a></li>`;
+                                            return `<li class="text-purple-600">${escapeHtml(m.member_name)} <a href="/app/member/${encodeURIComponent(m.member_id)}" class="text-blue-600 hover:text-blue-800 ml-2" target="_blank">[view]</a></li>`;
                                         } else {
-                                            return `<li class="text-purple-600">${JSON.stringify(m)}</li>`;
+                                            return `<li class="text-purple-600">${escapeHtml(JSON.stringify(m))}</li>`;
                                         }
                                     }).join('')}
                                     ${categories.duplicate_coverage.members.length > 20 ? `<li class="text-purple-500 italic">...and ${categories.duplicate_coverage.members.length - 20} more</li>` : ''}
@@ -532,7 +532,7 @@ function checkMemberStatus() {
                 if (r.message && r.message.success === false) {
                     errorMsg = r.message.error || r.message.message || errorMsg;
                 }
-                showResults('Error', errorMsg, 'error');
+                showResults('Error', escapeHtml(errorMsg), 'error');
             }
         },
         error: function(r) {
@@ -541,7 +541,7 @@ function checkMemberStatus() {
             if (r && r.message) {
                 errorMsg = r.message.error || r.message.message || r.message || errorMsg;
             }
-            showResults('Error', errorMsg, 'error');
+            showResults('Error', escapeHtml(errorMsg), 'error');
         }
     }).fail(function(xhr) {
         // The website frappe.call (website.js) answers a 403 with a bare "Not permitted" popup and never
@@ -587,10 +587,10 @@ function generateMissingInvoices() {
 
                 let content = `
                     <div class="space-y-3">
-                        <p class="font-medium">${successMsg}</p>
+                        <p class="font-medium">${escapeHtml(successMsg)}</p>
                         <div class="bg-blue-50 border border-blue-200 rounded p-3 text-sm">
-                            <p class="text-blue-800 mb-2">${note}</p>
-                            <p class="text-gray-700">Job ID: <code class="bg-white px-2 py-1 rounded text-xs">${jobId}</code></p>
+                            <p class="text-blue-800 mb-2">${escapeHtml(note)}</p>
+                            <p class="text-gray-700">Job ID: <code class="bg-white px-2 py-1 rounded text-xs">${escapeHtml(jobId)}</code></p>
                         </div>
                         <div class="flex gap-2">
                             <a href="/app/rq-job" target="_blank" class="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700">
@@ -609,14 +609,14 @@ function generateMissingInvoices() {
             } else {
                 const errors = r.message?.errors || [];
                 const errorList = errors.length > 0
-                    ? `<ul class="list-disc list-inside mt-2">${errors.slice(0, 5).map(e => `<li class="text-sm">${e}</li>`).join('')}</ul>`
+                    ? `<ul class="list-disc list-inside mt-2">${errors.slice(0, 5).map(e => `<li class="text-sm">${escapeHtml(e)}</li>`).join('')}</ul>`
                     : '';
-                showResults('Generation Failed', r.message?.message || 'Failed to queue invoice generation.' + errorList, 'error');
+                showResults('Generation Failed', r.message?.message ? escapeHtml(r.message.message) : 'Failed to queue invoice generation.' + errorList, 'error');
             }
         },
         error: function(r) {
             hideSpinner('generation-spinner');
-            showResults('Error', r.message || 'Failed to queue invoice generation.', 'error');
+            showResults('Error', escapeHtml(r.message || 'Failed to queue invoice generation.'), 'error');
         }
     });
 }
@@ -644,7 +644,7 @@ function validateSepaEligibility() {
                     'success'
                 );
             } else if (r.message && r.message.success === false) {
-                showResults('Error', r.message.error || 'SEPA validation failed.', 'error');
+                showResults('Error', escapeHtml(r.message.error || 'SEPA validation failed.'), 'error');
             } else if (r.message) {
                 // Legacy format fallback
                 const summary = r.message.summary || {};
@@ -665,7 +665,7 @@ function validateSepaEligibility() {
             if (r.message) {
                 errorMsg = r.message.error || r.message.message || r.message || errorMsg;
             }
-            showResults('Error', errorMsg, 'error');
+            showResults('Error', escapeHtml(errorMsg), 'error');
         }
     });
 }
