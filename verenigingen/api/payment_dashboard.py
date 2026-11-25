@@ -16,7 +16,7 @@ from verenigingen.utils.performance_utils import performance_monitor
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
-    critical_api,
+    api_security_framework,
     high_security_api,
     standard_api,
 )
@@ -636,8 +636,29 @@ def _next_payment(member: str = None, caller_cleared_high: bool = False) -> Oper
         return OperationResult.fail(_("Failed to retrieve next payment: {0}").format(str(e)))
 
 
+def _audit_retry_call(success, error=None):
+    """The LOW tier's profile does not audit (requires_audit is False), so record the retry here.
+
+    A money action, and its refusals, must stay in the audit trail (#2596).
+    """
+    get_audit_emitter().log_api_call(
+        func=retry_failed_payment,
+        security_level=SecurityLevel.LOW,
+        success=success,
+        error=error,
+        user=frappe.session.user,
+        args_count=0,
+        kwargs_keys=["invoice_id"],
+    )
+
+
+# LOW tier (any authenticated user), not CRITICAL (#2596): CRITICAL is Role Profile only and
+# no Member or Staff profile holds it, so the ownership / Sales Invoice write check below
+# never ran for the people it is written for. Deliberately NOT self_service_api: that gate
+# refuses a caller with no Member record of their own, which is exactly a staff user acting
+# on a member's behalf (#1101). Authorization is the body's own check (has_write or is_owner).
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
+@api_security_framework(security_level=SecurityLevel.LOW, operation_type=OperationType.FINANCIAL)
 def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
     """Manually trigger payment retry"""
     try:
@@ -665,6 +686,7 @@ def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
         is_owner = invoice_member is not None and invoice_member == member
 
         if not has_write and not is_owner:
+            _audit_retry_call(success=False, error="permission refused")
             return OperationResult.fail(_("You don't have permission to retry this payment"))
 
         if not invoice_exists:
@@ -685,20 +707,13 @@ def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
         try:
             result = retry_manager._schedule_retry(invoice_id, "MANUAL", "Manual retry requested by member")
         except Exception as e:
-            # The handler below returns the failure, so critical_api would audit this call as a
-            # success. Before #2280 the nested critical schedule_retry audited the raise as
-            # api_call_failed (the #352 N1 class); record it here through the decorators' emitter.
-            get_audit_emitter().log_api_call(
-                func=retry_failed_payment,
-                security_level=SecurityLevel.CRITICAL,
-                success=False,
-                error=str(e),
-                user=frappe.session.user,
-                args_count=0,
-                kwargs_keys=["invoice_id"],
-            )
+            # The handler below returns the failure, so the decorator would not see it. Before #2280
+            # the nested critical schedule_retry audited the raise as api_call_failed (the #352 N1
+            # class); record it here.
+            _audit_retry_call(success=False, error=str(e))
             raise
 
+        _audit_retry_call(success=True)
         if result["scheduled"]:
             data = {"next_retry": result["next_retry"]}
             return OperationResult.ok(data, message=result["message"])

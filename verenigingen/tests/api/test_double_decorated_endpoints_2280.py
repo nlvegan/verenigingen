@@ -302,9 +302,8 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
         self.assertTicksOnly(cmd, buckets)
         self.assertEqual(dict(self._audit_counts_2280() - audited_before), {"retry_failed_payment": 1})
 
-        # control: the endpoint's own gate still applies (a LOW-only caller is refused before the body)
-        member_only = self._user_with_profile_2280("Verenigingen Member")
-        _, error, _ = self._dispatch_2280(cmd, member_only, "POST", invoice_id=invoice.name)
+        # control: #2596 made this self-service, so the endpoint's own gate is Guest refusal
+        _, error, _ = self._dispatch_2280(cmd, "Guest", "POST", invoice_id=invoice.name)
         self.assertIsInstance(error, frappe.PermissionError)
 
     def test_every_split_endpoint_still_refuses_a_caller_below_its_level(self):
@@ -330,11 +329,12 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
         member = self.create_test_member(first_name="Retry", last_name="Owner", status="Active")
         invoice = self.create_test_sales_invoice(member=member.name)
         cmd = PAY + "retry_failed_payment"
-        outsider = self._user_with_profile_2280("Verenigingen National Board Member")  # holds CRITICAL
+        outsider = self._user_with_profile_2280("Verenigingen National Board Member")
+        self._member_for_user_2280(outsider)  # #2596: the self-service gate wants a member of its own
         with self.as_user(outsider):
             self.assertFalse(frappe.has_permission("Sales Invoice", "write"))  # precondition
         result, error, buckets = self._dispatch_2280(cmd, outsider, "POST", invoice_id=invoice.name)
-        self.assertIsNone(error, "the CRITICAL gate must have passed so the body check is what refuses")
+        self.assertIsNone(error, "the tier gate must have passed so the body check is what refuses")
         self.assertFalse(result["success"], result)
         self.assertIn("permission", result["error"]["message"])
         self.assertFalse(frappe.db.exists("SEPA Payment Retry", {"invoice": invoice.name}))
@@ -389,7 +389,7 @@ class TestDoubleDecoratedEndpoints2280(VereningingenTestCase):
             result, error, _ = self._dispatch_2280(cmd, "Administrator", "POST", invoice_id=invoice.name)
         self.assertIsNone(error)
         self.assertFalse(result["success"], result)
-        self.assertEqual(self._new_audit_rows_2280(before).get("retry_failed_payment:critical:api_call_failed"), 1)
+        self.assertEqual(self._new_audit_rows_2280(before).get("retry_failed_payment:low:api_call_failed"), 1)
 
     def test_a_failed_cutoff_calculation_in_check_member_dues_status_is_audited_as_failed(self):
         """The endpoint reports the failure in its OperationResult; the nested CRITICAL cutoff endpoint
