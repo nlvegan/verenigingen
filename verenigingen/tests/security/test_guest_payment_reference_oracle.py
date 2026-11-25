@@ -347,6 +347,56 @@ class TestOwnedReferenceLookup(EnhancedTestCase):
         self.assertEqual(frappe.db.count("Member", {"customer": ""}), 1)
         self.assertEqual(_owner_email_on_file("Sales Invoice", "ACC-SINV-NOPE-1"), "")
 
+    def _donation_after_donor_email_change(self):
+        """A Donation saved BEFORE its donor's email changed (#2183), through the real writers.
+
+        Donor.save() is the real email-change flow; nothing re-fetches the Donation, so its
+        ``donor_email`` snapshot keeps the OLD address (asserted, so the fixture cannot drift).
+        """
+        donor = frappe.get_doc(
+            {"doctype": "Donor", "donor_name": "Own2183", "donor_type": "Individual",
+             "donor_email": "own2183.old@example.com", "currency": "EUR"}
+        )
+        donor.flags.ignore_customer_sync = True
+        donor.insert()
+        self.track_doc("Donor", donor.name)
+        donation = frappe.get_doc(
+            {"doctype": "Donation", "donor": donor.name, "donation_date": frappe.utils.today(),
+             "amount": 10.0, "mode_of_payment": "Mollie", "status": "One-time",
+             "donation_purpose_type": "General", "paid": 0}
+        ).insert()
+        self.track_doc("Donation", donation.name)
+        old_email = donor.donor_email
+        donor.donor_email = "own2183.new@example.com"
+        donor.flags.ignore_customer_sync = True
+        donor.save()
+        self.assertEqual(frappe.db.get_value("Donation", donation.name, "donor_email"), old_email)
+        return donation, old_email, donor.donor_email
+
+    def test_a_donation_is_owned_by_the_donors_live_email_not_the_snapshot(self):
+        """#2183 ruling (a): the Donor's current address proves ownership; the stale snapshot does not."""
+        from verenigingen.verenigingen_payments.utils.reference_ownership import (
+            PaymentReferenceRefused,
+            load_owned_reference,
+        )
+
+        donation, old_email, new_email = self._donation_after_donor_email_change()
+        self.assertEqual(load_owned_reference("Donation", donation.name, f" {new_email.upper()} ").name,
+                         donation.name)
+        with self.assertRaises(PaymentReferenceRefused):
+            load_owned_reference("Donation", donation.name, old_email)
+
+    def test_donation_costs_the_same_as_an_unknown_one(self):
+        donation, _old, _new = self._donation_after_donor_email_change()
+        self._assert_unknown_matches_existing("Donation", donation.name, "DON-NOPE-2183")
+
+    def test_a_donation_whose_donor_has_no_email_is_not_owned_by_a_blank_email(self):
+        from verenigingen.verenigingen_payments.utils.reference_ownership import _owner_email_on_file
+
+        donation, _old, _new = self._donation_after_donor_email_change()
+        frappe.db.set_value("Donor", donation.donor, "donor_email", "")  # stand-in: blank live email
+        self.assertEqual(_owner_email_on_file("Donation", donation.name), "")
+
     def test_a_filter_dict_as_the_name_is_refused_not_read_as_filters(self):
         """get_value reads a dict name as filters: {"donor_email": "%"} must not match a real Donation."""
         from verenigingen.verenigingen_payments.utils.reference_ownership import _owner_email_on_file

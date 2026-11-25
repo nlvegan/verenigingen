@@ -40,6 +40,14 @@ try:
         "amount": 10.0, "mode_of_payment": "Mollie", "status": "One-time", "donation_purpose_type": "General",
         "paid": 0}).insert()
     created = {"donor": donor.name, "donation": donation.name}
+    # #2183: the donor's email changes AFTER the Donation was saved (real writer: Donor.save). The
+    # Donation.donor_email snapshot keeps the old address; ownership follows the live one.
+    old_email = owner_email
+    owner_email = "new." + uuid.uuid4().hex[:8] + "@example.com"
+    donor.donor_email = owner_email
+    donor.flags.ignore_customer_sync = True
+    donor.save()
+    assert frappe.db.get_value("Donation", donation.name, "donor_email") == old_email
     frappe.db.commit()
     frappe.destroy()
 
@@ -74,6 +82,7 @@ try:
         "forbidden": (donation.name, "stranger@example.com"),
         "unknown_noemail": (unknown, ""),
         "forbidden_noemail": (donation.name, ""),
+        "stale_snapshot_email": (donation.name, old_email),
         "owner": (donation.name, owner_email),
         "owner_padded_upper": (donation.name, "  " + owner_email.upper() + "  "),
     }
@@ -163,12 +172,16 @@ class TestDonateRetryPaymentOracle(EnhancedTestCase):
     def test_unknown_donation_matches_forbidden_donation_on_every_channel(self):
         self._assert_same("unknown", "forbidden")
 
+    def test_the_stale_snapshot_email_is_refused_like_any_stranger(self):
+        """#2183: the donor changed address after the Donation was saved; the old one no longer proves ownership."""
+        self._assert_same("unknown", "stale_snapshot_email")
+
     def test_unknown_matches_forbidden_when_no_email_is_supplied(self):
         self._assert_same("unknown_noemail", "forbidden_noemail")
 
     def test_refusals_never_reach_mollie_and_the_owner_does(self):
         """Control: refusals really refuse, and the fixture can get past the guard."""
-        for key in ("unknown", "forbidden", "unknown_noemail", "forbidden_noemail"):
+        for key in ("unknown", "forbidden", "unknown_noemail", "forbidden_noemail", "stale_snapshot_email"):
             with self.subTest(case=key):
                 self.assertEqual(self.out[key]["mollie_calls"], 0)
                 self.assertNotIn("pay.mollie.test", self.out[key]["location"])
@@ -188,12 +201,16 @@ class TestDonateRetryPaymentOracle(EnhancedTestCase):
                     self.assertNotRegex(error, r"(?i)does not exist")
 
 
-class TestRequireDonorEmailOnFile(EnhancedTestCase):
+class TestRetryUsesTheSharedOwnershipRule(EnhancedTestCase):
     """Direct call: the request layer may trim the email before the service sees it, so the
-    service's own strip()/lower() is only observable here."""
+    ownership rule's own strip()/lower() is only observable here (#2183: one rule for retry_payment
+    and make_payment, ``load_owned_reference``)."""
 
     def test_padded_upper_case_owner_email_is_accepted_and_a_stranger_refused(self):
-        from verenigingen.services.donation.public_donation_service import PublicDonationService
+        from verenigingen.verenigingen_payments.utils.reference_ownership import (
+            PaymentReferenceRefused,
+            load_owned_reference,
+        )
 
         donor = frappe.get_doc(
             {
@@ -221,7 +238,12 @@ class TestRequireDonorEmailOnFile(EnhancedTestCase):
         ).insert()
         self.track_doc("Donation", donation.name)
 
-        check = PublicDonationService._require_donor_email_on_file
-        check(donation.name, "  RETRY.Direct@Example.COM  ")
-        with self.assertRaises(frappe.ValidationError):
-            check(donation.name, "stranger@example.com")
+        load_owned_reference("Donation", donation.name, "  RETRY.Direct@Example.COM  ")
+        with self.assertRaises(PaymentReferenceRefused):
+            load_owned_reference("Donation", donation.name, "stranger@example.com")
+
+    def test_retry_payment_has_no_ownership_rule_of_its_own(self):
+        """The duplicate rule #2183 removed must not come back under the old name."""
+        from verenigingen.services.donation.public_donation_service import PublicDonationService
+
+        self.assertFalse(hasattr(PublicDonationService, "_require_donor_email_on_file"))

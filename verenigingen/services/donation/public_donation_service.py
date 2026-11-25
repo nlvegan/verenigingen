@@ -616,7 +616,7 @@ class PublicDonationService(StatelessService):
 
         That message-level uniformity is NOT a complete oracle defense,
         though: a wrong/missing donor_email is rejected by
-        ``_require_donor_email_on_file`` before any network call, while a
+        ``load_owned_reference`` before any network call, while a
         correct one proceeds into ``process_mollie_payment`` -- a real,
         network-bound request -- before it can fail for some other reason.
         Measured directly: a wrong email returns in single-digit-to-tens of
@@ -631,16 +631,18 @@ class PublicDonationService(StatelessService):
         single attacker can collect per hour rather than trying to make the
         two paths take equal time.
         """
+        from verenigingen.verenigingen_payments.utils.reference_ownership import load_owned_reference
+
         try:
             if not donation_id:
                 frappe.throw(_("Donation ID is required"))
 
-            # Decide ownership from two lightweight reads by name BEFORE loading anything: an
-            # unknown id and someone else's donation do the same work and fail the same way
-            # (#2097). The refusal is a plain ``raise``: frappe.throw would queue its text in
-            # message_log, which reaches the Guest.
-            self._require_donor_email_on_file(donation_id, donor_email)
-            donation = frappe.get_doc("Donation", donation_id)
+            # The shared ownership rule (#2183): decided from lightweight reads by name BEFORE
+            # loading anything, against the donor's live email, so an unknown id and someone
+            # else's donation do the same work and fail the same way (#2097). The refusal is a
+            # plain ``raise``: frappe.throw would queue its text in message_log, which reaches
+            # the Guest.
+            donation = load_owned_reference("Donation", donation_id, donor_email)
             donor = frappe.get_doc("Donor", donation.donor)
 
             # Only allow retry for unpaid donations with payment method Mollie
@@ -678,30 +680,6 @@ class PublicDonationService(StatelessService):
                 f"Payment retry error for donation {donation_id}: {str(e)}", "Payment Retry Error"
             )
             frappe.throw(_("Unable to retry payment. Please try again or contact support."))
-
-    @staticmethod
-    def _require_donor_email_on_file(donation_id, donor_email):
-        """Refuse a retry unless the caller supplied the donor's own email (#969).
-
-        Always two queries (Donation -> donor, then Donor -> email), whether or not the
-        Donation exists (the Donor read runs even with no donor to look up), and a plain
-        ``raise`` so nothing is queued in ``message_log``: an unknown id and a not-owned
-        one are indistinguishable (#2097). The refusal itself is decided by the final
-        ``if``; the filter dict on the Donor read only keeps an empty name from being
-        treated as a lookup by name. A non-string id is not queried at all
-        (``get_value`` reads a dict as filters).
-
-        Does not close the timing side-channel against the owner's own request, which
-        reaches Mollie -- see retry_payment_impl's docstring.
-        """
-        donor_name = None
-        if isinstance(donation_id, str):
-            donor_name = frappe.db.get_value("Donation", donation_id, "donor")
-        on_file = frappe.db.get_value("Donor", {"name": donor_name or ""}, "donor_email")
-        on_file = (on_file or "").strip().lower()
-        supplied = (donor_email or "").strip().lower() if isinstance(donor_email, str) else ""
-        if not donor_name or not supplied or supplied != on_file:
-            raise frappe.ValidationError(_("Donation not found"))
 
     def process_mollie_payment(self, donation, form_data):
         """Handle Mollie payment using the enhanced service layer architecture"""
