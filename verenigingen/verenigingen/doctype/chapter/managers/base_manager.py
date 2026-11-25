@@ -6,6 +6,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class BaseManager(ABC):
@@ -189,6 +190,9 @@ class BaseManager(ABC):
                     "Chapter audit comment not written", {"errors": comment_result.errors}, "warning"
                 )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # The audit sink is best-effort for ordinary errors only (#2652).
+            raise
         except Exception as e:
             self.log_action("Failed to create comment", {"error": str(e), "content": content[:100]}, "error")
 

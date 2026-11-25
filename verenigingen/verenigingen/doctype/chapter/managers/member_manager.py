@@ -248,6 +248,10 @@ class MemberManager(BaseManager):
             # Create audit comment - don't fail member addition if this fails
             try:
                 self.create_comment("Info", _("Added member {0} to chapter").format(member_doc.full_name))
+            except NON_RESUMABLE_DB_ERRORS:
+                # Best-effort only for ordinary errors: a 1213/1205 means the roster write above
+                # is lost or half-applied, and reporting success would hide it (#2652).
+                raise
             except Exception as e:
                 # Log but don't fail - broken pipe errors during bulk imports shouldn't prevent member addition
                 frappe.logger().warning(f"Failed to create audit comment for member {member_id}: {str(e)}")
@@ -962,6 +966,8 @@ class MemberManager(BaseManager):
                     else:
                         errors.append(f"Failed to add {member_id}: {result.get('message', 'Unknown error')}")
 
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
                 except Exception as e:
                     errors.append(
                         f"Error processing member {member_data.get('member_id', 'unknown')}: {str(e)}"
@@ -990,6 +996,8 @@ class MemberManager(BaseManager):
                 "added_members": added_members,
             }
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             self.log_action(
                 "Critical error in bulk member addition",

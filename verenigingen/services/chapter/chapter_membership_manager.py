@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class ChapterMembershipManager:
@@ -261,6 +262,10 @@ class ChapterMembershipManager:
             # Member was deleted during processing - expected scenario, log as info
             frappe.logger().info(f"Member {member_id} no longer exists, skipping chapter assignment")
             return {"success": False, "error": _("Member {0} not found").format(member_id)}
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 already rolled the transaction back and a 1205 left the roster write
+            # undone: a failure dict would let every caller carry on against it (#2652, #2700).
+            raise
         except Exception as e:
             # Only log as error if it's NOT a "Broken pipe" error (which happens when trying to
             # message a user from background job after member deletion)
@@ -362,6 +367,8 @@ class ChapterMembershipManager:
                 "Member", member_id, {"chapter_change_reason": reason, "chapter_assigned_by": assigned_by}
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             frappe.log_error(
                 f"Error updating member tracking fields for {member_id}: {str(e)}", "ChapterMembershipManager"
