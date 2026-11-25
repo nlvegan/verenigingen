@@ -579,7 +579,7 @@ def _record_board_position_failure(failures, title, message, user_message):
     _record_termination_failure(failures, title, message, user_message)
 
 
-def end_board_positions_safe(member_name, end_date, reason, failures=None):
+def end_board_positions_safe(member_name, end_date, reason, failures=None, volunteer_names=None):
     """
     End board positions safely by updating through parent Chapter document
     Child table records must be saved through their parent, not directly
@@ -594,10 +594,16 @@ def end_board_positions_safe(member_name, end_date, reason, failures=None):
     NOT be ended appends one operator-readable line to it (and an Error Log row is
     written), so the caller can record the shortfall instead of reading a bare count.
     A non-resumable DB error still propagates and never reaches `failures`.
+
+    `volunteer_names` (#2471): end only these Volunteers' seats instead of every Volunteer of
+    `member_name` (a Volunteer being deleted may have no Member left to look up).
     """
     try:
         # Get volunteer records for this member
-        volunteer_records = frappe.get_all("Volunteer", filters={"member": member_name}, fields=["name"])
+        if volunteer_names is not None:
+            volunteer_records = [frappe._dict(name=name) for name in volunteer_names]
+        else:
+            volunteer_records = frappe.get_all("Volunteer", filters={"member": member_name}, fields=["name"])
 
         positions_marked_by_chapter = {}  # chapter_name -> count of positions marked in it
         chapters_to_save = {}  # Track chapters that need saving

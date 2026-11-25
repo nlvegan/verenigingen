@@ -185,9 +185,16 @@ class MemberCleanupService(StatelessService):
             - Addresses: Unlink but preserve records
             - Child tables: Direct SQL deletion for performance
         """
+        # #2471: end board seats and withdraw the board role BEFORE the anonymise-or-delete
+        # fork below, so the #1306 anonymise branch (which keeps the Member row) withdraws too.
+        from verenigingen.services.chapter.board_seat_withdrawal_service import (
+            end_seats_for_deleted_member,
+        )
         from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
             delete_dues_schedule_with_backlink_cleanup,
         )
+
+        end_seats_for_deleted_member(member_doc.name)
 
         # Membership Dues Schedules linked to this member. A READ-ONLY
         # pre-pass (#1306 round 2) decides BEFORE deleting anything whether
