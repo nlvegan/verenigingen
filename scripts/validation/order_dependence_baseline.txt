@@ -517,7 +517,6 @@ REUSE tests/member/test_dutch_business_logic_integration.py::2  # order-dependen
 REUSE tests/member/test_secure_member_list_performance.py::1  # order-dependence
 REUSE tests/payment/test_balance_transaction_processor_coverage.py::1  # order-dependence
 REUSE tests/payment/test_bank_integration.py::1  # order-dependence
-REUSE tests/payment/test_bulk_transaction_importer.py::1  # order-dependence
 REUSE tests/payment/test_dues_schedule_sync.py::1  # order-dependence
 REUSE tests/payment/test_mollie_dues_processor_coverage_b3.py::1  # order-dependence
 REUSE tests/payment/test_mt940_import_coverage.py::4  # order-dependence
