@@ -330,14 +330,20 @@ class TestRetryFailedPaymentTier2596(EnhancedTestCase):
         self._arm_live_limits_2596()  # leaves the self row present; restored by addCleanup/rollback
         frappe.db.delete("Critical Operation Rule", {"operation_name": "retry_failed_payment_self"})
         frappe.clear_cache(doctype="Critical Operation Rule")
+        seen = set(frappe.get_all("Error Log", pluck="name"))  # MyISAM: stale rows survive rollback
         result, error, channels = self._dispatch_2596(self.owner_email, self.invoice.name, live_limiter=True)
         self.assertIsNone(error)
         self.assertFalse(result["success"], result)
         self.assertIn("too many", result["error"]["message"].lower())
         self.assertEqual(channels["error_logs"], 1, "the missing row must be logged visibly")
-        self.assertTrue(
-            frappe.db.exists("Error Log", {"error": ["like", "%retry_failed_payment_self%"]}),
-        )
+        new_rows = [
+            n
+            for n in frappe.get_all(
+                "Error Log", filters={"error": ["like", "%retry_failed_payment_self%"]}, pluck="name"
+            )
+            if n not in seen
+        ]
+        self.assertTrue(new_rows, "no NEW Error Log row names the missing rule")
         # control: staff are bounded by their own row, which exists, and are not refused by this guard
         staff = self._user_2596("Verenigingen Staff")
         result, error, _ = self._dispatch_2596(staff, self.invoice.name, live_limiter=True)
@@ -392,14 +398,21 @@ class TestRetryFailedPaymentTier2596(EnhancedTestCase):
 
         # Probe shortcut: outstanding_amount zeroed directly instead of booking a payment
         frappe.db.set_value("Sales Invoice", self.invoice.name, "outstanding_amount", 0)
+        # Error Log is MyISAM: rows from earlier runs survive rollback and invoice names are
+        # reused, so count only the rows this act wrote, not every row naming the invoice.
+        seen = set(frappe.get_all("Error Log", pluck="name"))
         handle_payment_rejection(f"E2E-{self.invoice.name}", "AC04", "Closed account")
         self.assertFalse(frappe.db.exists("SEPA Payment Retry", {"invoice": self.invoice.name}))
-        rows = frappe.get_all(
-            "Error Log",
-            filters={"error": ["like", f"%{self.invoice.name}%"]},
-            fields=["method", "error"],
-            order_by="creation desc",
-        )
+        rows = [
+            r
+            for r in frappe.get_all(
+                "Error Log",
+                filters={"error": ["like", f"%{self.invoice.name}%"]},
+                fields=["name", "method", "error"],
+                order_by="creation desc",
+            )
+            if r.name not in seen
+        ]
         self.assertEqual(len(rows), 1, rows)
         self.assertIn("outstanding", rows[0].error.lower())
         self.assertIn("AC04", rows[0].error)
