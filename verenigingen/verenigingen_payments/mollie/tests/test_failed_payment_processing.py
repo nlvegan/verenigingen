@@ -179,13 +179,6 @@ class TestFailedPaymentProcessing(EnhancedTestCase):
 
     def tearDown(self):
         """Clean up test data"""
-        try:
-            # Clean up email template if we created it
-            if frappe.db.exists("Email Template", "payment_failure_first"):
-                frappe.delete_doc("Email Template", "payment_failure_first")
-        except Exception:
-            pass  # Ignore cleanup errors
-
         super().tearDown()
 
 

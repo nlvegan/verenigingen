@@ -27,7 +27,7 @@ from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_
 from verenigingen.verenigingen_payments.mollie.api.sync import _notify_subscription_status_change
 
 REMINDERS = ["payment_reminder_friendly", "payment_reminder_urgent"]
-FAILURES = ["payment_failure_first", "payment_failure_second", "payment_failure_final"]
+FAILURES = ["payment_failure_final"]
 STATUS = ["subscription_suspended", "subscription_cancelled"]
 STOCK = REMINDERS + FAILURES + STATUS
 

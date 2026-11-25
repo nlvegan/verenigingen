@@ -292,30 +292,6 @@
     "doctype": "Email Template",
     "enabled": 1,
     "modified": "2026-01-04 12:00:00",
-    "name": "payment_failure_first",
-    "reference_doctype": "Member",
-    "response": null,
-    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-warning\">\n        <h2 class=\"email-title\">⚠️ Payment Issue - Action Required</h2>\n        <p class=\"email-subtitle\">{{ company or 'Our Organization'|e }}</p>\n    </div>\n    \n    <div class=\"email-content\">\n        <p>Dear {{ member.first_name or 'Member'|e }},</p>\n        \n        <p>We encountered an issue processing your recent payment and wanted to inform you immediately.</p>\n        \n        <div class=\"email-content-box\">\n            <h3 style=\"margin-top: 0; color: #2c3e50;\">Payment Details:</h3>\n            <table class=\"email-data-table\">\n                <tbody><tr>\n                    <td><strong>Amount:</strong></td>\n                    <td>€{{ amount|round(2)|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Status:</strong></td>\n                    <td>{{ payment_status|title|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Date:</strong></td>\n                    <td>{{ frappe.utils.format_date(frappe.utils.getdate())|e }}</td>\n                </tr>\n            </tbody></table>\n        </div>\n        \n        <p>This is likely a temporary issue. Common causes include:</p>\n        <ul>\n            <li>Insufficient funds in your account</li>\n            <li>Expired payment method details</li>\n            <li>Bank security measures</li>\n        </ul>\n        \n        <div class=\"email-alert-info\">\n            <p style=\"margin: 0;\"><strong>Next Steps:</strong> Please check your payment details and ensure your account has sufficient funds. The next payment attempt is scheduled for {{ next_payment_date|e if next_payment_date else 'within a few days' }}.</p>\n        </div>\n        \n        <p>If you need to update your payment information, you can do so through your member portal.</p>\n        \n        <div style=\"text-align: center; margin: 30px 0;\">\n            <a href=\"{{ base_url }}/payment_dashboard\" class=\"email-btn-primary\">Update Payment Details</a>\n        </div>\n        \n        <p>If you have any questions or need assistance, please don't hesitate to contact us.</p>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            {{ company or 'Our Organization'|e }}<br>\n            This is an automated notification regarding your membership payment.\n        </div>\n    </div>\n</div>",
-    "subject": "⚠️ Payment Issue - {{ member.first_name or 'Member'|e }}, please check your payment details",
-    "use_html": 1
-  },
-  {
-    "docstatus": 0,
-    "doctype": "Email Template",
-    "enabled": 1,
-    "modified": "2026-01-04 12:00:00",
-    "name": "payment_failure_second",
-    "reference_doctype": "Member",
-    "response": null,
-    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-danger\">\n        <h2 class=\"email-title\">🚨 Second Payment Attempt Failed</h2>\n        <p class=\"email-subtitle\">{{ company or 'Our Organization'|e }}</p>\n    </div>\n    \n    <div class=\"email-content\">\n        <p>Dear {{ member.first_name or 'Member'|e }},</p>\n        \n        <p>We've now had <strong>{{ failure_count|e }}</strong> unsuccessful attempts to process your membership payment. This requires your immediate attention.</p>\n        \n        <div class=\"email-content-box\">\n            <h3 style=\"margin-top: 0; color: #2c3e50;\">Payment Details:</h3>\n            <table class=\"email-data-table\">\n                <tbody><tr>\n                    <td><strong>Amount:</strong></td>\n                    <td>€{{ amount|round(2)|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Failed Attempts:</strong></td>\n                    <td>{{ failure_count|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Last Attempt:</strong></td>\n                    <td>{{ frappe.utils.format_date(frappe.utils.getdate())|e }}</td>\n                </tr>\n            </tbody></table>\n        </div>\n        \n        <div class=\"email-alert-warning\">\n            <p style=\"margin: 0;\"><strong>Action Required:</strong> Please update your payment information immediately to avoid any interruption to your membership benefits.</p>\n        </div>\n        \n        <p><strong>Important:</strong> If payment continues to fail, your subscription may be automatically cancelled by our payment processor.</p>\n        \n        <div style=\"text-align: center; margin: 30px 0;\">\n            <a href=\"{{ base_url }}/payment_dashboard\" class=\"email-btn-primary\">Update Payment Details Now</a>\n        </div>\n        \n        <p>If you're experiencing financial difficulties or need to adjust your membership, please contact us as soon as possible. We're here to help find a solution.</p>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            {{ company or 'Our Organization'|e }}<br>\n            Member Services Team<br>\n            This is an urgent automated notification.\n        </div>\n    </div>\n</div>",
-    "subject": "🚨 Urgent: Second Payment Failure - {{ member.first_name or 'Member'|e }}, action required",
-    "use_html": 1
-  },
-  {
-    "docstatus": 0,
-    "doctype": "Email Template",
-    "enabled": 1,
-    "modified": "2026-01-04 12:00:00",
     "name": "payment_failure_final",
     "reference_doctype": "Member",
     "response": null,
@@ -501,18 +477,6 @@
     "response": null,
     "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-info\">\n        <h2 class=\"email-title\">Payment Reminder</h2>\n        <p class=\"email-subtitle\">{{ (company or 'Our Organization')|e }}</p>\n    </div>\n    <div class=\"email-content\">\n        <p>Dear {{ (member.first_name or \"Member\")|e }},</p>\n        <p>You have outstanding membership payments with us. This is a reminder to settle them.</p>\n        <div class=\"email-content-box\">\n            <p><strong>Amount Due:</strong> {{ payment_info.total_overdue|e }}</p>\n            <p><strong>Days Overdue:</strong> {{ payment_info.days_overdue|e }} days</p>\n            <p><strong>Number of Invoices:</strong> {{ payment_info.overdue_count|e }}</p>\n        </div>\n        {% if custom_message %}\n        <div class=\"email-content-box\">\n            <p style=\"margin: 0;\">{{ custom_message|e }}</p>\n        </div>\n        {% endif %}\n        {% if payment_link %}\n        <div style=\"text-align: center; margin: 25px 0;\">\n            <a href=\"{{ payment_link }}\" class=\"email-btn-primary\">Make Payment Now</a>\n        </div>\n        {% endif %}\n        <p>If you have already paid, please disregard this message.</p>\n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            {{ (company or 'Our Organization')|e }} - Financial Department\n        </div>\n    </div>\n</div>",
     "subject": "Payment Reminder - Outstanding Invoices - {{ member.full_name or member.first_name|e }}",
-    "use_html": 1
-  },
-  {
-    "docstatus": 0,
-    "doctype": "Email Template",
-    "enabled": 1,
-    "modified": "2026-11-03 12:00:00",
-    "name": "payment_failure_generic",
-    "reference_doctype": "Member",
-    "response": null,
-    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-warning\">\n        <h2 class=\"email-title\">Payment Failed</h2>\n        <p class=\"email-subtitle\">{{ (company or 'Our Organization')|e }}</p>\n    </div>\n    <div class=\"email-content\">\n        <p>Dear {{ (member.first_name or \"Member\")|e }},</p>\n        <p>We could not process your membership payment (attempt {{ failure_count|e }}).</p>\n        <div class=\"email-content-box\">\n            <p><strong>Amount:</strong> {{ amount|e }}</p>\n            <p><strong>Status:</strong> {{ payment_status|e }}</p>\n            {% if next_payment_date %}<p><strong>Next payment date:</strong> {{ next_payment_date|e }}</p>{% endif %}\n        </div>\n        <p>Please check your payment details or contact us if you need help.</p>\n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            {{ (company or 'Our Organization')|e }} - Financial Department\n        </div>\n    </div>\n</div>",
-    "subject": "Payment Failed - {{ member.first_name or 'Member'|e }}",
     "use_html": 1
   },
   {

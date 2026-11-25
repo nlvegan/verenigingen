@@ -27,7 +27,6 @@ from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_
 NEW_TEMPLATES = [
     "payment_reminder_final",
     "payment_reminder_bulk",
-    "payment_failure_generic",
     "Payment Failure Notification",
 ]
 KEYS = ["payment_reminder_friendly", "payment_reminder_urgent", "payment_failure"]
