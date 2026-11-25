@@ -3,6 +3,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_days, getdate, now_datetime, today
 
+from verenigingen.events.event_emitter import enqueue_deduplicated
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
 from verenigingen.utils.constants import Roles
@@ -439,7 +440,9 @@ class ContributionAmendmentRequest(Document):
 
                 # Queue background job for Mollie sync
                 job_id = f"mollie_sync_{self.name}"
-                frappe.enqueue(
+                # enqueue_deduplicated: a dedupe race must not abort this save (#3186). If the
+                # retry races too, the job was NOT queued, so the row must not stay "Queued".
+                enqueue_deduplicated(
                     "verenigingen.verenigingen_payments.mollie.events.amendment_events.sync_mollie_subscription_on_amendment_applied",
                     queue="default",
                     timeout=60,
@@ -447,9 +450,17 @@ class ContributionAmendmentRequest(Document):
                     is_async=True,
                     job_name=job_id,
                     job_id=job_id,
-                    deduplicate=True,
                     enqueue_after_commit=True,
+                    on_not_queued=self._mark_mollie_sync_not_queued,
                 )
+
+    def _mark_mollie_sync_not_queued(self):
+        """The sync job was lost to a dedupe race: "Failed" is what the guard above retries (#3186)."""
+        frappe.db.set_value(
+            "Contribution Amendment Request", self.name, "mollie_sync_status", "Failed", update_modified=False
+        )
+        # Committed like the "Queued" write it undoes: a later rollback must not restore "Queued".
+        frappe.db.commit()
 
     def handle_mollie_sync_failure(self, error_message):
         """Handle Mollie sync failure notification.
