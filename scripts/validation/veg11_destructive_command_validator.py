@@ -101,6 +101,57 @@ _PATTERN = re.compile(
 )
 
 
+# Fail-closed suppression (#1151, maintainer ruling 2026-11-26). The whole-line
+# match above stays the default. A hit is suppressed ONLY when the line splits
+# into commands and every command is positively provable harmless:
+#   * a command naming the veg11 host does so as the literal argument of
+#     `bench --site <host>` and carries no destructive verb;
+#   * a command naming a destructive verb is bound to a literal non-veg11
+#     `--site <name>` and carries no veg11 host.
+# Anything else -- a variable (`SITE=<host>`, `export`), a for-loop, a table
+# cell, `bench use <host>`, a verb in prose, a verb after `$(...)`/`xargs` --
+# is not provable and stays blocked. Splitting is safe because each command
+# is checked on its own; it never lets a host and a verb drift apart unchecked.
+_SEGMENT_SPLIT = re.compile(r"&&|\|\||[;|&]|(?<!e\.g)(?<!i\.e)\.(?=\s)")
+_HOST = r"veg11\.veganisme\.org(?![\w-]|\.\w)"
+_HOST_PATTERN = re.compile(_HOST, re.IGNORECASE)
+_BOUND_HOST_PATTERN = re.compile(r"\bbench\s+--site(?:=|\s+)" + _HOST, re.IGNORECASE)
+_VERB_PATTERN = re.compile(r"\b(?:" + _VERB_ALTERNATION + r")\b", re.IGNORECASE)
+# A literal site name only: no quotes, `$`, backticks or braces, so a
+# variable or substitution is never mistaken for a safe literal.
+_LITERAL_SITE = re.compile(r"\bbench\b.*?--site(?:=|\s+)([A-Za-z0-9_][A-Za-z0-9_.-]*)(?=[\s`')]|$)")
+
+
+# A bench invocation that is not plainly in command position: expanded or
+# substituted (`$`, parens, braces), assigned (`NAME=`, but not `--site=`),
+# aliased, or quoted. The binding rules are plain searches, so such a segment
+# could name `bench --site <host>` inside a string while another segment holds
+# a decoy; it is not provable and stays blocked (#1151 review round 2).
+_UNPROVABLE_MARKER = re.compile(r"[$(){}]|(?<![-\w])\w+=|\balias\b|['\"]\s*bench\b")
+
+
+def _segment_is_provably_safe(segment: str) -> bool:
+    has_host = _HOST_PATTERN.search(segment) is not None
+    has_verb = _VERB_PATTERN.search(segment) is not None
+    if (has_host or has_verb) and _UNPROVABLE_MARKER.search(segment):
+        return False
+    if has_host and has_verb:
+        return False
+    if has_host:
+        # every host mention must be the literal --site argument of a bench command
+        return _HOST_PATTERN.search(_BOUND_HOST_PATTERN.sub("", segment)) is None
+    if has_verb:
+        site = _LITERAL_SITE.search(segment)
+        return site is not None and "veg11" not in site.group(1).lower()
+    return True
+
+
+def _line_is_violation(logical_line: str) -> bool:
+    if not _PATTERN.search(logical_line):
+        return False
+    return not all(_segment_is_provably_safe(seg) for seg in _SEGMENT_SPLIT.split(logical_line))
+
+
 @dataclass
 class Violation:
     file_path: str
@@ -146,7 +197,7 @@ def check_file(path: Path) -> list[Violation]:
 
     violations = []
     for lineno, logical_line in _iter_logical_lines(text):
-        if _PATTERN.search(logical_line):
+        if _line_is_violation(logical_line):
             violations.append(
                 Violation(
                     file_path=str(path), line_number=lineno, line=logical_line.strip()
