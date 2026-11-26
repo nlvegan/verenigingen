@@ -54,9 +54,10 @@ def create_user_for_volunteer(volunteer_doc):
         # Validate current user has permission to create users
         if not frappe.has_permission("User", "create"):
             # Use AccountCreationManager for secure user creation instead.
-            # The link below is dead today: the manager only queues the request and returns
-            # None, so _link_volunteer_to_user never gets a user here (#3342 tracks the
-            # queued path).
+            # The link below is dead today: this branch runs only when the caller lacks
+            # User-create permission, and the Account Creation Request's own permission gate
+            # then refuses the insert (returns None, nothing queued), so
+            # _link_volunteer_to_user never gets a user here (#3342 tracks the queued path).
             frappe.logger().info(
                 f"Using AccountCreationManager for secure user creation: {volunteer_doc.email}"
             )
