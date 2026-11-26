@@ -522,8 +522,12 @@ class TestOrphanedChapterMemberCleanup(EnhancedTestCase):
 
         mine = [e for e in results["errors"] if e.split(":")[0] == chapter_name]
         self.assertEqual(len(mine), 1)
-        self.assertIn("1213", mine[0])
-        self.assertNotIn("1305", mine[0])
+        # Only the detail after "<chapter name>:": the name ends in a random hash, and a
+        # draw such as "8f1305fd" made the whole-message check fail (and could make the
+        # 1213 check pass with no 1213 in the error).
+        detail = mine[0].split(":", 1)[1]
+        self.assertIn("1213", detail)
+        self.assertNotIn("1305", detail)
         self.assertIn(chapter_name, results["chapters_failed"])
 
     def _create_committed_orphan_chapters(self, count):
