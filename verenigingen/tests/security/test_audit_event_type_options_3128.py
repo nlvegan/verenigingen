@@ -102,6 +102,17 @@ class TestAuditEventTypesAreStorable(VereningingenTestCase):
             "write is refused and only an Error Log row remains",
         )
 
+    def test_every_audit_event_type_member_is_storable(self):
+        """#3147: a member nothing references yet is still a trap for its first caller."""
+        storable = self._storable()
+        unstorable = sorted(m.name for m in AuditEventType if m.value not in storable)
+        self.assertEqual(
+            unstorable,
+            [],
+            "AuditEventType members that are neither an API Audit Log option nor in SEPA_EVENT_TYPES; "
+            "the first caller to use one has its audit write refused",
+        )
+
     def test_control_the_scan_catches_an_unstorable_literal(self):
         """The scan must see a bad literal; without this a blind scan reads as green."""
         sample = (
