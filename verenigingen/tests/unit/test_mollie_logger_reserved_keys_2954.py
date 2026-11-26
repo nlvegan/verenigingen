@@ -35,10 +35,10 @@ class TestMollieLoggerReservedKeys2954(unittest.TestCase):
         self.old_level = self.std_logger.level
         self.std_logger.addHandler(self.handler)
         self.std_logger.setLevel(logging.DEBUG)
-        self.addCleanup(self._restore_logger)
+        self.addCleanup(self._restore_logger_2954)
         self.mollie = MollieLogger("t2954")
 
-    def _restore_logger(self):
+    def _restore_logger_2954(self):
         self.std_logger.removeHandler(self.handler)
         self.std_logger.setLevel(self.old_level)
 
