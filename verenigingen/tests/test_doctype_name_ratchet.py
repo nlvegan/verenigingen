@@ -39,6 +39,7 @@ from pathlib import Path
 APP_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(APP_ROOT / "scripts" / "validation"))
 
+import bench_resolution as br  # noqa: E402
 import doctype_name_validator as v  # noqa: E402
 
 # Doctypes from four different apps. If the authority cannot see all of these it
@@ -176,6 +177,57 @@ class TestOutOfBenchWorktreeRegression(unittest.TestCase):
                     f"self-check failed from an out-of-bench worktree:\n"
                     f"{check.stdout}\n{check.stderr}",
                 )
+            finally:
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(outside_worktree)],
+                    cwd=APP_ROOT, capture_output=True, text=True,
+                )
+
+
+class TestAuthorityCanary1085(unittest.TestCase):
+    """#1085: scripts/validation/tests/test_doctype_name_validator.py guards its
+    real-authority tests with `skipIf(authority_problem(...) is not None)`. That is
+    right for the sibling-app-free Code Validation job, but it is also the exact
+    condition under which those tests used to FAIL, and bench run-tests never
+    collects scripts/validation/tests -- so on the bench a broken authority would
+    skip there and nowhere else would say so.
+
+    These tests live in a bench-collected module and are deliberately NOT
+    skipIf'd: a bench always has frappe/erpnext/hrms/payments, so an unresolved
+    authority here is a failure, never a skip. Do not add a skip decorator.
+    """
+
+    def test_authority_problem_is_none_on_the_bench(self):
+        """The skipIf predicate itself, inverted. Unlike test_the_authority_is_complete
+        (its own probe set), this tracks the validator's AUTHORITY_PROBES, i.e. the
+        very condition that triggers the skip."""
+        problem = v.authority_problem(v.known_doctypes())
+        self.assertIsNone(problem, f"the DocType authority does not resolve on this bench: {problem}")
+
+    def test_bench_apps_resolves_via_git_from_a_worktree_with_no_bench_ancestor(self):
+        """#752's pin, restored on the bench: `_find_bench_apps` itself (not the
+        end-to-end self-check) must succeed through the git-common-dir fallback.
+        Control: the plain walk-up finds nothing from the outside worktree, so a
+        success below can only be the fallback. BENCH_APPS is popped because an
+        ambient override returns early and would pass without the fallback running."""
+        with tempfile.TemporaryDirectory() as tmp:
+            outside_worktree = Path(tmp) / "outside-worktree"
+            add = subprocess.run(
+                ["git", "worktree", "add", "--detach", str(outside_worktree), "HEAD"],
+                cwd=APP_ROOT, capture_output=True, text=True,
+            )
+            self.assertEqual(add.returncode, 0, add.stderr)
+            try:
+                self.assertIsNone(br._walk_up(outside_worktree, br.has_apps_and_sites))
+                saved = os.environ.pop("BENCH_APPS", None)
+                try:
+                    found = v._find_bench_apps(outside_worktree)
+                finally:
+                    if saved is not None:
+                        os.environ["BENCH_APPS"] = saved
+                # Not v.BENCH_APPS: that is computed at import time and honours an ambient
+                # BENCH_APPS override, which would make this test fail with the canary.
+                self.assertEqual(found, br.find_bench_root(Path(APP_ROOT)) / "apps")
             finally:
                 subprocess.run(
                     ["git", "worktree", "remove", "--force", str(outside_worktree)],
