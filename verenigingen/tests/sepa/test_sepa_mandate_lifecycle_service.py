@@ -48,7 +48,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
             'mandate_id': None,
             'iban': None,
             'name': 'SEPA-MANDATE-001',
-            'cancellation_date': None,
+            'cancelled_date': None,
             'cancellation_reason': None
         }
         defaults.update(kwargs)
@@ -318,7 +318,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
 
                 result = self.service.process_mandate_cancellation(mandate)
 
-                mock_notification_manager.send_mandate_status_notification.assert_called_once()
+                mock_notification_manager.send_mandate_cancelled_notification.assert_called_once()
                 self.assertIn('status_change', result['notifications_sent'])
 
     def test_process_mandate_cancellation_notification_failure(self):

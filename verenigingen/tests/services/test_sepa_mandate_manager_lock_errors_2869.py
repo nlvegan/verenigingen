@@ -310,7 +310,6 @@ class TestSEPAMandateManagerLockErrors2869(EnhancedTestCase):
 
         mandate, service = self._saved_mandate(), self._lifecycle()
         mandate.status = "Active"
-        mandate.cancellation_date = frappe.utils.today()
         for label, call in (
             ("update_member_mandate_status", lambda: service._update_member_mandate_status(mandate, "x")),
             ("handle_status_transition", lambda: service.handle_status_transition(mandate, "Draft")),
@@ -325,7 +324,7 @@ class TestSEPAMandateManagerLockErrors2869(EnhancedTestCase):
                 except Exception as exc:  # noqa: BLE001 - the assertion below names it
                     self.fail(f"{label}: a non-lock database error escaped as {type(exc).__name__}")
         for method, call in (
-            ("send_mandate_status_notification", lambda: service.process_mandate_cancellation(mandate)),
+            ("send_mandate_cancelled_notification", lambda: service.process_mandate_cancellation(mandate)),
             ("send_mandate_created_notification", lambda: service.handle_mandate_creation(mandate)),
             ("send_mandate_created_notification", lambda: service.handle_mandate_update(mandate)),
         ):
@@ -386,9 +385,8 @@ class TestSEPAMandateManagerLockErrors2869(EnhancedTestCase):
             with self.subTest(new_status=new_status):
                 mandate = self._saved_mandate()
                 mandate.status = new_status
-                # SEPA Mandate has no cancellation_date field, so _handle_cancellation's read of it
-                # raises AttributeError (swallowed into the result) before reaching the member write
-                mandate.cancellation_date = frappe.utils.today()
+                # _handle_cancellation writes the real ``cancelled_date`` (#2989), so the Cancelled
+                # target reaches the member write like the other two
                 self._assert_1213_propagates(lambda: service.handle_status_transition(mandate, old_status))
 
     def test_lifecycle_process_mandate_cancellation_propagates(self):
@@ -417,7 +415,7 @@ class TestSEPAMandateManagerLockErrors2869(EnhancedTestCase):
         service = self._lifecycle()
         mandate = self._saved_mandate()
         mandate.status = "Active"
-        with self._notifier_raising("send_mandate_status_notification"):
+        with self._notifier_raising("send_mandate_cancelled_notification"):
             with self.assertRaises(frappe.QueryDeadlockError):
                 service.process_mandate_cancellation(mandate, "test")
         mandate = self._saved_mandate()

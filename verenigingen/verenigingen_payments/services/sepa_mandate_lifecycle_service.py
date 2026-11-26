@@ -373,10 +373,9 @@ class SEPAMandateLifecycleService:
                 return cancellation_result
 
             # Set cancellation fields
-            old_status = mandate_doc.status
             mandate_doc.status = "Cancelled"
             mandate_doc.is_active = 0
-            mandate_doc.cancellation_date = today()
+            mandate_doc.cancelled_date = today()
             if reason:
                 mandate_doc.cancellation_reason = reason
 
@@ -392,7 +391,7 @@ class SEPAMandateLifecycleService:
                 )
 
                 notification_manager = SEPAMandateNotificationManager()
-                notification_manager.send_mandate_status_notification(mandate_doc, old_status, "Cancelled")
+                notification_manager.send_mandate_cancelled_notification(mandate_doc, reason)
                 cancellation_result["notifications_sent"].append("status_change")
             except NON_RESUMABLE_DB_ERRORS:
                 # 1213 rolled the transaction back, 1205 left it half-applied: report-and-continue
@@ -478,8 +477,8 @@ class SEPAMandateLifecycleService:
         """Handle mandate cancellation workflow"""
         try:
             # Set cancellation date if not already set
-            if not mandate_doc.cancellation_date:
-                mandate_doc.cancellation_date = today()
+            if not mandate_doc.cancelled_date:
+                mandate_doc.cancelled_date = today()
 
             # Update member integration
             if self._record_member_sync_errors(
