@@ -329,6 +329,56 @@ class TestEmailTemplateManager(VereningingenTestCase):
                     MANAGED_TEMPLATES["expense_approved"],
                 )
 
+    def test_reset_refuses_a_treasurer_up_front_with_a_message_1984(self):
+        """A Treasurer clears the CRITICAL/ADMIN gate but holds no Email Template write, so the
+        overwrite used to fail per template with blank errors. Over real dispatch the reset is
+        now refused up front, with a non-empty message, and nothing is overwritten. Controls
+        (same flow, same edited row): the Verenigingen Administrator still resets it, and the
+        create endpoint's gate is untouched (the Treasurer still creates a missing row)."""
+        treasurer = self._setup_profiled_user_1984("Verenigingen Treasurer")
+        self.assertFalse(
+            frappe.has_permission("Email Template", "write", user=treasurer),
+            "premise: the Treasurer must lack Email Template write for this test to mean anything",
+        )
+        self._edit_one_template_1984()
+        (kind, message), response = self._dispatch_reset_1984(treasurer)
+        self.assertEqual(kind, "PermissionError", f"{kind} {message} {response}")
+        self.assertTrue(message.strip(), "the refusal must say something")
+        self.assertEqual(
+            frappe.db.get_value("Email Template", "expense_approved", "subject"), "STAFF EDITED SUBJECT"
+        )
+
+        admin = self._setup_profiled_user_1984("Verenigingen Administrator", ["System Manager"])
+        self._edit_one_template_1984()
+        (kind, message), response = self._dispatch_reset_1984(admin)
+        self.assertEqual((kind, message), ("ok", ""))
+        self.assertEqual(
+            frappe.db.get_value("Email Template", "expense_approved", "subject"),
+            MANAGED_TEMPLATES["expense_approved"],
+        )
+
+    def test_reset_failure_with_a_blank_exception_message_names_the_exception_type_1984(self):
+        """str(e) is empty for a bare PermissionError; the failure list must still say what
+        happened rather than read 'expense_approved: '."""
+        from verenigingen.api.email_template_manager import reset_stock_email_templates
+
+        self._edit_one_template_1984()
+        # Mock justified: fault injection - Document.save raising a message-less exception.
+        real_save = frappe.model.document.Document.save
+
+        def failing_save(doc, *args, **kwargs):
+            if doc.doctype == "Email Template" and doc.name == "expense_approved":
+                raise frappe.PermissionError()
+            return real_save(doc, *args, **kwargs)
+
+        self.expectErrorLog("PermissionError")
+        with patch.object(frappe.model.document.Document, "save", failing_save):
+            result = reset_stock_email_templates()
+        self.assertFalse(result["success"])
+        failures = [e for e in result["error"]["errors"] if e.startswith("expense_approved")]
+        self.assertEqual(len(failures), 1, result)
+        self.assertIn("PermissionError", failures[0])
+
     def test_reset_result_message_describes_a_reset(self):
         """The message the caller sees must say reset/restored, not 'Created: n, Updated: n'
         (the create-only run's wording); the create endpoint keeps its own wording."""

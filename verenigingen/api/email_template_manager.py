@@ -97,6 +97,15 @@ def reset_stock_email_templates() -> OperationResult[Dict[str, Any]]:
     Maintainer ruling 2026-11-03: setup only creates, and this separate, explicit action
     is the one that overwrites. Same ADMIN/critical gate as the create endpoint.
     """
+    # The overwrite goes through Document.save(), which checks Email Template write. A role that
+    # clears the gate above without it (the Treasurer) used to fail once per template with an
+    # empty message (#1984), so refuse up front, keyed to the actual permission rather than a
+    # role list. Create keeps its own gate: it inserts through secure_document_operation.
+    if not frappe.has_permission("Email Template", "write"):
+        frappe.throw(
+            _("You need permission to edit Email Templates to reset the stock email templates."),
+            frappe.PermissionError,
+        )
     return _seed_comprehensive_email_templates(overwrite=True)
 
 
@@ -381,7 +390,8 @@ def _seed_comprehensive_email_templates(overwrite: bool = False) -> OperationRes
                         )
 
             except Exception as e:
-                reason = str(e)
+                # A bare PermissionError has an empty str(); say what it was instead of nothing.
+                reason = str(e) or type(e).__name__
                 failures.append(f"{template_name}: {reason}")
                 frappe.log_error(
                     title="Email Template Error",
