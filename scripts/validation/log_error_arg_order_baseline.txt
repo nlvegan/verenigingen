@@ -232,7 +232,7 @@ verenigingen/services/member/application/membership_application_service.py::Memb
 verenigingen/services/member/approval/application_helpers.py::_append_chapter_notes::1
 verenigingen/services/member/approval/application_helpers.py::_apply_custom_contribution_fee::2
 verenigingen/services/member/approval/application_helpers.py::_get_membership_type_currency::1
-verenigingen/services/member/approval/application_helpers.py::activate_pending_chapter_membership::2
+verenigingen/services/member/approval/application_helpers.py::activate_pending_chapter_membership::1
 verenigingen/services/member/approval/application_helpers.py::create_active_chapter_membership::2
 verenigingen/services/member/approval/application_helpers.py::create_pending_chapter_membership::3
 verenigingen/services/member/approval/application_helpers.py::determine_chapter_from_application::2

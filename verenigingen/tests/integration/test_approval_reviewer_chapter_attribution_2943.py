@@ -274,37 +274,25 @@ class TestReviewerChapterBeforeInvoice2943(ApprovalCase):
 
         return patch("verenigingen.utils.application_helpers.activate_pending_chapter_membership", side_effect=flaky)
 
-    def test_activation_failing_on_both_calls_sends_no_welcome_and_logs(self):
-        """F1 (review): the row stays Pending; no mail, no audit comment, no tracking fields, one Error Log."""
-        title = "Approval Chapter Row Not Activated"
-        self.expectErrorLog(title)
-        application = self._stage_without_chapter()
-        start = frappe.utils.now()
-
-        with self.assertErrorLog(title), self._spy_on_reviewer_row_welcome_mail() as mails, self._fail_activation_2943({1, 2}):
-            result = self._approve_into_2943(application, self.chapter.name)
-
-        member = result["member"]
-        self.assertEqual([(r.status, r.enabled) for r in self._rows_2943(member, self.chapter.name)], [("Pending", 1)])
-        self.assertEqual([m for m in mails if m[1] == member], [])
-        logs = self._logged_titled_rows_since_2943(start, title)
-        self.assertEqual(len(logs), 1, logs)
-        self.assertIn(member, logs[0].error)
-        self.assertIn(self.chapter.name, logs[0].error)
-        self.assertEqual(self._added_comments_2943(self.chapter.name, member), [])
-        self.assertFalse(frappe.db.get_value("Member", member, "chapter_assigned_by"))
-
-    def test_activation_failing_once_is_retried_after_the_core_with_one_welcome_mail(self):
-        """F2a: the retry in the finish step makes the row Active and enabled; exactly one welcome mail."""
+    def test_a_falsy_activation_answer_fails_the_approval_and_sends_no_welcome(self):
+        """#2975 (ruling 2026-11-25) replaces F1/F2a: the helper's swallowed-failure shape (None) no longer lets
+        the approval continue with the row Pending, and no retry after the core is attempted. The refusal rolls
+        the member, row, mail and comment back. (The real Chapter.validate refusal is in
+        test_approval_chapter_row_activation_fails_2975.)"""
         application = self._stage_without_chapter()
 
         with self._spy_on_reviewer_row_welcome_mail() as mails, self._fail_activation_2943({1}):
-            result = self._approve_into_2943(application, self.chapter.name)
+            with self.assertRaises(frappe.ValidationError):
+                self._approve_into_2943(application, self.chapter.name)
 
-        member = result["member"]
-        self.assertEqual([(r.status, r.enabled) for r in self._rows_2943(member, self.chapter.name)], [("Active", 1)])
-        self.assertEqual([m for m in mails if m[1] == member], [(self.chapter.name, member)])
-        self.assertEqual(len(self._added_comments_2943(self.chapter.name, member)), 1)
+        self.assertEqual(frappe.db.get_value("Membership Application Submission", application, "status"), "Pending Review")
+        self.assertEqual(frappe.db.count("Chapter Member", {"parent": self.chapter.name}), 0)
+        self.assertEqual(mails, [])
+        self.assertEqual(
+            frappe.get_all("Comment", {"reference_doctype": "Chapter", "reference_name": self.chapter.name,
+                                       "content": ["like", "Added member %"]}),
+            [],
+        )
 
     def _added_comments_2943(self, chapter, member):
         full_name = frappe.db.get_value("Member", member, "full_name")
