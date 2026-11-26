@@ -45,14 +45,9 @@ const memberConfig = {
 		tussenvoegsel: 'van der',
 		full_name: 'Jan van der Berg',
 		email: 'jan.van.der.berg@example.org',
-		phone: '+31612345678',
 		status: 'Active',
 		member_since: '2024-01-15',
-		membership_type: 'Regular',
-		iban: 'NL91ABNA0417164300',
-		postal_code: '1012 AB',
-		city: 'Amsterdam',
-		country: 'Netherlands'
+		iban: 'NL91ABNA0417164300'
 	},
 	// Custom field setup for Member controller
 	createMockForm(baseTest, overrides = {}) {
@@ -69,15 +64,13 @@ const memberConfig = {
 
 			// Contact fields
 			email: { df: { fieldtype: 'Data' } },
-			phone: { df: { fieldtype: 'Data' } },
 
 			// Banking fields
 			iban: { df: { fieldtype: 'Data' } },
-			sepa_mandate: { df: { fieldtype: 'Link' } },
+			sepa_mandates: { df: { fieldtype: 'Table' } },
 
 			// Status and membership fields
 			status: { df: { fieldtype: 'Select' } },
-			membership_type: { df: { fieldtype: 'Select' } },
 			member_since: { df: { fieldtype: 'Date' } },
 
 			// Address and contact rendering sections
@@ -94,7 +87,7 @@ const memberConfig = {
 			// field is "current_chapter" (member.json), displayed via
 			// "current_chapter_display".
 			current_chapter_display: { df: { fieldtype: 'Link' } },
-			is_volunteer: { df: { fieldtype: 'Check' } },
+			interested_in_volunteering: { df: { fieldtype: 'Check' } },
 			volunteer_record: { df: { fieldtype: 'Link' } }
 		};
 
@@ -165,7 +158,7 @@ const customMemberTests = {
 
 		it('should handle SEPA mandate association', () => {
 			getControllerTest().mockForm.doc.iban = 'NL91ABNA0417164300';
-			getControllerTest().mockForm.doc.sepa_mandate = 'SEPA-2024-001';
+			getControllerTest().mockForm.doc.sepa_mandates = [{ sepa_mandate: 'SEPA-2024-001' }];
 
 			expect(() => {
 				getControllerTest().testEvent('refresh');
@@ -259,20 +252,20 @@ const customMemberTests = {
 		});
 
 		it('should link to current membership record', () => {
-			getControllerTest().mockForm.doc.current_membership = 'MEMBERSHIP-2024-001';
+			getControllerTest().mockForm.doc.current_membership_plan = 'MEMBERSHIP-2024-001';
 			getControllerTest().mockForm.doc.__islocal = 0;
 
 			getControllerTest().testEvent('refresh');
 
 			// Should maintain membership reference
-			expect(getControllerTest().mockForm.doc.current_membership).toBe('MEMBERSHIP-2024-001');
+			expect(getControllerTest().mockForm.doc.current_membership_plan).toBe('MEMBERSHIP-2024-001');
 		});
 
 		it('should handle membership type changes', () => {
 			const membershipTypes = ['Regular', 'Student', 'Senior', 'Family'];
 
 			membershipTypes.forEach((type) => {
-				getControllerTest().mockForm.doc.membership_type = type;
+				getControllerTest().mockForm.doc.selected_membership_type = type;
 
 				// Test membership_type handler if it exists
 				if (getControllerTest().handlers.membership_type) {
@@ -316,7 +309,7 @@ const customMemberTests = {
 		});
 
 		it('should integrate with volunteer system', () => {
-			getControllerTest().mockForm.doc.is_volunteer = 1;
+			getControllerTest().mockForm.doc.interested_in_volunteering = 1;
 			getControllerTest().mockForm.doc.volunteer_record = 'VOL-2024-001';
 
 			expect(() => {
@@ -348,13 +341,13 @@ const customMemberTests = {
 		});
 
 		it('should validate member number format', () => {
-			getControllerTest().mockForm.doc.member_number = 'MEM-2024-001';
+			getControllerTest().mockForm.doc.member_id = 'MEM-2024-001';
 
 			expect(() => {
 				getControllerTest().testEvent('refresh');
 			}).not.toThrow();
 
-			expect(getControllerTest().mockForm.doc.member_number).toBe('MEM-2024-001');
+			expect(getControllerTest().mockForm.doc.member_id).toBe('MEM-2024-001');
 		});
 	}
 };
