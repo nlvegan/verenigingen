@@ -1655,5 +1655,71 @@ class SecurityTierFlagsAndConfAllowlistTest(unittest.TestCase):
         self.assertEqual([], _kinds(src, "test_thing_security.py"))
 
 
+def _justification_warnings_1587(src: str, name: str = "test_thing.py"):
+    """Warnings the Tier-2 `_check_mock_justifications` appends for a snippet."""
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / name
+        p.write_text(src)
+        enforcer = tqe.TestQualityEnforcer()
+        enforcer.validate_file(str(p))
+        return [w for w in enforcer.warnings if "lacks justification" in w], list(enforcer.findings)
+
+
+class MockJustificationReassignmentTest(unittest.TestCase):
+    """#1587: `_check_mock_justifications` was text/`patch(`-anchored, so a manual
+    `frappe.sendmail = mock_send` never produced a justification warning."""
+
+    @staticmethod
+    def _src(stmt, comment=""):
+        return (
+            "class TestThing:\n"
+            "    def test_it(self):\n"
+            f"{comment}"
+            f"        {stmt}\n"
+        )
+
+    def test_an_unjustified_external_service_reassignment_warns(self):
+        warns, findings = _justification_warnings_1587(self._src("frappe.sendmail = mock_send"))
+        self.assertEqual(1, len(warns))
+        self.assertIn("External Service mock lacks justification", warns[0])
+        self.assertIn(":3:", warns[0])
+        # warnings channel only: nothing reaches the baseline-keyed findings
+        self.assertEqual([], findings)
+
+    def test_an_unjustified_infrastructure_reassignment_warns(self):
+        warns, _ = _justification_warnings_1587(self._src("frappe.cache = FakeCache()"))
+        self.assertEqual(1, len(warns))
+        self.assertIn("Infrastructure mock lacks justification", warns[0])
+
+    def test_a_justified_reassignment_is_silent(self):
+        warns, _ = _justification_warnings_1587(
+            self._src("frappe.sendmail = mock_send", "        # Mock justified: email boundary\n")
+        )
+        self.assertEqual([], warns)
+
+    def test_an_unrelated_reassignment_is_silent(self):
+        warns, _ = _justification_warnings_1587(self._src("frappe.some_helper = fake"))
+        self.assertEqual([], warns)
+
+    def test_patch_style_detection_still_warns(self):
+        warns, _ = _justification_warnings_1587(
+            "from unittest.mock import patch\n"
+            "def test_it():\n"
+            '    with patch("frappe.sendmail"):\n'
+            "        pass\n"
+        )
+        self.assertEqual(1, len(warns))
+
+    def test_a_justified_patch_is_silent(self):
+        warns, _ = _justification_warnings_1587(
+            "from unittest.mock import patch\n"
+            "def test_it():\n"
+            "    # Mock justified: email boundary\n"
+            '    with patch("frappe.sendmail"):\n'
+            "        pass\n"
+        )
+        self.assertEqual([], warns)
+
+
 if __name__ == "__main__":
     unittest.main()
