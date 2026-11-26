@@ -792,6 +792,7 @@ class MemberManager(BaseManager):
             # No need to clear a specific primary_chapter field
 
             # Save chapter
+            # Security: acting_as_member is True only when the caller was already proved to be this member (#2166); see the docstring.
             self.chapter_doc.save(ignore_permissions=acting_as_member)
 
             # Update membership history tracking

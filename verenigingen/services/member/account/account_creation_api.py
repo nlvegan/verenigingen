@@ -403,6 +403,7 @@ def queue_account_creation_for_member(
         for role in roles:
             request.append("requested_roles", {"role": role})
 
+        # Security: follow_on_ignore_permissions() is True only inside authorised_follow_on_steps (caller already permission-checked), else None.
         request.insert(ignore_permissions=follow_on_ignore_permissions())
 
         # Queue for processing

@@ -420,6 +420,7 @@ def insert_customer_with_duplicate_retry(customer_doc, max_attempts=3):
         savepoint = f"cust_insert_{frappe.generate_hash(length=8)}"
         frappe.db.savepoint(savepoint)
         try:
+            # Security: follow_on_ignore_permissions() is True only inside authorised_follow_on_steps (caller already permission-checked), else None.
             customer_doc.insert(ignore_permissions=follow_on_ignore_permissions())
             frappe.db.release_savepoint(savepoint)
             return customer_doc
@@ -590,6 +591,7 @@ def create_contact_for_customer(customer, member):
         contact.append("links", {"link_doctype": "Customer", "link_name": customer.name})
 
         # Insert with the caller's permissions, except inside an authorised approval follow-on (#1930)
+        # Security: follow_on_ignore_permissions() is True only inside authorised_follow_on_steps (caller already permission-checked), else None.
         contact.insert(ignore_permissions=follow_on_ignore_permissions())
 
         frappe.logger().info(

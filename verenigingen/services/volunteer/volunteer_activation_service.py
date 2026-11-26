@@ -73,17 +73,20 @@ def _activate_volunteer_record_authorised(member):
                 volunteer.volunteer_name = (
                     member.full_name or f"{member.first_name} {member.last_name}".strip()
                 )
+                # Security: ignore_permissions comes from follow_on_ignore_permissions() (see top of this function): True only inside authorised_follow_on_steps.
                 volunteer.save(ignore_permissions=ignore_permissions)
 
                 # Also update member's volunteer_record field if it exists
                 if hasattr(member, "volunteer_record"):
                     member.volunteer_record = volunteer_name
+                    # Security: ignore_permissions comes from follow_on_ignore_permissions() (see top of this function): True only inside authorised_follow_on_steps.
                     member.save(ignore_permissions=ignore_permissions)
 
         if volunteer_name:
             # Update existing volunteer record
             volunteer = frappe.get_doc("Volunteer", volunteer_name)
             volunteer.status = "Active"
+            # Security: ignore_permissions comes from follow_on_ignore_permissions() (see top of this function): True only inside authorised_follow_on_steps.
             volunteer.save(ignore_permissions=ignore_permissions)
             frappe.logger().info(f"Activated volunteer record {volunteer_name} for member {member.name}")
 
@@ -91,6 +94,7 @@ def _activate_volunteer_record_authorised(member):
             if hasattr(member, "volunteer_record") and member.volunteer_record != volunteer_name:
                 member.reload()  # Ensure we have latest data
                 member.volunteer_record = volunteer_name
+                # Security: ignore_permissions comes from follow_on_ignore_permissions() (see top of this function): True only inside authorised_follow_on_steps.
                 member.save(ignore_permissions=ignore_permissions)
                 frappe.logger().info(f"Linked volunteer {volunteer_name} to member {member.name}")
 
@@ -120,6 +124,7 @@ def _activate_volunteer_record_authorised(member):
             volunteer = create_volunteer_record(member)
             if volunteer:
                 volunteer.status = "Active"
+                # Security: ignore_permissions comes from follow_on_ignore_permissions() (see top of this function): True only inside authorised_follow_on_steps.
                 volunteer.save(ignore_permissions=ignore_permissions)
                 frappe.logger().info(
                     f"Created and activated volunteer record {volunteer.name} for member {member.name}"
