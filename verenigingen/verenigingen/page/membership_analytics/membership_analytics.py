@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timedelta
 
 import frappe
-from frappe.utils import add_months, flt, fmt_money, getdate, now_datetime
+from frappe.utils import add_months, flt, fmt_money, getdate, now_datetime, today
 
 from verenigingen.utils.constants import (
     SQLFilters,
@@ -1153,7 +1153,9 @@ def get_join_year_segmentation(year, filter_conditions):
     # Custom SQL functions
     Year = CustomFunction("YEAR", ["date"])
     DateDiff = CustomFunction("DATEDIFF", ["end_date", "start_date"])
-    CurDate = CustomFunction("CURDATE", [])
+
+    # #946: tenure runs to the SITE's today, not MariaDB's CURDATE() (#908 policy).
+    site_today = today()
 
     # Subquery for membership type minimum amount
     mt_subquery = (
@@ -1173,7 +1175,7 @@ def get_join_year_segmentation(year, filter_conditions):
         .select(
             join_year.as_("name"),
             Count("*").as_("total_members"),
-            Avg(DateDiff(CurDate(), Member.member_since)).as_("avg_tenure_days"),
+            Avg(DateDiff(site_today, Member.member_since)).as_("avg_tenure_days"),
             Avg(Coalesce(Member.dues_rate, mt_subquery, 0)).as_("avg_fee"),
         )
         .where(Member.member_since <= year_end)
