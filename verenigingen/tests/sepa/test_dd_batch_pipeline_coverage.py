@@ -30,10 +30,9 @@ boundary or mocking business logic, which the test-quality-enforcer forbids):
   throws) IS covered.
 - ``generate_sepa_xml`` / SEPA XML content: covered by
   test_direct_debit_batch_refactoring.py.
-- ``handle_failed_payment`` schedule mutation: covered end-to-end by
-  test_enhanced_sepa_processing.py; only the early-return guards are added here.
-- ``parse_sepa_return_file`` / pain.002: documented stub, covered in
-  test_sepa_batch_processor_logic.py.
+- ``handle_failed_payment`` / path-based ``parse_sepa_return_file``: deleted in
+  #3010 (unreachable once the process_sepa_returns endpoint was removed, #2950).
+  pain.002 parsing is covered in test_sepa_return_parser.py.
 
 Sequence-type validation for batches is handled by the Direct Debit Batch
 *controller*'s own ``validate_sequence_types`` (which resolves the mandate by

@@ -148,8 +148,8 @@ class TestSEPABatchShortfallVisibility(EnhancedTestCase):
         # fact on the batch, not just a message someone has to go looking for.
         # A DISTINCT status ("Partially Collected"), not the existing
         # "Partially Failed" -- that string already means "the bank bounced a
-        # payment post-submission" (process_batch_returns), asserted by
-        # test_sepa_batch_processor_returns_coverage.py:131.
+        # payment post-submission" (its only writer, process_batch_returns, was
+        # deleted in #3010; the option is still declared).
         self.assertEqual(
             batch.status,
             "Partially Collected",

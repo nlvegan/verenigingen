@@ -196,9 +196,9 @@ class TestWhichExistingBatchesTheGuardCanStrand(_DuplicateInvoiceBase):
     """How far a pre-guard batch holding a duplicate stays serviceable. Two cases,
     and only one of them is safe.
 
-    `sepa_batch_processor.process_batch_returns` and
-    `dd_batch_api.apply_conflict_resolutions` both LOAD an existing batch and call
-    `save()` on it. Bank returns for a batch that already debited twice matter more
+    `dd_batch_api.apply_conflict_resolutions` and `reject_batch` LOAD an existing
+    batch and call `save()` on it (a former third caller, the since-deleted
+    `sepa_batch_processor.process_batch_returns`, did too; #3010). Bank returns for a batch that already debited twice matter more
     than the duplicate does -- the money has already moved.
 
     SUBMITTED (docstatus 1): safe. Frappe runs `validate` only for
@@ -251,7 +251,7 @@ class TestWhichExistingBatchesTheGuardCanStrand(_DuplicateInvoiceBase):
 
         A DRAFT batch runs `validate` on save, so a duplicate that predates the
         guard blocks every later save of that batch -- including
-        `process_batch_returns` and `reject_batch`. If this ever needs to change,
+        `reject_batch` (and, before #3010 deleted it, `process_batch_returns`). If this ever needs to change,
         this test is the one to change, and the message it asserts is what an
         operator would see.
         """

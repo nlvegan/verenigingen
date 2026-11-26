@@ -3,10 +3,6 @@ Coverage for SEPABatchProcessor paths not exercised by the existing
 ``test_sepa_batch_processor_logic.py`` (pure logic / builders / eligibility) or
 ``test_dd_batch_pipeline_coverage.py`` (totals / validation / add-helpers):
 
-- ``process_batch_returns``: matching a parsed return item to a batch invoice
-  row, flipping it to Failed with the bank reason code/message, invoking the
-  failed-payment handler, flipping the batch to 'Partially Failed', and logging.
-  Also the no-match path (return for an invoice not in the batch).
 - ``add_processed_invoice_to_batch``: the optimized-data append happy path AND
   its atomic compensation -- when the mandate usage-record creation fails the
   appended invoice row must be popped back off so the batch stays consistent.
@@ -14,7 +10,6 @@ Coverage for SEPABatchProcessor paths not exercised by the existing
   no validation_status, and the delegated path when it does.
 - ``find_existing_invoice_for_schedule`` / ``update_schedule_after_invoice``:
   the existing-invoice lookup and the post-invoice schedule advance.
-- ``notify_payment_failure``: the member-email branch for a real schedule.
 
 All real-DB; the only seam is an intentionally-inactive mandate used to force the
 usage-record failure for the compensation test (no mocks).
@@ -102,138 +97,6 @@ class _ReturnsBase(EnhancedTestCase):
         batch.save()
         self._track("Direct Debit Batch", batch.name)
         return batch, invoice
-
-
-class TestProcessBatchReturns(_ReturnsBase):
-    def test_matching_return_marks_invoice_failed_and_batch_partially_failed(self):
-        member = self._member_with_membership()
-        mandate = self.factory.create_test_sepa_mandate(member=member.name, status="Active")
-        # Link a dues schedule so handle_failed_payment can advance it (the
-        # member already has one from the membership; reuse it).
-        schedule = frappe.db.get_value(
-            "Membership Dues Schedule", {"member": member.name, "is_template": 0}, "name"
-        )
-        batch, invoice = self._batch_with_invoice(member, mandate, link_schedule=schedule)
-
-        # find_invoice_in_batch matches on end_to_end_id == invoice_item.invoice.
-        returns = [
-            {
-                "end_to_end_id": invoice.name,
-                "reason_code": "MS03",
-                "reason_description": "Reason not specified",
-            }
-        ]
-        # Drive the parser to yield our return item (the file parser is a stub
-        # that returns []), so call process via a temporary subclass override of
-        # parse_sepa_return_file -- the seam is the parser, not frappe.db.
-        self.processor.parse_sepa_return_file = lambda _path: returns
-
-        failed = self.processor.process_batch_returns(batch.name, "/ignored/return.xml")
-
-        self.assertEqual(failed, 1)
-        batch.reload()
-        self.assertEqual(batch.status, "Partially Failed")
-        self.assertEqual(batch.invoices[0].status, "Failed")
-        self.assertEqual(batch.invoices[0].result_code, "MS03")
-        self.assertIn("Processed 1 returned", batch.batch_log or "")
-
-    def test_unmatched_return_leaves_batch_unchanged(self):
-        member = self._member_with_membership("1986-02-02")
-        mandate = self.factory.create_test_sepa_mandate(member=member.name, status="Active")
-        batch, _invoice = self._batch_with_invoice(member, mandate)
-
-        # A return for an invoice NOT in the batch -> no row matched -> failed_count 0.
-        self.processor.parse_sepa_return_file = lambda _path: [
-            {"end_to_end_id": "ACC-SINV-NOT-IN-BATCH", "reason_code": "AC04"}
-        ]
-        failed = self.processor.process_batch_returns(batch.name, "/ignored/return.xml")
-        self.assertEqual(failed, 0)
-        batch.reload()
-        # Status stays Draft (only >0 failures flip it to Partially Failed).
-        self.assertEqual(batch.status, "Draft")
-        self.assertEqual(batch.invoices[0].status, "Pending")
-
-    def test_process_returns_logs_and_raises_on_bad_batch(self):
-        # An unknown batch name makes frappe.get_doc raise; the except logs and re-raises.
-        self.expectErrorLog("SEPA Return Processing Error")
-        with self.assertErrorLog("SEPA Return Processing Error"):
-            with self.assertRaises(Exception):
-                self.processor.process_batch_returns("DD-BATCH-DOES-NOT-EXIST", "/ignored.xml")
-
-
-class TestHandleFailedPaymentSavepointRollback(_ReturnsBase):
-    """#3094: the except handler called ``frappe.db.rollback_savepoint``, which does not
-    exist, so an AttributeError replaced the real error and the partial write stayed."""
-
-    def _failing_save(self):
-        """Stand-in for ``schedule.save()`` that WRITES then fails (a partial write)."""
-
-        def failing_save(doc, *args, **kwargs):
-            frappe.db.set_value(
-                "Membership Dues Schedule", doc.name, "consecutive_failures", 77, update_modified=False
-            )
-            raise RuntimeError("boom-3094-original")
-
-        return failing_save
-
-    def test_failed_save_is_rolled_back_and_original_error_is_logged(self):
-        from unittest.mock import patch
-
-        member = self._member_with_membership("1991-07-07")
-        mandate = self.factory.create_test_sepa_mandate(member=member.name, status="Active")
-        schedule = frappe.db.get_value(
-            "Membership Dues Schedule", {"member": member.name, "is_template": 0}, "name"
-        )
-        batch, _invoice = self._batch_with_invoice(member, mandate, link_schedule=schedule)
-        before = frappe.db.get_value("Membership Dues Schedule", schedule, "consecutive_failures") or 0
-        self.assertNotEqual(before, 77)
-        self.expectErrorLog("Failed Payment Handler Error")
-
-        # Mock justified: forces the schedule write to fail after a partial DB write; no real
-        # input makes Membership Dues Schedule.save raise mid-write.
-        with patch(
-            "verenigingen.verenigingen.doctype.membership_dues_schedule."
-            "membership_dues_schedule.MembershipDuesSchedule.save",
-            self._failing_save(),
-        ):
-            self.processor.handle_failed_payment(batch.invoices[0], {"reason_code": "MS03"})
-
-        after = frappe.db.get_value("Membership Dues Schedule", schedule, "consecutive_failures") or 0
-        self.assertEqual(after, before, "the partial write must be rolled back to the savepoint")
-        error = frappe.get_all(
-            "Error Log",
-            filters={"method": "Failed Payment Handler Error"},
-            fields=["error"],
-            order_by="creation desc",
-            limit=1,
-        )
-        self.assertTrue(error)
-        self.assertIn("boom-3094-original", error[0].error)
-        self.assertNotIn("rollback_savepoint", error[0].error)
-
-    def test_deadlock_in_save_propagates_instead_of_being_swallowed(self):
-        """A 1213 destroys the transaction; the handler must not log-and-return as if the
-        schedule update were merely refused."""
-        from unittest.mock import patch
-
-        member = self._member_with_membership("1992-08-08")
-        mandate = self.factory.create_test_sepa_mandate(member=member.name, status="Active")
-        schedule = frappe.db.get_value(
-            "Membership Dues Schedule", {"member": member.name, "is_template": 0}, "name"
-        )
-        batch, _invoice = self._batch_with_invoice(member, mandate, link_schedule=schedule)
-
-        def deadlocked_save(doc, *args, **kwargs):
-            raise frappe.QueryDeadlockError("deadlock-3094")
-
-        # Mock justified: a real 1213 needs two contending connections.
-        with patch(
-            "verenigingen.verenigingen.doctype.membership_dues_schedule."
-            "membership_dues_schedule.MembershipDuesSchedule.save",
-            deadlocked_save,
-        ):
-            with self.assertRaises(frappe.QueryDeadlockError):
-                self.processor.handle_failed_payment(batch.invoices[0], {"reason_code": "MS03"})
 
 
 class TestAddProcessedInvoiceToBatch(_ReturnsBase):
@@ -458,8 +321,8 @@ def _dd_batch_status_literals_in_production_code():
 
 class TestBatchStatusLiteralsAreDeclaredOptions(VereningingenTestCase):
     """
-    process_batch_returns() records a partial failure by setting the batch status to
-    "Partially Failed", which was not one of the status Select's options — so the save
+    The (since deleted, #3010) process_batch_returns() recorded a partial failure by
+    setting the batch status to "Partially Failed", which was not one of the status Select's options — so the save
     recording it was rejected inside a broad except that only log_errors, and the
     partial-failure state was unrepresentable.
 

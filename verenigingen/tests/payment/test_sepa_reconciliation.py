@@ -827,7 +827,7 @@ class TestReconciledBatchThenMarkProcessed2798(ReconBase):
         """Ruling on #2798: a returned (Failed, AC04) row must not become Successful/PDNG.
 
         Probe shortcut: the Failed/AC04 state is hand-set (status, result_code, result_message,
-        the three fields `SEPABatchProcessor.process_batch_returns` writes) because the real
+        the three fields the since-deleted `SEPABatchProcessor.process_batch_returns` wrote, #3010) because the real
         return writer cannot persist on a Submitted batch (#1235). Whether reconcile books a
         Payment Entry for that row is pre-existing and out of scope, so it is not asserted.
         The batch-level status is NOT asserted here: a Submitted batch holding a Failed row is
