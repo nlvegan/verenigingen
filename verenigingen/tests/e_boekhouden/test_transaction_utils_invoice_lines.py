@@ -27,11 +27,13 @@ Run with:
 """
 
 import unittest
+from unittest import mock
 
 import frappe
 from frappe.utils import nowdate
 
 from verenigingen.e_boekhouden.utils.transaction_utils import (
+    create_purchase_invoice_impl,
     create_sales_invoice_impl,
     get_mapped_account_impl,
 )
@@ -274,7 +276,11 @@ class TestSalesInvoiceLineItems(_TxLinesBase):
 
     @unittest.expectedFailure
     def test_invoice_with_line_items_is_created(self):
-        """PRODUCTION DEFECT (transaction_utils.py:282 and :401) -- WRONG ARITY.
+        """(The wrong-arity defect described below was fixed in #3199 and is pinned by
+        TestLedgerCodeLookupArity3199; this test still fails on the create_customer
+        defect alone.)
+
+        PRODUCTION DEFECT (transaction_utils.py:282 and :401) -- WRONG ARITY.
 
         Both invoice builders call::
 
@@ -423,3 +429,107 @@ class TestCreditNoteDetectionPayloadShape(_TxLinesBase):
         )
         self.assertTrue(is_credit_note, "a -50 PrijsExclBTW line is a credit note")
         self.assertEqual(total, -50.00)
+
+
+class TestLedgerCodeLookupArity3199(_TxLinesBase):
+    """#3199 defect 2: both builders called ``_get_ledger_code_from_id`` with two
+    arguments, so ``debug_info`` landed in ``company`` and the call raised TypeError.
+
+    PROBE SHORTCUT, stated: the customer/supplier step is a stub returning the
+    success dict the builders expect, because the real ``create_customer`` returns a
+    bool (the separate defect pinned above) and would stop the builder before the
+    line loop. Everything from the line loop on is real: the real ledger lookup
+    against a real mapping row, item creation and the invoice save.
+    """
+
+    @staticmethod
+    def _stub3199(builder):
+        class _Doc(_MigrationDocStub):
+            def create_customer(self, relatie):
+                return {"success": True, "customer": frappe.db.get_value("Customer", {}, "name")}
+
+            def create_supplier(self, relatie):
+                return {"success": True, "supplier": frappe.db.get_value("Supplier", {}, "name")}
+
+        return _Doc(COMPANY, mapped={SALES_LEDGER: None})
+
+    @staticmethod
+    def _payload3199():
+        return {
+            "Datum": nowdate(),
+            "Factuurnummer": f"EBTL-{frappe.generate_hash()[:6]}",
+            "Relatie": {"ID": "EBTL-REL-1"},
+            "Regels": [
+                {
+                    "Omschrijving": "EBTL dienst",
+                    "Aantal": 1,
+                    "PrijsExclBTW": 10.00,
+                    "TegenrekeningCode": SALES_LEDGER,
+                }
+            ],
+        }
+
+    def _drive3199(self, builder):
+        from verenigingen.e_boekhouden.utils import eboekhouden_rest_full_migration as mig
+
+        seen = []
+        real = mig._get_ledger_code_from_id
+
+        def spy(*args, **kwargs):
+            seen.append(args)
+            return real(*args, **kwargs)
+
+        # Mock justified: a pass-through spy (wraps the real function) that only
+        # records the arguments the builder passed.
+        with mock.patch.object(mig, "_get_ledger_code_from_id", side_effect=spy):
+            result = builder(self._stub3199(builder), self._payload3199())
+        return result, seen
+
+    def _assert_company_arg3199(self, result, seen):
+        self.assertNotIn("positional argument", str(result.get("error", "")), result)
+        self.assertEqual(len(seen), 1, "the line loop never reached the ledger lookup")
+        ledger_id, company, debug_info = seen[0]
+        self.assertEqual(ledger_id, SALES_LEDGER)
+        self.assertEqual(company, COMPANY)
+        self.assertIsInstance(debug_info, list)
+
+    def test_sales_invoice_builder_passes_company_to_ledger_lookup(self):
+        result, seen = self._drive3199(create_sales_invoice_impl)
+        self._assert_company_arg3199(result, seen)
+
+    def test_purchase_invoice_builder_passes_company_to_ledger_lookup(self):
+        result, seen = self._drive3199(create_purchase_invoice_impl)
+        self._assert_company_arg3199(result, seen)
+
+
+class TestLedgerCodeLookupReraisesLockErrors3199(EnhancedTestCase):
+    """#3199 defect 1: a 1213/1205 from the mapping fetch became "Missing Account
+    Mapping". The fault is INJECTED into the fetch helper (the layer #3060 makes
+    re-raise); the lookup, the mapping table query and the throw are real."""
+
+    UNMAPPED = "EBTL-3199-NOMAP"
+
+    def _lookup3199(self, side_effect):
+        from verenigingen.e_boekhouden.utils import eboekhouden_rest_full_migration as mig
+
+        self.assertFalse(
+            frappe.db.exists("E-Boekhouden Ledger Mapping", {"ledger_id": self.UNMAPPED}),
+            "fixture precondition: the ledger id must be unmapped",
+        )
+        # Mock justified: fault injection at the network/DB-fetch helper.
+        with mock.patch.object(mig, "_fetch_and_create_missing_ledger_mapping", side_effect=side_effect):
+            return mig._get_ledger_code_from_id(self.UNMAPPED, COMPANY, [])
+
+    def test_deadlock_propagates(self):
+        with self.assertRaises(frappe.QueryDeadlockError):
+            self._lookup3199(frappe.QueryDeadlockError("1213"))
+
+    def test_lock_wait_timeout_propagates(self):
+        with self.assertRaises(frappe.QueryTimeoutError):
+            self._lookup3199(frappe.QueryTimeoutError("1205"))
+
+    def test_ordinary_failure_still_ends_in_the_mapping_throw(self):
+        """Control: a non-lock error keeps the old contract."""
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._lookup3199(RuntimeError("api down"))
+        self.assertIn("No account mapping found", str(ctx.exception))
