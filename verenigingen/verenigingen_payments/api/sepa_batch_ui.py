@@ -20,6 +20,8 @@ from verenigingen.verenigingen_payments.utils.mandate_candidates import (
 )
 from verenigingen.verenigingen_payments.utils.sepa_constants import (
     ROW_NOT_IN_FILE_CODE,
+    batch_status_locks_invoices,
+    non_locking_batch_status_sql_list,
     stranded_batch_exclusion,
 )
 from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
@@ -30,7 +32,7 @@ def get_open_batch_invoice_names():
 
     An invoice is "already spoken for" while its `Direct Debit Batch Invoice`
     child row is not itself cancelled (docstatus != 2) AND the parent batch's
-    status is not Cancelled or Failed -- a Cancelled or Failed batch collected
+    status is not Cancelled, Failed or Rolled Back (#3055) -- such a batch collected
     nothing, so its invoice must remain collectable, not be locked out forever.
     This is the same predicate `create_sepa_batch_validated` (below) already
     applies per-invoice; expressed here as one set query so both bulk loaders
@@ -70,7 +72,7 @@ def get_open_batch_invoice_names():
         FROM `tabDirect Debit Batch Invoice` ddi
         JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
         WHERE ddi.docstatus != 2
-          AND ddb.status NOT IN ('Cancelled', 'Failed')
+          AND ddb.status NOT IN ({non_locking_batch_status_sql_list()})
           AND NOT (ddi.status = 'Failed' AND ddi.result_code = %(not_in_file)s)
           AND {stranded_batch_exclusion("ddb")}
         """,
@@ -730,7 +732,7 @@ def create_sepa_batch_validated(**params):
 
             if existing_batch_invoice:
                 batch_doc = frappe.get_doc("Direct Debit Batch", existing_batch_invoice.parent)
-                if batch_doc.status not in ["Cancelled", "Failed"]:
+                if batch_status_locks_invoices(batch_doc.status):
                     invoice_validation_errors.append(
                         f"Invoice {invoice['invoice']} already in batch {existing_batch_invoice.parent}"
                     )

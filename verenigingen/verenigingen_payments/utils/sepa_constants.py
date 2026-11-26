@@ -132,6 +132,12 @@ SEPA_CURRENCY = "EUR"
 # CURDATE(), which names a different day for hours of every day while before_submit
 # judges on the site's (#628).
 #
+# A ROLLED BACK batch can no longer collect either (#3055). Its Payment Entries are
+# cancelled and its rows reset to Pending (#3021), so it holds nothing -- yet it is
+# submitted (docstatus 1), so without this clause every caller of this predicate keeps
+# treating its invoices as "in a live batch" and never offers them for a new one.
+# `Direct Debit Batch.status` is never "Rolled Back" for a batch still collecting.
+#
 # One definition, three call sites (payment_retry, sepa_mandate_service,
 # dd_batch_optimizer): this predicate is the kind of thing that otherwise gets fixed
 # in one place and missed in the others.
@@ -142,9 +148,27 @@ STRANDED_BATCH_EXCLUSION = """
         AND {alias}.batch_date IS NOT NULL
         AND {alias}.batch_date < %(today)s
     )
+    AND IFNULL({alias}.status, '') != 'Rolled Back'
 """
 
 
 def stranded_batch_exclusion(alias="ddb"):
     """SQL fragment excluding batches that can no longer collect. See above."""
     return STRANDED_BATCH_EXCLUSION.format(alias=alias)
+
+
+# Batch statuses under which a batch no longer "speaks for" its invoices: it collected
+# nothing, so each invoice must stay collectable in a new batch (#1217, #3055). A
+# Rolled Back batch belongs here: its Payment Entries are cancelled and its rows are
+# back to Pending, and re-collection is only via a NEW batch.
+NON_LOCKING_BATCH_STATUSES = ("Cancelled", "Failed", "Rolled Back")
+
+
+def batch_status_locks_invoices(status) -> bool:
+    """True when a batch in this status still holds its invoices out of new batches."""
+    return status not in NON_LOCKING_BATCH_STATUSES
+
+
+def non_locking_batch_status_sql_list() -> str:
+    """The statuses above as a SQL list body, for `status NOT IN (...)`. Constants only."""
+    return ", ".join(f"'{status}'" for status in NON_LOCKING_BATCH_STATUSES)

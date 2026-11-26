@@ -19,6 +19,7 @@ from frappe.utils import add_days, getdate, now, today
 from verenigingen.utils.error_handling import SEPAError, ValidationError, handle_api_error
 from verenigingen.utils.performance_utils import performance_monitor
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.verenigingen_payments.utils.sepa_constants import non_locking_batch_status_sql_list
 
 
 class ConflictSeverity(Enum):
@@ -150,7 +151,7 @@ class SEPAConflictDetector:
         try:
             # Query for existing batch assignments
             existing_assignments = frappe.db.sql(
-                """
+                f"""
                 SELECT
                     ddi.invoice,
                     ddb.name as batch_name,
@@ -163,7 +164,7 @@ class SEPAConflictDetector:
                 JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
                 WHERE ddi.invoice IN %(invoices)s
                 AND ddb.docstatus != 2  -- Not cancelled
-                AND ddb.status NOT IN ('Failed', 'Cancelled', 'Rejected')
+                AND ddb.status NOT IN ({non_locking_batch_status_sql_list()}, 'Rejected')
                 ORDER BY ddb.creation DESC
             """,
                 {"invoices": invoice_names},
