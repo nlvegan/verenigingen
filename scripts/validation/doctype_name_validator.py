@@ -520,7 +520,7 @@ AUTHORITY_PROBES = {
     "frappe": "User",
     "erpnext": "Sales Invoice",
     "hrms": "Expense Claim",
-    "payments": "Payment Gateway Account",
+    "payments": "Payment Gateway",
     "verenigingen": "Chapter Board Member",
 }
 
