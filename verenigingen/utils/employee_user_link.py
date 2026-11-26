@@ -20,6 +20,20 @@ def safe_log_error(message, title=None):
     frappe.log_error(title=safe_title, message=message)
 
 
+def _link_volunteer_to_user(volunteer_doc, user_id):
+    """Write Volunteer.user for the User the employee flows made or found (#2791).
+
+    Fills a blank only: a Volunteer that already has a (different) account keeps it, as in
+    ``volunteer_user_sync`` and ``account_creation_manager``. db.set_value, like
+    ``_link_volunteer_to_employee`` (no save: #2752's guard).
+    """
+    if not user_id or volunteer_doc.user:
+        return user_id
+    frappe.db.set_value("Volunteer", volunteer_doc.name, "user", user_id, update_modified=False)
+    volunteer_doc.user = user_id
+    return user_id
+
+
 def create_user_for_volunteer(volunteer_doc):
     """Create a User account for a volunteer if it doesn't exist - SECURE VERSION"""
     try:
@@ -31,7 +45,7 @@ def create_user_for_volunteer(volunteer_doc):
         existing_user = frappe.db.get_value("User", {"email": volunteer_doc.email}, "name")
         if existing_user:
             frappe.logger().info(f"User already exists for email {volunteer_doc.email}")
-            return existing_user
+            return _link_volunteer_to_user(volunteer_doc, existing_user)
 
         # Validate current user has permission to create users
         if not frappe.has_permission("User", "create"):
@@ -39,7 +53,9 @@ def create_user_for_volunteer(volunteer_doc):
             frappe.logger().info(
                 f"Using AccountCreationManager for secure user creation: {volunteer_doc.email}"
             )
-            return _create_user_via_account_creation_manager(volunteer_doc)
+            return _link_volunteer_to_user(
+                volunteer_doc, _create_user_via_account_creation_manager(volunteer_doc)
+            )
 
         # Create new user with proper permission validation
         user = frappe.new_doc("User")
@@ -83,7 +99,7 @@ def create_user_for_volunteer(volunteer_doc):
         user.insert()
         frappe.logger().info(f"Created user {user.name} for volunteer {volunteer_doc.name}")
 
-        return user.name
+        return _link_volunteer_to_user(volunteer_doc, user.name)
 
     except Exception as e:
         safe_log_error(f"Error creating user for volunteer {volunteer_doc.name}: {str(e)}")
