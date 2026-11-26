@@ -152,6 +152,11 @@ class MemberDurationService(StatelessService):
 
             return result
 
+        except frappe.QueryDeadlockError:
+            # 1213 rolled the whole transaction back; log_error below would write on the dead
+            # transaction and the failure dict would read as an ordinary error (#3203). 1205 is
+            # left to the handler below pending a maintainer ruling.
+            raise
         except Exception as e:
             frappe.log_error(
                 f"Error updating membership duration for {member_doc.name}: {str(e)}",

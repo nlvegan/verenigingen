@@ -784,8 +784,16 @@ class Membership(Document):
                 member_doc.save()
                 duration = result.data.get("duration") if result.data else None
                 frappe.logger().info(f"Updated membership duration for {self.member}: {duration}")
+        except frappe.QueryDeadlockError:
+            # 1213 rolled the whole transaction back: submitting on top of that commits a
+            # half-empty unit of work (#3203, rule from #2700). 1205 is deliberately left to the
+            # handler below until the maintainer rules on it.
+            raise
         except Exception as e:
-            frappe.logger().error(f"Failed to update membership duration for {self.member}: {str(e)}")
+            frappe.log_error(
+                title="Membership duration update failed",
+                message=f"Failed to update membership duration for {self.member}: {str(e)}",
+            )
             # Don't fail the membership submission if this update fails
 
 
