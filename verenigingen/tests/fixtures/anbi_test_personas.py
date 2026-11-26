@@ -303,7 +303,7 @@ class ANBITestPersonas:
         agreement.anbi_eligible = 0  # Not ANBI eligible (< 5 years)
         agreement.annual_amount = 12000
         agreement.payment_frequency = "Monthly"
-        agreement.payment_method = "SEPA Direct Debit"
+        agreement.payment_method = "Bank Transfer"  # SEPA would need a mandate (#814)
         agreement.status = "Draft"  # Not yet active
         agreement.insert()
         

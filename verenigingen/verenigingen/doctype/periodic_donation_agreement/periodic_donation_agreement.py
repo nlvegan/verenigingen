@@ -33,9 +33,33 @@ class PeriodicDonationAgreement(Document):
         if original_anbi_claim and not self.anbi_eligible:
             self._validate_anbi_claim_against_system_rules()
 
+        self.validate_sepa_has_mandate()
         self.update_donation_tracking()
         self.set_commitment_type()
         self.set_default_tax_year()
+
+    def validate_sepa_has_mandate(self):
+        """Refuse SEPA Direct Debit with no mandate attached (#814).
+
+        The collection pipeline resolves mandates by Member only, so a mandate-less SEPA
+        agreement looks collectable and never is (#762, #781). #776 and #807 guard the
+        web form and create_periodic_agreement(); this covers every other writer.
+        Only presence is checked. A Completed/Cancelled row is exempt so a legacy
+        mandate-less agreement can still be closed; cancel_agreement() sets
+        flags.cancelling for its save-while-Active (the workflow path must persist the
+        reason before the transition), so a legacy Active row can always be cancelled.
+        """
+        if self.payment_method != "SEPA Direct Debit" or self.sepa_mandate:
+            return
+        if self.status in ("Completed", "Cancelled") or self.flags.get("cancelling"):
+            return
+        frappe.throw(
+            _(
+                "SEPA Direct Debit requires a SEPA mandate. "
+                "Please select a mandate or choose a different payment method."
+            ),
+            frappe.ValidationError,
+        )
 
     def validate_activation_goes_through_workflow(self):
         """Refuse a web-request save that makes `status` Active without the workflow's Active state.
@@ -466,17 +490,21 @@ class PeriodicDonationAgreement(Document):
         self.cancellation_date = frappe.utils.today()
         self.cancellation_reason = reason or _("Cancelled by donor request")
         self.cancellation_processed_by = frappe.session.user
-
-        if self.meta.get_workflow():
-            # The workflow decides who may cancel from which state (#1850). apply_workflow
-            # reloads the doc from the database and its condition reads cancellation_reason,
-            # so the reason must be saved first; a refused transition rolls it back.
-            self.save()
-            # apply_workflow loads the doc in place, so self ends up as the saved row.
-            apply_workflow(self, "Cancel Agreement")
-        else:
-            self.status = "Cancelled"
-            self.save()
+        self.flags.cancelling = True  # exempts this save from validate_sepa_has_mandate (#814)
+        try:
+            if self.meta.get_workflow():
+                # The workflow decides who may cancel from which state (#1850). apply_workflow
+                # reloads the doc from the database and its condition reads cancellation_reason,
+                # so the reason must be saved first; a refused transition rolls it back.
+                self.save()
+                # apply_workflow loads the doc in place, so self ends up as the saved row.
+                apply_workflow(self, "Cancel Agreement")
+            else:
+                self.status = "Cancelled"
+                self.save()
+        finally:
+            # A refused transition must not leave the exemption on this object for a later save.
+            self.flags.pop("cancelling", None)
 
         # Optionally send cancellation confirmation
         if send_email:

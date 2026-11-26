@@ -185,6 +185,7 @@
       "description": "Auto-calculated based on annual amount and frequency"
     },
     {
+      "default": "Bank Transfer",
       "fieldname": "payment_method",
       "fieldtype": "Select",
       "label": "Payment Method",

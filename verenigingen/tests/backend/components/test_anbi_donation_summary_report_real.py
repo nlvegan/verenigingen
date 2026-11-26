@@ -341,7 +341,8 @@ class TestANBIDonationSummaryReportReal(EnhancedTestCase):
                 "start_date": add_days(today(), -30),
                 "amount": 25.0,
                 "frequency": "Monthly",
-                "annual_amount": 300.0  # Required field: 25.0 * 12 months
+                "annual_amount": 300.0,  # Required field: 25.0 * 12 months
+                "payment_method": "Bank Transfer",  # unset defaults to SEPA, which now needs a mandate (#814)
             })
             pda.insert()
             
