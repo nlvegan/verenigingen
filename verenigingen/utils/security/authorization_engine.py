@@ -85,10 +85,28 @@ class AuthorizationEngine:
                 reason="Administrator bootstrap account has break-glass access",
             )
 
-        # Fetch user data (I/O layer)
-        user_profiles = self.get_user_role_profiles(user)
-        user_roles = frappe.get_roles(user)
         is_authenticated = user != "Guest"
+
+        # Fetch user data (I/O layer). A FAILED profile lookup must not read as "no profile":
+        # that would reach the Rule 5/6 role-name grants (#3095).
+        try:
+            user_profiles = self.get_user_role_profiles(user, raise_on_error=True)
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception:
+            frappe.log_error(
+                title="Authorization engine: role profile lookup failed",
+                message=f"user={user}\n{frappe.get_traceback()}",
+            )
+            # Fail closed: decide with no profiles AND no roles, so only the rules that never read
+            # them (1-3: PUBLIC, Guest, LOW) can still decide; the rest end in the ordinary rule 7 deny.
+            return self.policy.decide(
+                required_level=level,
+                user_profiles=[],
+                user_roles=[],
+                is_authenticated=is_authenticated,
+            )
+        user_roles = frappe.get_roles(user)
 
         # Delegate to pure policy for decision
         return self.policy.decide(
