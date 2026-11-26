@@ -17,6 +17,7 @@ from frappe.utils import flt, getdate, nowdate
 from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
 from verenigingen.e_boekhouden.utils.security_helper import atomic_migration_operation, validate_and_insert
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 from verenigingen.verenigingen_payments.utils.bank_transaction_status import RECONCILED, record_pool_outcome
@@ -1544,6 +1545,10 @@ class PaymentEntryHandler:
 
             return bank_transaction_name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3195: a 1213 rolled the whole transaction back; returning None would let the caller
+            # submit the Payment Entry without its Bank Transaction against discarded state.
+            raise
         except Exception as e:
             self._log(f"ERROR creating Bank Transaction: {str(e)}")
             frappe.log_error(
@@ -1648,6 +1653,11 @@ class PaymentEntryHandler:
 
         except (frappe.DoesNotExistError, frappe.ValidationError, frappe.PermissionError):
             # Re-raise known errors without modification
+            raise
+
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3195: converting to ValidationError would hide the class from every caller's
+            # `except NON_RESUMABLE_DB_ERRORS` and read as an ordinary, resumable failure.
             raise
 
         except Exception as e:
