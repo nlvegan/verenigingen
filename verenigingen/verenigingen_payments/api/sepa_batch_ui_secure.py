@@ -38,6 +38,7 @@ from verenigingen.utils.security.authorization import (
 from verenigingen.utils.security.csrf_protection import require_csrf_token
 from verenigingen.verenigingen_payments.api.sepa_batch_ui import (
     get_open_batch_invoice_names,
+    require_batch_read_permission,
     resolve_batch_row_bank_data,
     set_membership_or_reason,
 )
@@ -473,16 +474,20 @@ def validate_invoice_mandate_secure(invoice: str, member: str):
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def get_batch_analytics_secure(batch_name: str):
     """
-    Securely get detailed analytics for a batch
+    Get detailed analytics for a batch.
 
-    Enhanced with authorization and audit logging
+    Requires Direct Debit Batch READ on the named batch (#1090), on top of the
+    security-tier gate. Writes an audit event. No per-chapter scoping.
     """
 
     # Validate batch parameter
     if not batch_name:
         raise SEPAError(_("Batch name is required"))
 
-    # Verify batch exists and user has access
+    # Direct Debit Batch READ first, so an unknown and a forbidden name are refused alike (#1090).
+    # The exists() below is then only reachable by Administrator.
+    require_batch_read_permission(batch_name)
+
     if not frappe.db.exists("Direct Debit Batch", batch_name):
         raise SEPAError(_("Batch not found: {0}").format(batch_name))
 
@@ -536,16 +541,21 @@ def get_batch_analytics_secure(batch_name: str):
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_sepa_xml_secure(batch_name: str):
     """
-    Securely preview SEPA XML content before generation
+    Preview SEPA XML content before generation.
 
-    Enhanced with security measures and sensitive data protection
+    Requires Direct Debit Batch READ on the named batch (#1090), on top of the
+    security-tier gate. Writes an audit event. Debtor IBANs are masked (first and last
+    4 characters shown); mandate ids and amounts are not. No per-chapter scoping.
     """
 
     # Validate batch parameter
     if not batch_name:
         raise SEPAError(_("Batch name is required"))
 
-    # Verify batch exists and user has access
+    # Direct Debit Batch READ first, so an unknown and a forbidden name are refused alike (#1090).
+    # The exists() below is then only reachable by Administrator.
+    require_batch_read_permission(batch_name)
+
     if not frappe.db.exists("Direct Debit Batch", batch_name):
         raise SEPAError(_("Batch not found: {0}").format(batch_name))
 
