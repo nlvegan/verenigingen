@@ -536,10 +536,6 @@ def get_context(context):
             "command": f"bench --site {site_name} execute verenigingen.utils.performance_dashboard.get_system_health",
         },
         {
-            "description": "Apply database optimizations",
-            "command": f"bench --site {site_name} execute verenigingen.utils.api_endpoint_optimizer.run_api_optimization --dry_run=False",
-        },
-        {
             "description": "Clean up all e-Boekhouden imported data",
             "command": f"bench --site {site_name} execute verenigingen.e_boekhouden.utils.cleanup_utils.nuclear_cleanup_all_imported_data",
         },

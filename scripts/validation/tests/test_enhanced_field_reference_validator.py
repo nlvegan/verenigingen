@@ -129,5 +129,40 @@ class RatchetTests(_AppCase):
         self.assertEqual(result.returncode, 1, result.stdout)
 
 
+class NonPythonArgumentsTests(_AppCase):
+    """#3115: the pre-push hook also passes .html/.js; a push with no .py file used to fall
+    through to the un-ratcheted whole-tree scan and exit 1 on findings it never touched."""
+
+    sources = {"missing.py": _MISSING}
+
+    def test_only_non_python_arguments_check_nothing_and_pass(self):
+        # RED on develop: the .html is dropped, the list is empty, the whole tree is scanned
+        # and the seeded finding in missing.py (not in the pushed files) fails the run.
+        result = _run(self.root, "verenigingen/templates/x.html", "verenigingen/public/js/y.js")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("nothing to check", result.stdout)
+        self.assertNotIn("zzz_no_such_field", result.stdout)
+
+    def test_a_python_argument_alongside_html_is_still_reported(self):
+        result = _run(
+            self.root, "--no-baseline", "verenigingen/templates/x.html", "verenigingen/services/missing.py"
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("zzz_no_such_field not in Member", result.stdout)
+
+    def test_no_arguments_still_scans_the_whole_tree(self):
+        # Control for the first test: the seeded finding is visible when nothing is passed.
+        result = _run(self.root, "--no-baseline")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("zzz_no_such_field not in Member", result.stdout)
+
+    def test_update_baseline_with_a_non_python_argument_still_writes_the_baseline(self):
+        # Pins the `passed_files = []` line in the update branch: without it the html argument
+        # would short-circuit to "nothing to check" and the baseline would never be written.
+        result = _run(self.root, "--update-baseline", "verenigingen/templates/x.html")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("zzz_no_such_field", self.baseline.read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,7 @@ from types import SimpleNamespace
 import frappe
 from frappe.utils import add_days, add_months, getdate, today
 
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -286,7 +287,7 @@ class TestDuesScheduleValidationService(EnhancedTestCase):
             next_invoice_date=add_days(today(), 60),
         )
         self.svc.validate_dates(schedule)
-        self.assertEqual(getdate(schedule.last_invoice_date), getdate(today()))
+        assert_written_today(self, schedule.last_invoice_date)
 
     def test_validate_dates_next_before_last_throws(self):
         """next_invoice_date before last_invoice_date is invalid."""

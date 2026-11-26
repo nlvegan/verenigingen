@@ -27,10 +27,29 @@ uses the zero-argument ``Base.setUpClass()``) also honours the contract, provide
 ``Base`` is a harness root or harness-rooted class AND an ancestor of the class by
 the name resolution below (#1348). A call to an unrelated class, to a non-harness
 ancestor such as ``FrappeTestCase``/``ErrorLogGuardMixin``, or to a different
-lifecycle method, does not. Known gap (#1348 gap 2, latent not impossible): a
-non-harness mixin placed ahead of the harness base that defines a lifecycle
-method without ``super()`` is not checked; both harness roots already put
-``ErrorLogGuardMixin`` ahead of ``FrappeTestCase``. It does not evaluate what the override
+lifecycle method, does not.
+
+Mixin ordering (#1348 gap 2, maintainer ruling 2026-11-19, "option 3"): a
+non-harness mixin listed AHEAD of a harness base in a harness-rooted class's
+bases (``class T(_Mixin, EnhancedTestCase)``) comes first in the MRO, so if its
+own lifecycle method skips ``super()`` the harness method never runs. Such a
+mixin is flagged (keyed on the mixin's own class and method) when it defines a
+lifecycle method with neither ``super().<name>(...)`` nor an explicit call to a
+harness base. The same mixin AFTER the harness base is not flagged (the harness
+method runs first and its own ``super()`` chain decides). Both harness roots put
+``ErrorLogGuardMixin`` ahead of ``FrappeTestCase``, which is not a harness base,
+so that shape is out of scope. Limits, deliberately not a static MRO resolver:
+only the DIRECT bases of the using class are ordered, and only the mixin's own
+body is inspected (a mixin that inherits a skipping method from another mixin is
+not seen); resolution is by class name, so a mixin whose name is shadowed by a
+same-named class elsewhere is judged by whichever was scanned last. Further limits,
+all unexploited today: only module-level classes are registered (a class nested in
+another class or a function is invisible), and ``async def`` lifecycle methods are
+not recognised (only ``def`` is read). The explicit-base-call rule accepts any
+harness-rooted ANCESTOR, not the next class in the MRO, so a harness-rooted mixin
+ahead of a harness base that calls a non-adjacent harness ancestor
+(``Mix(VTC)`` calling ``VereningingenTestCase.setUp(self)``, used as
+``T(Mix, Other)`` with ``Other(VTC)``) bypasses ``Other.setUp`` unseen. It does not evaluate what the override
 does with the isolation it skips, or whether the omission is currently
 harmless -- only whether the contract is honoured. It also does not flag a
 class that never overrides the method at all (normal MRO dispatch already
@@ -245,6 +264,7 @@ class Violation:
     class_name: str
     method: str
     lineno: int
+    ahead_of: str = ""  # set for a mixin-ordering finding (#1348): the using class
 
     def key(self) -> str:
         return f"{self.file}::{self.class_name}::{self.method}"
@@ -278,8 +298,40 @@ def find_violations(root: Path = SCAN_ROOT, unscannable: list | None = None) -> 
                         lineno=info.lineno,
                     )
                 )
+    violations.extend(_mixin_ordering_violations(registry))
     violations.sort(key=lambda v: v.key())
     return violations
+
+
+def _is_harness_base(name: str, registry: dict) -> bool:
+    return name in HARNESS_ROOTS or _is_harness_rooted(name, registry)
+
+
+def _mixin_ordering_violations(registry: dict) -> list:
+    """Non-harness mixins ahead of a harness base that skip a lifecycle method (#1348 gap 2)."""
+    found = {}
+    for user, user_info in registry.items():
+        harness_positions = [i for i, b in enumerate(user_info.bases) if _is_harness_base(b, registry)]
+        if not harness_positions:
+            continue
+        user_ancestors = _ancestors(user, registry)
+        for mixin in user_info.bases[: max(harness_positions)]:
+            if mixin not in registry or _is_harness_base(mixin, registry):
+                continue  # unscanned base, or a harness class the main rule already checks
+            info = registry[mixin]
+            for method, has_super in info.methods.items():
+                # Like the main rule, the callee must be an ancestor of the using class.
+                calls_harness = any(
+                    _is_harness_base(c, registry)
+                    for c in info.explicit_calls.get(method, set()) & user_ancestors
+                )
+                if has_super or calls_harness:
+                    continue
+                found.setdefault(
+                    (mixin, method),
+                    Violation(str(info.file), mixin, method, info.lineno, ahead_of=user),
+                )
+    return list(found.values())
 
 
 def _load_baseline(path: Path) -> set:
@@ -350,7 +402,8 @@ def main():
     if new_violations:
         print(f"FAIL: {len(new_violations)} NEW harness-super-skip violation(s):")
         for v in new_violations:
-            print(f"  {v.file}:{v.lineno} {v.class_name}.{v.method} -- add super().{v.method}(...)")
+            where = f" (listed ahead of the harness base in {v.ahead_of})" if v.ahead_of else ""
+            print(f"  {v.file}:{v.lineno} {v.class_name}.{v.method}{where} -- add super().{v.method}(...)")
         return 1
 
     print(f"OK: {len(violations)} harness-super-skip finding(s), all baselined ({len(baseline)} total).")

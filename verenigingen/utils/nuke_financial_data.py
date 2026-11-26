@@ -398,7 +398,7 @@ def nuke_gl_entries_older_than(minutes=30, confirm="NO"):
             "success": True,
             "deleted": total_deleted,
             "cutoff_time": str(cutoff_time),
-            "message": "Deleted {total_deleted} GL entries older than {minutes} minutes",
+            "message": f"Deleted {total_deleted} GL entries older than {minutes} minutes",
         }
 
     except Exception as e:

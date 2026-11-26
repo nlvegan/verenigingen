@@ -27,6 +27,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import frappe
+from rq.exceptions import InvalidJobOperation
 
 from verenigingen.events import invoice_events as ie
 from verenigingen.events.subscribers import payment_history_subscriber as phs
@@ -413,3 +414,88 @@ class TestInvoiceEventsCoverage(EnhancedTestCase):
             )
         FinancialHistoryBatchProcessor.force_process_all()
         self.assertIn(invoice.name, self._payment_history_invoices(member.name))
+
+    # ===================================== dedupe enqueue race (#2505)
+    def _emit_submitted_under_dedupe_race(self, member, invoice, times, subscribers=None):
+        """Real invoice event path; ``get_job`` hits the rq race for the member's job ``times`` times.
+
+        Returns (methods whose enqueue was accepted, Error Log titles written). The race is injected at
+        the rq boundary (``get_job`` -> a job whose ``delete`` finds the hash gone), because a
+        concurrent actor cannot be produced on demand; the emitter and enqueue are real.
+        """
+        real_get_job = frappe.utils.background_jobs.get_job
+        marker = f"payment_history_update_{member.name}"
+        fired = []
+
+        class _Vanishing:
+            id = "raced"
+
+            def get_status(self, refresh=False):
+                return "finished"
+
+            def delete(self, *args, **kwargs):
+                raise InvalidJobOperation("Failed to retrieve status")
+
+        def racing_get_job(job_id):
+            if marker in job_id and (times is None or len(fired) < times):
+                fired.append(job_id)
+                return _Vanishing()
+            return real_get_job(job_id)
+
+        callbacks = frappe.db.after_commit._functions
+        saved = list(callbacks)
+        accepted = []
+        real_enqueue = frappe.enqueue
+
+        def recording_enqueue(*args, **kwargs):
+            result = real_enqueue(*args, **kwargs)
+            accepted.append(kwargs.get("method"))
+            return result
+
+        cutoff = frappe.utils.now_datetime()
+        doc = frappe.get_doc("Sales Invoice", invoice.name)
+        try:
+            # Mock justified: the race cannot be produced on demand, see the docstring.
+            with patch("frappe.utils.background_jobs.get_job", racing_get_job), patch(
+                "frappe.enqueue", recording_enqueue
+            ):
+                if subscribers is None:
+                    ie.emit_invoice_submitted(doc)
+                else:
+                    with patch.object(ie, "_get_event_subscribers", return_value=subscribers):
+                        ie.emit_invoice_submitted(doc)
+        finally:
+            callbacks.clear()
+            callbacks.extend(saved)
+        titles = [
+            r.method
+            for r in frappe.get_all(
+                "Error Log", filters={"creation": [">=", cutoff]}, fields=["method"], limit=0
+            )
+        ]
+        self.assertTrue(fired, "the injected race never fired: the test proves nothing")
+        return accepted, titles
+
+    def test_invoice_event_race_is_retried_and_the_job_is_queued(self):
+        member = self._make_member_with_customer("race1")
+        invoice = self._make_submitted_invoice(member)
+        accepted, titles = self._emit_submitted_under_dedupe_race(member, invoice, times=1)
+        self.assertEqual(len(accepted), 1, "the raced payment-history job was dropped instead of retried")
+        self.assertEqual(titles.count("Event dedupe enqueue race (InvalidJobOperation)"), 1)
+        self.assertFalse([t for t in titles if t.startswith("Failed to emit invoice_submitted")], titles)
+
+    def test_invoice_event_race_on_both_attempts_keeps_dispatching_other_subscribers(self):
+        member = self._make_member_with_customer("race2")
+        invoice = self._make_submitted_invoice(member)
+        subscribers = [
+            "verenigingen.events.subscribers.payment_history_subscriber.handle_invoice_submitted",
+            "verenigingen.events.subscribers.payment_history_subscriber.handle_other_2505",
+        ]
+        accepted, titles = self._emit_submitted_under_dedupe_race(
+            member, invoice, times=None, subscribers=subscribers
+        )
+        self.assertEqual(
+            accepted, [subscribers[1]], "the second subscriber was not dispatched after the first raced"
+        )
+        self.assertEqual(titles.count("Event dedupe enqueue race (InvalidJobOperation)"), 2)
+        self.assertFalse([t for t in titles if t.startswith("Failed to emit invoice_submitted")], titles)

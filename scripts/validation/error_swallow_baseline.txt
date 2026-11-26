@@ -293,7 +293,6 @@ verenigingen/utils/security/authorization.py::SEPAAuthorizationManager._check_co
 verenigingen/utils/security/authorization.py::SEPAAuthorizationManager._check_ip_restrictions::1
 verenigingen/utils/security/authorization.py::SEPAAuthorizationManager.get_user_permissions::1
 verenigingen/utils/security/authorization.py::SEPAAuthorizationManager.has_permission::1
-verenigingen/utils/security/authorization_engine.py::AuthorizationEngine.get_user_role_profiles::1
 verenigingen/utils/security/rate_limit_engine.py::RateLimitEngine.get_rate_limit_headers::1
 verenigingen/utils/settings_utils.py::get_brand_settings::1
 verenigingen/utils/settings_utils.py::get_domain_settings::1
@@ -372,7 +371,6 @@ verenigingen/verenigingen_payments/doctype/mollie_settings/mollie_settings.py::M
 verenigingen/verenigingen_payments/doctype/payment_plan/payment_plan.py::process_overdue_installments::1
 verenigingen/verenigingen_payments/doctype/sepa_audit_log/sepa_audit_log.py::SEPAAuditLog.log_sepa_event::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_create_customer_for_donor::1
-verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::_get_subscription_failure_count::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::create_payment_entry_for_donation::1
 verenigingen/verenigingen_payments/mollie/api/payment_webhook.py::update_donation_payment_history::1
 verenigingen/verenigingen_payments/mollie/services/complete_payment_service.py::CompletePaymentService._find_usable_directdebit_mandate::1

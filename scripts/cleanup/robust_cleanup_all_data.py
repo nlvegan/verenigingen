@@ -113,14 +113,14 @@ def robust_cleanup_all_imported_data(company=None):
                 if je_names:
                     # Clean Journal Entry Account child records
                     frappe.db.sql(
-                        """DELETE FROM `tabJournal Entry Account`
+                        f"""DELETE FROM `tabJournal Entry Account`
                             WHERE parent IN ({','.join(['%s'] * len(je_names))})""",
                         je_names,
                     )
 
                     # Clean Journal Entries themselves
                     frappe.db.sql(
-                        """DELETE FROM `tabJournal Entry`
+                        f"""DELETE FROM `tabJournal Entry`
                             WHERE name IN ({','.join(['%s'] * len(je_names))})""",
                         je_names,
                     )
@@ -177,7 +177,7 @@ def robust_cleanup_all_imported_data(company=None):
 
                     # Set all to cancelled status first
                     frappe.db.sql(
-                        """UPDATE `tabPayment Entry`
+                        f"""UPDATE `tabPayment Entry`
                             SET docstatus = 2
                             WHERE name IN ({','.join(['%s'] * len(pe_names))})""",
                         pe_names,
@@ -185,7 +185,7 @@ def robust_cleanup_all_imported_data(company=None):
 
                     # Delete Payment Entries
                     frappe.db.sql(
-                        """DELETE FROM `tabPayment Entry`
+                        f"""DELETE FROM `tabPayment Entry`
                             WHERE name IN ({','.join(['%s'] * len(pe_names))})""",
                         pe_names,
                     )
@@ -241,7 +241,7 @@ def robust_cleanup_all_imported_data(company=None):
 
                     # Delete Sales Invoices
                     frappe.db.sql(
-                        """DELETE FROM `tabSales Invoice`
+                        f"""DELETE FROM `tabSales Invoice`
                             WHERE name IN ({','.join(['%s'] * len(si_names))})""",
                         si_names,
                     )
@@ -297,7 +297,7 @@ def robust_cleanup_all_imported_data(company=None):
 
                     # Delete Purchase Invoices
                     frappe.db.sql(
-                        """DELETE FROM `tabPurchase Invoice`
+                        f"""DELETE FROM `tabPurchase Invoice`
                             WHERE name IN ({','.join(['%s'] * len(pi_names))})""",
                         pi_names,
                     )

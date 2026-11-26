@@ -8,6 +8,8 @@ decoupling invoice operations from dependent systems like payment history.
 import frappe
 from frappe import _
 
+from verenigingen.events.event_emitter import enqueue_deduplicated
+
 
 def emit_invoice_submitted(doc, method=None):
     """
@@ -125,11 +127,11 @@ def _emit_invoice_event(event_name, event_data):
                     # deduplicate flag ensures only one job per member is queued
                     # at a time, and enqueue_after_commit defers dispatch until
                     # the enclosing transaction actually commits.
-                    frappe.enqueue(
+                    enqueue_deduplicated(
                         method=subscriber,
                         queue="short",
                         job_id=f"payment_history_update_{member['name']}",
-                        deduplicate=True,  # This prevents multiple jobs for same member
+                        # deduplicate=True is set by enqueue_deduplicated: one job per member
                         enqueue_after_commit=True,  # Defer dispatch until the transaction commits
                         timeout=300,  # 5 minutes timeout
                         **{  # Separate method arguments from enqueue parameters
@@ -139,11 +141,10 @@ def _emit_invoice_event(event_name, event_data):
                     )
             else:
                 # Fallback to original behavior if no customer
-                frappe.enqueue(
+                enqueue_deduplicated(
                     method=subscriber,
                     queue="short",
                     job_id=f"{event_name}_{event_data.get('invoice')}_{subscriber}",
-                    deduplicate=True,
                     enqueue_after_commit=True,
                     **{
                         "event_name": event_name,
@@ -152,11 +153,10 @@ def _emit_invoice_event(event_name, event_data):
                 )
         else:
             # For other subscribers, use the original approach
-            frappe.enqueue(
+            enqueue_deduplicated(
                 method=subscriber,
                 queue="short",
                 job_id=f"{event_name}_{event_data.get('invoice')}_{subscriber}",
-                deduplicate=True,
                 enqueue_after_commit=True,
                 **{
                     "event_name": event_name,

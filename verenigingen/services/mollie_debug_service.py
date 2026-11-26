@@ -10,7 +10,7 @@ from frappe.utils import add_days, today
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.security.api_security_framework import OperationType
-from verenigingen.utils.transaction_errors import submit_atomically
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, submit_atomically
 from verenigingen.verenigingen_payments.core.compliance.audit_trail import (
     AuditEventType,
     AuditSeverity,
@@ -2766,6 +2766,9 @@ class MollieDebugService(StatelessService):
                 if pe_doc.docstatus == 0 and frappe.has_permission("Payment Entry", "submit", pe_doc):
                     submit_atomically(pe_doc)
                     payment_result["payment_entry_submitted"] = True
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3059: not a failed submit; the transaction is gone (1213) or half-applied (1205)
+            raise
         except Exception as submit_error:
             payment_result["submit_error"] = str(submit_error)
             self.logger.error(f"Submission error for {payment_id}: {submit_error}")
@@ -2919,6 +2922,9 @@ class MollieDebugService(StatelessService):
                 f"{result['skipped']} skipped, {result['errors']} errors"
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3059: a 1213/1205 from the orchestrator is not a per-request error to report
+            raise
         except Exception as e:
             result["error"] = str(e)
             self.logger.error(f"Bulk processing error: {e}")
@@ -2963,6 +2969,9 @@ class MollieDebugService(StatelessService):
 
             return result
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3059: fail the job visibly instead of returning a dict the enqueuer never reads
+            raise
         except Exception as e:
             error_msg = f"Background job {job_id}: Batch {batch_num} failed - {str(e)}"
             self.logger.error(error_msg)
