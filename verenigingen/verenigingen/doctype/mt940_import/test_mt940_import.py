@@ -455,6 +455,65 @@ class TestMT940ImportWhitelistedEndpoints(MT940ControllerTestBase):
         self.assertEqual(doc.import_status, "Completed")
         self.assertEqual(frappe.db.count("Bank Transaction", {"bank_account": self.bank_account}), 1)
 
+    def test_submit_import_returns_completed_status_and_counts(self):
+        """#3165: the MT940 page branches on import_status; the response must carry it."""
+        doc = self._make_file_import_doc(S.SEPA_INCOMING_CREDIT)
+        result = C.submit_import(doc.name)
+        doc.reload()
+        self.assertEqual(result["import_status"], "Completed")
+        self.assertEqual(result["name"], doc.name)
+        self.assertEqual(result["transactions_created"], 1)
+        self.assertEqual(result["transactions_skipped"], 0)
+        self.assertEqual(result["import_summary"], doc.import_summary)
+
+    def test_submit_import_returns_failed_status_for_rejected_statement(self):
+        """#3165: a statement refused by the importer (IBAN mismatch) reports Failed, not Completed."""
+        from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
+
+        other_iban = "NL91ABNA0417164300"  # != sample :25: NL02ABNA0123456789
+        other_ba = frappe.new_doc("Bank Account")
+        other_ba.account_name = f"MT940 3165 Mismatch {self.uid}"
+        other_ba.bank = get_or_create_unknown_bank()
+        other_ba.company = self.company
+        other_ba.bank_account_no = other_iban
+        other_ba.iban = other_iban
+        other_ba.insert()
+        self.created_records.append(("Bank Account", other_ba.name))
+        doc = frappe.new_doc("MT940 Import")
+        doc.import_type = "MT940 File Import"
+        doc.bank_account = other_ba.name
+        doc.mt940_file = self._make_mt940_file(S.SEPA_INCOMING_CREDIT)
+        doc.insert()
+        self.created_records.append(("MT940 Import", doc.name))
+
+        result = C.submit_import(doc.name)
+        self.assertEqual(result["import_status"], "Failed")
+        self.assertTrue(result["import_summary"])
+
+    def test_submit_import_returns_partial_status_as_recorded(self):
+        """#3165: a partial status is passed through verbatim, never collapsed to Completed.
+
+        PROBE SHORTCUT: on_submit itself only ever writes Completed or Failed today, so the
+        real flow cannot reach a partial status. The stand-in on_submit below writes it, to
+        prove only that submit_import reports whatever status the record ends with.
+        """
+        from unittest.mock import patch
+
+        doc = self._make_file_import_doc(S.SEPA_INCOMING_CREDIT)
+
+        def partial_on_submit(this):
+            this.import_status = "Completed With Errors"
+            this.import_summary = "2 of 3 rows imported"
+            this.transactions_created = 2
+            this.transactions_skipped = 0
+
+        # Mock justified: on_submit never produces a partial status; see docstring.
+        with patch.object(C.MT940Import, "on_submit", partial_on_submit):
+            result = C.submit_import(doc.name)
+        self.assertEqual(result["import_status"], "Completed With Errors")
+        self.assertEqual(result["transactions_created"], 2)
+        self.assertEqual(result["import_summary"], "2 of 3 rows imported")
+
     def test_submit_import_rejects_already_submitted(self):
         doc = self._make_file_import_doc(S.SEPA_INCOMING_CREDIT)
         doc.submit()

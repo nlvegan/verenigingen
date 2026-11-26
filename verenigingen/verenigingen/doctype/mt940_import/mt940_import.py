@@ -472,7 +472,17 @@ def submit_import(import_name: str):
 
         doc.submit()
 
-        return {"success": True, "message": f"Import {import_name} submitted successfully"}
+        # The MT940 page branches its result panel on import_status (#3165); on_submit has
+        # already written the outcome onto this in-memory doc.
+        return {
+            "success": True,
+            "message": f"Import {import_name} submitted successfully",
+            "name": doc.name,
+            "import_status": doc.import_status,
+            "import_summary": doc.import_summary,
+            "transactions_created": doc.transactions_created or 0,
+            "transactions_skipped": doc.transactions_skipped or 0,
+        }
 
     except Exception as e:
         frappe.log_error(f"Error submitting import {import_name}: {str(e)}", "MT940 Import Submit")

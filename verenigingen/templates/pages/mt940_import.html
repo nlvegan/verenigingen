@@ -1122,8 +1122,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (result.import_status === 'Completed') {
             mollieResultsAlert.className = 'alert alert-success';
-            html += '<p><strong>Status:</strong> ' + result.import_status + '</p>';
-            html += '<p><strong>Import Summary:</strong> ' + (result.import_summary || 'Import completed successfully') + '</p>';
+            html += '<p><strong>Status:</strong> ' + escapeHtml(result.import_status) + '</p>';
+            html += '<p><strong>Import Summary:</strong> ' + escapeHtml(result.import_summary || 'Import completed successfully') + '</p>';
 
             if (result.transactions_created) {
                 html += '<p><strong>Transactions Created:</strong> ' + result.transactions_created + '</p>';
@@ -1135,12 +1135,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
             html += '<p class="text-muted"><strong>Next Step:</strong> Review and reconcile the imported transactions.</p>';
             html += '<a href="/app/bank-transaction" class="btn btn-default">View Bank Transactions</a>';
-            html += ' <a href="/app/mt940-import/' + result.name + '" class="btn btn-info">View Import Details</a>';
+            html += ' <a href="/app/mt940-import/' + encodeURIComponent(result.name) + '" class="btn btn-info">View Import Details</a>';
+
+        } else if (result.import_status === 'Completed With Errors' || result.import_status === 'Completed With Warnings') {
+            // Partial run (#3106): finished, but some rows had errors/warnings; neither success nor failure.
+            mollieResultsAlert.className = 'alert alert-warning';
+            html += '<p><strong>Status:</strong> ' + escapeHtml(result.import_status) + '</p>';
+            html += '<p><strong>Import Summary:</strong> ' + escapeHtml(result.import_summary || 'Import completed with issues') + '</p>';
+            if (result.transactions_created) {
+                html += '<p><strong>Transactions Created:</strong> ' + result.transactions_created + '</p>';
+            }
+            if (result.transactions_skipped) {
+                html += '<p><strong>Transactions Skipped:</strong> ' + result.transactions_skipped + '</p>';
+            }
+            html += '<p class="text-muted"><strong>Next Step:</strong> Review the import details for the rows that had issues.</p>';
+            html += '<a href="/app/bank-transaction" class="btn btn-default">View Bank Transactions</a>';
+            html += ' <a href="/app/mt940-import/' + encodeURIComponent(result.name) + '" class="btn btn-info">View Import Details</a>';
 
         } else {
+            // Failed, or submit_import returned {success: false, error} with no import_status (#3165).
             mollieResultsAlert.className = 'alert alert-danger';
-            html += '<p><strong>Status:</strong> ' + result.import_status + '</p>';
-            html += '<p><strong>Error:</strong> ' + (result.import_summary || 'Import failed') + '</p>';
+            html += '<p><strong>Status:</strong> ' + escapeHtml(result.import_status || 'Failed') + '</p>';
+            html += '<p><strong>Error:</strong> ' + escapeHtml(result.import_summary || result.error || 'Import failed') + '</p>';
         }
 
         mollieResultsContent.innerHTML = html;
