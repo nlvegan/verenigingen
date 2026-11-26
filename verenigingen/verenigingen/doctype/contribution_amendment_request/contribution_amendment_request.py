@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_days, getdate, now_datetime, today
+from frappe.utils.background_jobs import is_job_enqueued
 
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.services.billing.template_configuration_service import load_template_for_membership_type
@@ -421,14 +422,12 @@ class ContributionAmendmentRequest(Document):
 
             # Only queue job if not already completed or queued
             if not self.mollie_sync_completed and self.mollie_sync_status in ["Not Started", "Failed"]:
-                # Check if job already queued/running
-                existing_job = frappe.get_all(
-                    "RQ Job",
-                    filters={"job_name": f"mollie_sync_{self.name}", "status": ["in", ["queued", "started"]]},
-                    limit=1,
-                )
+                job_id = f"mollie_sync_{self.name}"
 
-                if existing_job:
+                # Check if job already queued/running. Look this one job up by id: listing "RQ Job"
+                # serialises EVERY job on the shared Redis and raises InvalidJobOperation when any of
+                # them lost its hash mid-listing, aborting this save (#3210).
+                if is_job_enqueued(job_id):
                     frappe.logger().info(f"Mollie sync job already queued for {self.name}")
                     return
 
@@ -443,7 +442,6 @@ class ContributionAmendmentRequest(Document):
                 frappe.db.commit()
 
                 # Queue background job for Mollie sync
-                job_id = f"mollie_sync_{self.name}"
                 frappe.enqueue(
                     "verenigingen.verenigingen_payments.mollie.events.amendment_events.sync_mollie_subscription_on_amendment_applied",
                     queue="default",
