@@ -323,7 +323,7 @@ class StockTransactionMigrator:
                     "posting_date": posting_date,
                     "posting_time": "12:00:00",
                     "purpose": purpose,
-                    "remarks": "Migrated from e-Boekhouden: Ledger {ledger_id} | Account: {account_code} - {account_name}",
+                    "remarks": f"Migrated from e-Boekhouden: Ledger {ledger_id} | Account: {account_code} - {account_name}",
                     "items": [],
                 }
             )
@@ -486,7 +486,7 @@ class StockTransactionMigrator:
 
     def get_or_create_migration_item(self, account_code, account_name):
         """Get or create an item for stock transactions"""
-        item_code = "MIGR-{account_code}"
+        item_code = f"MIGR-{account_code}"
 
         if frappe.db.exists("Item", item_code):
             return item_code
@@ -496,12 +496,12 @@ class StockTransactionMigrator:
                 {
                     "doctype": "Item",
                     "item_code": item_code,
-                    "item_name": "Migration Item - {account_name}",
+                    "item_name": f"Migration Item - {account_name}",
                     "item_group": self.get_or_create_migration_item_group(),
                     "stock_uom": "Nos",
                     "is_stock_item": 1,
                     "include_item_in_manufacturing": 0,
-                    "description": "Migration item for e-Boekhouden account {account_code} - {account_name}",
+                    "description": f"Migration item for e-Boekhouden account {account_code} - {account_name}",
                     "valuation_method": "FIFO",
                 }
             )

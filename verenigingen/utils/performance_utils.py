@@ -265,10 +265,11 @@ def performance_monitor(threshold_ms: float = 1000):
                 if execution_time > threshold_ms:
                     logger = frappe.logger("verenigingen.performance")
                     logger.warning(
-                        "Slow operation: {func.__module__}.{func.__name__} took {execution_time:.2f}ms",
+                        f"Slow operation: {func.__module__}.{func.__name__} took {execution_time:.2f}ms",
                         extra={
                             "function": func.__name__,
-                            "module": func.__module__,
+                            # "module" is a reserved LogRecord attribute: makeRecord raises KeyError (#2892)
+                            "func_module": func.__module__,
                             "execution_time_ms": execution_time,
                             "args_length": len(args),
                             "user": frappe.session.user if frappe.session else "System",

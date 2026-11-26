@@ -21,7 +21,7 @@ from frappe.utils import format_datetime, getdate, today
 
 from verenigingen.utils.error_handling import SEPAError, ValidationError, handle_api_error
 from verenigingen.utils.performance_utils import performance_monitor
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.validation.iban_validator import (
     derive_bic_from_iban,
@@ -770,12 +770,9 @@ def create_sepa_transaction_from_invoice(
     )
 
 
-# API Functions
+# Batch helpers and generation (in-process; not HTTP endpoints, #2897)
 
 
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-@handle_api_error
 def _resolve_batch_sequence_type(batch) -> SEPASequenceType:
     """Resolve a batch's SeqTp from sequence_type, with a legacy batch_type fallback."""
     valid = {"FRST", "RCUR", "FNAL", "OOFF"}

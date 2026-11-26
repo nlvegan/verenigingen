@@ -62,6 +62,9 @@ def get_financial_admin_emails(notification_key=None, default_roles=None, includ
             key_first=True,
         )
         reason = "no recipient is configured and no enabled user holds the role"
+    except frappe.QueryDeadlockError:
+        # 1213 rolled the transaction back; "no recipients" would make the caller return quietly (#2996)
+        raise
     except Exception as e:
         recipients = []
         reason = f"the recipient lookup failed: {e}\n{frappe.get_traceback(with_context=False)}"

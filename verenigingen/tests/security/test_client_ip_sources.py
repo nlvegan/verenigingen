@@ -100,11 +100,12 @@ class TestBankPsuIp(_RequestCase):
         with (
             # Mock justified: External Service - the bank HTTP API (requests.get) is the boundary under observation;
             # the two frappe patches only stand in for a Bank Integration Settings row that test sites lack.
-            patch("frappe.get_single", return_value=settings),  # Mock justified: no settings row on test sites
+            patch("frappe.get_single", return_value=settings) as fake_single,  # Mock justified: no settings row on test sites
             patch("frappe.db.exists", return_value=True),  # Mock justified: same
             patch("requests.get", return_value=response) as get,  # Mock justified: External Service - bank API
         ):
             BankAPIClient().fetch_statements("2026-01-02")
+        fake_single.assert_called_once_with("Bank Integration Settings")
         return get.call_args.kwargs["headers"]
 
     def test_spoofed_leftmost_xff_is_not_sent_as_psu_ip(self):

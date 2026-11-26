@@ -9,6 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
+from verenigingen.tests.utils.clock_race import assert_written_today
 import unittest
 
 
@@ -337,7 +338,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         
         self.assertEqual(agreement.status, "Cancelled")
         # #1850: the workflow path reloads the row, so the Date field is a date, not the string written
-        self.assertEqual(getdate(agreement.cancellation_date), getdate(today()))
+        assert_written_today(self, agreement.cancellation_date)
         self.assertEqual(agreement.cancellation_reason, "Cancelled by donor request")
         self.assertEqual(agreement.cancellation_processed_by, frappe.session.user)
         

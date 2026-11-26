@@ -9,6 +9,7 @@ Also handles expense approval notifications via Verenigingen Email Configuration
 import frappe
 from frappe import _
 
+from verenigingen.events.event_emitter import enqueue_deduplicated
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.notification_helpers import resolve_admin_recipients
 
@@ -48,11 +49,10 @@ def update_member_expense_history(doc, method=None):
 
         # Defer the batch-processor drain to a worker job so it runs outside
         # the submit transaction (see design/financial-history-hook-transaction-safety).
-        frappe.enqueue(
+        enqueue_deduplicated(
             "verenigingen.services.volunteer.expense_handlers.drain_member_expense_history",
             queue="short",
             job_id=f"fin_history_expense_{member_name}_{doc.name}_add",
-            deduplicate=True,
             enqueue_after_commit=True,
             timeout=300,
             member=member_name,
@@ -115,11 +115,10 @@ def on_expense_claim_cancel(doc, method=None):
         # the cancel transaction (see design/financial-history-hook-transaction-safety).
         # Same job_id shape as the add-path enqueue; deduplicate collapses any
         # duplicate enqueue from delayed_expense_hooks.schedule_member_expense_history_removal.
-        frappe.enqueue(
+        enqueue_deduplicated(
             "verenigingen.services.volunteer.expense_handlers.drain_member_expense_history",
             queue="short",
             job_id=f"fin_history_expense_{member_name}_{doc.name}_remove",
-            deduplicate=True,
             enqueue_after_commit=True,
             timeout=300,
             member=member_name,

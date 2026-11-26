@@ -370,9 +370,12 @@ class TestAssignBoardRoleWithdraw702(VereningingenTestCase):
             with self.assertRaises(BoardAccessWithdrawalError):
                 member.save()
 
-    def test_a_chapter_role_save_is_aborted_by_a_failed_withdrawal(self):
+    def test_a_chapter_role_save_survives_a_failed_withdrawal_but_stays_loud(self):
+        """#2857 (maintainer ruling 2026-11-19) supersedes 'the save is aborted': the failed holder is
+        logged and alerted per user, and the Chapter Role edit itself persists."""
         from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
 
+        self.expectErrorLog("Chapter Role holder withdrawal failed")
         person = self._person_702("HookR")
         self._seat_702(person)
         role = frappe.get_doc("Chapter Role", self.chapter_role)
@@ -382,8 +385,16 @@ class TestAssignBoardRoleWithdraw702(VereningingenTestCase):
             "verenigingen.services.chapter.chapter_role_events.assign_chapter_board_role",
             side_effect=BoardAccessWithdrawalError("boom"),
         ):
-            with self.assertRaises(BoardAccessWithdrawalError):
-                role.save()
+            role.save()  # must not raise
+
+        self.assertEqual(frappe.db.get_value("Chapter Role", self.chapter_role, "is_active"), 0)
+        self.assertTrue(
+            frappe.get_all(
+                "Error Log",
+                filters={"method": ["like", "Chapter Role holder withdrawal failed%"], "error": ["like", f"%{person.user}%"]},
+            ),
+            "the failed holder must still be logged",
+        )
 
     # ------------------------------------------------------------------ non-resumable errors
 

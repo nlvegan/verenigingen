@@ -192,6 +192,7 @@ function loadFrappeController(controllerPath) {
 			escapeHtml: global.escapeHtml,
 			unwrapOperationResult: global.unwrapOperationResult,
 			getErrorMessage: global.getErrorMessage,
+			getSuccessMessage: global.getSuccessMessage,
 			isFailureResult: global.isFailureResult,
 			isOperationResultFailed: global.isOperationResultFailed,
 

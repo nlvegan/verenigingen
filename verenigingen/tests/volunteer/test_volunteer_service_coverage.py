@@ -343,12 +343,7 @@ class TestBulkVolunteerCreationService(EnhancedTestCase):
 
     def test_create_volunteers_for_active_member(self):
         """create_volunteers_for_members creates volunteer for active member."""
-        try:
-            member = self.create_test_member(first_name="BulkVol", last_name="Test")
-        except Exception:
-            frappe.db.rollback()
-            self.skipTest("Member creation failed due to pre-existing customer handling bug")
-            return
+        member = self.create_test_member(first_name="BulkVol", last_name="Test")
         # Set status to Active/Approved which is required
         frappe.db.set_value("Member", member.name, "status", "Active")
 
@@ -364,12 +359,7 @@ class TestBulkVolunteerCreationService(EnhancedTestCase):
 
     def test_create_volunteers_already_exists(self):
         """create_volunteers_for_members reports ALREADY_EXISTS for existing volunteers."""
-        try:
-            member = self.create_test_member(first_name="BulkExist", last_name="Test")
-        except Exception:
-            frappe.db.rollback()
-            self.skipTest("Member creation failed due to pre-existing customer handling bug")
-            return
+        member = self.create_test_member(first_name="BulkExist", last_name="Test")
         self.create_test_volunteer(member_name=member.name)
 
         svc = self._get_service()
@@ -425,12 +415,7 @@ class TestBulkVolunteerCreationService(EnhancedTestCase):
         )
         from verenigingen.tests.support.verenigingen_settings import pinned_setting
 
-        try:
-            member = self.create_test_member(first_name="BulkNoCfg", last_name="Test")
-        except Exception:
-            frappe.db.rollback()
-            self.skipTest("Member creation failed due to pre-existing customer handling bug")
-            return
+        member = self.create_test_member(first_name="BulkNoCfg", last_name="Test")
         frappe.db.set_value("Member", member.name, "status", "Active")
 
         with pinned_setting("minimum_volunteer_age", 0):
@@ -1117,25 +1102,16 @@ class TestVolunteerActivationService(EnhancedTestCase):
             activate_volunteer_record,
         )
 
-        try:
-            member = self.create_test_member(first_name="VolAct", last_name="Test")
-        except Exception:
-            frappe.db.rollback()
-            self.skipTest("Member creation failed due to pre-existing customer handling bug")
-            return
+        member = self.create_test_member(first_name="VolAct", last_name="Test")
         volunteer = self.create_test_volunteer(member_name=member.name, status="New")
         member.reload()
 
-        try:
-            activate_volunteer_record(member)
-        except Exception:
-            # Permission or dependency issues are acceptable in test env
-            pass
+        # No try/except: a refused permission or a dependency error must fail the
+        # test, not leave the volunteer at "New" unnoticed.
+        activate_volunteer_record(member)
 
-        # Check status was updated
         volunteer.reload()
-        # May or may not have changed depending on permissions
-        self.assertIn(volunteer.status, ["Active", "New"])
+        self.assertEqual(volunteer.status, "Active")
 
     def test_activate_volunteer_creates_new_volunteer(self):
         """activate_volunteer_record creates volunteer when none exists."""
@@ -1143,12 +1119,7 @@ class TestVolunteerActivationService(EnhancedTestCase):
             activate_volunteer_record,
         )
 
-        try:
-            member = self.create_test_member(first_name="NoVol", last_name="Yet")
-        except Exception:
-            frappe.db.rollback()
-            self.skipTest("Member creation failed due to pre-existing customer handling bug")
-            return
+        member = self.create_test_member(first_name="NoVol", last_name="Yet")
         member.reload()
 
         try:
@@ -1168,12 +1139,7 @@ class TestVolunteerActivationService(EnhancedTestCase):
             activate_volunteer_record,
         )
 
-        try:
-            member = self.create_test_member(first_name="PermChk", last_name="Vol")
-        except Exception:
-            frappe.db.rollback()
-            self.skipTest("Member creation failed due to pre-existing customer handling bug")
-            return
+        member = self.create_test_member(first_name="PermChk", last_name="Vol")
         member.reload()
         try:
             activate_volunteer_record(member)

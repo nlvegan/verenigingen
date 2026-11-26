@@ -33,7 +33,6 @@ __all__ = [
     "SEPABatchProcessor",
     "get_sepa_batch_processor",
     "create_monthly_dues_collection_batch",
-    "process_sepa_returns",
     "verify_invoice_coverage_status",
     "get_sepa_batch_preview",
     "get_upcoming_dues_collections",
@@ -152,18 +151,6 @@ def _create_monthly_dues_collection_batch_impl():
         frappe.log_error(title="Monthly SEPA Batch Creation Error", message=detail)
         send_system_error_notification(detail)
         return None
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-def process_sepa_returns(batch_name: str, return_file):
-    """Process SEPA return file for a batch"""
-    processor = get_sepa_batch_processor()
-    failed_count = processor.process_batch_returns(batch_name, return_file)
-
-    frappe.msgprint(_("Processed {0} failed payments from SEPA return file").format(failed_count))
-
-    return failed_count
 
 
 @frappe.whitelist()

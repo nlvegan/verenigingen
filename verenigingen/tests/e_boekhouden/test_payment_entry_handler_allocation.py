@@ -238,6 +238,39 @@ class TestPaymentEntryRowAmountCalc(EnhancedTestCase):
         self.assertTrue(any("doesn't match row total" in m for m in h.get_debug_log()))
 
 
+    def test_inserted_entry_keeps_the_import_audit_remark(self):
+        """#3088: the handler's audit remark must survive validate(), which regenerates
+        `remarks` unless custom_remarks is set. Inserted through the handler's own
+        validate_and_insert, and the STORED row is read back. No invoice references, so
+        this is the plain insert path; the over-allocation fallback only appends to it."""
+        from verenigingen.e_boekhouden.utils.security_helper import validate_and_insert
+
+        h = self._handler()
+        mut = {
+            "id": 9000003,
+            "type": 3,
+            "date": frappe.utils.today(),
+            "amount": 30.0,
+            "ledgerId": self.CASH_LEDGER_ID,
+            "relationId": "REL-REMARK",
+            "rows": [{"amount": 30.0}],
+            "description": "audit remark survives",
+        }
+        pe = h._create_payment_entry(
+            mutation=mut,
+            payment_type="Receive",
+            party_type="Customer",
+            party=self.customer,
+            bank_account=self.cash_account,
+        )
+        expected = h._generate_remarks(mut, self.cash_account, self.customer)
+        self.assertIn("E-Boekhouden Import - Mutation 9000003", expected)
+
+        validate_and_insert(pe)
+
+        self.assertEqual(frappe.db.get_value("Payment Entry", pe.name, "remarks"), expected)
+
+
 class TestAllocateToInvoicesIntegration(EnhancedTestCase):
     """End-to-end multi-invoice allocation through a REAL submitted Payment Entry."""
 

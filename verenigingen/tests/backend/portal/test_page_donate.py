@@ -13,6 +13,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestPageDonate(EnhancedTestCase):
@@ -295,7 +296,7 @@ class TestPageDonate(EnhancedTestCase):
         result = get_donation_status(donation.name)
         self.assertEqual(result["status"], "Paid")
         self.assertEqual(result["amount"], 42.0)
-        self.assertEqual(str(result["date"]), today())
+        assert_written_today(self, result["date"])
 
     def test_get_donation_status_pending(self):
         from verenigingen.templates.pages.donate import get_donation_status

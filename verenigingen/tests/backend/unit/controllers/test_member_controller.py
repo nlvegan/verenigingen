@@ -9,7 +9,8 @@ Tests the Python controller methods directly, not just doctype CRUD
 
 
 import frappe
-from frappe.utils import add_days, today
+from dateutil.relativedelta import relativedelta
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.base import VereningingenUnitTestCase
@@ -358,10 +359,15 @@ class TestMemberController(VereningingenUnitTestCase):
 
     def test_age_calculation(self):
         """Test age calculation from birth date"""
-        test_data = self.builder.with_member(birth_date=add_days(today(), -365 * 30)).build()  # 30 years ago
+        birth_date = add_days(today(), -365 * 30)  # 10950 days ago, i.e. 7-8 days short of 30 years
+        test_data = self.builder.with_member(birth_date=birth_date).build()
 
         member = test_data["member"]
-        self.assertIn(member.age, [29, 30])  # Depending on exact dates
+        # Completed years by an independent method (relativedelta), measured at the
+        # site-tz today the way production does (getdate()), never date.today().
+        expected_age = relativedelta(getdate(), getdate(birth_date)).years
+        self.assertEqual(expected_age, 29, "fixture drifted: 365*30 days is just short of 30 years")
+        self.assertEqual(member.age, expected_age)
 
     def test_member_lifecycle_events(self):
         """Test member lifecycle event handlers"""

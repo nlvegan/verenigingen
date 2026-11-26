@@ -14,8 +14,8 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import getdate
 
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.verenigingen_payments.ponto.core.ponto_models import (
     PontoAccount,
     PontoSynchronization,
@@ -186,12 +186,12 @@ class TestPontoTransactionModel(FrappeTestCase):
         del payload["attributes"]["valueDate"]
         del payload["attributes"]["executionDate"]
         txn = PontoTransaction.from_api_response(payload)
-        self.assertEqual(txn.value_date, getdate())
-        self.assertEqual(txn.execution_date, getdate())
+        assert_written_today(self, txn.value_date)
+        assert_written_today(self, txn.execution_date)
 
     def test_invalid_date_defaults_to_today(self):
         txn = PontoTransaction.from_api_response(self._txn_payload(valueDate="garbage"))
-        self.assertEqual(txn.value_date, getdate())
+        assert_written_today(self, txn.value_date)
 
     def test_to_dict(self):
         txn = PontoTransaction.from_api_response(self._txn_payload(), account_id="acct-1")

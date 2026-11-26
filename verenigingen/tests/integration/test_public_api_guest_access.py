@@ -159,6 +159,64 @@ class TestPublicAPIGuestAccess(EnhancedTestCase):
             except frappe.PermissionError as e:
                 self.fail(f"Guest should be able to validate email: {str(e)}")
 
+    def test_guest_gets_chapter_suggestions_for_a_postal_code(self):
+        """The public form's chapter suggestion (#3032) is served by this endpoint.
+
+        /apply_for_membership is a guest page, so the suggestion must come from an
+        endpoint a Guest may call. The JS reads ``data.suggestions`` and strips the
+        space itself, because the server refuses "1015 CJ".
+        """
+        suffix = frappe.generate_hash(length=6)
+        # A published chapter needs a region; own one rather than borrow a shared row.
+        region = frappe.get_doc(
+            {
+                "doctype": "Region",
+                "region_name": f"Guest Postal Region {suffix}",
+                "region_code": self.unique_region_code(),
+            }
+        )
+        region.insert()
+        self.track_doc("Region", region.name)
+        chapter = frappe.get_doc(
+            {
+                "doctype": "Chapter",
+                "name": f"Guest Postal Chapter {suffix}",
+                "region": region.name,
+                "postal_codes": "1000-1999",
+                "published": 1,
+                "introduction": "Guest suggestion test chapter",
+            }
+        )
+        chapter.insert()
+        self.track_doc("Chapter", chapter.name)
+
+        from verenigingen.api.membership_application import suggest_chapters_for_postal_code
+
+        with _with_user("Guest"):
+            # Whitelisting is only consulted at dispatch, so a direct call proves
+            # nothing about it: ask the dispatch gate itself.
+            frappe.is_whitelisted(suggest_chapters_for_postal_code)
+            result = suggest_chapters_for_postal_code("1500AB")
+            spaced = suggest_chapters_for_postal_code("1500 AB")
+
+        data, success, error = unwrap_operation_result(result)
+        self.assertTrue(success, f"Guest suggestion call failed: {error}")
+        self.assertIn(chapter.name, [s["name"] for s in data["suggestions"]])
+        # The spaced form is refused, which is why the client normalises first.
+        self.assertFalse(spaced["success"])
+
+    def test_guest_is_refused_by_suggest_chapters_for_member(self):
+        """Control for #3032: the endpoint the form used to call refuses a Guest.
+
+        If this ever starts passing for a Guest, the old handler's premise changed
+        and the form's choice of endpoint is worth revisiting.
+        """
+        from verenigingen.verenigingen.doctype.chapter.chapter import suggest_chapters_for_member
+
+        with _with_user("Guest"):
+            with self.assertRaises(frappe.PermissionError):
+                suggest_chapters_for_member(member="", postal_code="1500AB", city="Amsterdam")
+
 
 def _build_import_aliases(tree: ast.Module) -> Dict[str, str]:
     """Map a local ``from x import y as z`` alias back to its real name ``y``.

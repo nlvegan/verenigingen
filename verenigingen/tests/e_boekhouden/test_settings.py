@@ -603,6 +603,23 @@ class TestParseGroupsAndSuggestTypeMappings(_SettingsTestBase):
         codes = {s["group_code"] for s in result["suggestions"]}
         self.assertEqual(codes, {"002"})
 
+    def test_merge_mode_string_flags_through_the_whitelist_wrapper_2853(self):
+        """#2853: REST sends "1"/"true" as strings. The endpoint must go through Frappe's own
+        coercion (``frappe.in_test`` makes the whitelist wrapper apply it, as for a request): the
+        hand-rolled ``.lower() == "true"`` read "1" as False, i.e. replace-mode, not merge-mode."""
+        self._set_text("001 Vaste activa\n002 Liquide middelen", "")
+        self._append_child("001", "Vaste activa", "Asset", 1)
+        for raw, merging in (("1", True), ("true", True), ("yes", True), ("0", False), ("false", False)):
+            result = parse_groups_and_suggest_type_mappings(merge_mode=raw)
+            codes = {s["group_code"] for s in result["suggestions"]}
+            self.assertEqual(codes, {"002"} if merging else {"001", "002"}, raw)
+            self.assertEqual(bool(result["merge_mode"]), merging, raw)
+
+    def test_merge_mode_unusable_string_is_refused_2853(self):
+        for raw in ("maybe", "", None):
+            with self.assertRaises(frappe.exceptions.FrappeTypeError, msg=repr(raw)):
+                parse_groups_and_suggest_type_mappings(merge_mode=raw)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,6 +37,7 @@ from frappe.utils import add_days, getdate, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.verenigingen_payments.utils import payment_retry as retry
 from verenigingen.verenigingen_payments.utils.payment_retry import PaymentRetryManager
 
@@ -610,7 +611,7 @@ class TestExecutePaymentRetry(RetryBase):
 
         rec.reload()
         self.assertEqual(rec.status, "Retried")
-        self.assertEqual(getdate(rec.last_retry_date), getdate(today()))
+        assert_written_today(self, rec.last_retry_date)
 
         # A Direct Debit Batch carrying this invoice + selected mandate was created
         # and submitted; the mandate fields were sourced from the full mandate doc.
