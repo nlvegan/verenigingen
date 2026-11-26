@@ -11,6 +11,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import add_days, add_months, flt, getdate, today
 
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.tests.integration.test_application_record_approval import SUBMISSION, ApprovalCase
 
 
@@ -69,7 +70,7 @@ class TestApprovalInvoicePeriod(ApprovalCase):
         self.assertFalse(result["invoice_failed"], result)
         invoice = frappe.get_doc("Sales Invoice", result["invoice"])
         start = getdate(invoice.custom_coverage_start_date)
-        self.assertEqual(start, getdate(today()))
+        assert_written_today(self, start)
         # Derived from the schedule's frequency, never from the Membership Type (Monthly).
         self.assertEqual(
             getdate(invoice.custom_coverage_end_date), add_days(add_months(start, months), -1), frequency

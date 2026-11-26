@@ -104,7 +104,10 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         self.basic_role.save()
 
         # Board positions
-        self._add_board_position(self.chapter_fin.name, self.fin_volunteer.name, self.financial_role.name)
+        # Kept so the alias test can assert against the from_date this fixture wrote (#2832).
+        self.fin_board_position = self._add_board_position(
+            self.chapter_fin.name, self.fin_volunteer.name, self.financial_role.name
+        )
         self._add_board_position(self.chapter_basic.name, self.basic_volunteer.name, self.basic_role.name)
 
         frappe.db.commit()
@@ -433,7 +436,7 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         # Pin the documented output keys (from_date/to_date are aliased to
         # start_date/end_date); this fails if the alias is dropped/renamed.
         self.assertIn("start_date", pos)
-        self.assertEqual(str(pos["start_date"]), frappe.utils.today())
+        self.assertEqual(str(pos["start_date"]), str(frappe.utils.getdate(self.fin_board_position.from_date)))
         self.assertIn("end_date", pos)
 
     def test_get_user_board_positions_chapter_filter(self):

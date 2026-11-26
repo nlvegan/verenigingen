@@ -33,6 +33,7 @@ from verenigingen.services.member.account.role_profile_mapping_guard import (
     NATIONAL_PROFILES,
     NATIONAL_TREASURER_PROFILE,
 )
+from verenigingen.utils.board_seat import count_live_seats, get_live_seats
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
@@ -409,13 +410,14 @@ def get_board_member_profiles(user: str, member: str) -> list:
             return profiles
 
         # Get all active board positions
-        board_positions = frappe.db.get_all(
-            "Chapter Board Member",
-            filters={"volunteer": volunteer, "is_active": 1},
-            fields=["parent", "chapter_role"],
-        )
+        board_positions = get_live_seats({"volunteer": volunteer}, fields=["parent", "chapter_role"])
 
         for position in board_positions:
+            # A seat on a deactivated Chapter Role confers no profile (#2958)
+            if position.chapter_role and not frappe.db.get_value(
+                "Chapter Role", position.chapter_role, "is_active"
+            ):
+                continue
             try:
                 # Validate chapter exists
                 if not frappe.db.exists("Chapter", position.parent):
@@ -707,11 +709,7 @@ def is_active_board_member(user: str, member: str) -> bool:
             return False
 
         # Check for active board memberships
-        active_board_positions = frappe.db.count(
-            "Chapter Board Member", filters={"volunteer": volunteer, "is_active": 1}
-        )
-
-        return active_board_positions > 0
+        return count_live_seats(volunteer) > 0
 
     except Exception as e:
         frappe.logger().warning(f"Error checking board membership for {user}: {str(e)}")

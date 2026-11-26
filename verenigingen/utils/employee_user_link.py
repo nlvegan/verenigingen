@@ -114,14 +114,42 @@ def update_employee_with_user(employee_name, user_id):
         return False
 
 
+def find_reusable_employee_of_user(user):
+    """The Employee of ``user`` that automatic flows may reuse, if any (#2802, #2850).
+
+    Only an Active Employee is reusable: a Left, Inactive or Suspended one is not someone who
+    can file expenses, and re-linking it is a rehire, which is an explicit staff action. The
+    caller falls through to its own create path instead. This is the ONE rule every
+    "reuse the user's Employee" lookup shares.
+    """
+    if not user:
+        return None
+    return frappe.db.get_value("Employee", {"user_id": user, "status": "Active"}, "name")
+
+
 def _find_employee_of_members_user(volunteer_doc):
-    """The Employee whose user_id is the volunteer's member's user, if any."""
+    """The reusable Employee whose user_id is the volunteer's member's user, if any."""
     member_user = (
         frappe.db.get_value("Member", volunteer_doc.member, "user") if volunteer_doc.member else None
     )
-    if not member_user:
+    return find_reusable_employee_of_user(member_user)
+
+
+def _find_own_employee_of_session_user(volunteer_doc):
+    """The caller's OWN reusable Employee: member's user is the session user (#2802).
+
+    "Own" needs BOTH Employee.user_id == Member.user AND Member.user == session user, so a
+    non-staff caller can never link someone else's Employee. Returns None for a volunteer
+    that already has a live employee_id (that path is unchanged and stays behind the guard).
+    """
+    if volunteer_doc.employee_id and frappe.db.exists("Employee", volunteer_doc.employee_id):
         return None
-    return frappe.db.get_value("Employee", {"user_id": member_user}, "name")
+    member_user = (
+        frappe.db.get_value("Member", volunteer_doc.member, "user") if volunteer_doc.member else None
+    )
+    if not member_user or member_user != frappe.session.user:
+        return None
+    return _find_employee_of_members_user(volunteer_doc)
 
 
 def _link_volunteer_to_employee(volunteer_doc, employee_id):
@@ -133,6 +161,13 @@ def _link_volunteer_to_employee(volunteer_doc, employee_id):
 def create_employee_for_approved_volunteer(volunteer_doc):
     """Create employee for volunteer when membership is approved - SECURE VERSION with proper permissions"""
     try:
+        # A volunteer may link their OWN existing Employee without Employee-create
+        # permission (#2802 ruling). Creating a new Employee below stays HR-gated.
+        own_employee = _find_own_employee_of_session_user(volunteer_doc)
+        if own_employee:
+            _link_volunteer_to_employee(volunteer_doc, own_employee)
+            return own_employee
+
         # Validate current user has permission to create employees
         if not frappe.has_permission("Employee", "create"):
             frappe.logger().warning(

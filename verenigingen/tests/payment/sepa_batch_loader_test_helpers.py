@@ -104,3 +104,143 @@ def put_invoice_in_batch(
             (force_docstatus, batch.name),
         )
     return batch
+
+
+class BatchRowBankDataFromMandateMixin:
+    """#2813: a batch row's bank data comes from the invoice's member's mandate,
+    never from the caller's `invoice_list` payload.
+
+    Shared by test_sepa_batch_ui.py and test_sepa_batch_ui_secure.py, whose two
+    create endpoints carry the same row-building code. The subclass supplies
+    `_build_member_with_invoice` (its test base) and a `_create_endpoint` staticmethod
+    attribute naming the endpoint under test.
+    """
+
+    def _row_payload(self, chain, **overrides):
+        # Not named after any caller key: `iban` is sent unspaced, like the real UI payload.
+        row = {
+            "invoice": chain["invoice"].name,
+            "amount": float(chain["invoice"].outstanding_amount),
+            "iban": chain["mandate"].iban.replace(" ", ""),
+            "member_name": chain["member"].full_name,
+            "mandate_reference": chain["mandate"].mandate_id,
+            "currency": "EUR",
+        }
+        row.update(overrides)
+        return row
+
+    def _create_with_rows(self, rows):
+        from frappe.utils import add_days, getdate
+
+        batch_date = getdate(add_days(today(), 3))
+        while batch_date.weekday() >= 5:
+            batch_date = getdate(add_days(batch_date, 1))
+        return self._create_endpoint(
+            batch_date=str(batch_date), batch_type="CORE", invoice_list=rows
+        )
+
+    def _assert_refused_and_nothing_written(self, result, invoice_name):
+        self.assertFalse(result.get("success"), result)
+        self.assertIn("does not match the active SEPA mandate", " ".join(result.get("errors", [])))
+        self.assertFalse(
+            frappe.db.exists("Direct Debit Batch Invoice", {"invoice": invoice_name}),
+            "a refused payload must not leave a batch row behind",
+        )
+
+    def test_another_members_mandate_and_iban_are_refused(self):
+        """The issue's attack: member A's invoice collected with member B's mandate id + IBAN."""
+        victim = self._build_member_with_invoice(first_name="MandateVictim")
+        other = self._build_member_with_invoice(first_name="MandateOther")
+        row = self._row_payload(
+            victim,
+            iban=other["mandate"].iban.replace(" ", ""),
+            mandate_reference=other["mandate"].mandate_id,
+        )
+        self._assert_refused_and_nothing_written(self._create_with_rows([row]), victim["invoice"].name)
+
+    def test_own_mandate_reference_with_a_foreign_iban_is_refused(self):
+        """Mandate id is right, IBAN is not: the second half of the same disagreement."""
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+
+        victim = self._build_member_with_invoice(first_name="MandateIbanVictim")
+        # Derived, not borrowed from a second chain: each chain's factory restarts its IBAN
+        # sequence, so two chains can draw the SAME IBAN (same bank) and the "foreign" IBAN
+        # would then equal the victim's -- measured, it made this test pass for no reason.
+        victim_iban = victim["mandate"].iban.replace(" ", "")
+        foreign_iban = generate_test_iban(bank_code="INGB", account_number="0000987654")
+        if foreign_iban == victim_iban:
+            foreign_iban = generate_test_iban(bank_code="RABO", account_number="0000987654")
+        self.assertNotEqual(foreign_iban, victim_iban)
+        row = self._row_payload(victim, iban=foreign_iban)
+        self._assert_refused_and_nothing_written(self._create_with_rows([row]), victim["invoice"].name)
+
+    def test_foreign_mandate_reference_with_own_iban_is_refused(self):
+        victim = self._build_member_with_invoice(first_name="MandateRefVictim")
+        other = self._build_member_with_invoice(first_name="MandateRefOther")
+        row = self._row_payload(victim, mandate_reference=other["mandate"].mandate_id)
+        self._assert_refused_and_nothing_written(self._create_with_rows([row]), victim["invoice"].name)
+
+    def test_row_is_written_from_the_mandate_and_the_member_not_the_payload(self):
+        """Control for the refusals: an agreeing payload still creates the batch, and
+        the row holds the MANDATE's values and the Member's own name (the payload's
+        member_name is cosmetic and is never trusted)."""
+        chain = self._build_member_with_invoice(first_name="MandateSourced")
+        row = self._row_payload(chain, member_name="Somebody Else Entirely")
+        result = self._create_with_rows([row])
+        self.assertTrue(result.get("success"), result)
+
+        written = frappe.get_doc("Direct Debit Batch", result["batch_name"]).invoices[0]
+        mandate = chain["mandate"]
+        self.assertEqual(written.iban.replace(" ", ""), mandate.iban.replace(" ", ""))
+        self.assertEqual(written.mandate_reference, mandate.mandate_id)
+        self.assertEqual(written.bic, mandate.bic)
+        self.assertEqual(written.member_name, frappe.db.get_value("Member", chain["member"].name, "full_name"))
+        self.assertNotEqual(written.member_name, "Somebody Else Entirely")
+
+    def test_bic_is_taken_from_the_mandate_not_the_payload(self):
+        chain = self._build_member_with_invoice(first_name="MandateBic")
+        row = self._row_payload(chain, bic="DEUTDEFF")
+        result = self._create_with_rows([row])
+        self.assertTrue(result.get("success"), result)
+        written = frappe.get_doc("Direct Debit Batch", result["batch_name"]).invoices[0]
+        self.assertEqual(written.bic, chain["mandate"].bic)
+        self.assertNotEqual(written.bic, "DEUTDEFF")
+
+    def test_member_without_an_active_mandate_is_refused(self):
+        chain = self._build_member_with_invoice(first_name="MandateNone")
+        frappe.db.set_value(
+            "SEPA Mandate", chain["mandate"].name, "status", "Cancelled", update_modified=False
+        )  # probe shortcut: status flipped directly instead of the cancel flow
+        result = self._create_with_rows([self._row_payload(chain)])
+        self.assertFalse(result.get("success"), result)
+        self.assertIn("No active SEPA mandate", " ".join(result.get("errors", [])))
+        self.assertFalse(frappe.db.exists("Direct Debit Batch Invoice", {"invoice": chain["invoice"].name}))
+
+    def test_member_with_two_active_membership_mandates_is_refused(self):
+        """Ambiguity must refuse even when the payload agrees with ONE of the two mandates:
+        picking the newest or the matching one would be a guess about which account to debit.
+
+        Probe shortcut: the second mandate is created Cancelled and then flipped to Active
+        (with the membership purpose) via `db.set_value`, bypassing the single-active guard
+        in SEPA Mandate.validate, which is what makes this state unreachable through the UI.
+        """
+        chain = self._build_member_with_invoice(first_name="MandateTwo")
+        second = self.factory.create_test_sepa_mandate(member=chain["member"].name, status="Cancelled")
+        frappe.db.set_value(
+            "SEPA Mandate",
+            second.name,
+            {"status": "Active", "used_for_memberships": 1},
+            update_modified=False,
+        )
+        self.assertEqual(
+            frappe.db.count(
+                "SEPA Mandate",
+                {"member": chain["member"].name, "status": "Active", "used_for_memberships": 1},
+            ),
+            2,
+            "fixture must really hold two Active membership mandates",
+        )
+        result = self._create_with_rows([self._row_payload(chain)])
+        self.assertFalse(result.get("success"), result)
+        self.assertIn("active SEPA mandates", " ".join(result.get("errors", [])))
+        self.assertFalse(frappe.db.exists("Direct Debit Batch Invoice", {"invoice": chain["invoice"].name}))

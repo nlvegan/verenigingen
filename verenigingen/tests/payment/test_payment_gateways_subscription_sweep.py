@@ -816,6 +816,23 @@ class TestSubscriptionPaymentInvoiceChoice(EnhancedTestCase):
             must_contain=[part_paid.name, pe.name, "needs placing"],
         )
 
+    def test_the_stored_payment_entry_keeps_the_mollie_audit_remark(self):
+        """#3088: ERPNext's set_remarks regenerates `remarks` unless `custom_remarks` is set.
+
+        Red against develop: the stored remark was ERPNext's "Amount EUR ... received
+        from ..." text, so neither the subscription id nor the payment id survived.
+        Both ids are derived from this run, not hardcoded.
+        """
+        member = member_with_customer(self, "SubRemark")
+        self._open_invoice(member, 25.0)
+
+        result, ref_no = self._process_subscription(member, 25.0)
+
+        self.assertEqual((result or {}).get("status"), "success", msg=result)
+        stored = frappe.db.get_value("Payment Entry", result["payment_entry"], "remarks")
+        self.assertIn("sub_invoice_choice", stored)
+        self.assertIn(ref_no, stored)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,8 @@
 import frappe
 from frappe.utils import add_days, flt, getdate, now
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
 # Re-exports from canonical locations for backward compatibility
 # New code should import directly from the consolidated modules
 from .consolidated.date_utils import ensure_fiscal_year_exists  # noqa: F401
@@ -1072,6 +1074,9 @@ def create_customer_from_relation(relation_details, debug_info):
             if relation_details.get("email"):
                 updates["email_id"] = relation_details["email"]
             frappe.db.set_value("Customer", party_name, updates)
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the batch back; the party created just above is gone too (#3029).
+            raise
         except Exception:
             pass  # Fields might not exist
 

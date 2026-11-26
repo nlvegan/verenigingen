@@ -109,8 +109,11 @@ class TestSEPAMandateServiceIntegration(VereningingenTestCase):
         # Step 4: Test member integration service
         # Check that member now has the mandate linked
         updated_member = frappe.get_doc("Member", self.test_member.name)
-        self.assertTrue(hasattr(updated_member, 'sepa_mandates') or
-                       frappe.db.exists("SEPA Mandate", {"member": self.test_member.name}))
+        self.assertIn(
+            mandate_doc.name,
+            [row.sepa_mandate for row in updated_member.sepa_mandates],
+            "saving a mandate should link it into the member's sepa_mandates table",
+        )
 
     def test_mandate_id_uniqueness_across_services(self):
         """Test that mandate ID generation ensures uniqueness across multiple mandates"""

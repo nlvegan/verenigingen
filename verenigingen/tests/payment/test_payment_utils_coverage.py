@@ -141,6 +141,30 @@ class TestPaymentUtilsCoverage(EnhancedTestCase):
             submit=True,
         )
 
+    def _make_payment_in_docstatus(self, invoice, allocated, docstatus, reference_no):
+        """Receive PE allocating ``allocated`` to ``invoice``, left at docstatus 0, 1 or 2."""
+        pe = self.create_test_payment_entry(
+            company=self.company,
+            party_type="Customer",
+            party=self.customer_name,
+            paid_amount=allocated,
+            received_amount=allocated,
+            posting_date=invoice.posting_date,
+            reference_no=reference_no,
+            mode_of_payment="Bank Transfer",
+            references=[
+                {
+                    "reference_doctype": "Sales Invoice",
+                    "reference_name": invoice.name,
+                    "allocated_amount": allocated,
+                }
+            ],
+            submit=docstatus != 0,
+        )
+        if docstatus == 2:
+            pe.cancel()
+        return pe
+
     # ------------------------------------------------------------------ #
     # get_customer_payments_summary — SQL aggregation                     #
     # ------------------------------------------------------------------ #
@@ -239,6 +263,35 @@ class TestPaymentUtilsCoverage(EnhancedTestCase):
         # The simple branch returns only the reference fields, not pe.party.
         self.assertNotIn("party", ref)
         self.assertEqual(ref["reference_name"], invoice.name)
+
+    def test_references_only_count_submitted_payment_entries_in_both_branches(self):
+        """#3160: draft and cancelled PEs allocated to the invoice are not references.
+
+        Real Sales Invoice, one submitted, one cancelled and one draft Payment
+        Entry against it. Both branches must return only the submitted one.
+        """
+        invoice = self._make_submitted_invoice(amount=90.0)
+        submitted = self._make_payment_in_docstatus(invoice, 30.0, 1, "R3160-SUB")
+        cancelled = self._make_payment_in_docstatus(invoice, 30.0, 2, "R3160-CAN")
+        draft = self._make_payment_in_docstatus(invoice, 30.0, 0, "R3160-DRA")
+        self.assertEqual(
+            [frappe.db.get_value("Payment Entry", pe.name, "docstatus") for pe in (submitted, cancelled, draft)],
+            [1, 2, 0],
+        )
+        # Control: the raw rows exist for all three, so a filter has something to remove.
+        raw = frappe.get_all(
+            "Payment Entry Reference",
+            filters={"reference_name": invoice.name},
+            pluck="parent",
+        )
+        self.assertCountEqual(raw, [submitted.name, cancelled.name, draft.name])
+
+        for include_details in (True, False):
+            refs = get_payment_references_for_invoice(
+                "Sales Invoice", invoice.name, include_payment_details=include_details
+            )
+            parents = [r["payment_entry"] if include_details else r["parent"] for r in refs]
+            self.assertEqual(parents, [submitted.name], f"include_payment_details={include_details}")
 
     # ------------------------------------------------------------------ #
     # get_unreconciled_payments — filters                                 #

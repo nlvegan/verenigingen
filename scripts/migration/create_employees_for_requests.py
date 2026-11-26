@@ -121,7 +121,7 @@ def create_employees(since_date):
                 request_doc.mark_completed(user=manager.created_user, employee=manager.created_employee)
 
                 created_count += 1
-                print(f"       ✅ Created employee: {manager.created_employee}")
+                print("       ✅ Created employee record")
             else:
                 print("       ⚠️  Employee creation returned None")
                 error_count += 1

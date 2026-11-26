@@ -449,6 +449,60 @@ def _snapshot_link_values(doc) -> list:
     return snapshot
 
 
+# The ONLY dead Link value the update_child_table link_validation bypass tolerates (#1789):
+# a Chapter Membership History row whose chapter was deleted. Widening this set persists every
+# additional dead reference as written, so it is a design decision (#1844), not a text tweak.
+_TOLERATED_DEAD_LINKS = {("Chapter Membership History", "chapter_name")}
+
+
+def _classify_dead_links(snapshot: list) -> tuple:
+    """(tolerated, refused) dead links among the pre-save snapshot, judged from the data itself.
+
+    Frappe's LinkValidationError text is not a usable signal: it is translated per user language
+    ("Kon Rij #90: Hoofdstuk: X niet vinden") and lists the parent's dead links before the rows'.
+    A Dynamic Link whose doctype field is empty is the "Reference DocType must be set first" shape
+    and counts as tolerated, as before; any other dead link is tolerated only if listed above.
+    """
+    tolerated, refused = [], []
+    for row, fieldname, value in snapshot:
+        df = row.meta.get_field(fieldname)
+        if df.fieldtype == "Dynamic Link":
+            linked_doctype = row.get(df.options)
+            if not linked_doctype:
+                tolerated.append((row, fieldname))
+                continue
+        else:
+            linked_doctype = df.options
+        if not linked_doctype or not frappe.db.exists("DocType", linked_doctype):
+            refused.append((row, fieldname))
+            continue
+        if frappe.get_meta(linked_doctype).issingle or frappe.get_meta(linked_doctype).get("is_virtual"):
+            continue
+        if frappe.db.exists(linked_doctype, value):
+            continue
+        key = (row.doctype, fieldname)
+        (tolerated if key in _TOLERATED_DEAD_LINKS else refused).append((row, fieldname))
+    return tolerated, refused
+
+
+def _link_error_is_within_bypass_scope(error, snapshot: list) -> bool:
+    """True when the failed save was caused by dead links and EVERY dead link is tolerated.
+
+    One dead link outside the tolerated set (the parent's own, a board row's) refuses the whole
+    retry, whatever order Frappe listed them in. Fails closed: no dead link found -> refuse.
+    """
+    tolerated, refused = _classify_dead_links(snapshot)
+    if refused or not tolerated:
+        return False
+    # EXACT types: Frappe raises TimestampMismatchError / DocumentLockedError (ValidationError
+    # subclasses) BEFORE it validates links, and retrying those would overwrite a newer save.
+    if type(error) is frappe.LinkValidationError:
+        return True
+    return type(error) is frappe.ValidationError and any(
+        row.meta.get_field(fieldname).fieldtype == "Dynamic Link" for row, fieldname in tolerated
+    )
+
+
 def _restore_blanked_links(snapshot: list) -> None:
     """Put back the link values Frappe blanked while reporting them, so an ignore_links retry saves
     the legacy reference as it was instead of an empty (Mandatory-failing, or silently NULLed) field."""
@@ -568,9 +622,7 @@ def _execute_document_operation(
         except (frappe.LinkValidationError, frappe.ValidationError) as e:
             error_msg = str(e)
             # Check if this is a link validation error that should be bypassed
-            is_link_validation_error = (
-                "Chapter:" in error_msg and "Could not find Row" in error_msg
-            ) or "Reference DocType must be set first" in error_msg
+            is_link_validation_error = _link_error_is_within_bypass_scope(e, link_values)
 
             if is_link_validation_error:
                 # Check if link validation bypass is explicitly allowed
@@ -908,7 +960,10 @@ def follow_on_ignore_permissions():
 
 def _read_persisted_docstatus_best_effort(doctype, name):
     """Best-effort read of a document's current DB docstatus, for the #385
-    partial-write comparison. MUST NOT raise: this is a diagnostic signal,
+    partial-write comparison. Raises ONLY the non-resumable DB errors (1213/1205,
+    #2996): those mean the unit of work is dead or half-applied, and swallowing one
+    here would let the caller report success=False and carry on. Anything else MUST
+    NOT raise: this is a diagnostic signal,
     not the operation itself, and a caller can legitimately pass a doc whose
     `.doctype`/`.name` are not real strings (a test double standing in for a
     real document -- see test_setup_password_policy_new, which regressed
@@ -926,6 +981,11 @@ def _read_persisted_docstatus_best_effort(doctype, name):
         if not frappe.db.exists(doctype, name):
             return None
         return frappe.db.get_value(doctype, name, "docstatus")
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213 rolled the transaction back; 1205 left it half-applied (transaction_errors.py).
+        # Either way returning None would let the caller's failure handler report
+        # success=False and carry on over discarded or partial state (#2996).
+        raise
     except Exception:  # swallow-ok: best-effort
         return None
 

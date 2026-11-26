@@ -12,6 +12,7 @@ from verenigingen.utils.security.api_security_framework import (
     public_api,
     standard_api,
 )
+from verenigingen.utils.transaction_errors import DATABASE_ERROR, NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen.doctype.chapter.validators.postal_code_validator import (
     PostalCodeValidator,
     chapter_postal_codes_match,
@@ -65,7 +66,7 @@ def _chapter_management_enabled():
     except (frappe.DoesNotExistError, frappe.ValidationError) as e:
         frappe.log_error(f"Settings access error in chapter management check: {str(e)}", "Member Utils")
         return True  # Default to enabled for backward compatibility
-    except frappe.DatabaseError as e:
+    except DATABASE_ERROR as e:
         frappe.log_error(f"Database error in chapter management check: {str(e)}", "Member Utils")
         return True
 
@@ -141,6 +142,9 @@ def update_member_payment_history(doc: dict, method=None):
                     "Member Payment History Security",
                 )
                 continue
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: not a per-member failure to log and move past (#2711)
+            raise
         except frappe.DoesNotExistError:
             frappe.log_error(
                 f"Member {member_doc.name} not found during payment history update", "Member Payment History"
@@ -150,7 +154,7 @@ def update_member_payment_history(doc: dict, method=None):
                 f"Validation error updating payment history for Member {member_doc.name}: {str(e)}",
                 "Member Payment History",
             )
-        except frappe.DatabaseError as e:
+        except DATABASE_ERROR as e:
             frappe.log_error(
                 f"Database error updating payment history for Member {member_doc.name}: {str(e)}",
                 "Member Payment History",
@@ -188,6 +192,9 @@ def update_member_payment_history_from_invoice(doc, method=None):
                     "Member Invoice History Security",
                 )
                 continue
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205: not a per-member failure to log and move past (#2711)
+            raise
         except frappe.DoesNotExistError:
             frappe.log_error(
                 f"Member {member_doc.name} not found during invoice payment history update",
@@ -198,7 +205,7 @@ def update_member_payment_history_from_invoice(doc, method=None):
                 f"Validation error updating payment history for Member {member_doc.name}: {str(e)}",
                 "Member Payment History",
             )
-        except frappe.DatabaseError as e:
+        except DATABASE_ERROR as e:
             frappe.log_error(
                 f"Database error updating payment history for Member {member_doc.name}: {str(e)}",
                 "Member Payment History",
@@ -262,6 +269,7 @@ def add_manual_payment_record(
     )
 
     payment.remarks = notes or "Manual donation entry"
+    payment.custom_remarks = 1  # else ERPNext's set_remarks replaces the staff notes on validate (#3088)
 
     # Audit log before financial transaction.
     # NOTE: frappe.log_error's first positional arg is the *title* (capped at

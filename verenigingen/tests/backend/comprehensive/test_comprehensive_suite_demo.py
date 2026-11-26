@@ -21,7 +21,6 @@ from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 from verenigingen.tests.backend.workflows import (
     test_member_lifecycle,
     test_payment_failure_recovery,
-    test_volunteer_journey,
 )
 
 
@@ -185,14 +184,12 @@ class TestComprehensiveSuiteDemo(VereningingenWorkflowTestCase):
         # For demonstration, we just verify the workflow classes exist
         workflow_classes = [
             test_member_lifecycle.TestMemberLifecycle,
-            test_volunteer_journey.TestVolunteerJourney,
             test_payment_failure_recovery.TestPaymentFailureRecovery,
         ]
 
         for workflow_class in workflow_classes:
             self.assertTrue(
                 hasattr(workflow_class, "test_complete_member_lifecycle")
-                or hasattr(workflow_class, "test_complete_volunteer_journey")
                 or hasattr(workflow_class, "test_payment_failure_recovery_workflow")
             )
 
@@ -250,7 +247,6 @@ class TestSuiteHealthCheck(VereningingenWorkflowTestCase):
         """Test that workflow test classes are properly structured"""
         workflow_classes = [
             test_member_lifecycle.TestMemberLifecycle,
-            test_volunteer_journey.TestVolunteerJourney,
             test_payment_failure_recovery.TestPaymentFailureRecovery,
         ]
 

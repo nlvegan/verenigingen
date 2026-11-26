@@ -801,7 +801,8 @@ function process_returns_dialog(frm) {
 			frappe.call({
 				method: 'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.process_sepa_return_file',
 				args: {
-					file_content: values.return_file,
+					// An Attach value is the uploaded File's URL, not its content (#3031)
+					file_url: values.return_file,
 					file_type: 'pain.002'
 				},
 				callback(r) {

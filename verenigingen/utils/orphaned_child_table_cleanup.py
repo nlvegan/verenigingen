@@ -539,7 +539,7 @@ def detect_orphaned_child_tables() -> OperationResult[Dict[str, Any]]:
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def cleanup_orphaned_child_tables(
-    dry_run=True, table_filter=None, skip_index_check=False
+    dry_run=True, table_filter=None, skip_index_check: bool = False
 ) -> OperationResult[Dict[str, Any]]:
     """
     Clean up orphaned child table records with concurrent execution protection.
@@ -559,8 +559,6 @@ def cleanup_orphaned_child_tables(
             - summary: Human-readable summary of cleanup operation
     """
     dry_run = is_dry_run(dry_run)  # unrecognised string stays a dry run (#2385)
-    if isinstance(skip_index_check, str):
-        skip_index_check = skip_index_check.lower() in ("true", "1", "yes")
 
     # Acquire distributed lock for non-dry-run operations to prevent concurrent execution
     lock = None

@@ -17,6 +17,7 @@ from verenigingen.tests.utils.base import VereningingenUnitTestCase
 from verenigingen.tests.utils.factories import TestDataBuilder
 from verenigingen.tests.utils.skip_reasons import VOLUNTEER_EXPENSE_ARCHIVED
 from verenigingen.tests.utils.setup_helpers import TestEnvironmentSetup
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
@@ -335,7 +336,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 break
 
         self.assertIsNotNone(completed_assignment)
-        self.assertEqual(str(completed_assignment.end_date), today())
+        assert_written_today(self, completed_assignment.end_date)
 
     def test_volunteer_status_transitions(self):
         """Test volunteer status state machine"""

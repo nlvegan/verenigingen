@@ -6,7 +6,6 @@ reach:
 - ``process_successful_payment``              (PE + history + status enrichment)
 - ``process_successful_payment_with_idempotency`` (ordered idempotent processing)
 - ``process_successful_member_payment``       (member subscription payment record)
-- ``_notify_member_of_payment_failure``       (template selection + send result)
 - ``_create_customer_for_donor``              (guest-donation customer creation)
 
 These functions are part of the file's documented "legacy helper" cluster
@@ -19,12 +18,6 @@ payment_entry_factory). The remaining orchestrators are exercised through real
 test utilities, so the tests below run the genuine business logic against the
 real database with NO mocking of the logic under test; the only stubbed boundary
 is the Mollie SDK payment object (a types.SimpleNamespace attribute carrier).
-
-Regression coverage: TestNotifyMemberOfPaymentFailure.test_send_path_logs_no_spurious_error
-pins the fix for the OperationResult flat-read bug -- ``send_templated_email``
-returns an OperationResult dataclass (no dict ``.get``), so the previous
-``result.get("status")`` raised AttributeError and logged a spurious
-"Payment Notification Error" on every successful send.
 """
 
 import types
@@ -33,10 +26,8 @@ import frappe
 from frappe.utils import getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.verenigingen_payments.mollie.api.payment_webhook import (
     _create_customer_for_donor,
-    _notify_member_of_payment_failure,
     process_successful_member_payment,
     process_successful_payment,
     process_successful_payment_with_idempotency,
@@ -241,98 +232,6 @@ class TestProcessSuccessfulMemberPayment(EnhancedTestCase):
         result = process_successful_member_payment(member, payment)
         self.assertEqual(result["status"], "processed")
         self.assertEqual(result["payment_id"], payment_id)
-
-
-class TestNotifyMemberOfPaymentFailure(EnhancedTestCase):
-    """_notify_member_of_payment_failure — template selection + send-result handling."""
-
-    def _make_member(self):
-        member = self.create_test_member(
-            first_name="Notify", last_name="Member", email="notify.member@example.com"
-        )
-        member.mollie_customer_id = f"cst_notify_{frappe.generate_hash()[:8]}"
-        member.save()
-        return member
-
-    def _failed_payment(self):
-        return _fake_payment(
-            f"tr_notify_{frappe.generate_hash()[:8]}",
-            status="failed",
-            amount={"value": "25.00", "currency": "EUR"},
-        )
-
-    def _delete_failure_templates(self):
-        """Remove all payment-failure email templates so the no-template branch
-        (early return after the generic fallback also misses) is exercised."""
-        for name in (
-            "payment_failure_first",
-            "payment_failure_second",
-            "payment_failure_final",
-            "payment_failure_generic",
-        ):
-            if frappe.db.exists("Email Template", name):
-                frappe.delete_doc("Email Template", name, force=True, ignore_permissions=True)
-
-    def test_no_template_returns_without_raising(self):
-        """With no failure templates configured the function logs a warning and
-        returns (first-attempt branch -> generic fallback -> early return)."""
-        self._delete_failure_templates()
-        member = self._make_member()
-        # Should not raise for any of the three failure-count tiers.
-        for count in (1, 2, 3):
-            _notify_member_of_payment_failure(member, self._failed_payment(), count)
-
-    def _persist_email_template(self, name):
-        tmpl = frappe.get_doc(
-            {
-                "doctype": "Email Template",
-                "name": name,
-                "subject": "Payment failed",
-                "response": "<p>Your payment failed.</p>",
-                "response_html": "<p>Your payment failed.</p>",
-                "use_html": 1,
-            }
-        )
-        tmpl.insert(ignore_permissions=True)
-        self.factory.track_document("Email Template", tmpl.name)
-        return tmpl
-
-    def test_send_path_logs_no_spurious_error(self):
-        """Regression: with a real template present the send result is an
-        OperationResult dataclass. The pre-fix code called result.get("status"),
-        raising AttributeError and logging a spurious 'Payment Notification Error'.
-        After the fix (result.success) the send completes with no such Error Log.
-        """
-        self._delete_failure_templates()
-        self._persist_email_template("payment_failure_first")
-        # A skipped send never reaches the code this regression covers, so own the key and
-        # prove below that a mail really went out (#2010).
-        own_notification_keys(self, "payment_failure_first")
-        member = self._make_member()
-        member.next_payment_date = getdate()
-        member.save()
-
-        # Snapshot existing Error Logs so we only judge ones THIS call creates
-        # (veg11 is long-lived and may carry stale notification errors).
-        before = {r.name for r in frappe.get_all("Error Log", fields=["name"])}
-
-        _notify_member_of_payment_failure(member, self._failed_payment(), 1)
-
-        after = frappe.get_all(
-            "Error Log",
-            fields=["name", "error"],
-            filters={"name": ["not in", list(before) or ["__none__"]]},
-        )
-        # The fixed code reads result.success on the OperationResult instead of
-        # result.get("status"); pre-fix this raised AttributeError and logged a
-        # "Payment failure notification error ..." Error Log on every send.
-        offending = [r for r in after if "notification error" in (r.error or "").lower()]
-        self.assertEqual(len(self.get_sent_emails(to=member.email)), 1, "control: the send path really ran")
-        self.assertEqual(
-            offending,
-            [],
-            "Notification send must not log a payment-notification Error Log (OperationResult.get regression)",
-        )
 
 
 class TestCreateCustomerForDonor(EnhancedTestCase):

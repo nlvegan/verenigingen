@@ -15,6 +15,7 @@ from verenigingen.tests.backend.components.test_workflow_action_masters import (
     _wf1700_load_fixture as _fixture_rows,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 WORKFLOW = "Periodic Donation Agreement Workflow"
 DOCTYPE = "Periodic Donation Agreement"
@@ -430,7 +431,7 @@ class TestPeriodicDonationAgreementWorkflow(VereningingenTestCase):
             as_dict=True,
         )
         self.assertEqual(row.cancellation_reason, "moved abroad")
-        self.assertEqual(str(row.cancellation_date), today())
+        assert_written_today(self, row.cancellation_date)
         self.assertEqual(row.cancellation_processed_by, "pda-1850-verenigingen-administrator@example.com")
 
     def test_cancel_agreement_from_draft_needs_system_manager(self):

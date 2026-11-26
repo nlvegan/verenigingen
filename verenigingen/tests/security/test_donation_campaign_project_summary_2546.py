@@ -60,13 +60,25 @@ class TestCampaignProjectSummaryClaimLeak(StaffExpenseBase):
         claim.submit()
         return claim
 
-    def _summary_as_2546(self, user, campaign=None, forge_owner=False):
-        """The browser's call: run_doc_method builds the doc from the client's dict, as `user`."""
+    def _summary_as_2546(self, user, campaign=None, own_campaign=False):
+        """The browser's call: run_doc_method builds the doc from the client's dict, as `user`.
+
+        own_campaign makes `user` the campaign's REAL owner (stored row), the only way left for a
+        caller without an Accounts User/Administrator role to reach the method: posting
+        owner=themselves was the route here until #2562 closed it (see
+        test_run_doc_method_forged_owner_2562.py for the refusal).
+        """
         from frappe.handler import run_doc_method
 
+        if own_campaign:
+            frappe.db.set_value(
+                "Donation Campaign",
+                (campaign or self.campaign).name,
+                "owner",
+                user if isinstance(user, str) else user.name,
+                update_modified=False,
+            )
         doc = frappe.get_doc("Donation Campaign", (campaign or self.campaign).name).as_dict()
-        if forge_owner:
-            doc["owner"] = user if isinstance(user, str) else user.name
         request = SimpleNamespace(  # Mock justified: Infrastructure (security decorator reads it)
             method="POST", path="/api/method/run_doc_method", headers={}, remote_addr="127.0.0.1",
             environ={}, args={}, form={}, get_data=lambda *a, **k: b"{}", content_length=2,
@@ -116,23 +128,24 @@ class TestCampaignProjectSummaryClaimLeak(StaffExpenseBase):
         )
         self.assertIn(self.claim_b.name, self._claim_names_2546(self._summary_as_2546(board_b.user)))
 
-    def test_a_volunteer_forging_the_owner_in_the_posted_doc_sees_no_claim_of_chapter_b(self):
-        """run_doc_method builds the campaign from the CLIENT's dict, and Donation Campaign grants
-        read to All with if_owner, so a caller who lacks the Accounts User role passes the doc check
-        by posting owner=themselves. Measured on develop: they got the claim."""
+    def test_a_volunteer_owning_the_campaign_sees_no_claim_of_chapter_b(self):
+        """Donation Campaign grants read to All with if_owner, so the campaign's own creator passes
+        the doc check without the Accounts User role. Before #2562 any volunteer got there by posting
+        owner=themselves (measured on develop: they got the claim); that route is now refused, so the
+        caller here really owns the row."""
         caller = self._staffexp_user("Verenigingen Volunteer", "forger")
         self.assertFalse(
             frappe.has_permission("Expense Claim", "read", doc=self.claim_b.name, user=caller.name),
             "precondition: the caller cannot read the claim",
         )
-        summary = self._summary_as_2546(caller.name, forge_owner=True)
+        summary = self._summary_as_2546(caller.name, own_campaign=True)
         self.assertNotIn(self.claim_b.name, json.dumps(summary, default=str))
         self.assertEqual(flt(summary["total_expenses"]), 0)
 
     def test_a_caller_without_expense_claim_read_gets_an_empty_list_not_an_error(self):
         """The doctype-level pre-check: get_list would raise for a caller with no Expense Claim role,
         which would also tell them apart from a project without claims. Only roles that pass the
-        security tier and the campaign check (via the forged owner) are in play here."""
+        security tier and the campaign check (via owning the campaign) are in play here."""
         caller = self.create_test_user(
             email=f"x2546-noread-{self.token}@test.com", roles=["Verenigingen Volunteer"]
         )
@@ -140,13 +153,13 @@ class TestCampaignProjectSummaryClaimLeak(StaffExpenseBase):
             self.act_as(caller, lambda: frappe.has_permission("Expense Claim", "read")),
             "precondition: no doctype-level Expense Claim read",
         )
-        summary = self._summary_as_2546(caller.name, forge_owner=True)
+        summary = self._summary_as_2546(caller.name, own_campaign=True)
         self.assertEqual(summary["expenses"], [])
         self.assertEqual(flt(summary["total_expenses"]), 0)
 
-    def test_guest_cannot_reach_the_method_even_with_a_forged_owner(self):
+    def test_guest_cannot_reach_the_method_even_owning_the_campaign(self):
         with self.assertRaises(frappe.PermissionError):
-            self._summary_as_2546("Guest", forge_owner=True)
+            self._summary_as_2546("Guest", own_campaign=True)
 
     def test_the_project_row_does_not_carry_the_claim_rollup(self):
         """Project.total_expense_claim is the sum of EVERY submitted claim on the project, and

@@ -62,6 +62,11 @@ class ContextAwareFieldValidator:
         
         self.child_table_mapping = self._build_child_table_mapping()
         self.property_registry = self._build_property_registry()
+        # #2323: these two were once assigned after the `return` of
+        # _convert_doctypes_for_compatibility, so they never existed and every file
+        # that reached is_child_table_iteration died on AttributeError (swallowed).
+        self.child_table_patterns = self._build_enhanced_child_table_patterns()
+        self.property_patterns = self._build_property_patterns()
         self.issues = []
         
         # Enhanced exclusion patterns
@@ -94,9 +99,7 @@ class ContextAwareFieldValidator:
             }
             
         return legacy_format
-        self.child_table_patterns = self._build_enhanced_child_table_patterns()
-        self.property_patterns = self._build_property_patterns()
-        
+
     def _build_property_registry(self) -> Dict[str, Set[str]]:
         """Build registry of property methods from the codebase"""
         property_registry = {}
@@ -787,6 +790,30 @@ class ContextAwareFieldValidator:
                 
         return similar[:3]
         
+    def own_doctype_names(self) -> Set[str]:
+        """Names of the doctypes whose JSON lives in the app under validation."""
+        names: Set[str] = set()
+        for json_file in self.app_path.rglob("doctype/*/*.json"):
+            try:
+                data = json.loads(json_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict) and data.get("doctype") == "DocType" and data.get("name"):
+                names.add(data["name"])
+        return names
+
+    def is_own_app_finding(self, issue: ValidationIssue) -> bool:
+        """True when the finding is on a doctype defined by the app under validation.
+
+        The ratchet only covers these: a bench also loads frappe/erpnext doctypes that a CI
+        checkout does not have, and a baseline that differed between the two would either
+        fail locally or fail the CI shrink gate. Scoped by where the JSON lives, not by the
+        loader's `app` label, which on a bench can name a stray checkout under apps/.
+        """
+        if not hasattr(self, "_own_doctypes"):
+            self._own_doctypes = self.own_doctype_names()
+        return issue.doctype in self._own_doctypes
+
     def validate_file(self, file_path: Path) -> List[ValidationIssue]:
         """Validate a single file with enhanced analysis"""
         violations = []
@@ -883,21 +910,91 @@ class ContextAwareFieldValidator:
         return '\n'.join(report)
 
 
+BASELINE_PATH = Path(__file__).resolve().parent / "field_reference_baseline.txt"
+BASELINE_HEADER = """# Known field-reference findings (#2323) -- the ratchet baseline for
+# scripts/validation/enhanced_field_reference_validator.py. Format:
+#     <path>::<doctype>::<field>::<count>
+#
+# The validator was blind (see #2323) until child_table_patterns/property_patterns became
+# reachable; these are the findings it then reported. Triage of a sample found them to be
+# heuristic false positives (a `member`/`mandate` variable that is a child row, an SQL row,
+# a Mollie API object), so they are recorded, not asserted to be defects.
+#
+# A run fails only if it introduces a NEW key here, or raises an existing key's count. This
+# file should only ever SHRINK: fix a site (or teach the validator it is a false positive)
+# and regenerate with --update-baseline. Do not raise a count to silence a new finding.
+# Only findings on this app's own doctypes are recorded, so the baseline is the same on a
+# bench (which also loads frappe/erpnext) and in CI (which does not).
+"""
+
+
+def baseline_key(issue: ValidationIssue) -> str:
+    # No line number: a key must survive an unrelated edit above the site.
+    return f"{issue.file}::{issue.doctype}::{issue.field}"
+
+
+def load_baseline(path: Path = BASELINE_PATH) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    if not path.exists():
+        return counts
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, _, count = line.rpartition("::")
+        counts[key] = int(count)
+    return counts
+
+
+def write_baseline(issues: List[ValidationIssue], path: Path = BASELINE_PATH) -> int:
+    counts: Dict[str, int] = {}
+    for issue in issues:
+        counts[baseline_key(issue)] = counts.get(baseline_key(issue), 0) + 1
+    body = "".join(f"{key}::{counts[key]}\n" for key in sorted(counts))
+    path.write_text(BASELINE_HEADER + body, encoding="utf-8")
+    return sum(counts.values())
+
+
+def new_findings(issues: List[ValidationIssue], baseline: Dict[str, int]) -> List[ValidationIssue]:
+    """Findings beyond what the baseline allows for their key (a new key, or a higher count)."""
+    seen: Dict[str, int] = {}
+    new = []
+    for issue in issues:
+        key = baseline_key(issue)
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] > baseline.get(key, 0):
+            new.append(issue)
+    return new
+
+
 def main():
     """Main function with enhanced false positive reduction"""
     import sys
     
     app_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     
-    pre_commit = '--pre-commit' in sys.argv
+    update_baseline = '--update-baseline' in sys.argv
+    pre_commit = '--pre-commit' in sys.argv or update_baseline
     verbose = '--verbose' in sys.argv
+    use_baseline = '--no-baseline' not in sys.argv
     
     # Extract file paths (non-option arguments)
     file_paths = []
+    passed_files = [a for a in sys.argv[1:] if not a.startswith('--')]
     for arg in sys.argv[1:]:
         if not arg.startswith('--') and arg.endswith('.py'):
-            file_paths.append(Path(arg))
-    
+            # Absolute, because a finding's path is taken relative to the app root.
+            file_paths.append(Path(arg).resolve())
+    if update_baseline:
+        file_paths = []
+        passed_files = []
+
+    # #3115: the pre-push hook also passes .html/.js. With files given but none a .py there is
+    # nothing for this validator to check; falling through would run the un-ratcheted whole-tree scan.
+    if passed_files and not file_paths:
+        print("Field reference validator: no .py files passed, nothing to check.")
+        return 0
+
     single_file = file_paths[0] if len(file_paths) == 1 else None
     
     validator = ContextAwareFieldValidator(app_path, verbose=verbose)
@@ -924,6 +1021,18 @@ def main():
         print("🔍 Running comprehensive validation...")
         violations = validator.validate_app(pre_commit=pre_commit)
         
+    if update_baseline:
+        total = write_baseline([v for v in violations if validator.is_own_app_finding(v)])
+        print(f"Wrote {BASELINE_PATH.name}: {total} findings")
+        return 0
+
+    if use_baseline:
+        own = [v for v in violations if validator.is_own_app_finding(v)]
+        other = len(violations) - len(own)
+        violations = new_findings(own, load_baseline())
+        print(f"Ratchet: {len(own) - len(violations)} baselined finding(s) suppressed "
+              f"({BASELINE_PATH.name}); {other} on other apps' doctypes not ratcheted.")
+
     print("\n" + "="*60)
     report = validator.generate_report(violations)
     print(report)

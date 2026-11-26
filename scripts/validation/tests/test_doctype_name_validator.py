@@ -366,5 +366,27 @@ class TestAuthorityReadsThisAppFromTheRunningTree(unittest.TestCase):
         self.assertNotIn("Owl DT", self._known())
 
 
+class SlackKeysTests(unittest.TestCase):
+    """#1040: a baseline entry the tree no longer fills must be reported."""
+
+    def test_a_fully_fixed_key_is_slack(self):
+        self.assertEqual(dnv.slack_keys({}, {"a.py::Ghost": 2}), {"a.py::Ghost": (2, 0)})
+
+    def test_a_partly_fixed_key_is_slack(self):
+        self.assertEqual(dnv.slack_keys({"a.py::Ghost": 1}, {"a.py::Ghost": 3}), {"a.py::Ghost": (3, 1)})
+
+    def test_control_an_exactly_filled_key_is_not_slack(self):
+        self.assertEqual(dnv.slack_keys({"a.py::Ghost": 3}, {"a.py::Ghost": 3}), {})
+
+    def test_control_growth_is_not_slack(self):
+        counts = {"a.py::Ghost": 4, "b.py::New": 1}
+        self.assertEqual(dnv.slack_keys(counts, {"a.py::Ghost": 3}), {})
+
+    def test_only_the_stale_key_is_reported(self):
+        counts = {"a.py::Ghost": 3}
+        baseline = {"a.py::Ghost": 3, "b.py::Gone": 1}
+        self.assertEqual(dnv.slack_keys(counts, baseline), {"b.py::Gone": (1, 0)})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

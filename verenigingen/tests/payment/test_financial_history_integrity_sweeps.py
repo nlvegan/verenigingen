@@ -30,6 +30,7 @@ tests would legitimately report errors for records this test never touched.
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.donation_history_manager import DonationHistoryManager
 from verenigingen.utils.financial_history_batch_processor import (
     validate_donor_history_integrity,
     validate_fee_change_history_integrity,
@@ -82,27 +83,141 @@ class TestDonorHistoryIntegritySweep(EnhancedTestCase):
         )
         self.assertEqual(float(matches[0].donation_amount), 250.0)
 
-    def test_sweep_is_quiet_on_consistent_donor_history(self):
-        """Control: a donor whose donor_history already matches its donations.
+    def _history_snapshot(self, donor_name):
+        """Every column of every donor_history row, including name/creation/modified.
 
-        The underlying rebuild (DonationHistoryManager.sync_donation_history)
-        unconditionally deletes and re-inserts every child row, so this
-        cannot assert the ROW is untouched (its own ``name``/``creation``
-        legitimately change every run -- a known tradeoff documented on the
-        sweep itself). What it CAN and must assert is that the resulting data
-        is still correct and not duplicated: same donation, same amount, one
-        row.
+        Byte-identity across a sweep is the point (#850): a rebuild deletes and
+        re-inserts the rows, which changes ``name``/``creation``/``modified``
+        even when every business field comes back the same.
+        """
+        return frappe.get_all(
+            "Donation History",
+            filters={"parent": donor_name, "parenttype": "Donor", "parentfield": "donor_history"},
+            fields=["*"],
+            order_by="idx asc",
+        )
+
+    def _donor_version_count(self, donor_name):
+        return frappe.db.count("Version", {"ref_doctype": "Donor", "docname": donor_name})
+
+    def test_sweep_does_not_write_when_donor_history_is_consistent(self):
+        """#850: a consistent donor gets NO write and NO new Version row.
+
+        Built through the REAL writer (Donation insert/save -> add_donation_entry),
+        including a row carrying non-default free-text provenance
+        ("MijnRood CSV import"), the class of field the fee-change sweep's first
+        draft overwrote on 476 veg11 rows. donor_history has no ``reason`` column,
+        so the provenance rides on fund_designation/donation_purpose, which the
+        writer copies from the Donation. The child row itself is written by the
+        real writer, never poked directly.
         """
         donor = self.create_test_donor()
-        donation = self.create_test_donation(donor=donor.name, amount=75)
+        self.create_test_donation(donor=donor.name, amount=75)
+        imported = self.create_test_donation(donor=donor.name, amount=120)
+        # A submitted Donation refuses a fund_designation edit (UpdateAfterSubmitError),
+        # so set it underneath and drive the writer the on_update hook calls
+        # (add_donation_entry), which copies the fields onto donor_history.
+        frappe.db.set_value(
+            "Donation",
+            imported.name,
+            {"fund_designation": "MijnRood CSV import", "donation_purpose": "MijnRood CSV import"},
+        )
+        DonationHistoryManager.add_donation_entry(donor.name, frappe.get_doc("Donation", imported.name))
+
+        before = self._history_snapshot(donor.name)
+        self.assertEqual(len(before), 2, "setUp assumption failed: the live writer did not write 2 rows")
+        self.assertIn(
+            "MijnRood CSV import",
+            [r.fund_designation for r in before],
+            "setUp assumption failed: the non-default provenance did not reach donor_history",
+        )
+        versions_before = self._donor_version_count(donor.name)
 
         result = validate_donor_history_integrity(donor_names=[donor.name])
-        self.assertEqual(result.get("errors"), 0, f"sweep reported an error for our own donor: {result}")
 
+        self.assertEqual(result.get("errors"), 0, f"sweep reported an error for our own donor: {result}")
+        self.assertEqual(result.get("resynced"), 0, f"a consistent donor must not be rebuilt: {result}")
+        self.assertEqual(result.get("unchanged"), 1)
+        self.assertEqual(
+            self._history_snapshot(donor.name),
+            before,
+            "the sweep rewrote donor_history rows of a consistent donor",
+        )
+        self.assertEqual(
+            self._donor_version_count(donor.name),
+            versions_before,
+            "the sweep wrote a Donor Version row for a consistent donor",
+        )
+
+    def test_sweep_repairs_a_history_row_that_drifted_from_its_donation(self):
+        """A row exists but no longer matches its Donation (lost update): rebuilt.
+
+        One subTest per compared column, so a comparator that looks at only some
+        of them (e.g. reference + amount) is caught. Each drift value differs
+        from what the real writer produced.
+        """
+        drifts = {
+            "donation_amount": 999,
+            "donation_date": "2001-02-03",
+            "payment_method": "Cash",
+            "donation_status": "Recurring",
+            "fund_designation": "drifted designation",
+            "donation_purpose": "drifted purpose",
+            "paid": 0,
+            "journal_entry": "drifted-journal-entry",
+        }
+        for fieldname, drifted in drifts.items():
+            with self.subTest(field=fieldname):
+                donor = self.create_test_donor()
+                donation = self.create_test_donation(donor=donor.name, amount=60)
+                (original,) = self._history_snapshot(donor.name)
+                if original[fieldname] == drifted or str(original[fieldname]) == str(drifted):
+                    self.fail(f"fixture already holds the drift value for {fieldname}")
+                frappe.db.set_value("Donation History", original.name, fieldname, drifted)
+
+                result = validate_donor_history_integrity(donor_names=[donor.name])
+
+                self.assertEqual(result.get("resynced"), 1, result)
+                (repaired,) = self._history_snapshot(donor.name)
+                self.assertEqual(repaired.donation_reference, donation.name)
+                self.assertEqual(repaired[fieldname], original[fieldname])
+
+    def test_sweep_repairs_an_orphaned_history_row(self):
+        """The Donation is gone but its history row survived (lost delete): rebuilt."""
+        donor = self.create_test_donor()
+        gone = self.create_test_donation(donor=donor.name, amount=10)
+        kept = self.create_test_donation(donor=donor.name, amount=20)
+        frappe.db.delete("Donation", {"name": gone.name})
+
+        result = validate_donor_history_integrity(donor_names=[donor.name])
+
+        self.assertEqual(result.get("resynced"), 1, result)
+        refs = [r.donation_reference for r in self._history_snapshot(donor.name)]
+        self.assertEqual(refs, [kept.name])
+
+    def test_sweep_repairs_a_duplicated_history_row(self):
+        """Two rows for one Donation (count differs from the source): rebuilt."""
+        donor = self.create_test_donor()
+        donation = self.create_test_donation(donor=donor.name, amount=33)
         donor.reload()
-        matches = [e for e in donor.donor_history if e.donation_reference == donation.name]
-        self.assertEqual(len(matches), 1, "consistent data must not be duplicated by the sweep")
-        self.assertEqual(float(matches[0].donation_amount), 75.0)
+        donor.append(
+            "donor_history",
+            {
+                "donation_reference": donation.name,
+                "donation_date": donation.donation_date,
+                "donation_amount": donation.amount,
+                "payment_method": donation.mode_of_payment,
+                "donation_status": donation.status,
+                "paid": donation.paid,
+            },
+        )
+        donor.save()
+        self.assertEqual(len(self._history_snapshot(donor.name)), 2)
+
+        result = validate_donor_history_integrity(donor_names=[donor.name])
+
+        self.assertEqual(result.get("resynced"), 1, result)
+        self.assertEqual(len(self._history_snapshot(donor.name)), 1)
 
 
 class TestFeeChangeHistoryIntegritySweep(EnhancedTestCase):

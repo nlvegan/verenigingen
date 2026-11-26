@@ -478,6 +478,16 @@ def load_baseline(path: Path) -> dict[str, int]:
     return baseline
 
 
+def slack_keys(counts, baseline: dict[str, int]) -> dict[str, tuple[int, int]]:
+    """``{key: (recorded, live)}`` for every baseline entry the tree no longer fills.
+
+    The growth check only fails a count ABOVE the recorded one, so a fixed site
+    leaves its slot open and a later unknown name in the same file is absorbed
+    silently (#1031, #1040). A key missing from `counts` is live count 0.
+    """
+    return {key: (n, counts.get(key, 0)) for key, n in baseline.items() if counts.get(key, 0) < n}
+
+
 def write_baseline(path: Path, counts: Counter) -> None:
     header = [
         "# Known unknown-DocType-name call sites -- the ratchet baseline for",
