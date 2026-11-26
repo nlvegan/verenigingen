@@ -11,8 +11,16 @@ would pass.
 import frappe
 from frappe.utils import add_days, today
 
+from verenigingen.tests.payment.test_sepa_batch_ui import _next_weekday
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.harness_logger import get_harness_logger
+
+
+def _collection_date3055():
+    """A collection date a week out, moved off the weekend: batch validation refuses Saturday and
+    Sunday, so a bare today()+N failed on the days it landed there (queue drop, 2026-11-27)."""
+    return _next_weekday(add_days(today(), 7))
 
 
 class TestRolledBackBatchUnlocksInvoices3055(EnhancedTestCase):
@@ -53,7 +61,7 @@ class TestRolledBackBatchUnlocksInvoices3055(EnhancedTestCase):
         )
 
         batch = self._factory3055.create_test_direct_debit_batch(
-            batch_date=add_days(today(), 5), invoice_count=1
+            batch_date=_next_weekday(add_days(today(), 5)), invoice_count=1
         )
         self._batches3055.append(batch.name)
         batch.sepa_file_generated = 1
@@ -185,7 +193,7 @@ class TestRolledBackBatchUnlocksInvoices3055(EnhancedTestCase):
     def _create_params3055(self, batch):
         row = batch.invoices[0]
         return {
-            "batch_date": str(add_days(today(), 7)),
+            "batch_date": str(_collection_date3055()),
             "batch_type": "CORE",
             "invoice_list": [
                 {
@@ -251,7 +259,7 @@ class TestRolledBackBatchUnlocksInvoices3055(EnhancedTestCase):
         from verenigingen.verenigingen_payments.utils.sepa_mandate_service import SEPAMandateService
 
         self._make_payable3055()
-        rows = SEPAMandateService().get_sepa_invoices_with_mandates(str(add_days(today(), 7)))
+        rows = SEPAMandateService().get_sepa_invoices_with_mandates(str(_collection_date3055()))
         offered = {r["name"] for r in rows}
         self.assertIn(self.rolled3055.invoices[0].invoice, offered)
         self.assertNotIn(self.live3055.invoices[0].invoice, offered)
@@ -292,7 +300,7 @@ class TestRolledBackBatchUnlocksInvoices3055(EnhancedTestCase):
         race = SEPABatchRaceConditionManager()._detect_batch_conflicts([invoice], {})
         self.assertEqual(len(race["conflicts"]), 1)
         # A different date, or the duplicate-date check would refuse before the invoice lock is reached.
-        again = dict(self._create_params3055(self.rolled3055), batch_date=str(add_days(today(), 9)))
+        again = dict(self._create_params3055(self.rolled3055), batch_date=str(_next_weekday(add_days(_collection_date3055(), 1))))
         refused = create_sepa_batch_validated(**again)
         self.assertFalse(refused.get("success"), refused)
         self.assertIn("already in batch", str(refused), refused)
