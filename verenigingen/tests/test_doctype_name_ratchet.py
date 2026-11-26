@@ -41,16 +41,6 @@ sys.path.insert(0, str(APP_ROOT / "scripts" / "validation"))
 
 import doctype_name_validator as v  # noqa: E402
 
-# Doctypes from four different apps. If the authority cannot see all of these it
-# is not looking at a bench, and any verdict it produces is about the wrong tree.
-AUTHORITY_PROBES = {
-    "frappe": "User",
-    "erpnext": "Sales Invoice",
-    "hrms": "Expense Claim",
-    "verenigingen": "Chapter Board Member",
-}
-
-
 class TestDocTypeNameRatchet(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -58,12 +48,20 @@ class TestDocTypeNameRatchet(unittest.TestCase):
 
     def test_the_authority_is_complete(self):
         """Control: without this, a partial authority is indistinguishable from a regression."""
-        missing = {app: dt for app, dt in AUTHORITY_PROBES.items() if dt not in self.known}
+        missing = {app: dt for app, dt in v.AUTHORITY_PROBES.items() if dt not in self.known}
         self.assertEqual(
             missing, {},
             f"the DocType authority is incomplete ({len(self.known)} doctypes from "
             f"{v.BENCH_APPS}); every finding below would be an artefact of that, not a defect",
         )
+
+    def test_every_authority_probe_is_defined_by_only_its_own_app(self):
+        """#3332: a probe a second app also defines cannot prove its own app is installed.
+
+        The unit test of this lives in scripts/validation/tests, which skips on the
+        Code Validation job's standalone checkout; this runs on the full bench.
+        """
+        self.assertEqual(v.probes_not_unique_to_their_app(), {})
 
     def test_the_role_names_behind_677_are_still_not_doctypes(self):
         """The premise of the fix, asserted rather than assumed.
