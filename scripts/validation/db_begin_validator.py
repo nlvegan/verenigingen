@@ -29,8 +29,10 @@ What flags:
      BEGIN. Each trips the same guard independently of begin(); this repo has
      already been bitten by a CREATE INDEX mid-migrate. Use `frappe.db.sql_ddl()`.
 
-Known limitation: only literal SQL is inspected, so a statement assembled at
-runtime (an f-string table name) is not recognised. Aliasing the handle
+Dynamic SQL (#3299): an f-string is judged by its literal head, a variable by
+the literal/f-string assigned to it in the same function, and an unassigned name
+(a parameter) only when it is named like DDL (create_sql, drop_sql ...). Other
+runtime-built statements are not recognised. Aliasing the handle
 (`db = frappe.db; db.begin()`) is likewise not matched.
 
 The fix is almost never a savepoint
@@ -139,28 +141,73 @@ def _is_db_begin(node: ast.Call) -> bool:
     )
 
 
-def _is_implicit_commit_sql(node: ast.Call) -> bool:
-    """Match <anything>.db.sql("<TRUNCATE|ALTER|DROP|CREATE|START|BEGIN> ...").
+# An argument that cannot be resolved to text is judged by its NAME only when it
+# plainly says DDL (create_sql, drop_sql, alter_stmt...). Anything else stays
+# unflagged: guessing on neutral names (query, sql) would trade precision away.
+_DDL_NAME = re.compile(r"^(create|drop|alter|truncate)(_\w+)?_(sql|ddl|stmt|statement|query)$")
 
-    Only literal first arguments: a statement assembled at runtime cannot be
-    recognised here, and guessing would trade this validator's precision for very
-    little reach. Use frappe.db.sql_ddl() for genuine DDL.
-    """
+
+def _is_db_sql_call(node: ast.Call) -> bool:
     f = node.func
-    if not (
+    return (
         isinstance(f, ast.Attribute)
         and f.attr == "sql"
         and isinstance(f.value, ast.Attribute)
         and f.value.attr == "db"
-    ):
-        return False
-    if not node.args:
+    )
+
+
+def _literal_head(node: ast.AST) -> str | None:
+    """Leading literal text of a str constant or f-string, else None.
+
+    An f-string that opens with a placeholder has no knowable head.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr) and node.values:
+        first = node.values[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            return first.value
+    return None
+
+
+def _assigned_value(name: str, scope: ast.AST, line: int) -> ast.AST | None:
+    """Value of the last plain `name = <expr>` in `scope` before `line`."""
+    best, best_line = None, -1
+    for n in ast.walk(scope):
+        if (
+            isinstance(n, ast.Assign)
+            and n.lineno < line
+            and n.lineno > best_line
+            and any(isinstance(t, ast.Name) and t.id == name for t in n.targets)
+        ):
+            best, best_line = n.value, n.lineno
+    return best
+
+
+def _is_implicit_commit_sql(node: ast.Call, tree: ast.AST | None = None) -> bool:
+    """Match <anything>.db.sql(<TRUNCATE|ALTER|DROP|CREATE|START|BEGIN> ...).
+
+    The first argument may be a literal, an f-string with a literal head, or a
+    Name resolved to such a value from an assignment in the same function (or at
+    module level). A Name with no assignment in scope (typically a parameter) is
+    flagged only when its own name says DDL. Everything else is not guessed at.
+    Use frappe.db.sql_ddl() for genuine DDL.
+    """
+    if not _is_db_sql_call(node) or not node.args:
         return False
     first = node.args[0]
-    if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+    head = _literal_head(first)
+    if head is None and isinstance(first, ast.Name) and tree is not None:
+        # Scope lookup walks the tree, so only pay for it on a bare-Name argument.
+        value = _assigned_value(first.id, _enclosing_scope(tree, node.lineno), node.lineno)
+        if value is None:
+            return bool(_DDL_NAME.match(first.id))
+        head = _literal_head(value)
+    if head is None:
         return False
-    head = first.value.lstrip().split(None, 1)
-    return bool(head) and head[0].lower() in _IMPLICIT_COMMIT_KEYWORDS
+    words = head.lstrip().split(None, 1)
+    return bool(words) and words[0].lower() in _IMPLICIT_COMMIT_KEYWORDS
 
 
 def _enclosing_func(tree: ast.AST, line: int) -> str:
@@ -171,6 +218,17 @@ def _enclosing_func(tree: ast.AST, line: int) -> str:
             end = getattr(node, "end_lineno", node.lineno) or node.lineno
             if node.lineno <= line <= end and node.lineno > best_start:
                 best, best_start = node.name, node.lineno
+    return best
+
+
+def _enclosing_scope(tree: ast.AST, line: int) -> ast.AST:
+    """Innermost function node containing `line`; the module if none."""
+    best, best_start = tree, -1
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            end = getattr(node, "end_lineno", node.lineno) or node.lineno
+            if node.lineno <= line <= end and node.lineno > best_start:
+                best, best_start = node, node.lineno
     return best
 
 
@@ -225,7 +283,7 @@ def check_file(path: Path) -> list[Finding]:
             continue
         if _is_db_begin(node):
             kind = KIND_BEGIN
-        elif _is_implicit_commit_sql(node):
+        elif _is_implicit_commit_sql(node, tree):
             kind = KIND_DDL
         else:
             continue

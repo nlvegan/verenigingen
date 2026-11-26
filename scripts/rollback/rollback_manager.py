@@ -350,7 +350,7 @@ class RollbackManager:
                 
                 if result and result[0]['count'] > 0:
                     drop_sql = f"ALTER TABLE `{table}` DROP INDEX `{index}`"
-                    frappe.db.sql(drop_sql)
+                    frappe.db.sql_ddl(drop_sql)
                     frappe.db.commit()
                     self.log(f"Dropped index {index} from {table}")
                 else:
