@@ -112,6 +112,18 @@ class JustificationWindowAndVariablePassthroughTest(unittest.TestCase):
         (finding,) = self._scan(src)
         self.assertFalse(finding.has_justification)
 
+    def test_justification_exactly_ten_lines_above_counts(self):
+        src = "# Security: reviewed\n" + "x = 1\n" * 9 + "doc.save(ignore_permissions=True)\n"
+        (finding,) = self._scan(src)
+        self.assertEqual(11, finding.line_number)  # comment on line 1 = 10 lines above
+        self.assertTrue(finding.has_justification)
+
+    def test_justification_eleven_lines_above_does_not_count(self):
+        src = "# Security: reviewed\n" + "x = 1\n" * 10 + "doc.save(ignore_permissions=True)\n"
+        (finding,) = self._scan(src)
+        self.assertEqual(12, finding.line_number)  # comment on line 1 = 11 lines above
+        self.assertFalse(finding.has_justification)
+
     def test_literal_true_without_justification_still_flagged(self):
         (finding,) = self._scan("doc.save(ignore_permissions=True)\n")
         self.assertFalse(finding.has_justification)
