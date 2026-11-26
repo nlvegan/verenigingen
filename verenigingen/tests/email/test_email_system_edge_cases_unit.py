@@ -23,6 +23,7 @@ from frappe.exceptions import ValidationError, DoesNotExistError
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.services.communication.email_service import get_email_service, BoundedLRUCache
+from verenigingen.utils.operation_result import OperationResult
 from verenigingen.services.communication.compatibility import (
     send_sepa_email,
     send_member_notification,
@@ -158,7 +159,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
                     )
                     # Should return an OperationResult even for malformed context
                     self.assertIsNotNone(result)
-                    self.assertTrue(hasattr(result, "success"))
+                    self.assertIsInstance(result, OperationResult)
                 except Exception as e:
                     # Should not raise unhandled exceptions
                     self.fail(f"Unhandled exception for context {i}: {e}")
@@ -190,7 +191,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
 
         # Should handle template rendering errors gracefully
         self.assertIsNotNone(result)
-        self.assertTrue(hasattr(result, "success"))
+        self.assertIsInstance(result, OperationResult)
 
     def test_frappe_sendmail_failures(self):
         """Test handling of frappe.sendmail failures"""
@@ -225,7 +226,7 @@ class TestEmailSystemEdgeCases(EnhancedTestCase):
 
                     # Should handle sendmail failures gracefully
                     self.assertIsNotNone(result)
-                    self.assertTrue(hasattr(result, "success"))
+                    self.assertIsInstance(result, OperationResult)
 
     def test_database_connectivity_issues(self):
         """Test handling of database connectivity issues"""

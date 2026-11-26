@@ -28,6 +28,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import flt, getdate
 
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.payment.test_mollie_dues_reversal_booking import _DuesReversalFixture
 from verenigingen.tests.payment.test_unified_idempotency_manager import (
@@ -174,7 +175,7 @@ class TestDuesReversalDiscovery(_DuesReversalFixture):
         self.assertEqual(result["status"], "success", result)
         names = self._je("chargeback", chargeback_id)
         self.assertEqual(len(names), 1)
-        self.assertEqual(getdate(frappe.db.get_value("Journal Entry", names[0], "posting_date")), getdate())
+        assert_written_today(self, frappe.db.get_value("Journal Entry", names[0], "posting_date"))
 
     def test_a_refund_dated_outside_every_fiscal_year_is_booked_on_today(self):
         _assert_no_fiscal_year_covers_the_date(self)
@@ -184,7 +185,7 @@ class TestDuesReversalDiscovery(_DuesReversalFixture):
         self.assertEqual(result["status"], "success", result)
         names = self._je("refund", refund_id)
         self.assertEqual(len(names), 1)
-        self.assertEqual(getdate(frappe.db.get_value("Journal Entry", names[0], "posting_date")), getdate())
+        assert_written_today(self, frappe.db.get_value("Journal Entry", names[0], "posting_date"))
 
 
 class TestDonationReversalDiscovery(_RefundFixtureMixin, EnhancedTestCase):
@@ -263,4 +264,4 @@ class TestDonationReversalDiscovery(_RefundFixtureMixin, EnhancedTestCase):
         )
         booked = self._booked_artefacts_1806(refund_id)
         self.assertEqual(len(booked), 1, "the refund was not booked")
-        self.assertEqual(getdate(booked[0]["posting_date"]), getdate())
+        assert_written_today(self, booked[0]["posting_date"])

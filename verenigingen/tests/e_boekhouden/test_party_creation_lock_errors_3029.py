@@ -153,9 +153,8 @@ class TestPartyCreationLockErrors3029(_TxUtilsBase):
         )
 
     def test_resolve_party_by_relation_id_does_not_return_none_after_a_deadlock(self):
-        """SELECT-injected on purpose: with no existing party this method builds
-        ``EBoekhoudenPartyResolver(self.company)``, whose ``__init__`` takes no argument, so the
-        resolver (and any INSERT behind it) is unreachable today; only the lookup read is."""
+        """SELECT-injected: the lookup read. The resolver behind it is reached since #3063
+        (see test_party_extractor_resolver_call_3063)."""
         self.expectErrorLog("EBoekhoudenPartyExtractor")
         self._reaches_caller_3029(
             "`tabCustomer`",
