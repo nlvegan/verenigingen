@@ -114,6 +114,31 @@ class TestExecuteDebitInvoicePairing(MemberOwnershipProbeMixin, EnhancedTestCase
         self.assertIn("does not belong", result["error"])
         self._assert_nothing_sent_or_booked(self.invoice_b)
 
+    def test_pairing_is_refused_before_status_and_docstatus_checks(self):
+        """A mispaired call reports the pairing error whatever else is wrong.
+
+        Probe shortcut: the mandate status is set with `db.set_value` rather than
+        driven through a real cancellation; the invoice is a real never-submitted
+        draft. Pins that the guard runs BEFORE the status/docstatus/outstanding
+        checks, so a mispair is never masked by (or reported as) another refusal.
+        """
+        frappe.db.set_value("ING Checkout Mandate", self.mandate_a.name, "status", "Cancelled")
+        result = self.service.execute_debit_for_invoice(self.mandate_a.name, self.invoice_b.name)
+        self.assertIn("does not belong", result.get("error", ""), result)
+        frappe.db.set_value("ING Checkout Mandate", self.mandate_a.name, "status", "Active")
+        draft_b = self.sepa.create_test_sales_invoice(
+            customer=self.customer_b,
+            grand_total=42.0,
+            company=self.company,
+            posting_date=today(),
+            due_date=today(),
+            is_membership_invoice=1,
+        )
+        self.assertEqual(draft_b.docstatus, 0)
+        result = self.service.execute_debit_for_invoice(self.mandate_a.name, draft_b.name)
+        self.assertIn("does not belong", result.get("error", ""), result)
+        self._assert_nothing_sent_or_booked(draft_b)
+
     def test_mandate_without_member_is_refused(self):
         orphan = self._pairing_2819_mandate(None)
         result = self.service.execute_debit_for_invoice(orphan.name, self.invoice_a.name)

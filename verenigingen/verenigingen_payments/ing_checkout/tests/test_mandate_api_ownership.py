@@ -326,7 +326,7 @@ class TestExecuteDebitOwnership(_Base):
         self.assertEqual(result, {"success": True})
         self.assertEqual(len(recorder.calls), 1)
 
-    def test_staff_may_debit_another_members_invoice(self):
+    def test_staff_reaches_the_service_for_a_paired_mandate_and_invoice(self):
         recorder = self._ownership_1089_patch_service()
         staff = self._staff_user()
         with self.set_user(staff):
