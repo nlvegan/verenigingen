@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, now
+from frappe.utils import get_datetime, get_formatted_email
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
@@ -207,6 +207,13 @@ class EmailService(StatelessService):
                     errors=result.errors,
                 )
 
+        # A deadlock (1213) has rolled the whole transaction back: returning a failure result lets
+        # the caller carry on and commit a partial unit of work (#2996). Deadlock ONLY, not
+        # NON_RESUMABLE_DB_ERRORS: a lock timeout (1205) undoes just the failed statement, the
+        # transaction is intact, and ~100 best-effort callers already handle a failure result.
+        # Every `except Exception` on the send path below carries the same clause.
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             handle_service_error(
                 e,
@@ -253,28 +260,22 @@ class EmailService(StatelessService):
             stacklevel=2,
         )
         try:
-            # Map notification types to templates
+            # Map notification types to templates. Every value must be an Email Template a
+            # fixture ships (#2019): suspension/termination mail is sent by
+            # MemberStatusNotificationService, the SEPA/board entries had no caller.
             template_mapping = {
                 "member_approval": "membership_application_approved",
                 "chapter_membership_approval": "chapter_membership_approved",
-                "member_suspension": "Member Suspension Notification",
-                "member_termination": "Member Termination Notification",
                 "member_rejection": "membership_application_rejected",
                 "payment_failure": "Payment Failure Notification",
-                "sepa_mandate_created": "SEPA Mandate Created",
-                "board_member_added": "Board Member Added",
             }
 
             # Map notification types to notification keys for Verenigingen Email Configuration control
             key_mapping = {
                 "member_approval": "member_application_approved",
                 "chapter_membership_approval": "chapter_membership_approved",
-                "member_suspension": "member_suspended",
-                "member_termination": "member_terminated",
                 "member_rejection": "member_application_rejected",
                 "payment_failure": "payment_failure",
-                "sepa_mandate_created": "sepa_mandate_created",
-                "board_member_added": "board_member_added",
             }
 
             template_name = template_mapping.get(notification_type)
@@ -292,6 +293,8 @@ class EmailService(StatelessService):
                 **options,
             )
 
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             handle_service_error(
                 e,
@@ -357,6 +360,8 @@ class EmailService(StatelessService):
                             failed_count += 1
                         results.append(result)
 
+                    except frappe.QueryDeadlockError:
+                        raise
                     except Exception as e:
                         failed_count += 1
                         results.append({"success": False, "errors": [str(e)], "email_config": email_config})
@@ -375,6 +380,8 @@ class EmailService(StatelessService):
                 }
             )
 
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             handle_service_error(
                 e, "EmailService", "Send bulk emails", {"batch_size": len(email_batch)}, raise_error=False
@@ -408,7 +415,8 @@ class EmailService(StatelessService):
             reference_name: Optional document name for tracking
             notification_key: Optional key for Verenigingen Email Configuration lookup.
                              Enables per-notification settings and cooldown tracking.
-            **options: Additional options (delayed, etc.)
+            **options: Additional options (sender, cc, bcc, ...). ``delayed`` is not one of them: every
+                       send is queued (#2336).
 
         Returns:
             OperationResult with success status and details
@@ -428,6 +436,8 @@ class EmailService(StatelessService):
                 **options,
             )
 
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             handle_service_error(
                 e,
@@ -558,7 +568,8 @@ class EmailService(StatelessService):
                     "No active email account configured. Please configure an email account in Settings."
                 )
 
-            # Use frappe.sendmail with delayed=True (default) to queue for background processing
+            # EmailService ALWAYS queues (maintainer ruling on #2336): "delayed" is hardcoded True and is
+            # deliberately not in supported_keys, so a caller's delayed=False is ignored. Do not pass it.
             # This queues the email for background processing by RQ workers
             email_args = {
                 "recipients": recipients,
@@ -607,6 +618,8 @@ class EmailService(StatelessService):
                 }
             )
 
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             self.logger.error(
                 f"Email queueing failed: {str(e)}\n"
@@ -642,14 +655,14 @@ class EmailService(StatelessService):
         try:
             communication_data = {
                 "doctype": "Communication",
-                "communication_type": "Email",
+                "communication_type": "Communication",
                 "communication_medium": "Email",
                 "subject": subject,
                 "content": content,
                 "status": status,  # Use provided status (default "Queued")
                 "recipients": "\n".join(recipients),
                 "sent_or_received": "Sent",
-                "creation": now(),
+                "sender": get_formatted_email(frappe.session.user),
             }
 
             if reference_doctype and reference_name:
@@ -665,11 +678,13 @@ class EmailService(StatelessService):
             )
 
             if result.success:
-                return result.data.name
+                return result.doc_name
             else:
                 self.logger.warning(f"Failed to create communication record: {'; '.join(result.errors)}")
                 return None
 
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             self.logger.error(f"Communication record creation failed: {str(e)}")
             return None
@@ -727,6 +742,8 @@ class EmailService(StatelessService):
                     "reference_name": reference_name,
                 }
             )
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             self.logger.error(f"Frappe Notification delegation failed ({notification_name}): {str(e)}")
             return OperationResult.fail(f"Frappe Notification delegation failed: {str(e)}")
@@ -750,6 +767,8 @@ class EmailService(StatelessService):
             if config_service and notification_key:
                 for recipient in recipients:
                     config_service.record_send(notification_key, self._cooldown_id(recipient, cooldown_scope))
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             self.logger.debug(f"Cooldown recording failed: {e}")
 
@@ -801,6 +820,8 @@ class EmailService(StatelessService):
                 return template_data
             return None
 
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             self.logger.error(f"Template loading failed for {template_name}: {str(e)}")
             return None
@@ -841,6 +862,8 @@ class EmailService(StatelessService):
                 "brand_primary_color": getattr(brand, "primary_color", "#007bff"),
                 "brand_secondary_color": getattr(brand, "secondary_color", "#6c757d"),
             }
+        except frappe.QueryDeadlockError:
+            raise
         except Exception:
             return {
                 "organization_name": "",
@@ -858,6 +881,8 @@ class EmailService(StatelessService):
                 "default_sender": getattr(settings, "default_email_sender", "noreply@verenigingen.org"),
                 "contact_email": getattr(settings, "contact_email", ""),
             }
+        except frappe.QueryDeadlockError:
+            raise
         except Exception:
             return {
                 "organization_name": "",
@@ -872,6 +897,8 @@ class EmailService(StatelessService):
                 "Email Account", filters={"enable_outgoing": 1, "default_outgoing": 1}, limit=1
             )
             return len(active_accounts) > 0
+        except frappe.QueryDeadlockError:
+            raise
         except Exception as e:
             self.logger.error(f"Error checking email accounts: {str(e)}")
             return False

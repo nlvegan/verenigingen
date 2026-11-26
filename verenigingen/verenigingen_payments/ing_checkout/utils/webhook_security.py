@@ -51,6 +51,7 @@ from verenigingen.utils.webhook.logging import (
 from verenigingen.verenigingen_payments.utils.payment_services.logging_utils import (
     log_signature_validation_failed,
 )
+from verenigingen.verenigingen_payments.utils.webhook_ack import first_in_window, log_error_once
 
 # Cache for Pay.nl IP addresses (refreshed every hour)
 _paynl_ip_cache = {"ips": [], "last_updated": None}
@@ -263,10 +264,13 @@ def verify_ing_checkout_webhook(
             if verify_webhook_signature(payload, signature, secret):
                 signature_validated = True
             else:
-                log_signature_validation_failed(
-                    webhook_id="ing_checkout",
-                    expected_vs_actual={"signature_present": bool(signature)},
-                )
+                # Its Error Log row is written once an hour per caller IP, not per request: the
+                # endpoint is anonymous and any signature header reaches here (#2251, as #2136).
+                if first_in_window(f"ing_signature_failed:{get_client_ip()}"):
+                    log_signature_validation_failed(
+                        webhook_id="ing_checkout",
+                        expected_vs_actual={"signature_present": bool(signature)},
+                    )
                 raise INGCheckoutWebhookError(
                     message="Invalid webhook signature",
                     details={"reason": "Signature verification failed"},
@@ -288,13 +292,15 @@ def verify_ing_checkout_webhook(
     # 2. IP not in whitelist AND no signature configured
     # 3. IP not in whitelist AND signature verification failed
     remote_ip = get_request_ip() if not skip_ip_validation else "unknown"
-    frappe.log_error(
-        title="ING Checkout webhook rejected - no valid security layer",
-        message=(
+    # Once an hour per caller IP, not per rejected request: the endpoint is anonymous (#2251).
+    log_error_once(
+        "ING Checkout webhook rejected - no valid security layer",
+        (
             f"Webhook from IP {remote_ip} rejected. "
             "Neither IP validation nor signature verification passed. "
             "Configure ing_checkout_webhook_secret in Verenigingen Payments Settings."
         ),
+        get_client_ip(),
     )
     raise INGCheckoutWebhookError(
         message="Webhook security validation failed",

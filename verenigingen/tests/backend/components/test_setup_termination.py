@@ -46,6 +46,7 @@ class TestSetupTerminationRoles(FrappeTestCase):
     def test_role_setup_propagates_db_errors(self):
         """#1662: the step no longer swallows its own failure (it used to print and return None,
         so execute_after_install could not see it). A DB error must reach the caller."""
+        # Mock justified: fault injection: a DB error must propagate out of the role setup, no real DB failure can be staged
         with patch.object(frappe.db, "exists", side_effect=RuntimeError("boom")):
             with self.assertRaisesRegex(RuntimeError, "boom"):
                 setup_mod.setup_termination_roles_and_permissions()
@@ -224,31 +225,58 @@ class TestRunTerminationDiagnostics(FrappeTestCase):
         self.assertIn("diagnostics_passed", result)
         self.assertIsInstance(result["diagnostics_passed"], bool)
 
-    def test_diagnostics_reflect_real_workflow_absence(self):
-        """The Membership Termination Workflow is deliberately NOT built, even
-        after running the full integration (#1640). The real doctypes and admin
-        role ARE present. The diagnostics walk every check; because at least one
-        workflow is missing, diagnostics_passed must be False -- and the
-        function must still return a well-formed success dict."""
+    def test_diagnostics_pass_when_termination_workflows_are_absent_by_design(self):
+        """#2790: no termination Workflow is built (#1640, #1611); the service layer
+        owns termination status. The diagnostics must therefore NOT demand one: with the
+        real doctypes and admin role present and no Workflow of either name, they pass.
+
+        This replaces test_diagnostics_reflect_real_workflow_absence, which asserted the
+        opposite and so encoded the false failure as expected behaviour. Evidence it had a
+        false premise: nothing creates either Workflow (grep of code, fixtures, patches,
+        hooks), and workflow_setup.py documents that none is built.
+        """
         setup_mod.setup_termination_system_integration()
         setup_mod.setup_termination_workflows_and_templates()
 
-        # Sanity: the prerequisites that DO exist, so the False below is
-        # attributable to the missing workflow and not to missing doctypes/role.
         self.assertTrue(frappe.db.exists("DocType", "Membership Termination Request"))
         self.assertTrue(frappe.db.exists("DocType", "Expulsion Report Entry"))
         self.assertTrue(frappe.db.exists("Role", Roles.VERENIGINGEN_ADMIN))
-        self.assertFalse(
-            frappe.db.exists("Workflow", "Membership Termination Workflow"),
-            "The termination workflow must not be built (#1640)",
-        )
+        # Control: the absence is real, so a check that still demanded them would fail.
+        for name in ("Membership Termination Workflow", "Termination Appeals Workflow"):
+            self.assertFalse(frappe.db.exists("Workflow", name), name)
 
         result = setup_mod.run_termination_diagnostics()
         self.assertTrue(result["success"])
-        self.assertFalse(
+        self.assertTrue(
             result["diagnostics_passed"],
-            "Diagnostics must report failure while the termination workflow is absent",
+            "A healthy site must pass: no termination Workflow is expected (#2790)",
         )
+
+    def test_diagnostics_fail_when_a_required_doctype_is_missing(self):
+        """A missing required doctype must fail the diagnostics (#2790 review N1).
+        Only the lookup is made to report absence, for ONE doctype; no DocType is deleted.
+        Control: the same call with the real lookup passes (see the healthy-site test)."""
+        real_exists = frappe.db.exists
+
+        def selective_exists(doctype, name=None, *args, **kwargs):
+            if doctype == "DocType" and name == "Expulsion Report Entry":
+                return False
+            return real_exists(doctype, name, *args, **kwargs)
+
+        self.assertTrue(real_exists("DocType", "Expulsion Report Entry"))
+        # Mock justified: fault injection: one DocType reported absent, every other lookup reaches the real database
+        with patch.object(frappe.db, "exists", side_effect=selective_exists):
+            result = setup_mod.run_termination_diagnostics()
+        self.assertTrue(result["success"])
+        self.assertFalse(result["diagnostics_passed"])
+
+    def test_status_endpoint_does_not_report_a_workflows_flag(self):
+        """#2790: check_termination_system_status must not expose a workflows_exist
+        flag that is False on every healthy site (nothing reads it)."""
+        result = setup_mod.check_termination_system_status()
+        self.assertTrue(result["success"], result)
+        self.assertNotIn("workflows_exist", result["status"])
+        self.assertTrue(result["status"]["roles_exist"])
 
     def test_diagnostics_pass_when_all_entities_present(self):
         """Covers the all-good (diagnostics_passed True) branch by forcing

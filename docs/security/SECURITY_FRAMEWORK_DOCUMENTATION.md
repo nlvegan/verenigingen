@@ -66,7 +66,7 @@ performed. Behavior is unchanged: `has_member_role`, `has_volunteer_role` and
 
 Coverage lives in `verenigingen/tests/integration/test_security_framework_integration.py`,
 which now tests the hooks rather than the wrapper: that they fail closed on malformed users,
-that `on_session_creation` never raises, and that a nonexistent user resolves to no
+and that a nonexistent user resolves to no
 privileged role.
 
 ## Still current

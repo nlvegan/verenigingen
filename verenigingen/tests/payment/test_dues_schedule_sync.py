@@ -192,45 +192,6 @@ class TestDuesScheduleSync(EnhancedTestCase):
 
         # EnhancedTestCase handles automatic rollback, no manual cleanup needed
 
-    def test_billing_period_shows_next_period(self):
-        """Test that billing period dates show the NEXT period to be invoiced"""
-        # Create a monthly schedule
-        schedule = frappe.get_doc(
-            {
-                "doctype": "Membership Dues Schedule",
-                "schedule_name": f"Test-{self.member.name}-Sync-4",
-                "member": self.member.name,
-                "membership_type": self.membership_type.name,
-                "status": "Active",
-                "dues_rate": 100,
-                "billing_frequency": "Monthly",
-                "currency": "EUR",
-                "next_invoice_date": today(),
-                "test_mode": 1,
-            }
-        ).insert()
-
-        # Generate an invoice
-        schedule.generate_invoice()
-        schedule.reload()
-
-        # The stored next_billing_period_* fields were removed; the billing
-        # period is now computed on demand via calculate_billing_period().
-        calculated_start, calculated_end = schedule.calculate_billing_period(schedule.next_invoice_date)
-        self.assertIsNotNone(calculated_start)
-        self.assertIsNotNone(calculated_end)
-        self.assertLessEqual(getdate(calculated_start), getdate(calculated_end))
-
-        # For monthly billing, the period should be a full month
-        if schedule.billing_frequency == "Monthly":
-            from frappe.utils import date_diff
-
-            days_in_period = date_diff(calculated_end, calculated_start) + 1
-            self.assertGreaterEqual(days_in_period, 28)
-            self.assertLessEqual(days_in_period, 31)
-
-        # EnhancedTestCase handles automatic rollback, no manual cleanup needed
-
     def test_race_condition_prevention(self):
         """Test that concurrent schedule updates don't cause race conditions"""
         # This test simulates what the FOR UPDATE lock prevents

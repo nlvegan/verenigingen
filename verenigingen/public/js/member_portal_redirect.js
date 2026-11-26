@@ -95,6 +95,12 @@ function checkMemberPortalRedirect() {
 			// Use API to check if user should be redirected
 			frappe.call({
 				method: 'verenigingen.auth_hooks.get_member_home_page',
+				// `silent` suppresses the server-message dialog for a failed lookup (#2207). Frappe's own
+				// 403 handler still opens its dialog; the endpoint no longer 403s a logged-in user.
+				// A Member-role user with no linked Member is sent to /member_portal like any member:
+				// that page renders the "not linked to a membership" banner. /member_portal is not in
+				// redirectPaths, so this cannot loop.
+				silent: true,
 				callback(r) {
 					if (r.message && r.message === '/member_portal') {
 						// Redirect to member portal with a small delay
@@ -102,6 +108,9 @@ function checkMemberPortalRedirect() {
 							window.location.href = '/member_portal';
 						}, 500);
 					}
+				},
+				error() {
+					// Intentionally quiet: this is a convenience redirect, not a user action.
 				}
 			});
 		}

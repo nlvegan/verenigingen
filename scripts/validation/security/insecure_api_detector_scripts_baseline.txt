@@ -27,7 +27,6 @@ scripts/debug/system_status_check.py::check_system_status::missing_security_deco
 scripts/deployment/validate_production_schema.py::validate_production_data::missing_security_decorator
 scripts/deployment/validate_production_schema.py::validate_production_schema::missing_security_decorator
 scripts/eboekhouden/simple_stock_test.py::test_stock_account_handling::missing_security_decorator
-scripts/member_performance_analyzer.py::analyze_member_performance::missing_security_decorator
 scripts/membership_dues_poc.py::test_dues_system_poc::missing_security_decorator
 scripts/migration/create_required_items.py::create_eboekhouden_import_item::missing_security_decorator
 scripts/migration/link_ledger_to_accounts.py::check_mapping_status::missing_security_decorator

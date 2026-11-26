@@ -35,6 +35,7 @@ is the one non-stub executor (it sets the real terminal "requires_manual_action"
 """
 
 import unittest
+import unittest.mock
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -589,6 +590,152 @@ class TestSEPARollbackManagerIntegration(EnhancedTestCase):
         self.assertEqual(res["cancelled_usages"], [])
         # Falls back to the batch rows' mandate references.
         self.assertTrue(res["affected_mandates"])
+
+
+class TestRollbackResetsCollectedBatchRows3021(EnhancedTestCase):
+    """#3021: rows driven Successful by the REAL mark_batch_invoices_as_paid must
+    not stay Successful after the real initiate_sepa_batch_rollback un-collects them.
+    Ruling: Pending (un-collected), only affected rows that were Successful/Processed."""
+
+    OPS_TABLES = (
+        "tabSEPA_Compensation_Transaction",
+        "tabSEPA_Rollback_Audit",
+        "tabSEPA_Rollback_Operation",
+    )
+
+    def setUp(self):
+        super().setUp()
+        from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        get_eur_test_company()
+        self.expectErrorLog("Fiscal Year Auto-Creation Error")
+        self._factory3021 = SEPATestDataFactory(seed=5150, use_faker=True)
+        self._op_ids3021 = []
+        self._batches3021 = []
+
+    def tearDown(self):
+        for op_id in self._op_ids3021:
+            for table in self.OPS_TABLES:
+                frappe.db.sql(f"DELETE FROM `{table}` WHERE operation_id = %s", (op_id,))
+        for name in reversed(self._batches3021):
+            try:
+                frappe.delete_doc("Direct Debit Batch", name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+        super().tearDown()
+
+    def _collected_batch3021(self):
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        batch = self._factory3021.create_test_direct_debit_batch(invoice_count=2)
+        self._batches3021.append(batch.name)
+        batch.sepa_file_generated = 1
+        batch.save()
+        batch.submit()
+        self.assertEqual(batch_processing_service.mark_batch_invoices_as_paid(batch), 2)
+        return batch
+
+    def _rollback3021(self, batch, scope, affected=None, expect_success=True):
+        from verenigingen.verenigingen_payments.utils.sepa_rollback_manager import (
+            initiate_sepa_batch_rollback,
+        )
+
+        res = initiate_sepa_batch_rollback(batch.name, "technical_error", scope, affected)
+        self._op_ids3021.append(res.get("operation_id"))
+        self.assertEqual(res["success"], expect_success, res)
+        return res
+
+    def _rows3021(self, batch):
+        return {
+            r.invoice: r
+            for r in frappe.get_all(
+                "Direct Debit Batch Invoice",
+                filters={"parent": batch.name},
+                fields=["invoice", "status", "result_code", "result_message"],
+            )
+        }
+
+    def test_full_rollback_resets_every_collected_row(self):
+        batch = self._collected_batch3021()
+        self._rollback3021(batch, "full_batch")
+        rows = self._rows3021(batch)
+        self.assertEqual(len(rows), 2)
+        for row in rows.values():
+            self.assertEqual(row.status, "Pending")
+            self.assertFalse(row.result_code)
+            self.assertFalse(row.result_message)
+
+    def test_partial_rollback_flips_only_the_affected_row(self):
+        batch = self._collected_batch3021()
+        affected, untouched = [r.invoice for r in batch.invoices]
+        self._rollback3021(batch, "partial_batch", affected)
+        rows = self._rows3021(batch)
+        self.assertEqual(rows[affected].status, "Pending")
+        self.assertEqual(rows[untouched].status, "Successful")
+        self.assertEqual(rows[untouched].result_code, "PDNG")
+
+    def test_other_batchs_row_for_the_same_invoice_is_untouched(self):
+        """PROBE SHORTCUT (declared): batch B's row is re-pointed at batch A's invoice with
+        set_value, because the app refuses to batch one invoice twice. B's row went
+        Successful through the real mark-paid flow first."""
+        batch = self._collected_batch3021()
+        other = self._collected_batch3021()
+        affected = batch.invoices[0].invoice
+        other_row = other.invoices[0].name
+        frappe.db.set_value("Direct Debit Batch Invoice", other_row, "invoice", affected)
+        self._rollback3021(batch, "partial_batch", affected)
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch Invoice", other_row, "status"), "Successful")
+
+    def test_processed_row_is_reset_to_pending(self):
+        """PROBE SHORTCUT (declared): no app flow writes Processed to a row, so it is set
+        by hand to cover the status filter's second value."""
+        batch = self._collected_batch3021()
+        processed = batch.invoices[0].name
+        frappe.db.set_value("Direct Debit Batch Invoice", processed, "status", "Processed")
+        self._rollback3021(batch, "full_batch")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch Invoice", processed, "status"), "Pending")
+
+    def test_row_stays_successful_when_its_payment_entry_cannot_be_cancelled(self):
+        from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
+
+        batch = self._collected_batch3021()
+        broken, fine = [r.invoice for r in batch.invoices]
+        broken_pe = frappe.db.get_value(
+            "Payment Entry Reference", {"reference_name": broken, "docstatus": 1}, "parent"
+        )
+        real_cancel = PaymentEntry.cancel
+
+        def cancel_probe(doc, *args, **kwargs):
+            if doc.name == broken_pe:
+                raise frappe.ValidationError("probe: cancel refused")
+            return real_cancel(doc, *args, **kwargs)
+
+        # Mock justified: injects a Payment Entry cancel failure for ONE invoice (the real
+        # cancel otherwise); the rollback and row writes under test run for real.
+        with unittest.mock.patch.object(PaymentEntry, "cancel", cancel_probe):
+            res = self._rollback3021(batch, "full_batch", expect_success=False)
+        self.assertIn(broken, str(res))
+        # the "PE stays live" half: the refused cancel left the Payment Entry submitted
+        self.assertEqual(frappe.db.get_value("Payment Entry", broken_pe, "docstatus"), 1)
+        rows = self._rows3021(batch)
+        self.assertEqual(rows[broken].status, "Successful")
+        self.assertEqual(rows[fine].status, "Pending")
+
+    def test_failed_row_is_left_alone(self):
+        batch = self._collected_batch3021()
+        failed, collected = [r.name for r in batch.invoices]
+        # control row: a bank-returned (Failed) row with its own reason must survive untouched
+        frappe.db.set_value(
+            "Direct Debit Batch Invoice", failed, {"status": "Failed", "result_code": "AC04"}
+        )
+        self._rollback3021(batch, "full_batch")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch Invoice", failed, "status"), "Failed")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch Invoice", failed, "result_code"), "AC04")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch Invoice", collected, "status"), "Pending")
 
 
 # ---------------------------------------------------------------------------

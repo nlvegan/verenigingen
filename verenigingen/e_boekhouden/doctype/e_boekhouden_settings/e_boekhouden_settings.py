@@ -843,7 +843,7 @@ def preview_cost_center_creation():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def parse_groups_and_suggest_type_mappings(merge_mode=False):
+def parse_groups_and_suggest_type_mappings(merge_mode: bool = False):
     """Parse account group mappings and suggest ERPNext account types.
 
     Reads the balance_sheet_group_mappings and pl_group_mappings text fields
@@ -868,10 +868,8 @@ def parse_groups_and_suggest_type_mappings(merge_mode=False):
     import re
 
     try:
-        # Convert string to boolean if needed (from JS)
-        if isinstance(merge_mode, str):
-            merge_mode = merge_mode.lower() == "true"
-
+        # merge_mode is coerced by Frappe from the ``bool`` annotation ("1"/"true" -> truthy,
+        # "0"/"false" -> falsy, anything else refused); a hand-rolled parse read "1" as False (#2853).
         settings = frappe.get_single("E-Boekhouden Settings")
 
         balance_sheet_text = settings.get("balance_sheet_group_mappings", "") or ""
@@ -1117,7 +1115,7 @@ def _suggest_account_type_for_group(code, name, is_balance_sheet=True):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def reclassify_accounts_by_group_mappings(dry_run=True):
+def reclassify_accounts_by_group_mappings(dry_run: bool = True):
     """Re-classify existing ERPNext accounts based on configured group type mappings.
 
     Thin wrapper that delegates to account_hierarchy_service.
@@ -1131,7 +1129,7 @@ def reclassify_accounts_by_group_mappings(dry_run=True):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def reorganize_account_hierarchy(dry_run=True):
+def reorganize_account_hierarchy(dry_run: bool = True):
     """Reorganize existing accounts into proper group hierarchy based on group_type_mappings.
 
     Thin wrapper that delegates to account_hierarchy_service.

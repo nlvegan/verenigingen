@@ -17,6 +17,8 @@ from frappe.utils import flt, getdate, nowdate
 from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
 from verenigingen.e_boekhouden.utils.security_helper import atomic_migration_operation, validate_and_insert
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
+from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 from verenigingen.verenigingen_payments.utils.bank_transaction_status import RECONCILED, record_pool_outcome
 
 # Lock for thread-safe monkey patching of Payment Entry during floating point fix
@@ -93,6 +95,7 @@ class PaymentEntryHandler:
                 with atomic_migration_operation("payment_processing"):
                     return self._process_payment_mutation_internal(mutation)
             except Exception as e:
+                reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
                 error_str = str(e)
 
                 # Check if this is a database lock timeout that we should retry
@@ -810,6 +813,7 @@ class PaymentEntryHandler:
 
         # Add detailed remarks
         pe.remarks = self._generate_remarks(mutation, bank_account, party)
+        pe.custom_remarks = 1  # else ERPNext's set_remarks regenerates it on validate (#3088)
 
         # CRITICAL: Manually set received_amount = paid_amount for same-currency transactions
         # We CANNOT call set_amounts() here because validate() will call it again (causing doubling)
@@ -1518,6 +1522,7 @@ class PaymentEntryHandler:
                 "currency": "EUR",  # E-Boekhouden is always EUR
                 "description": bt_description,  # Raw SEPA description
                 "reference_number": bt_reference,  # Transaction reference for matching
+                SYSTEM_ISSUED_FIELDNAME: 1,  # EB-<mutation id>, minted here (#1349)
                 "party_type": payment_entry.party_type if payment_entry.party else None,
                 "party": payment_entry.party if payment_entry.party else None,
             }

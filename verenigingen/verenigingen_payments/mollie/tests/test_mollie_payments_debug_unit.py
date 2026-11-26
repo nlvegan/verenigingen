@@ -143,7 +143,8 @@ class TestListSubscriptions(EnhancedTestCase):
             mpd.list_subscriptions(customer_id="cst_x", limit="abc", active_only="1")
             args, _ = svc.list_subscriptions.call_args
             self.assertEqual(args[1], 50)
-            self.assertIs(args[2], True)
+            # Frappe's ``bool`` coercion turns "1" into 1 (#2952), not the literal True the old parse gave.
+            self.assertEqual(args[2], True)
 
 
 class TestBatchProcessDuesPayments(EnhancedTestCase):

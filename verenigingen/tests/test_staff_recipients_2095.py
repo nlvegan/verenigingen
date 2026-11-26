@@ -37,6 +37,7 @@ from verenigingen.tests.payment.test_sepa_literal_recipients import (
 )
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.operation_result import OperationResult
 
 CONFIG = "Verenigingen Email Configuration"
 SOURCE = "verenigingen.services.communication.email_service.get_email_service"
@@ -73,9 +74,9 @@ class _Mail:
 
     def __init__(self):
         self.service = MagicMock(name="EmailService")
-        self.service.send_email.return_value = {"success": True}
-        self.service.send_templated_email.return_value = {"success": True}
-        self.service.send_simple_email.return_value = MagicMock(success=True, error_message=None)
+        # The real result type: callers read .success / .skip_reason / .error_message (#2816).
+        for name in ("send_email", "send_templated_email", "send_simple_email"):
+            getattr(self.service, name).return_value = OperationResult.ok({})
 
     @property
     def recipients(self):
@@ -133,6 +134,10 @@ class TestStaffRecipients2095(EnhancedTestCase):
     @contextmanager
     def mail(self):
         mail = _Mail()
+        for module in MODULES:
+            # Import BEFORE patching SOURCE: a module first imported under that patch binds the mock
+            # as its get_email_service, and the per-module patch below would restore the mock (#2437).
+            importlib.import_module(module)
         with ExitStack() as stack:
             stack.enter_context(patch(SOURCE, return_value=mail.service))
             for module in MODULES:  # modules that bind the factory at import time
@@ -156,6 +161,43 @@ class TestStaffRecipients2095(EnhancedTestCase):
         self.assertNotIn(self.holder.split("@")[0], recipients)  # emails, not user names
         self.assertTrue(all("@" in r for r in recipients), recipients)
         self.audience(recipients, reaches, misses)
+
+    def test_mail_leaves_no_mock_behind_in_a_module_first_imported_under_it(self):
+        """#2437: a module first imported INSIDE mail() binds the patched factory at import time.
+
+        patch(SOURCE) is entered before the per-module patches, and a per-module patch imports its
+        module on entry. A module nobody had imported yet therefore ran ``from email_service import
+        get_email_service`` against the mock, patch saved THAT as the original, and restored it on
+        exit: the mock stayed for the rest of the process and silenced every later test of the module
+        (shard 9 of the queue build 42926880094).
+        """
+        import sys
+
+        saved = {m: sys.modules.pop(m) for m in MODULES if m in sys.modules}
+        parent_attrs = {}
+        for m in saved:
+            parent_name, _, leaf = m.rpartition(".")
+            parent_attrs[m] = (sys.modules[parent_name], leaf, getattr(sys.modules[parent_name], leaf, None))
+            if hasattr(sys.modules[parent_name], leaf):
+                delattr(sys.modules[parent_name], leaf)
+        try:
+            with self.mail():
+                pass
+            # Every loaded module, not just MODULES: any binder first imported under the patch is poisoned.
+            leaked = sorted(
+                name
+                for name, mod in list(sys.modules.items())
+                if mod is not None
+                and isinstance(getattr(mod, "__dict__", {}).get("get_email_service"), MagicMock)
+            )
+        finally:
+            for m in MODULES:
+                sys.modules.pop(m, None)
+            for m, mod in saved.items():
+                sys.modules[m] = mod
+                parent, leaf, attr = parent_attrs[m]
+                setattr(parent, leaf, attr)
+        self.assertEqual(leaked, [], "mail() left a MagicMock as get_email_service in these modules")
 
     def _membership_and_member(self):
         token = frappe.generate_hash(length=8)
@@ -238,11 +280,20 @@ class TestStaffRecipients2095(EnhancedTestCase):
         request = frappe._dict(
             name="MCR-2095", subject="s", member_name="m", assigned_to=None, request_date="2026-01-01", urgency="High"
         )
+        missing = None
         with self.mail() as mail:
             try:
                 cra.escalate_contact_request(request, 3)
-            except frappe.DoesNotExistError:
-                pass  # the stand-in request has no row for the escalation NOTE, written after the mail went out
+            except frappe.DoesNotExistError as e:
+                # the stand-in request has no row for the escalation NOTE, written after the mail went out
+                missing = str(e)
+        # The caller must see a real SENT result: a stub whose skip_reason is truthy makes it return
+        # before the note, and the audience below would then be checked on a send it believed skipped (#2816).
+        # Not any DoesNotExistError: only the missing stand-in request proves the note step was reached.
+        self.assertTrue(
+            missing and "Member Contact Request" in missing and "MCR-2095" in missing,
+            f"escalate_contact_request did not reach the note step for the stand-in request: {missing!r}",
+        )
         self.check(mail, reaches=("va_only",), misses=("sm_only", "fm_only", "staff_only"))
 
     def test_expense_approver_fallback_reaches_every_holder(self):

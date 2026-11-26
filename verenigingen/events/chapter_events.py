@@ -111,6 +111,17 @@ def emit_chapter_settings_changed(chapter_name, settings_data):
         )
 
 
+# Keys that make each job id unique per changed row, by event. Passed to emit_event once.
+# membership: `action` is redundant for within-save uniqueness (joins and leaves are
+# disjoint set differences); kept to mirror team events (#2144).
+# board: `role`/`old_role` are part of the key because one volunteer can gain or lose two
+# roles in one save, with the same action each time.
+_JOB_ID_KEYS = {
+    "chapter_membership_changed": ("member", "action"),
+    "chapter_board_changed": ("volunteer", "action", "role", "old_role"),
+}
+
+
 def _emit_chapter_event(event_name, event_data):
     """Internal function to emit chapter events with background job handling."""
     from verenigingen.events.event_emitter import emit_event
@@ -125,11 +136,10 @@ def _emit_chapter_event(event_name, event_data):
         # Membership jobs mail and change roles for the member, so they must not run
         # ahead of (or without) the commit that made the member part of the chapter (#2137).
         after_commit=event_name == "chapter_membership_changed",
-        # One job per joined/left member within a save; without these the jobs share an id
-        # and, deferred to commit, the last overwrites the others (#2203).
-        # `action` is redundant for within-save uniqueness (joins and leaves are disjoint set
-        # differences); kept to mirror team events (#2144).
-        job_id_keys=("member", "action") if event_name == "chapter_membership_changed" else (),
+        # One job per changed row within a save. Without these every member/volunteer shares
+        # one id per subscriber and, deferred to commit or deduplicated, all but one job is
+        # lost (#2203 membership, #2250 board).
+        job_id_keys=_JOB_ID_KEYS.get(event_name, ()),
     )
 
 

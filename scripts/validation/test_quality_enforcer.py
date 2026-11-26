@@ -292,11 +292,12 @@ def _patch_targets(content: str) -> List[Tuple[int, str]]:
             # on the attribute still matches.
             parts = []
             if node.args:
-                first = node.args[0]
-                parts.append(
-                    first.id if isinstance(first, ast.Name)
-                    else first.attr if isinstance(first, ast.Attribute) else ""
-                )
+                # The FULL dotted chain, not its last segment (#1493):
+                # patch.object(frappe.db, "exists") must give "frappe.db.exists",
+                # or every 3-segment `frappe.db.<m>` rule misses it. A suffix-
+                # anchored rule still matches a longer prefix, so a one-segment
+                # base (SomeClass) resolves exactly as before.
+                parts.append(_dotted_name(node.args[0]))
             if len(node.args) > 1:
                 parts.append(_target_of(node.args[1]))
             target = ".".join(x for x in parts if x)
@@ -324,6 +325,32 @@ def _dotted_name(node) -> str:
     return ""
 
 
+def _db_mock_justifications(content: str) -> dict:
+    """line -> reason for every `# Mock justified: <reason>` comment that may
+    exempt a Tier 2 DATABASE MOCK site (#1493).
+
+    Stricter than the Tier 3 window (#1601: a comment within 3 lines of an
+    unrelated reassignment exempted it). Here a comment counts only for the
+    line it is ON (trailing) or, when it is a comment-only line, for the line
+    IMMEDIATELY BELOW it, and only with a NON-EMPTY reason. Real COMMENT
+    tokens only, so the text inside a string never counts.
+    """
+    out = {}
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(content).readline):
+            if tok.type != tokenize.COMMENT:
+                continue
+            m = re.match(r"#\s*Mock justified:\s*(\S.*)$", tok.string)
+            if not m:
+                continue
+            row = tok.start[0]
+            comment_only = tok.line.strip().startswith("#")
+            out[row + 1 if comment_only else row] = m.group(1).strip()
+    except (tokenize.TokenError, SyntaxError, IndentationError):
+        return {}
+    return out
+
+
 def _reassign_targets(content: str) -> List[Tuple[int, str]]:
     """Every direct `frappe.<...> = <value>` reassignment, as (line, dotted target).
 
@@ -333,15 +360,15 @@ def _reassign_targets(content: str) -> List[Tuple[int, str]]:
     idiom was structurally invisible to every rule built on it, including the
     database-mock and business-logic-mock bans.
 
-    Restricted to attribute chains rooted at the literal name `frappe` -- the
-    same base every pattern list in this file already keys its targets on --
-    so `self.x = y`, `doc.field = v`, a local variable, or any other object's
-    attribute is never a match; only a bare `import frappe as alias` (rare; one
-    call site app-wide, grepped) escapes this. A tuple/multi-target assignment
-    (`a = b = frappe.get_all`) reassigns `frappe.get_all`'s *value* to `a`/`b`,
-    not the other way around, so only `ast.Attribute` targets are considered --
-    an `ast.Name` target is a local binding, never a monkeypatch of `frappe`
-    itself.
+    Restricted to attribute chains rooted at `frappe` (or a local alias of it or of
+    a frappe submodule, `_frappe_root_aliases`) -- the same base every pattern list
+    in this file keys its targets on -- so `self.x = y`, `doc.field = v`, a local
+    variable, or any other object's attribute is never a match. An `ast.Name`
+    target is a local binding, never a monkeypatch of `frappe` itself.
+
+    #1576 closed seven further shapes: aliased roots (`from frappe import db as
+    fdb`, `import frappe as f`), `setattr(...)`, `monkeypatch.setattr(...)`,
+    annotated assignment, and tuple/list targets.
     """
     out: List[Tuple[int, str]] = []
     try:
@@ -349,17 +376,101 @@ def _reassign_targets(content: str) -> List[Tuple[int, str]]:
     except (SyntaxError, ValueError):
         return out
 
+    roots = _frappe_root_aliases(tree)
+
+    def resolve(node) -> str:
+        """Dotted name with an aliased frappe root expanded, or "" if not frappe."""
+        dotted = _dotted_name(node)
+        if not dotted:
+            return ""
+        head, _, rest = dotted.partition(".")
+        if head not in roots:
+            return ""
+        return roots[head] + ("." + rest if rest else "")
+
+    def attribute_targets(target):
+        # `a.x, b.y = ...` / `[a.x, b.y] = ...` / `*a.x, = ...` (#1576)
+        if isinstance(target, (ast.Tuple, ast.List)):
+            for elt in target.elts:
+                yield from attribute_targets(elt)
+        elif isinstance(target, ast.Starred):
+            yield from attribute_targets(target.value)
+        elif isinstance(target, ast.Attribute):
+            yield target
+
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            # `frappe.get_all: object = x`; a bare annotation assigns nothing.
+            targets = [node.target]
+        elif isinstance(node, ast.Call):
+            target = _setattr_target(node, resolve)
+            if target:
+                out.append((node.lineno, target))
             continue
-        for target in node.targets:
-            if not isinstance(target, ast.Attribute):
-                continue
-            dotted = _dotted_name(target)
-            if dotted and dotted.split(".", 1)[0] == "frappe":
-                out.append((node.lineno, dotted))
+        else:
+            continue
+        for top in targets:
+            for target in attribute_targets(top):
+                dotted = resolve(target)
+                if dotted:
+                    out.append((node.lineno, dotted))
 
     return out
+
+
+def _frappe_root_aliases(tree) -> Dict[str, str]:
+    """Local names that stand for the frappe module or one of its submodules.
+
+    `frappe` itself always; `import frappe as f` -> f; `from frappe import db as
+    fdb` -> fdb is `frappe.db` (#1576). Mirrors `_patch_alias_names`. Scope-blind
+    on purpose and OVER-APPROXIMATING: an alias bound anywhere in the file counts
+    everywhere, even where the same name is rebound locally (`db = FakeConn()`).
+    That costs an occasional justifiable false positive; exempting rebound names
+    would instead let one `db = None` anywhere opt a whole file out of the guard.
+    """
+    roots = {"frappe": "frappe"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == "frappe" or a.name.startswith("frappe."):
+                    if a.asname:
+                        roots[a.asname] = a.name
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            if node.module == "frappe" or node.module.startswith("frappe."):
+                for a in node.names:
+                    if a.name != "*":
+                        roots[a.asname or a.name] = f"{node.module}.{a.name}"
+    return roots
+
+
+def _setattr_target(call, resolve) -> str:
+    """Dotted target of `setattr(base, "attr", v)` / `monkeypatch.setattr(...)`, or "".
+
+    `monkeypatch.setattr` also accepts a single dotted-string target
+    (`monkeypatch.setattr("frappe.get_all", v)`). A non-literal attribute name or
+    a base that is not frappe resolves to "" (a false negative, not a false positive).
+    """
+    func = call.func
+    is_builtin = isinstance(func, ast.Name) and func.id == "setattr"
+    is_pytest = (
+        isinstance(func, ast.Attribute) and func.attr == "setattr"
+        and _dotted_name(func.value) == "monkeypatch"
+    )
+    if not (is_builtin or is_pytest) or not call.args:
+        return ""
+    first = call.args[0]
+    if is_pytest and isinstance(first, ast.Constant) and isinstance(first.value, str):
+        head, _, rest = first.value.partition(".")
+        return first.value if head == "frappe" and rest else ""
+    if len(call.args) < 2:
+        return ""
+    attr = call.args[1]
+    base = resolve(first)
+    if base and isinstance(attr, ast.Constant) and isinstance(attr.value, str):
+        return f"{base}.{attr.value}"
+    return ""
 
 
 def counts_of(findings) -> Dict[str, int]:
@@ -405,6 +516,15 @@ def write_baseline(path: Path, counts: Dict[str, int]) -> None:
         "# GROW is a change to the enforcer's own detection rules, which must land in",
         "# the same commit as the regeneration.",
         "#",
+        "# LOG (#1493, a detection-rule change): `_patch_targets` kept only the last segment",
+        "# of a `patch.object` base, so `patch.object(frappe.db, \"sql\")` was invisible to",
+        "# every 3-segment `frappe.db.<m>` rule. Fixing it surfaced 75 DATABASE MOCK findings:",
+        "# 31 are justified in place with the per-site `# Mock justified: <reason>` marker",
+        "# (Tier 2 DATABASE MOCK only; fault injection and call-through spies; ON the patch",
+        "# line or the line directly above, non-empty reason), and the other 44 findings",
+        "# (33 keys: return-value fakes, whole-fake suites) are listed below.",
+        "# Totals: 211 -> 255 findings, 192 -> 225 keys.",
+        "#",
         "# UNDERSTATES the real debt: _check_all_mocks_blocked still honours an",
         "# unpoliced escape hatch (`# Mock justified:` / `# External service` /",
         "# `# Infrastructure` within 3 lines), used 361 times across 77 files. Whatever",
@@ -429,6 +549,10 @@ class TestQualityEnforcer:
     def __init__(self):
         self.errors = []
         self.warnings = []
+        # #2815: files the scan could not read or parse. Every AST-based check
+        # (patch targets, reassignments, scopes) silently yields nothing for such a
+        # file, so main() must fail on it rather than read it as clean.
+        self.unscannable = []
         # Structured twin of self.errors, carrying the baseline key. self.errors
         # stays the human-readable channel; nothing downstream parses it.
         self.findings: List[Finding] = []
@@ -552,6 +676,8 @@ class TestQualityEnforcer:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
+            self._record_if_unparseable(file_path, content)
+
             # Resolved once per file: both are needed by every check below.
             self._scopes = _scope_map(content)
             self._protected = _protected_spans(content)
@@ -588,7 +714,16 @@ class TestQualityEnforcer:
 
         except Exception as e:
             self.errors.append(f"{file_path}: Error reading file - {str(e)}")
+            self.unscannable.append(f"{file_path}: {type(e).__name__}: {e}")
             return False
+
+    def _record_if_unparseable(self, file_path: str, content: str) -> None:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                ast.parse(content)
+        except (SyntaxError, ValueError) as exc:
+            self.unscannable.append(f"{file_path}: {type(exc).__name__}: {exc}")
 
     def _is_test_file(self, file_path: str) -> bool:
         """Check if file is a test file that should be validated"""
@@ -724,10 +859,18 @@ class TestQualityEnforcer:
     def _check_database_mocks(self, file_path: str, content: str) -> bool:
         """Database operation mocks (blocked in Tier 2 integration tests)."""
         valid = True
+        justified = _db_mock_justifications(content)
+        # One marker covers ONE DB-mock finding (#1493 review): a second DB patch on
+        # the same marked line is REPORTED, so a return-value fake cannot hide
+        # beside a fault-injection marker.
+        marker_used = set()
         for line_num, target in self._matching_ast_targets(
             content, self.database_mock_targets
         ):
             if any(re.search(a, target, re.IGNORECASE) for a in self.allowed_config_mocks):
+                continue
+            if line_num in justified and line_num not in marker_used:
+                marker_used.add(line_num)
                 continue
             self._record(
                 file_path,
@@ -738,6 +881,8 @@ class TestQualityEnforcer:
                 f"  -> Database operations must not be mocked in integration tests\n"
                 f"  -> Use real database operations with Enhanced Test Factory\n"
                 f"  -> Move to tests/unit/ if testing isolated service logic\n"
+                f"  -> Fault injection / call-through spy only: `# Mock justified: <reason>`\n"
+                f"     on this line or the line directly above (non-empty reason)\n"
                 f"  -> See docs/test_remediation_plan/TESTING_STANDARDS.md",
             )
             valid = False
@@ -1244,6 +1389,16 @@ class TestQualityEnforcer:
             print("See docs/testing/TESTING_STANDARDS.md for correct patterns")
 
 
+def _fail_if_unscannable(enforcer) -> None:
+    """Exit non-zero naming every file the scan could not examine (#2815)."""
+    if enforcer.unscannable:
+        sys.exit(
+            "TEST-QUALITY SCAN FAILED: could not examine "
+            f"{len(enforcer.unscannable)} file(s), so the findings would understate the tree:\n  "
+            + "\n  ".join(sorted(enforcer.unscannable))
+        )
+
+
 def main():
     """Main entry point for pre-commit hook"""
     parser = argparse.ArgumentParser(
@@ -1280,6 +1435,7 @@ def main():
     # in the last commit.
     if args.update_baseline:
         enforcer.validate_files(sorted(iter_test_files(str(REPO_ROOT))))
+        _fail_if_unscannable(enforcer)  # writing now would drop that file's entries
         counts = counts_of(enforcer.findings)
         write_baseline(args.baseline, counts)
         print(
@@ -1294,6 +1450,7 @@ def main():
         files_to_check = sorted(iter_test_files(str(REPO_ROOT)))
 
     enforcer.validate_files(files_to_check)
+    _fail_if_unscannable(enforcer)
 
     baseline = load_baseline(args.baseline)
     new = regressions(counts_of(enforcer.findings), baseline)

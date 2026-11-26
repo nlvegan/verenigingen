@@ -10,8 +10,9 @@ Converted from script-style test to proper unittest with Enhanced Test Factory.
 
 import frappe
 # unittest.TestCase import removed - using EnhancedTestCase
-from frappe.utils import today, now_datetime, getdate
+from frappe.utils import today, now_datetime
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestDonationPortalBehavior(EnhancedTestCase):
@@ -208,7 +209,7 @@ class TestDonationPortalBehavior(EnhancedTestCase):
 
         self.assertEqual(result.get("status"), "success")
         self.test_donation.reload()
-        self.assertEqual(self.test_donation.recurring_cancelled_date, getdate(today()))
+        assert_written_today(self, self.test_donation.recurring_cancelled_date)
         # Status is unchanged (no invalid value) but the donation is now inactive.
         self.assertEqual(self.test_donation.status, "Recurring")
         self.assertEqual(

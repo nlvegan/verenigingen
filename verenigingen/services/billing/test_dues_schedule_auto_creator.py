@@ -833,15 +833,3 @@ class TestDuesScheduleAutoCreator(EnhancedTestCase):
         self.assertEqual(result["created_count"], 1)
         self.assertEqual(result["error_count"], 1)
         self.assertTrue(any(bad_member.name in e for e in result["errors"]))
-
-    # ==================================================================
-    # Summary email aggregation (email delivery is a boundary; assert no raise)
-    # ==================================================================
-    def test_send_summary_email_does_not_raise(self):
-        # send_summary_email swallows all exceptions internally; exercise the
-        # aggregation path (it computes counts then hands off to EmailService).
-        self._as_admin()
-        try:
-            dsac.send_summary_email(created_count=2, error_count=1, total_found=3)
-        except Exception as e:  # pragma: no cover - must never happen
-            self.fail(f"send_summary_email raised: {e}")

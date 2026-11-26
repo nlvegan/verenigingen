@@ -9,6 +9,7 @@ Also handles expense approval notifications via Verenigingen Email Configuration
 import frappe
 from frappe import _
 
+from verenigingen.events.event_emitter import enqueue_deduplicated
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.notification_helpers import resolve_admin_recipients
 
@@ -48,11 +49,10 @@ def update_member_expense_history(doc, method=None):
 
         # Defer the batch-processor drain to a worker job so it runs outside
         # the submit transaction (see design/financial-history-hook-transaction-safety).
-        frappe.enqueue(
+        enqueue_deduplicated(
             "verenigingen.services.volunteer.expense_handlers.drain_member_expense_history",
             queue="short",
             job_id=f"fin_history_expense_{member_name}_{doc.name}_add",
-            deduplicate=True,
             enqueue_after_commit=True,
             timeout=300,
             member=member_name,
@@ -115,11 +115,10 @@ def on_expense_claim_cancel(doc, method=None):
         # the cancel transaction (see design/financial-history-hook-transaction-safety).
         # Same job_id shape as the add-path enqueue; deduplicate collapses any
         # duplicate enqueue from delayed_expense_hooks.schedule_member_expense_history_removal.
-        frappe.enqueue(
+        enqueue_deduplicated(
             "verenigingen.services.volunteer.expense_handlers.drain_member_expense_history",
             queue="short",
             job_id=f"fin_history_expense_{member_name}_{doc.name}_remove",
-            deduplicate=True,
             enqueue_after_commit=True,
             timeout=300,
             member=member_name,
@@ -236,6 +235,8 @@ def notify_expense_approvers(doc, method=None):
             reference_doctype="Expense Claim",
             reference_name=doc.name,
             notification_key="expense_approval_request",
+            # Per claim: a second claim within the hour needs its own approval request (#2310).
+            cooldown_scope=doc.name,
         )
 
         if result.success:
@@ -274,6 +275,8 @@ def _get_expense_description(doc):
 
 def _build_expense_approval_message(context):
     """Build HTML message for expense approval notification."""
+    # employee_name and the claim item descriptions are typed by the claimant: escape them.
+    escape = frappe.utils.escape_html
     return f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -288,11 +291,11 @@ def _build_expense_approval_message(context):
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>{_("Expense ID:")}</strong></td>
-                        <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{context['expense_id']}</td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{escape(context['expense_id'])}</td>
                     </tr>
                     <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>{_("Submitted By:")}</strong></td>
-                        <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{context['employee_name']}</td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{escape(context['employee_name'])}</td>
                     </tr>
                     <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>{_("Amount:")}</strong></td>
@@ -304,7 +307,7 @@ def _build_expense_approval_message(context):
                     </tr>
                     <tr>
                         <td style="padding: 8px 0;"><strong>{_("Description:")}</strong></td>
-                        <td style="padding: 8px 0;">{context['description']}</td>
+                        <td style="padding: 8px 0;">{escape(context['description'])}</td>
                     </tr>
                 </table>
             </div>

@@ -208,7 +208,9 @@ def log_webhook_security_event(event_type: str, details: dict):
             frappe.logger().error(log_message)
 
             # Also log to error log for security failures
-            frappe.log_error(f"Mollie Webhook Security Failure: {details}", "Webhook Security Alert")
+            frappe.log_error(
+                title="Webhook Security Alert", message=f"Mollie Webhook Security Failure: {details}"
+            )
 
     except Exception as e:
         # Don't let logging errors break webhook processing

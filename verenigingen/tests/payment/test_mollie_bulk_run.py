@@ -11,6 +11,7 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.mollie_bank_scope import pin_mollie_bank_account
 from verenigingen.verenigingen_payments.services import mollie_bulk_run_service as svc
 
 
@@ -281,9 +282,14 @@ class TestMollieBulkRun(EnhancedTestCase):
 
     def _create_test_bt(self, reference_number):
         """Create a Bank Transaction matching a Mollie payment ID (test factory)."""
+        # The bulk run's idempotency shortcut looks on the Mollie bank account (#2620).
+        mollie = pin_mollie_bank_account(self)
         bt = frappe.get_doc(
             {
                 "doctype": "Bank Transaction",
+                "bank_account": mollie["bank_account"],
+                "company": mollie["company"],
+                "currency": "EUR",
                 "date": "2021-01-01",
                 "deposit": 10.0,
                 "description": "Test BT for bulk run shortcut",

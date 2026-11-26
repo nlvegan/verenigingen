@@ -33,8 +33,10 @@ from verenigingen.utils.csv.secure_csv_parser import SecureCSVParser
 from verenigingen.utils.csv_import_processor import (
     CSVImportBackgroundProcessor,
     ensure_bulk_import_members_set,
+    single_run_per_import_doc,
 )
 from verenigingen.utils.error_handling import sanitize_error_for_audit
+from verenigingen.utils.flag_restore import restored_flags
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -1885,6 +1887,14 @@ def update_import_tracking_after_retry(import_doc_name: str):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+@single_run_per_import_doc("Mijnrood CSV Import")
+@restored_flags(
+    "in_background_job",
+    "in_bulk_import",
+    "bulk_chapter_operations",
+    "bulk_member_operations",
+    "ignore_version_changes",
+)  # #2577: these five were raised and never put back
 def process_import_background(import_doc_name: str, test_mode: bool = False):
     """
     Background job function to process member CSV import.

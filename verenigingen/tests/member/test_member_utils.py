@@ -27,6 +27,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import (
     get_active_membership_for_current_user,
@@ -203,6 +204,7 @@ class TestMemberUtils(EnhancedTestCase):
         """
         outage = frappe.db.OperationalError("simulated database outage")
 
+        # Mock justified: fault injection: a simulated DB outage must propagate, not read as 'not a member'
         with patch.object(frappe.db, "get_value", side_effect=outage):
             with self.assertRaises(frappe.db.OperationalError):
                 get_member_name_for_user("test.member@verenigingen.test")
@@ -222,6 +224,7 @@ class TestMemberUtils(EnhancedTestCase):
         """
         outage = frappe.db.OperationalError("simulated database outage")
 
+        # Mock justified: fault injection: a simulated DB outage must propagate, not read as 'no volunteer'
         with patch.object(frappe.db, "get_value", side_effect=outage):
             with self.assertRaises(frappe.db.OperationalError):
                 get_volunteer_for_member("Assoc-Member-does-not-matter")
@@ -328,15 +331,21 @@ class TestMemberUtils(EnhancedTestCase):
         volunteer_name = get_volunteer_for_member("")
         self.assertIsNone(volunteer_name)
 
-    def test_get_volunteer_name_for_user_by_email(self):
-        """Test volunteer lookup by user email"""
-        # Create volunteer with email
-        volunteer = self.create_test_volunteer(self.member.name)
-        # Set email on volunteer
-        frappe.db.set_value("Volunteer", volunteer.name, "email", self.test_users["volunteer_user"])
+    def test_get_volunteer_name_for_user_by_email_is_refused(self):
+        """#2206 (maintainer ruling 2026-11-11): Volunteer.email is NOT an identity.
 
-        volunteer_name = get_volunteer_name_for_user(self.test_users["volunteer_user"])
-        self.assertEqual(volunteer_name, volunteer.name)
+        Setting Volunteer.email directly (probe shortcut) must not resolve the
+        volunteer; the control assertion shows the explicit Volunteer.user link
+        for the same address does.
+        """
+        volunteer = self.create_test_volunteer(self.member.name)
+        frappe.db.set_value("Volunteer", volunteer.name, "email", self.test_users["volunteer_user"])
+        frappe.db.set_value("Volunteer", volunteer.name, "user", None)
+
+        self.assertIsNone(get_volunteer_name_for_user(self.test_users["volunteer_user"]))
+
+        frappe.db.set_value("Volunteer", volunteer.name, "user", self.test_users["volunteer_user"])
+        self.assertEqual(get_volunteer_name_for_user(self.test_users["volunteer_user"]), volunteer.name)
 
     def test_get_volunteer_name_for_user_by_user_field(self):
         """Test volunteer lookup by user field (fallback)"""
@@ -714,7 +723,10 @@ class TestDuesScheduleUtilities(EnhancedTestCase):
             try:
                 frappe.delete_doc("Membership Dues Schedule", schedule_name, force=True)
             except Exception:
-                pass  # Ignore errors during cleanup
+                # Not ignorable: a surviving schedule leaks into later modules (#2271)
+                get_harness_logger("cleanup").error(
+                    "could not delete Membership Dues Schedule %s", schedule_name, exc_info=True
+                )
 
     def _cleanup_membership_schedules(self):
         """Clean up any existing dues schedules for the test membership
@@ -728,7 +740,10 @@ class TestDuesScheduleUtilities(EnhancedTestCase):
             try:
                 frappe.delete_doc("Membership Dues Schedule", schedule_name, force=True)
             except Exception:
-                pass  # Ignore errors during cleanup
+                # Not ignorable: a surviving schedule leaks into later modules (#2271)
+                get_harness_logger("cleanup").error(
+                    "could not delete Membership Dues Schedule %s", schedule_name, exc_info=True
+                )
 
     def _create_dues_schedule(self, status="Active", dues_rate=50.0, is_template=0):
         """Helper to create a test dues schedule

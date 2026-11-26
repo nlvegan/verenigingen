@@ -578,7 +578,6 @@ For system administrators with server access, debug scripts are available in the
 | `debug_team_assignment.py` | Diagnose team assignment issues |
 | `debug_volunteer_lookup.py` | Diagnose volunteer record lookup issues |
 | `debug_dashboard_access.py` | Diagnose dashboard permission issues |
-| `debug_service_layer.py` | Diagnose service layer errors |
 | `check_eboekhouden_workspace.py` | Verify eBoekhouden workspace setup |
 | `check_ledger_mappings.py` | Verify eBoekhouden account mappings |
 | `check_email_templates.py` | Verify email template configuration |

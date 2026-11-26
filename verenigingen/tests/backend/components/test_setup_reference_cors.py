@@ -181,21 +181,6 @@ class TestConfigureWebsiteCors(FrappeTestCase):
         save_spy.assert_not_called()
 
 
-class TestLoadApplicationFixtures(FrappeTestCase):
-    """load_application_fixtures() — wrapped in try/except, must never raise."""
-
-    def test_load_application_fixtures_runs_without_error(self):
-        # Returns None; the contract is "never raise" (it swallows all errors).
-        result = setup_mod.load_application_fixtures()
-        self.assertIsNone(result)
-
-    def test_load_application_fixtures_idempotent(self):
-        setup_mod.load_application_fixtures()
-        # Repeated calls must remain safe (it uses ignore_if_duplicate when files
-        # exist, and the not-found branch otherwise).
-        setup_mod.load_application_fixtures()
-
-
 class TestManualWrappers(FrappeTestCase):
     """Whitelisted manual/verify wrappers."""
 

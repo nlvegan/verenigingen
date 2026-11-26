@@ -163,23 +163,9 @@ class Membership:
     BILLING_SEMI_ANNUAL = "Semi-Annual"
     BILLING_ANNUAL = "Annual"
 
-    BILLING_FREQUENCIES: List[str] = [BILLING_MONTHLY, BILLING_QUARTERLY, BILLING_SEMI_ANNUAL, BILLING_ANNUAL]
-
-    # Billing frequency to months mapping
-    BILLING_FREQUENCY_MONTHS = {
-        BILLING_MONTHLY: 1,
-        BILLING_QUARTERLY: 3,
-        BILLING_SEMI_ANNUAL: 6,
-        BILLING_ANNUAL: 12,
-    }
-
-    # Billing frequency to annual multiplier (periods per year)
-    BILLING_FREQUENCY_ANNUAL_MULTIPLIER = {
-        BILLING_MONTHLY: 12,
-        BILLING_QUARTERLY: 4,
-        BILLING_SEMI_ANNUAL: 2,
-        BILLING_ANNUAL: 1,
-    }
+    # Period lengths (months per period, periods per year) live in ONE place:
+    # services/billing/billing_period_calculator.get_period_length() (#1282). The old
+    # BILLING_FREQUENCY_MONTHS / _ANNUAL_MULTIPLIER tables lacked Daily, Weekly and Custom.
 
     # Member statuses
     STATUS_ACTIVE = "Active"
@@ -294,14 +280,12 @@ class PaymentStatus:
 
     # Status groups for filtering.
     #
-    # PAID_STATUSES means SETTLED -- nothing is owed -- not "the member paid". Its two
-    # consumers deliberately want different things from that, which is why the set is
-    # left alone rather than split (#653):
-    #   * dues_schedule_manager asks "should we still chase this?" and must answer NO
-    #     for a credited invoice -- a waived member must not become collectable again.
-    #   * payment_dashboard asks "what does the member see?" and must NOT say Paid for
-    #     an invoice that was waived. It branches on the credit-note statuses BEFORE
-    #     consulting this set.
+    # PAID_STATUSES means SETTLED -- nothing is owed -- not "the member paid" (#653).
+    # Its one consumer, payment_dashboard, asks "what does the member see?" and must
+    # NOT say Paid for an invoice that was waived, so it branches on the credit-note
+    # statuses BEFORE consulting this set. (#653 kept the set unsplit for a second
+    # consumer, dues_schedule_manager's sync; that function never persisted anything
+    # and was deleted in #3092.)
     PAID_STATUSES: Set[str] = {INVOICE_PAID, INVOICE_CREDIT_NOTE_ISSUED}
 
     # The two ERPNext statuses that mean "credited, not paid": the credit note itself
@@ -328,16 +312,6 @@ def is_netherlands_country(country: str) -> bool:
     return country.strip().lower() in Netherlands.COUNTRY_IDENTIFIERS
 
 
-def get_billing_frequency_months(frequency: str) -> int:
-    """Get number of months for billing frequency"""
-    return Membership.BILLING_FREQUENCY_MONTHS.get(frequency, 1)
-
-
-def get_billing_frequency_annual_multiplier(frequency: str) -> int:
-    """Get annual multiplier for billing frequency (periods per year)"""
-    return Membership.BILLING_FREQUENCY_ANNUAL_MULTIPLIER.get(frequency, 1)
-
-
 def build_billing_frequency_multiplier_sql(
     frequency_column: str = "billing_frequency",
     amount_expression: str = "amount",
@@ -357,28 +331,32 @@ def build_billing_frequency_multiplier_sql(
     Returns:
         SQL CASE statement string for annual revenue calculation
     """
-    sql = f"""CASE
-        WHEN {frequency_column} = 'Monthly' THEN {amount_expression} * 12
-        WHEN {frequency_column} = 'Quarterly' THEN {amount_expression} * 4
-        WHEN {frequency_column} = 'Semi-Annual' THEN {amount_expression} * 2
-        WHEN {frequency_column} = 'Yearly' OR {frequency_column} = 'Annual' THEN {amount_expression}"""
+    from verenigingen.services.billing.billing_period_calculator import (
+        FIXED_PERIOD_LENGTH,
+        PERIODS_PER_YEAR_BY_UNIT,
+    )
+
+    # Generated from the one period table, so a new fixed frequency cannot be forgotten
+    # here. Anything not listed (an unknown frequency, a Custom row with no usable
+    # interval) is NULL, so SUM() skips it instead of counting the raw rate once a year.
+    branches = []
+    for frequency, (count, unit) in FIXED_PERIOD_LENGTH.items():
+        per_year = PERIODS_PER_YEAR_BY_UNIT[unit] / count
+        branches.append(f"WHEN {frequency_column} = '{frequency}' THEN {amount_expression} * {per_year:g}")
+    branches.append(f"WHEN {frequency_column} = 'Yearly' THEN {amount_expression}")
 
     if include_custom:
-        sql += f"""
-        WHEN {frequency_column} = 'Custom' THEN
-            CASE
-                WHEN {custom_frequency_unit_col} = 'Month' THEN
-                    {amount_expression} * (12 / NULLIF({custom_frequency_number_col}, 0))
-                WHEN {custom_frequency_unit_col} = 'Week' THEN
-                    {amount_expression} * (52 / NULLIF({custom_frequency_number_col}, 0))
-                WHEN {custom_frequency_unit_col} = 'Year' THEN
-                    {amount_expression} / NULLIF({custom_frequency_number_col}, 0)
-                ELSE {amount_expression}
-            END"""
+        unit_branches = "\n".join(
+            f"                WHEN {custom_frequency_unit_col} = '{unit}' THEN "
+            f"{amount_expression} * ({per_year} / NULLIF({custom_frequency_number_col}, 0))"
+            for unit, per_year in PERIODS_PER_YEAR_BY_UNIT.items()
+        )
+        branches.append(
+            f"WHEN {frequency_column} = 'Custom' THEN\n            CASE\n{unit_branches}\n"
+            "                ELSE NULL\n            END"
+        )
 
-    sql += f"""
-        ELSE {amount_expression}
-    END"""
+    sql = "CASE\n        " + "\n        ".join(branches) + "\n        ELSE NULL\n    END"
 
     return sql
 

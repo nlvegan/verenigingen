@@ -51,11 +51,11 @@ class TestComprehensiveRoleProfileValidation(EnhancedTestCase):
                     
                     # Test: Base class exists and is properly structured
                     try:
-                        from verenigingen.utils.base_role_profile_manager import BaseRoleProfileManager, EntityConfig
+                        from verenigingen.services.member.account.base_role_profile_manager import BaseRoleProfileManager, EntityConfig
                         base_methods = [method for method in dir(BaseRoleProfileManager) if not method.startswith('_')]
                         
                         required_base_methods = [
-                            'assign_role_profile', 'remove_role_profile', 'bulk_assign_role_profiles',
+                            'remove_role_profile', 'bulk_assign_role_profiles',
                             'get_entity_role_profile_config', 'determine_role_profile_for_member'
                         ]
                         

@@ -38,6 +38,7 @@ API Format Compatibility:
 import frappe
 
 from verenigingen.e_boekhouden.utils.security_helper import validate_and_insert
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class RelationMigrationService:
@@ -125,6 +126,9 @@ class RelationMigrationService:
             frappe.logger().warning(f"Customer data has no usable information: {customer_data}")
             return False
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the batch back; returning False reports the party as skipped (#3029).
+            raise
         except Exception as e:
             frappe.logger().warning(f"Error in customer creation: {str(e)}")
             self._log_error(f"Error in customer creation: {str(e)}", "Customer", customer_data)
@@ -197,6 +201,9 @@ class RelationMigrationService:
             frappe.logger().warning(f"Supplier data has no usable information: {supplier_data}")
             return False
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the batch back; returning False reports the party as skipped (#3029).
+            raise
         except Exception as e:
             frappe.logger().warning(f"Error in supplier creation: {str(e)}")
             self._log_error(f"Error in supplier creation: {str(e)}", "Supplier", supplier_data)
@@ -337,6 +344,9 @@ class RelationMigrationService:
             )
             return True
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the caller's batch back; returning False lets it carry on (#3008).
+            raise
         except Exception as e:
             self._log_error(f"Failed to create {party_type.lower()} {display_name}: {str(e)}")
             return False
@@ -428,7 +438,7 @@ class RelationMigrationService:
         ERPNext rejects a Group-type group (e.g. the root "All Customer Groups"
         node) on Customer/Supplier validation, so we must never assign one.
         Customers reuse the shared ``resolve_non_group_customer_group`` helper;
-        Suppliers mirror the same logic against Buying Settings.
+        Suppliers use ``resolve_non_group_supplier_group``.
 
         Args:
             party_type (str): "Customer" or "Supplier"
@@ -443,18 +453,9 @@ class RelationMigrationService:
 
             return resolve_non_group_customer_group()
 
-        configured = frappe.db.get_single_value("Buying Settings", "supplier_group")
-        if configured and not frappe.db.get_value("Supplier Group", configured, "is_group"):
-            return configured
+        from verenigingen.services.supplier_group_resolver import resolve_non_group_supplier_group
 
-        leaf = frappe.get_all(
-            "Supplier Group",
-            filters={"is_group": 0},
-            fields=["name"],
-            order_by="name",
-            limit=1,
-        )
-        return leaf[0].name if leaf else None
+        return resolve_non_group_supplier_group()
 
     def _get_proper_territory(self, party_data):
         """

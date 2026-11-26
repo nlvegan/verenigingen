@@ -623,6 +623,33 @@ class TestMT940TrcdDescriptionFallback(EnhancedTestCase):
         self.assertIn("Inkomende overboeking", bt.description)
         self.assertIn("Stichting Goede Doelen", bt.description)
 
+    def test_failed_submit_leaves_no_draft_and_the_retry_books_it(self):
+        """#2447: ``bt.insert(); bt.submit()`` was bare. The per-transaction caller records the
+        raised error and carries on, so a draft Bank Transaction stayed behind holding the
+        reference key, and re-importing the same statement could not book it."""
+        from unittest.mock import patch
+
+        from erpnext.accounts.doctype.bank_transaction.bank_transaction import BankTransaction
+
+        ns = _txn(
+            {
+                "amount": SimpleNamespace(amount=41.0, currency="EUR"),
+                "date": None,
+                "extra_details": "/TRCD/00100/",
+                "counterparty_name": "Atomic Submit 2447",
+            }
+        )
+        rows = lambda: frappe.get_all(  # noqa: E731
+            "Bank Transaction", filters={"bank_account": self.bank_account}, fields=["name", "docstatus"]
+        )
+        with patch.object(BankTransaction, "before_submit", side_effect=frappe.ValidationError("no")):
+            with self.assertRaises(frappe.ValidationError):
+                M.create_enhanced_bank_transaction_from_mt940(ns, self.bank_account, self.company)
+        self.assertEqual(rows(), [], "the failed submit left a draft Bank Transaction behind")
+
+        self.assertTrue(M.create_enhanced_bank_transaction_from_mt940(ns, self.bank_account, self.company))
+        self.assertEqual([r.docstatus for r in rows()], [1])
+
     def test_unknown_trcd_code_uses_raw_extra_details(self):
         """An unrecognised TRCD code is not in DUTCH_BOOKING_CODES, so the raw
         extra_details string is used as the description (the else branch)."""

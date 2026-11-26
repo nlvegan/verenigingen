@@ -369,7 +369,6 @@ def execute_after_install():
     run("set up tax exemption templates", setup_tax_exemption_on_install)
     run("set up termination system", setup_termination_system_integration)
     run("set up workspace", setup_workspace)
-    run("load fixtures", load_application_fixtures)
     run("set up security", _install_security)
     run("set up webhook user", _install_webhook_user)
     run("set up public document creator", _install_public_document_creator)
@@ -419,7 +418,16 @@ def _install_security():
 
 
 def _install_webhook_user():
-    from verenigingen.setup.webhook_user_setup import setup_webhook_user
+    """The webhook user's Role Profile ships ONLY as a fixture, and `install_app` runs after_install
+    before sync_fixtures, so during an install it cannot exist yet (#2357, same class as #1956).
+    Creating the user now would leave it role-less and report a failed install step; the
+    `after_sync` hook `ensure_webhook_user` configures it once the profile exists. Outside an
+    install a missing profile is a real failure and still raises."""
+    from verenigingen.setup.webhook_user_setup import WEBHOOK_PROFILE, setup_webhook_user
+
+    if frappe.flags.in_install and not frappe.db.exists("Role Profile", WEBHOOK_PROFILE):
+        print("   ⏭️ Webhook user setup deferred: the Role Profile ships as a fixture (after_sync)")
+        return
 
     result = setup_webhook_user()
     if not result.get("success"):
@@ -742,8 +750,8 @@ def setup_termination_system_integration():
     # Step 2: Setup workflows (using separate workflow setup module)
     from verenigingen.setup.workflow_setup import setup_workflows_corrected
 
-    # setup_workflows_corrected returns True on a healthy site (the appeals skip counts as
-    # success); False means its prerequisites or the commit failed, so it is a failure.
+    # setup_workflows_corrected returns True on a healthy site; False means its
+    # prerequisites or the commit failed, so it is a failure.
     if not setup_workflows_corrected():
         raise RuntimeError("Termination workflow setup reported failure")
     print("✅ Workflows created successfully")
@@ -854,7 +862,6 @@ def check_termination_system_status():
 
     status = {
         "settings_configured": False,
-        "workflows_exist": False,
         "roles_exist": False,
         "system_enabled": False,
     }
@@ -871,13 +878,8 @@ def check_termination_system_status():
                 status["settings_configured"] = True
                 status["system_enabled"] = bool(settings.enable_termination_system)
 
-        # Check workflows
-        workflows = ["Membership Termination Workflow", "Termination Appeals Workflow"]
-        workflow_count = 0
-        for workflow in workflows:
-            if frappe.db.exists("Workflow", workflow):
-                workflow_count += 1
-        status["workflows_exist"] = workflow_count > 0
+        # No termination Workflow is checked: none is built (#1640, #1611), the
+        # service layer owns termination status (#2790).
 
         # Check roles
         status["roles_exist"] = frappe.db.exists("Role", Roles.VERENIGINGEN_ADMIN)
@@ -921,17 +923,8 @@ def run_termination_diagnostics():
         print("   ❌ Verenigingen Administrator - MISSING")
         all_good = False
 
-    # 3. Check workflows
-    print("\n3. WORKFLOW CHECK")
-    print("-" * 15)
-
-    workflows = ["Membership Termination Workflow", "Termination Appeals Workflow"]
-    for workflow in workflows:
-        if frappe.db.exists("Workflow", workflow):
-            print(f"   ✅ {workflow}")
-        else:
-            print(f"   ❌ {workflow} - MISSING")
-            all_good = False
+    # No workflow check: no termination Workflow is built (#1640, #1611), so
+    # demanding one failed every healthy site (#2790).
 
     # Summary
     print("\n" + "=" * 40)
@@ -1001,7 +994,7 @@ def create_application_email_templates():
             "response": """
                 <h3>Thank you for your membership application!</h3>
 
-                <p>Dear {{ member.first_name }},</p>
+                <p>Dear {{ member.first_name | e }},</p>
 
                 <p>We have received your membership application for {{ membership_type }}.</p>
 
@@ -1021,7 +1014,7 @@ def create_application_email_templates():
             "name": "membership_welcome",
             "subject": "Welcome to {{ frappe.db.get_value('Company', company, 'company_name') }}!",
             "response": """
-                <h2>Welcome to our Association, {{ member.first_name }}!</h2>
+                <h2>Welcome to our Association, {{ member.first_name | e }}!</h2>
 
                 <p>Your membership is now active and you have full access to all member benefits.</p>
 
@@ -1046,7 +1039,7 @@ def create_application_email_templates():
                     {% if member.current_chapter %}
                     <tr>
                         <td><strong>Chapter:</strong></td>
-                        <td>{{ member.current_chapter }}</td>
+                        <td>{{ member.current_chapter | e }}</td>
                     </tr>
                     {% endif %}
                 </table>
@@ -1077,7 +1070,7 @@ def create_application_email_templates():
             "name": "volunteer_welcome",
             "subject": "Welcome to our Volunteer Team!",
             "response": """
-                <h2>Welcome to our Volunteer Team, {{ volunteer.volunteer_name }}!</h2>
+                <h2>Welcome to our Volunteer Team, {{ volunteer.volunteer_name | e }}!</h2>
 
                 <p>Thank you for your interest in volunteering with us. We're excited to have you join our team!</p>
 
@@ -1089,7 +1082,7 @@ def create_application_email_templates():
                     <li><strong>Areas of Interest:</strong>
                         <ul>
                         {% for interest in volunteer.interests %}
-                            <li>{{ interest.interest_area }}</li>
+                            <li>{{ interest.interest_area | e }}</li>
                         {% endfor %}
                         </ul>
                     </li>
@@ -1105,7 +1098,7 @@ def create_application_email_templates():
 
                 <p>Your volunteer coordinator will contact you within the next few days to discuss specific opportunities.</p>
 
-                <p>In the meantime, you can access your volunteer portal using your organization email: <strong>{{ volunteer.email }}</strong></p>
+                <p>In the meantime, you can access your volunteer portal using your organization email: <strong>{{ volunteer.email | e }}</strong></p>
 
                 <p>Thank you for making a difference!</p>
 
@@ -1116,7 +1109,7 @@ def create_application_email_templates():
             "name": "membership_payment_failed",
             "subject": "Payment Failed - Membership Application",
             "response": """
-                <p>Dear {{ member.first_name }},</p>
+                <p>Dear {{ member.first_name | e }},</p>
 
                 <p>Unfortunately, your payment for the membership application could not be processed.</p>
 
@@ -1197,16 +1190,51 @@ def setup_workspace():
     print("🏢 Setting up Verenigingen workspace...")
 
     # Each helper raises on a real failure (#1880); the runner reports it.
+    # The shipped workspace row names a Custom HTML Block that is only a fixture, and
+    # after_install runs before the fixtures sync (#2150).
+    ensure_workspace_custom_blocks()
+
     # Clean up workspace first
     cleanup_workspace_links()
-
-    # Then add new links
-    update_workspace_links()
 
     # Ensure module onboarding is linked
     install_and_link_onboarding()
 
     print("✅ Workspace setup completed")
+
+
+def ensure_workspace_custom_blocks():
+    """Create the Custom HTML Blocks the Verenigingen workspace references, if missing.
+
+    `workspace.save()` validates its custom_blocks rows and raises "Could not find Row #1:
+    Custom Block Name: Page Links" while the block does not exist. On a fresh install the
+    block ships only as a fixture, and `install-app` runs after_install BEFORE sync_fixtures
+    (#2150). The block is created from the same fixture file, so the later fixtures sync
+    just finds it and updates it.
+    """
+    if not frappe.db.exists("Workspace", "Verenigingen"):
+        return
+
+    wanted = frappe.get_all(
+        "Workspace Custom Block", filters={"parent": "Verenigingen"}, pluck="custom_block_name"
+    )
+    missing = [name for name in wanted if name and not frappe.db.exists("Custom HTML Block", name)]
+    if not missing:
+        return
+
+    import json
+
+    fixture_path = frappe.get_app_path("verenigingen", "fixtures", "custom_html_block.json")
+    with open(fixture_path) as f:
+        shipped = {row["name"]: row for row in json.load(f)}
+
+    for name in missing:
+        if name not in shipped:
+            raise RuntimeError(
+                f"Workspace Verenigingen needs Custom HTML Block {name!r}, which is not shipped"
+            )
+        frappe.get_doc(shipped[name]).insert(ignore_permissions=True, ignore_if_duplicate=True)
+        print(f"   ✓ Created Custom HTML Block: {name}")
 
 
 # Workspace Link.link_type options whose link_to names a record we can look up.
@@ -1246,172 +1274,6 @@ def cleanup_workspace_links():
     except Exception as e:
         print(f"   ⚠️ Workspace cleanup failed: {str(e)}")
         raise
-
-
-def update_workspace_links():
-    """Add new links to workspace"""
-    try:
-        if not frappe.db.exists("Workspace", "Verenigingen"):
-            print("   ℹ️  Verenigingen workspace doesn't exist - skipping link updates")
-            return
-
-        workspace = frappe.get_doc("Workspace", "Verenigingen")
-
-        # Links to add (only if doctype exists)
-        potential_links = [
-            # Termination & Appeals Section
-            {
-                "hidden": 0,
-                "is_query_report": 0,
-                "label": "Termination & Appeals",
-                "link_count": 2,
-                "link_type": "DocType",
-                "onboard": 0,
-                "type": "Card Break",
-            },
-            {
-                "dependencies": "",
-                "hidden": 0,
-                "is_query_report": 0,
-                "label": "Membership Termination Request",
-                "link_count": 0,
-                "link_to": "Membership Termination Request",
-                "link_type": "DocType",
-                "onboard": 0,
-                "type": "Link",
-            },
-            {
-                "dependencies": "",
-                "hidden": 0,
-                "is_query_report": 0,
-                "label": "SEPA Mandate",
-                "link_count": 0,
-                "link_to": "SEPA Mandate",
-                "link_type": "DocType",
-                "onboard": 0,
-                "type": "Link",
-            },
-            {
-                "dependencies": "",
-                "hidden": 0,
-                "is_query_report": 0,
-                "label": "Direct Debit Batch",
-                "link_count": 0,
-                "link_to": "Direct Debit Batch",
-                "link_type": "DocType",
-                "onboard": 0,
-                "type": "Link",
-            },
-        ]
-
-        # Only add links for existing doctypes
-        links_added = 0
-        for link in potential_links:
-            link_to = link.get("link_to")
-            if not link_to or frappe.db.exists("DocType", link_to) or link.get("type") == "Card Break":
-                # Check if link already exists
-                exists = False
-                for existing_link in workspace.links:
-                    if existing_link.get("label") == link.get("label"):
-                        exists = True
-                        break
-
-                if not exists:
-                    workspace.append("links", link)
-                    links_added += 1
-                    print(f"   ✓ Added link: {link.get('label')}")
-
-        # Add new shortcuts (only for existing doctypes)
-        potential_shortcuts = [
-            {
-                "color": "Red",
-                "label": "Termination Requests",
-                "link_to": "Membership Termination Request",
-                "type": "DocType",
-            },
-            {"color": "Blue", "label": "SEPA Mandates", "link_to": "SEPA Mandate", "type": "DocType"},
-        ]
-
-        shortcuts_added = 0
-        for shortcut in potential_shortcuts:
-            link_to = shortcut.get("link_to")
-            if frappe.db.exists("DocType", link_to):
-                # Check if shortcut already exists
-                exists = False
-                for existing_shortcut in workspace.shortcuts:
-                    if existing_shortcut.get("label") == shortcut.get("label"):
-                        exists = True
-                        break
-
-                if not exists:
-                    workspace.append("shortcuts", shortcut)
-                    shortcuts_added += 1
-                    print(f"   ✓ Added shortcut: {shortcut.get('label')}")
-
-        if links_added > 0 or shortcuts_added > 0:
-            workspace.save(ignore_permissions=True)
-            print(f"   ✅ Added {links_added} links and {shortcuts_added} shortcuts")
-        else:
-            print("   ✓ No new links or shortcuts needed")
-
-    except Exception as e:
-        print(f"   ⚠️ Workspace update failed: {str(e)}")
-        raise
-
-
-def load_application_fixtures():
-    """Load necessary fixtures for the application.
-
-    A fixture that cannot be read or inserted does not stop the other files, but the run
-    then raises ONE summary error so the install runner sees it (#1880). A missing file is
-    not a failure (the files are optional).
-    """
-    print("📦 Loading application fixtures...")
-
-    import os
-
-    # Get fixtures directory
-    app_path = frappe.get_app_path("verenigingen")
-    fixtures_path = os.path.join(app_path, "..", "fixtures")
-
-    # Load workflow fixtures if they exist
-    fixture_files = ["workflow.json", "membership_workflow.json"]
-
-    loaded_count = 0
-    failures = []
-    for fixture_file in fixture_files:
-        fixture_path = os.path.join(fixtures_path, fixture_file)
-        if os.path.exists(fixture_path):
-            try:
-                # Use frappe.get_doc approach instead of install_fixtures
-                import json
-
-                with open(fixture_path, "r") as f:
-                    fixture_data = json.load(f)
-
-                if isinstance(fixture_data, list):
-                    for doc_data in fixture_data:
-                        if "doctype" in doc_data:
-                            doc = frappe.get_doc(doc_data)
-                            doc.insert(ignore_permissions=True, ignore_if_duplicate=True)
-                else:
-                    if "doctype" in fixture_data:
-                        doc = frappe.get_doc(fixture_data)
-                        doc.insert(ignore_permissions=True, ignore_if_duplicate=True)
-                loaded_count += 1
-                print(f"   ✓ Loaded fixture: {fixture_file}")
-            except Exception as e:
-                print(f"   ⚠️ Could not load fixture {fixture_file}: {str(e)}")
-                failures.append(f"{fixture_file}: {str(e)}")
-        else:
-            print(f"   ℹ️  Fixture not found: {fixture_file}")
-
-    if loaded_count > 0:
-        print(f"   📦 Loaded {loaded_count} fixtures")
-    else:
-        print("   ℹ️  No fixtures loaded")
-
-    _raise_if_any_failed("Loading fixtures", failures)
 
 
 # Consolidated API endpoints for all setup functions

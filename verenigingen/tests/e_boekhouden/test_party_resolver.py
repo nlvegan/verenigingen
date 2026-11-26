@@ -348,7 +348,8 @@ class TestCreateProvisionalParty(unittest.TestCase):
 
         mock_frappe.new_doc.assert_called_once_with("Supplier")
         self.assertEqual(mock_doc.supplier_name, "Supplier 456 (eBoekhouden)")
-        self.assertEqual(mock_doc.supplier_group, "All Supplier Groups")
+        # A real leaf, never the group root that erpnext version-16 rejects on a Supplier.
+        self.assertEqual(frappe.db.get_value("Supplier Group", mock_doc.supplier_group, "is_group"), 0)
         self.assertEqual(mock_doc.eboekhouden_relation_code, "456")
         mock_doc.insert.assert_called_once()
 

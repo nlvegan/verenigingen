@@ -135,7 +135,6 @@ class TestExecuteAfterInstallRunsEveryStep(FrappeTestCase):
         "setup_tax_exemption_on_install",
         "setup_termination_system_integration",
         "setup_workspace",
-        "load_application_fixtures",
     )
 
     def setUp(self):
@@ -436,25 +435,6 @@ class TestVerifyAppDependencies(FrappeTestCase):
         )
         self.assertIn("required_apps", result["message"])
         self.assertNotIn("dependency_status", result)
-
-
-class TestLoadApplicationFixtures(FrappeTestCase):
-    """KNOWN DEAD CODE: load_application_fixtures() resolves its fixtures
-    directory as `<app_path>/../fixtures`, i.e. apps/verenigingen/fixtures - one
-    level above the real fixtures directory (apps/verenigingen/verenigingen/
-    fixtures). Both files it looks for are absent there, so the function is a
-    no-op on every install."""
-
-    def test_resolved_fixture_directory_does_not_exist(self):
-        app_path = frappe.get_app_path("verenigingen")
-        resolved = os.path.normpath(os.path.join(app_path, "..", "fixtures"))
-        real = os.path.join(app_path, "fixtures")
-        self.assertTrue(os.path.isdir(real), "The real fixtures directory moved")
-        self.assertNotEqual(resolved, real)
-        self.assertFalse(os.path.isdir(resolved), f"Unexpected fixtures dir at {resolved}")
-
-    def test_runs_as_a_noop_without_raising(self):
-        self.assertIsNone(setup_mod.load_application_fixtures())
 
 
 class TestBackgroundServiceUser(FrappeTestCase):

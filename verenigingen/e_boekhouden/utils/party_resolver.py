@@ -7,6 +7,8 @@ import frappe
 from frappe.utils import now
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.services.supplier_group_resolver import resolve_non_group_supplier_group
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 # Party type configuration - defines differences between Customer and Supplier
 PARTY_CONFIG = {
@@ -368,14 +370,12 @@ class EBoekhoudenPartyResolver:
         setattr(party, name_field, final_name)
         setattr(party, type_field, entity_type)
         # PARTY_CONFIG.default_group is "All Customer Groups" / "All Supplier Groups"
-        # — both are group nodes that ERPNext's strict-validation branch rejects.
-        # For Customer we delegate to the shared resolver. (Supplier Group has
-        # the same bug class; a future cleanup PR can mirror this with a
-        # supplier_group resolver.)
+        # — both are group nodes that ERPNext rejects on Customer and (since
+        # erpnext version-16 96e0a3b011) on Supplier, so resolve a leaf for each.
         if party_type == "Customer":
             setattr(party, group_field, resolve_non_group_customer_group())
         else:
-            setattr(party, group_field, config["default_group"])
+            setattr(party, group_field, resolve_non_group_supplier_group())
 
         # Customer-specific: territory
         if config.get("territory_field"):
@@ -472,6 +472,9 @@ class EBoekhoudenPartyResolver:
 
             return False
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the migration batch back; swallowing it reports a write that is gone (#3029).
+            raise
         except Exception as e:
             debug_info.append(f"Failed to update {party_type.lower()} {party_name}: {str(e)}")
             return False
@@ -518,7 +521,7 @@ class EBoekhoudenPartyResolver:
         if party_type == "Customer":
             setattr(party, group_field, resolve_non_group_customer_group())
         else:
-            setattr(party, group_field, config["default_group"])
+            setattr(party, group_field, resolve_non_group_supplier_group())
 
         if config.get("territory_field"):
             setattr(party, config["territory_field"], config["default_territory"])
@@ -645,6 +648,9 @@ class EBoekhoudenPartyResolver:
             contact.insert()
             debug_info.append(f"Created contact for {party.name}: {contact.name}")
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the migration batch back; swallowing it reports a write that is gone (#3029).
+            raise
         except Exception as e:
             debug_info.append(f"Failed to create contact for {party.name}: {str(e)}")
 
@@ -707,6 +713,9 @@ class EBoekhoudenPartyResolver:
             address.insert()
             debug_info.append(f"Created address for {party.doctype.lower()} {party.name}: {address.name}")
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the migration batch back; swallowing it reports a write that is gone (#3029).
+            raise
         except Exception as e:
             debug_info.append(f"Failed to create address for {party.doctype.lower()} {party.name}: {str(e)}")
             frappe.logger().error(f"eBoekhouden: failed to create address for {party.name}: {e}")

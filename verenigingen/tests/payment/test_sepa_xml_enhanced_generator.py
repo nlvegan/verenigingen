@@ -18,9 +18,9 @@ failure) by exercising the UNcovered branches:
   * the module-level factory / helper functions
     (``create_sepa_transaction_from_invoice``, ``_resolve_batch_sequence_type``,
     ``_resolve_batch_local_instrument``),
-  * the whitelisted API surface ``generate_enhanced_sepa_xml`` (driven through a
-    REAL ``Direct Debit Batch`` built via SEPATestDataFactory) and
-    ``validate_sepa_xml_compliance``.
+  * ``generate_enhanced_sepa_xml`` (an in-process function, not whitelisted; driven
+    through a REAL ``Direct Debit Batch`` built via SEPATestDataFactory) and the
+    whitelisted ``validate_sepa_xml_compliance``.
 
 The generator is essentially pure XML construction over dataclasses, so most
 assertions parse the produced XML with ElementTree and assert real structure
@@ -442,6 +442,15 @@ class TestSEPAFactoryHelpers(unittest.TestCase):
     def test_resolve_batch_sequence_type_defaults_rcur(self):
         # batch_type holding a scheme value (CORE) is not a sequence -> default RCUR.
         self.assertEqual(_resolve_batch_sequence_type({"batch_type": "CORE"}), SEPASequenceType.RCUR)
+
+    def test_sequence_resolver_and_generator_are_not_http_endpoints_2897(self):
+        # #2897: the whitelist/critical_api decorators had drifted onto the private
+        # resolver (a helper insertion split them from their function). Ruling: no
+        # first-party HTTP caller, so neither is exposed. validate_sepa_xml_compliance
+        # is the CONTROL: still whitelisted, so this cannot pass because nothing is.
+        self.assertNotIn(_resolve_batch_sequence_type, frappe.whitelisted)
+        self.assertNotIn(generate_enhanced_sepa_xml, frappe.whitelisted)
+        self.assertIn(validate_sepa_xml_compliance, frappe.whitelisted)
 
     def test_resolve_batch_local_instrument_from_batch_type(self):
         self.assertEqual(_resolve_batch_local_instrument({"batch_type": "B2B"}), SEPALocalInstrument.B2B)

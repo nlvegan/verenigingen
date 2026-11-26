@@ -268,7 +268,14 @@ class TestCreateMandateApiOwnership(_MandateApiOwnershipMixin, EnhancedTestCase)
                     member=self_member.name, iban="NL91ABNA0417164300", account_holder_name="Create Api Self"
                 )
 
-        self.assertTrue(result["success"], result)
+        # #2464: ownership passes (the call reaches the insert), but this endpoint carries no
+        # member consent, so a non-staff caller is refused at the document. The tier gate is
+        # bypassed here only to isolate the ownership check; in production a plain member
+        # never reaches this endpoint at all (CRITICAL tier), and signs through
+        # setup_sepa_direct_debit with consent instead.
+        self.assertFalse(result["success"], result)
+        self.assertIn("explicit consent", str(result))
+        self.assertFalse(frappe.db.exists("SEPA Mandate", {"member": self_member.name}))
 
     def test_staff_allowed_for_another_member(self):
         member = self.create_test_member(first_name="MandateCreateStaffTarget")

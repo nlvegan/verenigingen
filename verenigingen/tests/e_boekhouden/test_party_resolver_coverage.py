@@ -24,6 +24,7 @@ import frappe
 
 from verenigingen.e_boekhouden.utils.party_resolver import EBoekhoudenPartyResolver
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.services.supplier_group_resolver import resolve_non_group_supplier_group
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -204,7 +205,9 @@ class TestCreateProvisionalPartyRealDB(EnhancedTestCase):
         self.assertTrue(frappe.db.exists("Supplier", name))
         supp = frappe.get_doc("Supplier", name)
         self.assertEqual(supp.supplier_name, f"Supplier {rel} (eBoekhouden)")
-        self.assertEqual(supp.supplier_group, "All Supplier Groups")
+        # erpnext version-16 rejects the group root; the Supplier gets a real leaf.
+        self.assertEqual(supp.supplier_group, resolve_non_group_supplier_group())
+        self.assertEqual(frappe.db.get_value("Supplier Group", supp.supplier_group, "is_group"), 0)
         self.assertEqual(supp.eboekhouden_relation_code, rel)
 
     def test_provisional_idempotent_returns_existing(self):
@@ -259,7 +262,9 @@ class TestCreatePartyFromRelationRealDB(EnhancedTestCase):
         self.assertTrue(frappe.db.exists("Supplier", name))
         supp = frappe.get_doc("Supplier", name)
         self.assertEqual(supp.supplier_type, "Individual")
-        self.assertEqual(supp.supplier_group, "All Supplier Groups")
+        # erpnext version-16 rejects the group root; the Supplier gets a real leaf.
+        self.assertEqual(supp.supplier_group, resolve_non_group_supplier_group())
+        self.assertEqual(frappe.db.get_value("Supplier Group", supp.supplier_group, "is_group"), 0)
         self.assertEqual(supp.eboekhouden_relation_code, rel_id)
 
     def test_create_returns_existing_on_same_relation_clash(self):

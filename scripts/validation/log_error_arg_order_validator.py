@@ -115,6 +115,9 @@ from collections import Counter
 from typing import NamedTuple
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # the sibling, however this file is loaded
+import shrink_relocation  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASELINE = Path(__file__).with_name("log_error_arg_order_baseline.txt")
 
@@ -348,7 +351,7 @@ def _iter_matches(tree: ast.AST):
                 yield qualname, node
 
 
-def scan_file(path: Path):
+def scan_file(path: Path, unscannable: list[str] | None = None):
     """Return (findings, bad_pragmas) for one file.
 
     findings: list of (qualified_function, lineno)
@@ -357,7 +360,11 @@ def scan_file(path: Path):
     try:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
-    except (OSError, SyntaxError):
+    except (OSError, SyntaxError) as exc:
+        # #2815: a file we could not examine must not count as clean. The tree-scan
+        # caller passes `unscannable` and fails the run naming it.
+        if unscannable is not None:
+            unscannable.append(f"{path}: {type(exc).__name__}: {exc}")
         return [], []
 
     lines = source.splitlines()
@@ -429,16 +436,21 @@ def _iter_py(paths: list[str]):
         yield path
 
 
+# #2815: a file the scan could not read or parse is reported, not treated as clean.
+UNSCANNABLE_PREFIX = "UNSCANNABLE (the count would understate the tree): "
+
+
 def _counts(paths: list[str]) -> tuple[Counter, list[str]]:
     """Map 'path::qualname' -> number of swapped-call sites; plus bad-pragma messages."""
     counts: Counter = Counter()
     problems: list[str] = []
+    unscannable: list[str] = []
     for path in _iter_py(paths):
         rel = _rel(path)
         # Tests may legitimately construct a swapped call to probe the defect itself.
         if "/tests/" in "/" + rel or path.name.startswith("test_"):
             continue
-        findings, bad = scan_file(path)
+        findings, bad = scan_file(path, unscannable)
         for qualname, _lineno in findings:
             counts[f"{rel}::{qualname}"] += 1
         for lineno, reason in bad:
@@ -446,6 +458,7 @@ def _counts(paths: list[str]) -> tuple[Counter, list[str]]:
                 f"{rel}:{lineno}: invalid `log-error-args-ok` reason {reason!r}; "
                 f"use one of {sorted(VALID_REASONS)}"
             )
+    problems.extend(f"{UNSCANNABLE_PREFIX}{msg}" for msg in unscannable)
     return counts, problems
 
 
@@ -504,7 +517,9 @@ class UnexplainedShrink(NamedTuple):
     reason: str
 
 
-def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[UnexplainedShrink]:
+def explain_shrink(
+    baseline: dict[str, int], paths: list[str], base_root: Path | None = None
+) -> list[UnexplainedShrink]:
     """Baseline entries whose count DROPPED without the swap being fixed.
 
     A shrink is the one direction this ratchet would otherwise accept without
@@ -527,6 +542,13 @@ def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[Unexplain
     A genuine fix -- converted to keyword arguments, or the shape no longer
     matches (e.g. the title stopped being a plain literal) -- leaves no trace
     in `scan_file_all` either and is correctly not reported here.
+
+    With ``base_root`` (a checkout of the base commit) it also reports the cases the
+    head tree alone cannot see, because they leave no still-matching call under the
+    baseline's own path and function name (#1858): the call MOVED -- to another file,
+    under ``tests/``, outside SCAN_ROOTS -- or its function was renamed and then
+    pragma'd, or a pragma was added to one baselined call while a NEW plain call kept
+    the function's count level. See ``_relocated_log_error_sites``.
     """
     counts, _ = _counts(paths)
     by_path: dict[str, list[tuple[str, int]]] = {}
@@ -562,7 +584,42 @@ def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[Unexplain
             flagged = [(n, "suppressed") for n in suppressed] + [(n, "unscanned") for n in unscanned]
             for node, reason in sorted(flagged, key=lambda p: p[0].lineno)[:missing]:
                 out.append(UnexplainedShrink(f"{rel}::{qualname}", node.lineno, reason))
+    if base_root is not None:
+        out = shrink_relocation.merge_relocated(out, _relocated_log_error_sites(baseline, base_root))
     return out
+
+
+def _log_error_counted_by_path(rel: str) -> bool:
+    """Would `_counts` look at a file with this repo-relative path at all? Pinned by a test."""
+    return shrink_relocation.counted_by_path(rel, SCAN_ROOTS)
+
+
+def _log_error_extract(path: Path, rel: str) -> list[tuple[str, int, str, bool]]:
+    """One file's swap-shaped calls for the relocation census: (qualname, lineno, text, counted).
+
+    `text` is the call's unparsed source, which survives a move, re-indentation and a pragma.
+    """
+    try:
+        source = path.read_text(encoding="utf-8")
+        if "log_error" not in source:
+            return []  # cheap prefilter: every finding is a log_error call
+        tree = ast.parse(source)
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return []
+    lines = source.splitlines()
+    by_path = _log_error_counted_by_path(rel)
+    return [
+        (qualname, node.lineno, ast.unparse(node), by_path and not _suppressed(node, lines)[0])
+        for qualname, node in _iter_matches(tree)
+    ]
+
+
+def _relocated_log_error_sites(baseline: dict[str, int], base_root: Path) -> list[UnexplainedShrink]:
+    """Baselined calls whose text left the COUNT without leaving the code (#1858)."""
+    return shrink_relocation.relocated_sites(
+        baseline, base_root, REPO_ROOT, _log_error_extract,
+        lambda key, lineno, _text: UnexplainedShrink(key, lineno, "relocated"),
+    )
 
 
 def main(argv: list[str]) -> int:
@@ -577,20 +634,38 @@ def main(argv: list[str]) -> int:
         metavar="BASE_BASELINE",
         help="report baseline entries that LEFT without the swap being fixed",
     )
+    ap.add_argument(
+        "--base-tree",
+        type=Path,
+        metavar="DIR",
+        help="a checkout of the base commit; lets --check-shrink see a call that MOVED "
+        "or was renamed instead of fixed (#1858)",
+    )
     args = ap.parse_args(argv[1:])
 
     paths = args.paths or list(SCAN_ROOTS)
 
     if args.check_shrink:
         unexplained = explain_shrink(
-            load_baseline(args.check_shrink), [str(REPO_ROOT / root) for root in SCAN_ROOTS]
+            load_baseline(args.check_shrink),
+            [str(REPO_ROOT / root) for root in SCAN_ROOTS],
+            base_root=args.base_tree,
         )
+        if args.base_tree is None:
+            print("note: no --base-tree, so a MOVED or renamed call cannot be reported.")
         if not unexplained:
-            print("Every entry that left the baseline was fixed, deleted, or moved out of scan range.")
+            print(
+                "Every entry that left the baseline was fixed or deleted."
+                if args.base_tree is not None
+                else shrink_relocation.NO_BASE_TREE_SUCCESS
+            )
             return 0
         why = {
             "suppressed": "a `# log-error-args-ok:` pragma was added -- the call still matches the swap shape",
             "unscanned": "the file left SCAN_ROOTS; the call itself never changed",
+            "relocated": "the same call is now pragma'd, under tests/ or outside SCAN_ROOTS, "
+            "and no longer counted (moved, not fixed; line is from the base tree). "
+            + shrink_relocation.relocated_hint(),
         }
         print("\n\U0001f6d1 Baseline entries that LEFT without the swap being fixed\n")
         for u in unexplained:
@@ -604,7 +679,12 @@ def main(argv: list[str]) -> int:
         return 1
 
     if args.update_baseline:
-        counts, _ = _counts([str(REPO_ROOT / root) for root in SCAN_ROOTS])
+        counts, regen_problems = _counts([str(REPO_ROOT / root) for root in SCAN_ROOTS])
+        skipped = [m for m in regen_problems if m.startswith(UNSCANNABLE_PREFIX)]
+        if skipped:
+            # Writing now would drop the unreadable file's entries from the baseline.
+            print("\n".join(skipped), file=sys.stderr)
+            return 1
         write_baseline(args.baseline, counts)
         print(f"baseline written: {len(counts)} functions, {sum(counts.values())} sites")
         return 0

@@ -448,48 +448,52 @@ class SEPAMandateIntegrationTests(EnhancedTestCase, SEPAMandateTestMixin):
         
     def test_payment_processing_integration(self):
         """
-        Test integration with payment processing workflows.
-        
-        Validates:
-        - Sales Invoice linking
-        - Payment Entry creation
-        - SEPA mandate usage tracking
-        - Payment status updates
+        A payment is recorded against an Active mandate through the production
+        `create_mandate_usage_record`, and one above the mandate's maximum is refused.
+
+        The earlier version asserted `status == "Active"` and `50 <= 100`, both set by its own
+        fixture, around an unsaved invoice that was never used (#3078). The usage record needs
+        no real Sales Invoice (the reference is a plain dynamic link), so none is built.
         """
-        member = self.create_test_member(birth_date="1990-01-01")
-        mandate = self.create_test_sepa_mandate(
-            member=member,
-            status="Active",
-            maximum_amount=100.00
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            create_mandate_usage_record,
         )
-        
-        # Create a sales invoice for testing payment integration
-        invoice_data = {
-            "doctype": "Sales Invoice",
-            "customer": member.customer if hasattr(member, 'customer') else f"Customer-{member.name}",
-            "posting_date": frappe.utils.today(),
-            "items": [{
-                "item_code": "Membership Fee",
-                "qty": 1,
-                "rate": 50.00
-            }]
-        }
-        
-        try:
-            # Try to create invoice (may fail if Customer doesn't exist)
-            invoice = frappe.get_doc(invoice_data)
-            # Don't submit, just test structure
-            
-            # Test mandate usage tracking would happen here
-            # This is a placeholder for actual payment processing integration
-            self.assertEqual(mandate.status, "Active")
-            self.assertLessEqual(50.00, mandate.maximum_amount, 
-                               "Invoice amount should not exceed mandate maximum")
-                               
-        except Exception:
-            # Skip if customer/invoice creation fails in test environment
-            self.skipTest("Sales Invoice creation skipped - customer setup required")
-            
+
+        member = self.create_test_member(birth_date="1990-01-01")
+        mandate = self.create_test_sepa_mandate(member=member, status="Active", maximum_amount=100.00)
+        within_maximum = mandate.maximum_amount / 2
+        above_maximum = mandate.maximum_amount + 50
+
+        usage_name = create_mandate_usage_record(
+            mandate_name=mandate.name,
+            reference_doctype="Sales Invoice",
+            reference_name="TEST-INV-3078-OK",
+            amount=within_maximum,
+        )
+
+        row = frappe.db.get_value(
+            "SEPA Mandate Usage",
+            usage_name,
+            ["parent", "amount", "status", "sequence_type", "reference_name"],
+            as_dict=True,
+        )
+        self.assertEqual(row.parent, mandate.name)
+        self.assertEqual(row.amount, within_maximum)
+        self.assertEqual(row.status, "Pending")
+        self.assertEqual(row.sequence_type, "FRST", "first use of a mandate is FRST")
+
+        with self.assertRaises(frappe.ValidationError):
+            create_mandate_usage_record(
+                mandate_name=mandate.name,
+                reference_doctype="Sales Invoice",
+                reference_name="TEST-INV-3078-OVER",
+                amount=above_maximum,
+            )
+        self.assertFalse(
+            frappe.db.exists("SEPA Mandate Usage", {"parent": mandate.name, "reference_name": "TEST-INV-3078-OVER"}),
+            "A usage above the mandate maximum must not be recorded",
+        )
+
     def test_performance_with_multiple_mandates(self):
         """
         Test performance with realistic data volumes.
@@ -603,6 +607,61 @@ class SEPATestIBANPoolRegressionTests(unittest.TestCase):
             iban = factory.get_random_dutch_iban("ABNA")
             self.assertNotIn(iban, seen, "Duplicate IBAN drawn across same-seed factories")
             seen.add(iban)
+
+
+class SEPAComprehensiveFactoryIBANTests(unittest.TestCase):
+    """
+    Regression coverage for #931: the comprehensive suite's own factory
+    (`test_sepa_mandate_comprehensive.SEPAMandateTestDataFactory`, a different class
+    from the one #852 fixed) returned the first element of a 1-4 IBAN pool on every
+    call. No database: only the pure IBAN generation changed.
+    """
+
+    def _draw_after_global_reseed(self, **kwargs):
+        # What SEPAMandateTestMixin.setUp() does to every co-tenant class.
+        import random
+
+        random.seed(12345)
+        return SEPAMandateTestDataFactory.get_valid_test_iban(**kwargs)
+
+    def test_two_draws_after_the_mixin_reseed_differ(self):
+        first = self._draw_after_global_reseed()
+        second = self._draw_after_global_reseed()
+        self.assertNotEqual(first, second, "same global seed produced the identical IBAN")
+
+    def test_many_draws_are_unique(self):
+        draws = {self._draw_after_global_reseed() for _ in range(50)}
+        self.assertEqual(len(draws), 50)
+
+    def test_generated_iban_is_valid_and_its_bic_resolves(self):
+        from verenigingen.utils.validation.iban_validator import validate_iban
+
+        for bank_code in SEPAMandateTestDataFactory.DUTCH_BANK_BICS:
+            iban = self._draw_after_global_reseed(bank_code=bank_code)
+            result = validate_iban(iban)
+            self.assertTrue(result["valid"], f"{bank_code}: {iban}: {result}")
+            self.assertEqual(iban[4:8], bank_code)
+            self.assertEqual(
+                SEPAMandateTestDataFactory.get_bic_for_iban(iban),
+                SEPAMandateTestDataFactory.DUTCH_BANK_BICS[bank_code]["bic"],
+            )
+
+    def test_default_bank_has_a_resolvable_bic(self):
+        iban = self._draw_after_global_reseed()
+        self.assertIsNotNone(SEPAMandateTestDataFactory.get_bic_for_iban(iban))
+        self.assertIsNotNone(SEPAMandateTestDataFactory.get_bank_name_for_iban(iban))
+
+    def test_unknown_bank_code_falls_back_to_abna_with_a_resolvable_bic(self):
+        # KNAB is a bank generate_test_iban accepts but DUTCH_BANK_BICS does not know:
+        # without the fallback the IBAN would carry KNAB and get_bic_for_iban would be None.
+        iban = self._draw_after_global_reseed(bank_code="KNAB")
+        self.assertEqual(iban[4:8], "ABNA")
+        self.assertEqual(SEPAMandateTestDataFactory.get_bic_for_iban(iban), "ABNANL2A")
+
+    def test_non_dutch_country_still_returns_a_pool_iban(self):
+        # No generator exists for DE/FR, so they keep the fixed pool (control for the NL branch).
+        iban = SEPAMandateTestDataFactory.get_valid_test_iban(country="DE")
+        self.assertIn(iban, SEPAMandateTestDataFactory.TEST_IBANS["DE"])
 
 
 class SEPAMandateTestSuite:

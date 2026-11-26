@@ -52,6 +52,7 @@ from verenigingen.utils.error_handling import (
     sanitize_audit_details,
 )
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
 _impersonation_stack = threading.local()
 
@@ -395,7 +396,7 @@ class SecureOperationResult:
 
         The canonical attribute is `.document`. Several callers historically
         wrote `.doc`, which silently raised AttributeError that broad
-        except-blocks swallowed (notably in web_form/donation_form and the
+        except-blocks swallowed (notably in the former web_form/donation_form and the
         Mollie chargeback webhook handler). Surfaces the typo at the call
         site so future regressions can't hide.
         """
@@ -446,6 +447,60 @@ def _snapshot_link_values(doc) -> list:
             if row.get(df.fieldname):
                 snapshot.append((row, df.fieldname, row.get(df.fieldname)))
     return snapshot
+
+
+# The ONLY dead Link value the update_child_table link_validation bypass tolerates (#1789):
+# a Chapter Membership History row whose chapter was deleted. Widening this set persists every
+# additional dead reference as written, so it is a design decision (#1844), not a text tweak.
+_TOLERATED_DEAD_LINKS = {("Chapter Membership History", "chapter_name")}
+
+
+def _classify_dead_links(snapshot: list) -> tuple:
+    """(tolerated, refused) dead links among the pre-save snapshot, judged from the data itself.
+
+    Frappe's LinkValidationError text is not a usable signal: it is translated per user language
+    ("Kon Rij #90: Hoofdstuk: X niet vinden") and lists the parent's dead links before the rows'.
+    A Dynamic Link whose doctype field is empty is the "Reference DocType must be set first" shape
+    and counts as tolerated, as before; any other dead link is tolerated only if listed above.
+    """
+    tolerated, refused = [], []
+    for row, fieldname, value in snapshot:
+        df = row.meta.get_field(fieldname)
+        if df.fieldtype == "Dynamic Link":
+            linked_doctype = row.get(df.options)
+            if not linked_doctype:
+                tolerated.append((row, fieldname))
+                continue
+        else:
+            linked_doctype = df.options
+        if not linked_doctype or not frappe.db.exists("DocType", linked_doctype):
+            refused.append((row, fieldname))
+            continue
+        if frappe.get_meta(linked_doctype).issingle or frappe.get_meta(linked_doctype).get("is_virtual"):
+            continue
+        if frappe.db.exists(linked_doctype, value):
+            continue
+        key = (row.doctype, fieldname)
+        (tolerated if key in _TOLERATED_DEAD_LINKS else refused).append((row, fieldname))
+    return tolerated, refused
+
+
+def _link_error_is_within_bypass_scope(error, snapshot: list) -> bool:
+    """True when the failed save was caused by dead links and EVERY dead link is tolerated.
+
+    One dead link outside the tolerated set (the parent's own, a board row's) refuses the whole
+    retry, whatever order Frappe listed them in. Fails closed: no dead link found -> refuse.
+    """
+    tolerated, refused = _classify_dead_links(snapshot)
+    if refused or not tolerated:
+        return False
+    # EXACT types: Frappe raises TimestampMismatchError / DocumentLockedError (ValidationError
+    # subclasses) BEFORE it validates links, and retrying those would overwrite a newer save.
+    if type(error) is frappe.LinkValidationError:
+        return True
+    return type(error) is frappe.ValidationError and any(
+        row.meta.get_field(fieldname).fieldtype == "Dynamic Link" for row, fieldname in tolerated
+    )
 
 
 def _restore_blanked_links(snapshot: list) -> None:
@@ -567,9 +622,7 @@ def _execute_document_operation(
         except (frappe.LinkValidationError, frappe.ValidationError) as e:
             error_msg = str(e)
             # Check if this is a link validation error that should be bypassed
-            is_link_validation_error = (
-                "Chapter:" in error_msg and "Could not find Row" in error_msg
-            ) or "Reference DocType must be set first" in error_msg
+            is_link_validation_error = _link_error_is_within_bypass_scope(e, link_values)
 
             if is_link_validation_error:
                 # Check if link validation bypass is explicitly allowed
@@ -870,9 +923,47 @@ def secure_user_context_with_validation(target_user: str, operation_description:
                 frappe.session.sid = original_session_data["sid"]
 
 
+_FOLLOW_ON_FLAG = "authorised_follow_on_steps"
+
+
+@contextmanager
+def authorised_follow_on_steps():
+    """Run the enclosed steps with permission checks bypassed, still AS the acting user (#1930).
+
+    For the follow-on steps of an approval whose approver the caller has ALREADY authorised (dues schedule,
+    membership invoice and its lazily created Item, account creation request): a chapter board approver may
+    start them, but their own DocPerms refuse the individual writes. Maintainer ruling 2026-11-12: bypass the
+    checks for exactly those steps; do NOT impersonate the configured Creation User (it holds no rights on
+    these records). The session user, and so `owner`, stay the approver.
+
+    This authorises nothing: the caller checks the approver BEFORE entering. The write sites that belong to
+    those steps read `follow_on_ignore_permissions()`; `secure_document_operation` treats a call made inside
+    the scope as a system_operation. The flag lives on the request's local flags and is restored in
+    `finally`, so it never outlives the block (nested scopes restore the outer value).
+    """
+    flags = frappe.local.flags
+    previous = flags.get(_FOLLOW_ON_FLAG)
+    flags[_FOLLOW_ON_FLAG] = True
+    try:
+        yield
+    finally:
+        if previous is None:
+            flags.pop(_FOLLOW_ON_FLAG, None)
+        else:
+            flags[_FOLLOW_ON_FLAG] = previous
+
+
+def follow_on_ignore_permissions():
+    """True inside `authorised_follow_on_steps`, else None (insert/save then keep their normal check)."""
+    return True if frappe.local.flags.get(_FOLLOW_ON_FLAG) else None
+
+
 def _read_persisted_docstatus_best_effort(doctype, name):
     """Best-effort read of a document's current DB docstatus, for the #385
-    partial-write comparison. MUST NOT raise: this is a diagnostic signal,
+    partial-write comparison. Raises ONLY the non-resumable DB errors (1213/1205,
+    #2996): those mean the unit of work is dead or half-applied, and swallowing one
+    here would let the caller report success=False and carry on. Anything else MUST
+    NOT raise: this is a diagnostic signal,
     not the operation itself, and a caller can legitimately pass a doc whose
     `.doctype`/`.name` are not real strings (a test double standing in for a
     real document -- see test_setup_password_policy_new, which regressed
@@ -890,6 +981,11 @@ def _read_persisted_docstatus_best_effort(doctype, name):
         if not frappe.db.exists(doctype, name):
             return None
         return frappe.db.get_value(doctype, name, "docstatus")
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213 rolled the transaction back; 1205 left it half-applied (transaction_errors.py).
+        # Either way returning None would let the caller's failure handler report
+        # success=False and carry on over discarded or partial state (#2996).
+        raise
     except Exception:  # swallow-ok: best-effort
         return None
 
@@ -955,6 +1051,8 @@ def secure_document_operation(
         frappe.PermissionError: If user cannot request escalation or bypass_validations
         ConfigurationError: If system user is not properly configured
     """
+    # Inside authorised_follow_on_steps (#1930) the caller was already authorised: a system_operation.
+    system_operation = system_operation or bool(follow_on_ignore_permissions())
     operation_id = f"{operation}_{doc.doctype}_{int(time.time() * 1000)}"
     start_time = time.time()
     original_user = frappe.session.user
@@ -1132,6 +1230,9 @@ def secure_document_operation(
         raise
 
     except Exception as e:
+        # #2235: an RQ job timeout is raised once; do not turn it into success=False
+        reraise_if_job_timeout(e)
+
         # Capture full traceback for debugging
         error_traceback = frappe.get_traceback()
 

@@ -10,6 +10,8 @@ single. No business logic is mocked.
 """
 
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import cint
 
@@ -246,3 +248,236 @@ class TestMemberIDManager(EnhancedTestCase):
         frappe.cache().set(COUNTER_KEY, start - 50 if start > 50 else 1)
         MemberIDManager.sync_counter_with_settings()
         self.assertGreaterEqual(cint(frappe.cache().get(COUNTER_KEY)), start)
+
+
+class TestMemberIDStartMovesCounter(EnhancedTestCase):
+    """#2261: raising ``member_id_start`` moves the REAL counter (ruling 2026-11-09).
+
+    The change goes through a real ``Verenigingen Settings.save()`` and the ids
+    come from the real issuing path (``get_next_member_id`` and a real Member
+    insert). Only setup writes (``_preset``) go straight to tabSingles, to put
+    the start/counter at a known value without firing the hook.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._saved_start = frappe.db.get_single_value(DOCTYPE, "member_id_start")
+        row = frappe.db.sql("SELECT value FROM `tabSingles` WHERE doctype=%s AND field=%s", (DOCTYPE, FIELD))
+        self._saved_counter = row[0][0] if row else None
+        self._saved_cache = frappe.cache().get(COUNTER_KEY)
+        self.max_id = MemberIDManager._get_max_numeric_member_id()
+
+    def tearDown(self):
+        # Settings.on_update commits (sync_category_options_to_doctypes), so every
+        # save in these tests is COMMITTED, and a cleanup run after tearDown would
+        # restore nothing durable. Restore here and commit it, then prove it.
+        frappe.db.set_single_value(DOCTYPE, "member_id_start", self._saved_start)
+        if self._saved_counter is not None:
+            frappe.db.sql(
+                "UPDATE `tabSingles` SET value=%s WHERE doctype=%s AND field=%s",
+                (self._saved_counter, DOCTYPE, FIELD),
+            )
+        frappe.clear_document_cache(DOCTYPE, DOCTYPE)
+        frappe.db.commit()
+        if self._saved_cache is None:
+            frappe.cache().delete_value(COUNTER_KEY)
+        else:
+            frappe.cache().set(COUNTER_KEY, cint(self._saved_cache))
+        self.assertEqual(frappe.db.get_single_value(DOCTYPE, "member_id_start"), self._saved_start)
+        self.assertEqual(self._counter(), cint(self._saved_counter))
+        super().tearDown()
+
+    def _preset(self, start, counter):
+        frappe.db.set_single_value(DOCTYPE, "member_id_start", start)
+        frappe.db.sql(
+            "UPDATE `tabSingles` SET value=%s WHERE doctype=%s AND field=%s", (counter, DOCTYPE, FIELD)
+        )
+        frappe.clear_document_cache(DOCTYPE, DOCTYPE)
+
+    def _counter(self):
+        row = frappe.db.sql("SELECT value FROM `tabSingles` WHERE doctype=%s AND field=%s", (DOCTYPE, FIELD))
+        return cint(row[0][0])
+
+    def _save_start(self, value):
+        settings = frappe.get_doc(DOCTYPE)
+        settings.member_id_start = value
+        settings.save()
+
+    def test_raising_start_above_max_moves_counter_so_next_id_clears_it(self):
+        old_start = self.max_id + 10
+        new_start = self.max_id + 5000
+        self._preset(old_start, self.max_id)
+        self._save_start(new_start)
+        self.assertEqual(self._counter(), new_start)
+        # The counter holds the last assigned id, so the first new id is start + 1.
+        self.assertEqual(MemberIDManager.get_next_member_id(), new_start + 1)
+
+    def test_raising_start_gives_a_real_member_an_id_above_it(self):
+        new_start = self.max_id + 7000
+        self._preset(self.max_id + 10, self.max_id)
+        self._save_start(new_start)
+        member = self.create_test_member()
+        # Probe shortcut: the factory pins a non-numeric member_id, so clear it
+        # and let the REAL service (ensure_member_id -> get_next_member_id) number it.
+        member.db_set("member_id", None, update_modified=False)
+        member.reload()
+        # The whitelisted wrapper serialises the OperationResult to a dict.
+        self.assertTrue(member.ensure_member_id()["success"])
+        member.reload()
+        self.assertEqual(cint(member.member_id), new_start + 1)
+
+    def test_raising_start_keeps_the_display_cache_consistent(self):
+        new_start = self.max_id + 6000
+        self._preset(self.max_id + 10, self.max_id)
+        frappe.cache().set(COUNTER_KEY, self.max_id)
+        self._save_start(new_start)
+        self.assertEqual(cint(frappe.cache().get(COUNTER_KEY)), new_start)
+
+    def test_lowering_start_does_not_move_the_counter(self):
+        counter = self.max_id + 3000
+        self._preset(counter + 500, counter)
+        self._save_start(self.max_id + 10)  # a real change, downwards
+        self.assertEqual(self._counter(), counter)
+        self.assertEqual(MemberIDManager.get_next_member_id(), counter + 1)
+
+    def test_raising_start_below_the_counter_does_not_move_it_down(self):
+        counter = self.max_id + 9000
+        self._preset(self.max_id + 10, counter)
+        self._save_start(counter - 100)  # a real raise, but still below the counter
+        self.assertEqual(self._counter(), counter)
+        self.assertEqual(MemberIDManager.get_next_member_id(), counter + 1)
+
+    def test_raising_start_below_existing_member_ids_does_not_move_counter(self):
+        # The stored counter LAGS the data (self-heal case): the sync must see the
+        # member id, not just the stored value, or it would drop the counter.
+        member = self.create_test_member()
+        top = self.max_id + 20000
+        member.db_set("member_id", str(top), update_modified=False)
+        self._preset(self.max_id + 10, top - 1000)
+        self._save_start(top - 50)  # a real raise, above the stored counter, below the data
+        self.assertGreaterEqual(self._counter(), top - 1000)
+        self.assertNotEqual(self._counter(), top - 50)
+        self.assertEqual(MemberIDManager.get_next_member_id(), top + 1)
+
+
+class TestStaleSettingsSaveKeepsCounter(TestMemberIDStartMovesCounter):
+    """#2316: a Settings doc loaded BEFORE ids were issued must not roll the counter back.
+
+    ``last_member_id`` is a read-only field of the Settings Single, and a Single save
+    rewrites every field from the in-memory doc. The ids are issued through the real
+    ``get_next_member_id``; the stale doc is a real ``frappe.get_doc`` loaded earlier.
+    Setup/teardown inherit the committed restore from the parent class (Settings.on_update
+    commits mid-save). Subclassing re-runs the parent's tests too, which is intended.
+    """
+
+    def _stale_doc_then_issue(self, issued=3):
+        counter = self.max_id + 400
+        self._preset(self.max_id + 10, counter)
+        stale = frappe.get_doc(DOCTYPE)  # the "form loaded in a browser tab"
+        self.assertEqual(cint(stale.last_member_id), counter)
+        last = [MemberIDManager.get_next_member_id() for _ in range(issued)][-1]
+        self.assertEqual(last, counter + issued)
+        return stale, last
+
+    def test_stale_save_does_not_roll_the_counter_back(self):
+        stale, last = self._stale_doc_then_issue()
+        stale.save()
+        self.assertEqual(self._counter(), last)
+        self.assertEqual(MemberIDManager.get_next_member_id(), last + 1)
+
+    def test_stale_save_raising_start_moves_counter_to_start_not_back(self):
+        stale, last = self._stale_doc_then_issue()
+        stale.member_id_start = last + 5000  # raise above the counter
+        stale.save()
+        self.assertEqual(self._counter(), last + 5000)
+        self.assertEqual(MemberIDManager.get_next_member_id(), last + 5001)
+
+    def test_stale_save_lowering_start_keeps_the_issued_counter(self):
+        stale, last = self._stale_doc_then_issue()
+        stale.member_id_start = 1  # lowering does nothing
+        stale.save()
+        self.assertEqual(self._counter(), last)
+        self.assertEqual(MemberIDManager.get_next_member_id(), last + 1)
+
+    def test_stale_save_with_an_empty_stored_counter_keeps_the_doc_value(self):
+        # Probe shortcut: no real flow writes '' to tabSingles; it is set directly to
+        # prove an empty value is treated like a missing one, not as counter 0.
+        counter = self.max_id + 400
+        self._preset(self.max_id + 10, counter)
+        doc = frappe.get_doc(DOCTYPE)
+        frappe.db.sql("UPDATE `tabSingles` SET value='' WHERE doctype=%s AND field=%s", (DOCTYPE, FIELD))
+        doc.save()
+        self.assertEqual(self._counter(), counter)
+
+
+class TestIssuerNeverFabricatesAnId(EnhancedTestCase):
+    """#2339: a failure while issuing an ID must raise, never return a made-up one.
+
+    The fault is injected at ``frappe.db.sql``, BELOW every layer on the real path
+    that used to swallow it (``MemberIDManager.get_next_member_id`` and
+    ``generate_member_id`` in the core service each had an ``except Exception``
+    returning a timestamp-derived ID). It fires only on the counter-row lock
+    (``SELECT ... FOR UPDATE`` on tabSingles), which is the statement a concurrent
+    Verenigingen Settings save deadlocks with. The error is a stand-in for a 1213:
+    no second connection is used. That a REAL 1213 rolls back the caller's whole
+    transaction (the reason there is no in-place retry) is verified out-of-band by a
+    two-process probe, not by these tests: the stand-in error does not roll back.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._real_sql = frappe.db.sql
+        self.lock_attempts = 0
+
+    def _fail_on_counter_lock(self, error):
+        real_sql = self._real_sql
+
+        def sql(query, *args, **kwargs):
+            if isinstance(query, str) and "FOR UPDATE" in query and "tabSingles" in query:
+                self.lock_attempts += 1
+                raise error
+            return real_sql(query, *args, **kwargs)
+
+        # Mock justified: fault injection: the counter FOR UPDATE lock raises the injected error, every other statement runs for real
+        return patch.object(frappe.db, "sql", side_effect=sql)
+
+    def test_a_deadlock_on_the_counter_lock_raises_and_issues_nothing(self):
+        before = TestMemberIDManager._get_singles_counter(self)
+        with self._fail_on_counter_lock(frappe.QueryDeadlockError()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                MemberIDManager.get_next_member_id()
+        self.assertEqual(self.lock_attempts, 1, "a 1213 aborts the whole transaction: no in-place retry")
+        self.assertEqual(TestMemberIDManager._get_singles_counter(self), before)
+
+    def test_any_other_error_on_the_counter_lock_raises_too(self):
+        with self._fail_on_counter_lock(frappe.QueryTimeoutError()):
+            with self.assertRaises(frappe.QueryTimeoutError):
+                MemberIDManager.get_next_member_id()
+
+    def test_the_core_service_does_not_substitute_its_own_timestamp_id(self):
+        # core/member_id_service.generate_member_id carried a SECOND fallback
+        # (str(int(time.time() * 1000))[-8:]) that would take over once the manager raises.
+        from verenigingen.services.member.core.member_id_service import generate_member_id
+
+        with self._fail_on_counter_lock(frappe.QueryDeadlockError()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                generate_member_id()
+
+    def test_a_member_insert_fails_instead_of_getting_a_timestamp_id(self):
+        # The real flow: Member.before_save -> _handle_id_generation -> generate_member_id.
+        # Built directly: the factories pre-set a member_id and re-wrap any exception.
+        before_count = frappe.db.count("Member")
+        with self._fail_on_counter_lock(frappe.QueryDeadlockError()):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                frappe.get_doc(
+                    {
+                        "doctype": "Member",
+                        "first_name": "Idfault",
+                        "last_name": f"Probe-{frappe.generate_hash(length=6)}",
+                        "email": f"idfault-{frappe.generate_hash(length=8)}@test.invalid",
+                        "birth_date": frappe.utils.add_days(frappe.utils.getdate(), -9000),
+                        "status": "Active",
+                    }
+                ).insert(ignore_permissions=True)
+        self.assertGreaterEqual(self.lock_attempts, 1, "the insert never reached the counter lock")
+        self.assertEqual(frappe.db.count("Member"), before_count)

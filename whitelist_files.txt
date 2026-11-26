@@ -19,7 +19,6 @@
 ./scripts/debug/debug_dashboard_access.py
 ./scripts/debug/debug_volunteer_lookup.py
 ./scripts/debug/fix_dashboard_chart_issue.py
-./scripts/debug/incremental_update_debug_test.py
 ./scripts/debug/membership_dues_coverage_debugger.py
 ./scripts/debug/payment_history_debugger.py
 ./scripts/debug/remove_period_closing_vouchers.py
@@ -30,7 +29,6 @@
 ./scripts/eboekhouden/simple_stock_test.py
 ./scripts/error_handling_analyzer.py
 ./scripts/maintenance/rename_roles_with_prefix.py
-./scripts/member_performance_analyzer.py
 ./scripts/membership_dues_poc.py
 ./scripts/migration/fix_membership_types_billing.py
 ./scripts/migration/fix_team_assignment_history.py
@@ -336,7 +334,6 @@
 ./verenigingen/utils/analyze_mutation_ledgers.py
 ./verenigingen/utils/analyze_remaining_fallbacks.py
 ./verenigingen/utils/api_doc_generator.py
-./verenigingen/utils/api_endpoint_optimizer.py
 ./verenigingen/utils/api_response.py
 ./verenigingen/utils/auth_monitoring.py
 ./verenigingen/utils/billing_frequency_transition_manager.py
@@ -530,7 +527,6 @@
 ./verenigingen/verenigingen/report/members_without_active_memberships/members_without_active_memberships.py
 ./verenigingen/verenigingen/report/members_without_dues_schedule/members_without_dues_schedule.py
 ./verenigingen/verenigingen/report/termination_audit_report/termination_audit_report.py
-./verenigingen/verenigingen/web_form/donation_form/donation_form.py
 ./verenigingen/verenigingen/web_form/membership_application.py
 ./verenigingen/verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py
 ./verenigingen/www/e-boekhouden-dashboard.py

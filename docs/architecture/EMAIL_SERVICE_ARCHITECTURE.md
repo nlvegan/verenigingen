@@ -198,10 +198,7 @@ The NotificationDispatcher maps notification types to email templates:
 template_mapping = {
     "member_approval": "membership_application_approved",
     "member_rejection": "membership_application_rejected",
-    "member_suspension": "Member Suspension Notification",
     "payment_failure": "Payment Failure Notification",
-    "sepa_mandate_created": "SEPA Mandate Created",
-    "board_member_added": "Board Member Added",
     # ... additional mappings
 }
 ```

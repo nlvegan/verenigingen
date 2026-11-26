@@ -28,6 +28,7 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.support.mollie_bank_scope import pin_mollie_bank_account
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.mollie.services.dues_payment_processor import (
     BATCH_PAYMENT_LIMIT,
@@ -182,6 +183,14 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
     The BT-document construction itself is covered by the live batch test.
     """
 
+    def setUp(self):
+        super().setUp()
+        # The idempotency lookup counts a Bank Transaction only on Mollie's configured bank
+        # account (#2620). The raw Bank Transactions below sit on the plain test account, so
+        # point the Mollie config seam at THAT account: otherwise whether the row is found
+        # depends on whatever Mollie Settings the site happens to hold (#528).
+        pin_mollie_bank_account(self, self._ensure_plain_bank_account())
+
     def _matched_member(self, customer_id):
         member = self._member_with_customer()
         # The matcher keys on Member.mollie_customer_id.
@@ -301,9 +310,11 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
         # exercised by the integration suites; here we assert the orchestration
         # invokes it with the existing BT and the new PE).
         recon_calls = []
+        recon_payment_ids = []
 
-        def _capture_reconcile(bt_name, pe_name):
+        def _capture_reconcile(bt_name, pe_name, payment_id=None):
             recon_calls.append((bt_name, pe_name))
+            recon_payment_ids.append(payment_id)
             return True
 
         self.processor._reconcile_bank_transaction_with_payment_entry = _capture_reconcile
@@ -314,6 +325,8 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
         self.assertEqual(result["status"], "success", msg=result)
         self.assertTrue(result.get("partial_processing"))
         self.assertEqual(recon_calls, [(bt.name, "PE-RECON-001")])
+        # The payment id reaches the link step so a failed link names it in the Error Log (#1803).
+        self.assertEqual(recon_payment_ids, [ref])
         self.assertTrue(result.get("reconciled"))
 
     def test_bank_transaction_only_is_complete_when_no_allocation_was_requested(self):
@@ -384,7 +397,7 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
         # that single collaborator so we don't need a fully account-wired PE.
         customer_id = "cst_dues_full"
         self._matched_member(customer_id)
-        self.processor.bank_tx_creator.check_already_processed = lambda *a, **k: {
+        self.processor.bank_tx_creator.check_mollie_payment_processed = lambda *a, **k: {
             "already_processed": True,
             "payment_entry": "PE-EXISTING-001",
             "bank_transaction": "BT-EXISTING-001",
@@ -400,7 +413,7 @@ class TestProcessDuesPaymentBankTransaction(DuesProcessorTestBase):
     def test_already_processed_legacy_payment_entry_only(self):
         customer_id = "cst_dues_legacy"
         self._matched_member(customer_id)
-        self.processor.bank_tx_creator.check_already_processed = lambda *a, **k: {
+        self.processor.bank_tx_creator.check_mollie_payment_processed = lambda *a, **k: {
             "already_processed": True,
             "payment_entry": "PE-LEGACY-001",
             "bank_transaction": None,

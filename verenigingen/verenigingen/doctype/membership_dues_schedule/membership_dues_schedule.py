@@ -7,12 +7,10 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
-from verenigingen.services.billing.billing_period_calculator import (
-    calculate_billing_period,
-    calculate_next_invoice_date,
-)
+from verenigingen.services.billing.billing_period_calculator import calculate_next_invoice_date
 from verenigingen.services.billing.duplicate_invoice_detector import DuplicateInvoiceDetector
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.secure_operations import follow_on_ignore_permissions
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -258,6 +256,10 @@ class MembershipDuesSchedule(Document):
         if self.is_template:
             return
 
+        # An approval's own schedule (#1930) is written after its approver was authorised.
+        if follow_on_ignore_permissions():
+            return
+
         from verenigingen.services.billing.dues_schedule_permission_service import (
             get_dues_schedule_permission_service,
         )
@@ -501,15 +503,6 @@ class MembershipDuesSchedule(Document):
 
         calculator = CoverageCalculator(self)
         return calculator.should_generate_invoice_for_cutoff(cutoff_date)
-
-    def calculate_billing_period(self, invoice_date):
-        """Calculate the billing period start and end dates for a given invoice date"""
-        return calculate_billing_period(
-            billing_frequency=self.billing_frequency,
-            invoice_date=invoice_date,
-            custom_frequency_number=getattr(self, "custom_frequency_number", None),
-            custom_frequency_unit=getattr(self, "custom_frequency_unit", None),
-        )
 
     def validate_member_eligibility_for_invoice(self):
         """
@@ -835,14 +828,6 @@ class MembershipDuesSchedule(Document):
             )
             if income_acct:
                 item.income_account = income_acct
-
-            # Expense account from Company's default cost of goods sold account
-            try:
-                company_doc = frappe.get_cached_doc("Company", settings.company)
-                if company_doc.default_cost_of_goods_sold:
-                    item.expense_account = company_doc.default_cost_of_goods_sold
-            except Exception:
-                pass  # Use defaults if not available
 
             item.insert()
             # Let Frappe handle transaction management automatically

@@ -100,7 +100,7 @@ class TestValidateWebhookUserPermissionsEffectiveRoles(FrappeTestCase):
         ), patch.object(frappe, "log_error") as mock_log:
             with self.set_user(self.SERVICE_USER):
                 ok = ws.validate_webhook_user_permissions()
-        message = mock_log.call_args[0][0] if mock_log.call_args else ""
+        message = mock_log.call_args.kwargs["message"] if mock_log.call_args else ""
         # Flatten so a failure shows the whole list on the assertion line.
         return ok, " ".join(message.split())
 
@@ -183,7 +183,7 @@ class TestValidateWebhookUserPermissionsEffectiveRoles(FrappeTestCase):
                 ok = ws.validate_webhook_user_permissions()
 
         self.assertFalse(ok, "Guest cannot read Sales Invoice")
-        message = " ".join(mock_log.call_args[0][0].split())
+        message = " ".join(mock_log.call_args.kwargs["message"].split())
         self.assertIn("Sales Invoice (read)", message)
         self.assertNotIn("Sales Invoice (create)", message)
         self.assertNotIn("Sales Invoice (write)", message)

@@ -10,7 +10,7 @@ import unittest
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-from verenigingen.utils.base_role_profile_manager import (
+from verenigingen.services.member.account.base_role_profile_manager import (
     validate_doctype_fields,
     validate_entity_configuration,
     validate_role_profile_dependencies,
@@ -208,8 +208,8 @@ class TestRoleProfileSystemIntegration(EnhancedTestCase):
             finally:
                 frappe.set_user(current_user)
         
-        # Test assignment to non-existent entity (should fail gracefully)
-        result = _team_manager.assign_role_profile(
+        # Test removal for a non-existent entity (should fail gracefully)
+        result = _team_manager.remove_role_profile(
             "test.integration@example.com",
             "Non-Existent Team"
         )

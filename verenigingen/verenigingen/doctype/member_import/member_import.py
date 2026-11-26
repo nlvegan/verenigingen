@@ -19,8 +19,10 @@ from verenigingen.utils.csv_import_processor import (
     CSVImportBackgroundProcessor,
     bulk_member_operations,
     ensure_bulk_import_members_set,
+    single_run_per_import_doc,
 )
 from verenigingen.utils.error_handling import sanitize_error_for_audit
+from verenigingen.utils.flag_restore import restored_flags
 from verenigingen.utils.member_import_provenance import mark_member_imported
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.transaction_errors import (
@@ -350,6 +352,8 @@ def validate_import_file(import_doc_name: str) -> dict:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
+@single_run_per_import_doc("Member Import")
+@restored_flags("in_background_job", "ignore_version_changes")  # #2577: restore the caller's values
 def process_import_background(import_doc_name: str, test_mode=False):
     """Background job: process the validated CSV and create members."""
     doc, test_mode = prepare_background_import("Member Import", import_doc_name, test_mode)
@@ -392,7 +396,3 @@ def process_import_background(import_doc_name: str, test_mode=False):
 
     except Exception:
         mark_import_failed(doc, traceback.format_exc())
-
-    finally:
-        frappe.flags.in_background_job = False
-        frappe.flags.ignore_version_changes = False

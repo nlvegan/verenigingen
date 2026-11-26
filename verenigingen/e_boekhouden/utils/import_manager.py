@@ -75,7 +75,7 @@ class EBoekhoudenImportManager:
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
-    def update_existing_imports(self, from_date=None, to_date=None, force_update=False):
+    def update_existing_imports(self, from_date=None, to_date=None, force_update: bool = False):
         """
         Update existing imports with latest data from E-Boekhouden
 
@@ -190,9 +190,12 @@ class EBoekhoudenImportManager:
         for doctype, field in doctypes:
             filters = {field: ["!=", ""]}
 
-            if from_date:
+            # One key holds one condition: assigning it per bound lets to_date drop from_date (#3131)
+            if from_date and to_date:
+                filters["posting_date"] = ["between", [from_date, to_date]]
+            elif from_date:
                 filters["posting_date"] = [">=", from_date]
-            if to_date:
+            elif to_date:
                 filters["posting_date"] = ["<=", to_date]
 
             docs = frappe.get_all(
@@ -318,7 +321,7 @@ def clean_import_all(from_date=None, to_date=None):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def update_existing_imports(from_date=None, to_date=None, force_update=False):
+def update_existing_imports(from_date=None, to_date=None, force_update: bool = False):
     """Update existing E-Boekhouden imports"""
     manager = EBoekhoudenImportManager()
     return manager.update_existing_imports(from_date, to_date, force_update)

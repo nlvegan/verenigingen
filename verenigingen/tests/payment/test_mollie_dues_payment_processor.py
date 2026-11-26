@@ -54,7 +54,7 @@ class _StubBankTxCreator:
     def __init__(self, already=None):
         self._already = already or {"payment_entry": None, "bank_transaction": None}
 
-    def check_already_processed(self, payment_id, check_payment_entry=True):
+    def check_mollie_payment_processed(self, payment_id, check_payment_entry=True):
         return self._already
 
 
@@ -389,6 +389,33 @@ class TestCreatePaymentEntryForDuesEndToEnd(EnhancedTestCase):
             self.member.name, payment, invoice_name=self.invoice_name
         )
         self.assertEqual(second, first)
+
+    def test_redelivery_after_staff_cancel_is_refused_not_rebooked(self):
+        """#2406 ruling: a staff-cancelled forward PE is not booked again. The writer returns None
+        (no exception, so the webhook is acknowledged), logs once and alerts staff once."""
+        from verenigingen.tests.support import forward_refusal as refusal
+
+        payment = _payment(amount={"value": "25.00", "currency": "EUR"})
+        first = self.proc._create_payment_entry_for_dues(
+            self.member.name, payment, invoice_name=self.invoice_name
+        )
+        self.assertIsNotNone(first, "fixture problem: dues PE not booked")
+        refusal.assert_no_refusal(self, payment.id)  # control: the first delivery raised nothing
+        frappe.get_doc("Payment Entry", first).cancel()
+        refusal.prepare_refusal_fixture(self, payment.id)
+
+        for _ in range(2):  # the second redelivery must not alert staff again
+            again = self.proc._create_payment_entry_for_dues(
+                self.member.name, payment, invoice_name=self.invoice_name
+            )
+            self.assertIsNone(again)
+            rows = frappe.get_all(
+                "Payment Entry",
+                filters={"reference_no": payment.id, "payment_type": "Receive"},
+                fields=["name", "docstatus"],
+            )
+            self.assertEqual([(r.name, r.docstatus) for r in rows], [(first, 2)])
+            refusal.assert_refused_once(self, payment.id, "25.00")
 
 
 class TestCreatePaymentEntryForDuesCompanyMismatchAmbiguity(EnhancedTestCase):

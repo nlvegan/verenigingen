@@ -442,6 +442,9 @@ class TestProcuriosDataValidator(unittest.TestCase):
 import frappe  # noqa: E402
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase  # noqa: E402
+from verenigingen.tests.support.procurios_import_stubs import (  # noqa: E402
+    _submit_import_doc_without_worker_2491,
+)
 
 
 def _create_stub_member_import_doc():
@@ -674,7 +677,7 @@ class TestMemberImportEndToEnd(EnhancedTestCase):
         ]
         file_url = _create_member_csv_attachment(rows)
         doc = _create_member_import_doc(file_url)
-        doc.submit()  # enqueues; we drive synchronously
+        _submit_import_doc_without_worker_2491(doc)  # we drive the job synchronously
 
         from verenigingen.verenigingen.doctype.member_import.member_import import (
             process_import_background,

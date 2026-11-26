@@ -537,7 +537,7 @@ class PaymentMixin:
         queue_payment_update(self.name, invoice_name)
         return True  # Queued successfully
 
-    def _get_invoice_with_retry(self, invoice_name, max_retries=3):
+    def _get_invoice_with_retry(self, invoice_name, max_retries=3, attempts=0):
         """
         Get the invoice, tolerating that it may not yet be visible to this
         transaction's REPEATABLE READ read view.
@@ -570,54 +570,68 @@ class PaymentMixin:
         durable.
 
         So this makes no attempt to see the invoice in THIS transaction at
-        all. A miss re-queues the same update for the batch processor's own
-        next drain -- which runs in a genuinely fresh transaction, either the
-        next unrelated ``add_invoice_to_payment_history()`` call within 30s
-        or the "*/5 * * * *" safety-net cron
-        (``hooks/scheduler.py``,
-        ``financial_history_batch_processor.schedule_financial_history_processing``)
-        -- rather than trying (and being unable) to refresh this one.
-        ``max_retries`` no longer changes anything here; kept only for
-        signature compatibility, since no amount of retrying inside this
-        transaction can succeed for the reason above.
+        all. A miss hands the same update to a retry job (below) that runs
+        in a genuinely fresh transaction. ``max_retries`` no longer changes
+        anything here; kept only for signature compatibility, since no amount
+        of retrying inside this transaction can succeed for the reason above.
 
-        Known gap, left for the file that owns it: a re-queued update that
-        keeps missing (e.g. a genuinely bad invoice name) retries forever,
-        quietly, roughly every 5 minutes, rather than giving up after a bound
-        and logging an error the way the old code did. Capping that needs a
-        persistent attempt counter carried in the queued operation's own
-        data, which only ``financial_history_batch_processor.py`` can thread
-        through -- out of this fix's file.
+        #2527: the batch queue is per PROCESS, so re-queuing into it never
+        reached a fresh transaction (the nested inline drain re-missed in the
+        same snapshot, and an RQ job's queue died with its work horse). A miss
+        is therefore handed to a small RQ job, enqueued after this transaction
+        commits, that re-runs the update in a fresh transaction.
+
+        ``attempts`` is how many times the update has already missed (carried
+        into the retry job as a kwarg, and into the batch operation's data).
+        A miss that cannot be retried -- the cap is reached, or the retry job
+        cannot be enqueued -- is logged to the Error Log instead of vanishing.
         """
-        from verenigingen.utils.financial_history_batch_processor import queue_payment_update
+        from verenigingen.utils.financial_history_batch_processor import MAX_MISSING_INVOICE_ATTEMPTS
 
         try:
             return frappe.get_doc("Sales Invoice", invoice_name)
         except frappe.DoesNotExistError:
-            # Reentrancy guard. queue_payment_update() can itself trigger an
-            # immediate drain of the batch queue
-            # (FinancialHistoryBatchProcessor._maybe_process_batches()). If
-            # THIS call is already running from inside that very drain
-            # (_process_member_payment_batch), re-queuing would re-enter it --
-            # and since nothing has committed, the re-drained attempt sees
-            # the identical stale snapshot and would requeue again, without
-            # end. This flag collapses that into one harmless extra miss
-            # instead of unbounded recursion.
-            if getattr(frappe.flags, "_payment_mixin_invoice_retry_requeuing", False):
+            if attempts + 1 >= MAX_MISSING_INVOICE_ATTEMPTS:
+                self._log_missing_invoice_give_up(invoice_name, attempts + 1, "the retry cap was reached")
                 return None
 
-            frappe.flags._payment_mixin_invoice_retry_requeuing = True
-            try:
-                queue_payment_update(self.name, invoice_name)
-            finally:
-                frappe.flags._payment_mixin_invoice_retry_requeuing = False
-
-            frappe.logger("payment_history").info(
-                f"Invoice {invoice_name} not visible yet for member {self.name}; "
-                "re-queued for the batch processor's next drain instead of "
-                "committing mid-request (#421)."
-            )
+            self._enqueue_missing_invoice_retry(invoice_name, attempts + 1)
             return None
+
+    def _enqueue_missing_invoice_retry(self, invoice_name, attempts):
+        """Hand a missed update to a job that runs after this transaction commits (#2527).
+
+        No ``job_id``/``deduplicate``: ``deduplicate`` would also swallow the
+        retry job's OWN next retry (its job is STARTED under the same id), and
+        it is checked before the after-commit hook fires anyway. A duplicate job
+        is harmless -- the history write is an idempotent upsert -- and the
+        attempt cap bounds the chain.
+        """
+        try:
+            frappe.enqueue(
+                "verenigingen.utils.background_jobs.retry_missing_invoice_payment_history",
+                queue="short",
+                enqueue_after_commit=True,
+                timeout=300,
+                member=self.name,
+                invoice=invoice_name,
+                attempts=attempts,
+            )
+        except Exception as e:
+            self._log_missing_invoice_give_up(
+                invoice_name, attempts, f"the retry job could not be enqueued ({e})"
+            )
+
+    def _log_missing_invoice_give_up(self, invoice_name, attempts, reason):
+        """One Error Log row for an update dropped because its invoice never appeared (#829)."""
+        frappe.log_error(
+            title="Payment History Race Condition",
+            message=(
+                f"Gave up adding invoice {invoice_name} to the payment history of member "
+                f"{self.name} after {attempts} miss(es): {reason}. The invoice was not "
+                "visible; if it exists, rebuild this member's payment history."
+            ),
+        )
 
     def update_invoice_in_payment_history(self, invoice_name):
         """Update an existing invoice in payment history using consolidated manager"""

@@ -14,6 +14,7 @@ Created: 2025-12-09
 
 import frappe
 from frappe.utils import today, add_days, add_months, now_datetime, random_string
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
@@ -139,6 +140,10 @@ class TestMembershipTypeChangeIntegration(EnhancedTestCase):
         )
 
         original_schedule_name = original_schedule.name
+        original_frequency = original_schedule.billing_frequency
+        # Control for the #1937 assertion below: the target Type's cadence must differ from
+        # the member's, or "kept" and "taken from the Type" would be indistinguishable.
+        self.assertNotEqual(original_frequency, self.quarterly_type.billing_period)
 
         # Create and apply type change amendment
         amendment = frappe.get_doc({
@@ -177,7 +182,9 @@ class TestMembershipTypeChangeIntegration(EnhancedTestCase):
         updated_schedule = frappe.get_doc("Membership Dues Schedule", original_schedule_name)
         self.assertEqual(updated_schedule.membership_type, self.quarterly_type.name)
         self.assertEqual(updated_schedule.dues_rate, self.quarterly_type.minimum_amount)
-        self.assertEqual(updated_schedule.billing_frequency, "Quarterly")
+        # #1937 maintainer ruling (2026-11-11): the member keeps their own cadence on a type
+        # change; the new Type's frequency no longer applies. This used to assert "Quarterly".
+        self.assertEqual(updated_schedule.billing_frequency, original_frequency)
         self.assertEqual(updated_schedule.status, "Active")
 
     def test_membership_type_history_recorded(self):
@@ -365,7 +372,7 @@ class TestMembershipTypeChangeIntegration(EnhancedTestCase):
         # The old entry should have to_date set
         for old_entry in old_entries:
             if old_entry.reason == "Initial membership":
-                self.assertEqual(str(old_entry.to_date), str(today()))
+                assert_written_today(self, old_entry.to_date)
 
     def test_schedule_notes_include_change_audit(self):
         """Test that schedule notes include audit trail of changes"""
@@ -664,4 +671,4 @@ class TestPortalTypeChangeEffectiveDate(EnhancedTestCase):
         # No dues schedule created
         effective_date = _calculate_type_change_effective_date(member.name)
 
-        self.assertEqual(str(effective_date), str(today()))
+        assert_written_today(self, effective_date)

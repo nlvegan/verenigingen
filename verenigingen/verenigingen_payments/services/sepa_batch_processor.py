@@ -16,6 +16,7 @@ from frappe.utils import add_days, cstr, flt, getdate, today
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.settings_utils import get_payments_settings
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import (
     get_batch_performance_optimizer,
 )
@@ -214,7 +215,13 @@ class SEPABatchProcessor:
 
                 # Get sequence type from batch lookup
                 cache_key = f"{mandate_data['name']}:{processed['invoice_name']}"
-                sequence_type = sequence_types.get(cache_key, "RCUR")
+                sequence_type = sequence_types.get(cache_key)
+                if not sequence_type:
+                    # Undeterminable (#2716): leave the invoice out rather than guess.
+                    self._skip_undeterminable_sequence_type(
+                        batch, processed["invoice_name"], mandate_data["name"]
+                    )
+                    continue
 
                 try:
                     # Use optimized invoice addition with pre-fetched data
@@ -439,6 +446,9 @@ class SEPABatchProcessor:
         )
 
         sequence_info = get_mandate_sequence_type(mandate.name, invoice.name)
+        if sequence_info.get("error"):
+            self._skip_undeterminable_sequence_type(batch, invoice.name, mandate.name)
+            return
         correct_sequence_type = sequence_info["sequence_type"]
 
         batch.append(
@@ -509,6 +519,9 @@ class SEPABatchProcessor:
             return
 
         sequence_info = get_mandate_sequence_type(mandate_name, invoice_data["name"])
+        if sequence_info.get("error"):
+            self._skip_undeterminable_sequence_type(batch, invoice_data["name"], mandate_name)
+            return
         correct_sequence_type = sequence_info["sequence_type"]
 
         batch.append(
@@ -559,7 +572,11 @@ class SEPABatchProcessor:
             mandate_name, invoice_name = pair
             cache_key = f"{mandate_name}:{invoice_name}"
             invoice_data = invoice_lookup[cache_key]
-            sequence_type = sequence_types.get(cache_key, "RCUR")  # Default to RCUR
+            sequence_type = sequence_types.get(cache_key)
+            if not sequence_type:
+                # Undeterminable (#2716): leave the invoice out rather than guess.
+                self._skip_undeterminable_sequence_type(batch, invoice_name, mandate_name)
+                continue
 
             try:
                 self.add_invoice_to_batch_with_sequence(batch, invoice_data, sequence_type)
@@ -574,6 +591,12 @@ class SEPABatchProcessor:
         frappe.logger().info(
             f"Fallback processing: {successful_count}/{len(invoices)} invoices added to batch"
         )
+
+    def _skip_undeterminable_sequence_type(self, batch, invoice_name, mandate_name):
+        """Leave an invoice out of the batch and tell staff why (#2716)."""
+        from verenigingen.verenigingen_payments.utils.sepa_utilities import BatchLoggingUtilities
+
+        BatchLoggingUtilities.record_undeterminable_sequence_type(batch, invoice_name, mandate_name)
 
     def _create_mandate_usage_record(self, mandate_name, invoice_name, amount, sequence_type):
         """Create mandate usage record for tracking.
@@ -625,10 +648,17 @@ class SEPABatchProcessor:
                 # Find the invoice in the batch
                 invoice_item = self.find_invoice_in_batch(batch, return_item)
                 if invoice_item:
-                    # Update invoice status
-                    invoice_item.status = "Failed"
-                    invoice_item.result_code = return_item.get("reason_code")
-                    invoice_item.result_message = return_item.get("reason_description")
+                    # A return file only exists for a collected, i.e. SUBMITTED, batch,
+                    # and these child fields are not allow_on_submit: persist them
+                    # directly, a batch.save() below would raise UpdateAfterSubmitError (#1235).
+                    invoice_item.db_set(
+                        {
+                            "status": "Failed",
+                            "result_code": return_item.get("reason_code"),
+                            "result_message": return_item.get("reason_description"),
+                        },
+                        update_modified=False,
+                    )
 
                     # Handle the failed payment
                     self.handle_failed_payment(invoice_item, return_item)
@@ -638,8 +668,13 @@ class SEPABatchProcessor:
             if failed_count > 0:
                 batch.status = "Partially Failed"
                 batch.add_to_batch_log(f"Processed {failed_count} returned payments")
+                # batch_log is not allow_on_submit (status is), so both are persisted with
+                # db_set rather than batch.save() (#1230, #1235). A Draft batch therefore no
+                # longer re-runs validate() (the totals recalculation) here, intentionally:
+                # a return file only applies to a collected, i.e. submitted, batch.
+                batch.db_set("status", batch.status, update_modified=False)
+                batch.db_set("batch_log", batch.batch_log, update_modified=False)
 
-            batch.save()
             return failed_count
 
         except Exception:
@@ -761,10 +796,13 @@ class SEPABatchProcessor:
                 schedule_updated = True
 
             except Exception:
-                # Rollback schedule changes on any error
-                frappe.db.rollback_savepoint("handle_failed_payment")
+                # Rollback schedule changes on any error (#3094: frappe.db has no
+                # rollback_savepoint, and the AttributeError replaced the real error)
+                rollback_to_savepoint("handle_failed_payment")
                 raise
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception:
             frappe.log_error(
                 title="Failed Payment Handler Error",
@@ -1185,6 +1223,12 @@ class SEPABatchProcessor:
             # a Company").
             if self.company:
                 invoice.company = self.company.name
+                # #2810: price list in the company currency (no live rate fetch).
+                from verenigingen.utils.invoice_price_list import get_selling_price_list_for_company
+
+                invoice.selling_price_list = get_selling_price_list_for_company(
+                    self.company.name, invoice.customer
+                )
             invoice.posting_date = today()
             invoice.due_date = schedule.next_invoice_date
 

@@ -17,8 +17,10 @@ from typing import Dict, Optional, Tuple
 
 import frappe
 
+from verenigingen.services.supplier_group_resolver import resolve_non_group_supplier_group
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
 from verenigingen.utils.sepa_parser import extract_salutation
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class BankTransactionParser:
@@ -515,6 +517,10 @@ class BankTransactionParser:
 
             return created_party_name, True
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the importer's batch back; converting it to a ValidationError or
+            # logging it lets the caller carry on against a dead transaction (#3008).
+            raise
         except Exception as e:
             error_msg = f"Failed to create {party_type} '{party_name}': {str(e)}"
             frappe.logger().error(error_msg)
@@ -544,6 +550,10 @@ class BankTransactionParser:
                 bank_account.is_default = 1
                 bank_account.insert(ignore_permissions=False)
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the importer's batch back; converting it to a ValidationError or
+            # logging it lets the caller carry on against a dead transaction (#3008).
+            raise
         except Exception as e:
             # Bank account creation is optional - log but don't fail
             # (Party was created successfully, bank account is just a nice-to-have)
@@ -576,13 +586,16 @@ class BankTransactionParser:
                 doc.territory = "Netherlands"
             else:
                 doc.supplier_name = generic_name
-                doc.supplier_group = "All Supplier Groups"
+                doc.supplier_group = resolve_non_group_supplier_group()
                 doc.supplier_type = "Company"
 
             doc.insert(ignore_permissions=False)
 
             return doc.name, True
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # Not a configuration problem: the importer's batch was rolled back (#3008).
+            raise
         except Exception as e:
             # Fail fast - if we can't even create a generic party, something is very wrong
             frappe.throw(

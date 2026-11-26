@@ -12,7 +12,11 @@ Flow per run:
      progress via ``frappe.publish_realtime``.
 4. On normal completion, set status=Completed.
 5. Exceptions per payment are caught and recorded as row failures; the run
-   continues. An uncaught exception at the run level sets status=Failed.
+   continues. A lock error (1213/1205) is not a row failure: it stops the run, rolls
+   back the uncheckpointed work and sets status=Failed (#3059). That rollback also
+   discards up to PROGRESS_CHECKPOINT_INTERVAL-1 (9) successful rows since the last
+   checkpoint; a resume redoes them (deliberate: run and DB state stay consistent). An uncaught exception
+   at the run level sets status=Failed.
 
 Resume: re-enqueueing a Failed/Timed Out/Cancelled run picks up from
 ``last_processed_index``. Rows already Pending or Failed (with attempts <
@@ -28,10 +32,12 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.doctype.mollie_bulk_run.mollie_bulk_run import (
     ACTIVE_STATUSES,
     MAX_ATTEMPTS_PER_PAYMENT,
 )
+from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
 PROGRESS_EVENT = "mollie_bulk_run_progress"
 PROGRESS_CHECKPOINT_INTERVAL = 10
@@ -73,6 +79,14 @@ def execute_bulk_run(run_name: str) -> None:
             _finalize(run, status="Completed")
 
     except Exception as exc:
+        if isinstance(exc, NON_RESUMABLE_DB_ERRORS):
+            # #3059: _finalize commits. Without this a 1205 (half-applied, transaction still
+            # live) would commit what the failed row wrote since the last checkpoint, while the
+            # row never records it, so a resume would skip the payment as "BT already exists".
+            # Trade-off, deliberate: the rollback also discards up to
+            # PROGRESS_CHECKPOINT_INTERVAL-1 (9) SUCCESSFUL, un-checkpointed rows since the last
+            # checkpoint, and a resume redoes them. Run state and DB state stay consistent.
+            frappe.db.rollback()
         frappe.log_error(
             frappe.get_traceback(),
             f"Mollie Bulk Run failed: {run_name}",
@@ -129,7 +143,7 @@ def _list_mollie_payments(date_from, date_to) -> list[dict]:
         get_member_payment_matcher,
     )
 
-    client = MollieClient().sdk_client
+    client = MollieClient()
     matcher = get_member_payment_matcher()
 
     date_from_str = str(date_from)
@@ -141,7 +155,7 @@ def _list_mollie_payments(date_from, date_to) -> list[dict]:
     consecutive_older = 0
 
     while True:
-        page = client.payments.list(**params)
+        page = client.list_resource_page("payments", **params)
         batch = list(page)
         if not batch:
             break
@@ -152,9 +166,10 @@ def _list_mollie_payments(date_from, date_to) -> list[dict]:
             seen.add(payment.id)
 
             created_at = getattr(payment, "created_at", "") or ""
-            created_date = created_at[:10]
+            # Site-local day of the event, not the UTC day of the timestamp (#2192)
+            created_date = str(mollie_timestamp_to_local_date(created_at) or "")
             paid_at = getattr(payment, "paid_at", None)
-            paid_date = str(paid_at)[:10] if paid_at else created_date
+            paid_date = str(mollie_timestamp_to_local_date(paid_at) or "") if paid_at else created_date
 
             if created_date and created_date < date_from_str:
                 consecutive_older += 1
@@ -222,11 +237,16 @@ def _process_rows(run) -> None:
     save the whole run doc once per checkpoint and reload afterwards. The
     cancel flag is polled via a cheap single-column DB lookup on every iteration.
     """
+    from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+        get_bank_transaction_creator,
+    )
     from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
         get_payment_orchestrator,
     )
 
     orchestrator = get_payment_orchestrator()
+    creator = get_bank_transaction_creator()
+    mollie_config = creator.get_mollie_bank_account_config()
 
     if run.status != "Processing":
         run.db_set("status", "Processing", update_modified=False)
@@ -263,11 +283,10 @@ def _process_rows(run) -> None:
         # This avoids the orchestrator's "try to retrofit PE/SI" path which
         # can report Failed when member resolution or invoice matching
         # stumbles on an already-imported orphan.
-        existing_bt = frappe.db.get_value(
-            "Bank Transaction",
-            {"reference_number": row.payment_id, "docstatus": ["!=", 2]},
-            "name",
-        )
+        # Scoped to the Mollie bank account (#2620): another account's row does not
+        # mean this payment was imported.
+        existing = creator.find_mollie_bank_transaction(row.payment_id, config=mollie_config)
+        existing_bt = existing.name if existing else None
         if existing_bt:
             row.bank_transaction = existing_bt
             row.row_status = "Skipped"
@@ -289,6 +308,10 @@ def _process_rows(run) -> None:
                 skipped += 1
             elif row.row_status == "Failed":
                 failed += 1
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3059: a 1213/1205 is not this row's failure. Marking it Failed and checkpointing
+            # would commit a half-applied unit; stop the run and let execute_bulk_run roll back.
+            raise
         except Exception as exc:
             row.row_status = "Failed"
             row.message = f"Unhandled exception: {exc}"[:1000]

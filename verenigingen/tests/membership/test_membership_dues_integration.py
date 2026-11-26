@@ -29,6 +29,7 @@ import frappe
 from frappe.utils import add_months, getdate, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.utils import membership_dues_integration as mdi
 from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
 
@@ -180,7 +181,7 @@ class TestMembershipDuesIntegration(VereningingenTestCase):
         # Payment already made -> no invoice generated, last_invoice_date set
         self.assertIsNone(invoice)
         schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-        self.assertEqual(getdate(schedule.last_invoice_date), getdate(today()))
+        assert_written_today(self, schedule.last_invoice_date)
         self.assertEqual(
             getdate(schedule.next_invoice_date),
             getdate(mdi.calculate_next_invoice_date(today(), "Annual")),
@@ -431,6 +432,7 @@ class TestMemberPaidYtdFailsLoudly(VereningingenTestCase):
         """
         from unittest.mock import patch
 
+        # Mock justified: fault injection: both the SQL path and the get_all fallback fail, which cannot be staged on a live DB
         with patch.object(frappe.db, "sql", side_effect=RuntimeError("database is down")):
             with patch.object(frappe, "get_all", side_effect=RuntimeError("database is down")):
                 with self.assertRaises(RuntimeError):
@@ -444,6 +446,7 @@ class TestMemberPaidYtdFailsLoudly(VereningingenTestCase):
         """
         from unittest.mock import patch
 
+        # Mock justified: fault injection: only the SQL path fails, to prove the fallback to the Python path
         with patch.object(frappe.db, "sql", side_effect=RuntimeError("database is down")):
             with patch.object(frappe, "get_all", return_value=[]):
                 self.assertEqual(mdi._calculate_member_paid_ytd_optimized("CUST-0001"), 0.0)

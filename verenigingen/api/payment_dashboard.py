@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
-from verenigingen.services.payment.sepa_mandate_manager import get_sepa_mandate_manager
+from verenigingen.services.billing.billing_period_calculator import add_billing_periods, get_period_length
 from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.constants import Limits, Membership, PaymentStatus, Roles
 from verenigingen.utils.error_handling import cache_with_ttl
@@ -20,6 +20,9 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     standard_api,
 )
+from verenigingen.utils.security.audit_emitter import get_audit_emitter
+from verenigingen.utils.security.types import SecurityLevel
+from verenigingen.verenigingen_payments.utils.mandate_candidates import unambiguous_active_mandate
 
 
 def validate_member_exists(member_id: str | None) -> str:
@@ -142,8 +145,8 @@ def get_dashboard_data(member: str = None) -> OperationResult[Dict[str, Any]]:
                 has_failed_payments = failed_count > 0
 
         # Get next payment info
-        # Note: get_next_payment returns dict (from security decorator to_dict()) for internal calls
-        next_payment_result = get_next_payment(member)
+        # _next_payment returns the raw OperationResult; the dict branch is kept for safety
+        next_payment_result = _next_payment(member, caller_cleared_high=True)
         if isinstance(next_payment_result, dict):
             next_payment = next_payment_result.get("data") if next_payment_result.get("success") else None
         else:
@@ -152,13 +155,12 @@ def get_dashboard_data(member: str = None) -> OperationResult[Dict[str, Any]]:
         # Check if mandate is expiring soon
         mandate_expiring_soon = False
         # Membership-scoped (#605): this dashboard is about the member's DUES, so a
-        # donation mandate's expiry is not the warning to show here.
-        active_mandates = get_sepa_mandate_manager().get_active_mandates(
-            member, purpose="used_for_memberships"
-        )
-        if active_mandates:
-            # Get the first active mandate
-            active_mandate = frappe.get_doc("SEPA Mandate", active_mandates[0].name)
+        # donation mandate's expiry is not the warning to show here. Several Active
+        # membership mandates are refused, not ordered (#2289): the newest row's expiry
+        # is not "the" mandate's, and collection debits neither.
+        mandate_choice = unambiguous_active_mandate(member, "Dashboard data: ambiguous mandate")
+        if mandate_choice:
+            active_mandate = frappe.get_doc("SEPA Mandate", mandate_choice.mandate["name"])
             if active_mandate.expiry_date:
                 days_to_expiry = (getdate(active_mandate.expiry_date) - getdate(today())).days
                 mandate_expiring_soon = 0 < days_to_expiry <= 30
@@ -169,6 +171,7 @@ def get_dashboard_data(member: str = None) -> OperationResult[Dict[str, Any]]:
             "has_failed_payments": has_failed_payments,
             "next_payment": next_payment,
             "mandate_expiring_soon": mandate_expiring_soon,
+            "mandate_ambiguous": mandate_choice.is_ambiguous,
         }
 
         return OperationResult.ok(data, message=_("Dashboard data retrieved successfully"))
@@ -195,13 +198,13 @@ def get_payment_method(member: str = None) -> OperationResult[Dict[str, Any]]:
         # are told their dues are collected from. Unscoped, a member who also
         # donates by direct debit was shown whichever account was registered most
         # recently -- and since #597 the collection would not have used it.
-        active_mandates = get_sepa_mandate_manager().get_active_mandates(
-            member, purpose="used_for_memberships"
-        )
+        # Several Active membership mandates are refused, not ordered (#2289): showing
+        # the newest one's IBAN told a member their dues come from an account that
+        # collection will not debit.
+        mandate_choice = unambiguous_active_mandate(member, "Dashboard payment method: ambiguous mandate")
 
-        if active_mandates:
-            # Get the first active mandate details
-            active_mandate = frappe.get_doc("SEPA Mandate", active_mandates[0].name)
+        if mandate_choice:
+            active_mandate = frappe.get_doc("SEPA Mandate", mandate_choice.mandate["name"])
             from verenigingen.utils.validation.iban_validator import format_iban
 
             data = {
@@ -215,9 +218,10 @@ def get_payment_method(member: str = None) -> OperationResult[Dict[str, Any]]:
                     "status": active_mandate.status,
                     "expiry_date": str(active_mandate.expiry_date) if active_mandate.expiry_date else None,
                 },
+                "mandate_ambiguous": False,
             }
         else:
-            data = {"has_active_mandate": False}
+            data = {"has_active_mandate": False, "mandate_ambiguous": mandate_choice.is_ambiguous}
 
         return OperationResult.ok(data, message=_("Payment method retrieved successfully"))
 
@@ -235,6 +239,13 @@ def get_payment_history(
     member: str = None, year=None, status=None, **kwargs
 ) -> OperationResult[Dict[str, Any]]:
     """Get payment history for member"""
+    return _payment_history(member, year, status, **kwargs)
+
+
+# The _payment_history / _mandate_history / _payment_schedule / _next_payment bodies below are the
+# undecorated implementations: the exports and the dashboard call these, not the endpoints, so one
+# user action ticks one rate-limit bucket and writes one audit row (#2280).
+def _payment_history(member: str = None, year=None, status=None, **kwargs) -> OperationResult[Dict[str, Any]]:
     try:
         # Get actual member ID
         # Modernized validation with helper
@@ -438,6 +449,10 @@ def get_payment_history(
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def get_mandate_history(member: str = None) -> OperationResult[Dict[str, Any]]:
     """Get SEPA mandate history"""
+    return _mandate_history(member)
+
+
+def _mandate_history(member: str = None) -> OperationResult[Dict[str, Any]]:
     try:
         # Get actual member ID
         # Modernized validation with helper
@@ -484,6 +499,10 @@ def get_mandate_history(member: str = None) -> OperationResult[Dict[str, Any]]:
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
     """Get upcoming payment schedule"""
+    return _payment_schedule(member)
+
+
+def _payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
     try:
         # Get actual member ID
         # Modernized validation with helper
@@ -497,9 +516,10 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
                 "name",
                 "contribution_mode",
                 "billing_frequency",
+                "custom_frequency_number",
+                "custom_frequency_unit",
                 "dues_rate",
                 "next_invoice_date",
-                "last_invoice_date",
             ],
             limit=1,
         )
@@ -510,9 +530,13 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
         dues_schedule = active_dues_schedule[0]
         schedule = []
 
-        # Generate next 12 months of payments based on billing frequency - modernized with constants
+        # Generate the next 12 months of payments, stepping by the schedule's real period
+        # (7 days for Weekly, 1 day for Daily, ...), not by a months table (#1282).
         billing_frequency = dues_schedule.billing_frequency
-        months = Membership.BILLING_FREQUENCY_MONTHS.get(billing_frequency, 1)  # Default to monthly
+        custom_interval = (dues_schedule.custom_frequency_number, dues_schedule.custom_frequency_unit)
+        if get_period_length(billing_frequency, *custom_interval) is None:
+            # Custom without a usable interval: show nothing rather than guess a cadence.
+            return OperationResult.ok([], message=_("No active payment schedule found"))
 
         # dues_rate is already the amount per billing period (e.g., €45/quarter)
         payment_amount = flt(dues_schedule.dues_rate, 2)
@@ -523,16 +547,17 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
         )
 
         # Generate schedule starting from next_invoice_date
-        for i in range(0, 12, int(months)):
-            payment_date = add_months(start_date, i)
+        horizon = add_months(start_date, 12)
+        period_index = 0
+        while True:
+            payment_date = add_billing_periods(start_date, period_index, billing_frequency, *custom_interval)
+            period_index += 1
+            if payment_date >= horizon:
+                break
 
             # Skip if payment date is in the past
             if payment_date < getdate(today()):
                 continue
-
-            # Check if payment date is beyond last invoice date (if set)
-            if dues_schedule.last_invoice_date and payment_date > getdate(dues_schedule.last_invoice_date):
-                break
 
             # Build user-friendly description
             frequency_label = {
@@ -565,6 +590,10 @@ def get_payment_schedule(member: str = None) -> OperationResult[Dict[str, Any]]:
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
     """Get next scheduled payment"""
+    return _next_payment(member)
+
+
+def _next_payment(member: str = None, caller_cleared_high: bool = False) -> OperationResult[Dict[str, Any]]:
     try:
         # Get actual member ID
         explicit_member = member
@@ -579,10 +608,15 @@ def get_next_payment(member: str = None) -> OperationResult[Dict[str, Any]]:
         if not member:
             return OperationResult.ok(None, message=_("No member found for current user"))
 
-        schedule_result = get_payment_schedule(member)
+        # Own record: MEDIUM is enough. ANOTHER member's schedule needs the HIGH grant that
+        # get_payment_schedule's decorator checks (and audits); calling the endpoint on that path only
+        # keeps develop's gate. get_dashboard_data is HIGH itself and says so (caller_cleared_high).
+        if explicit_member and member != get_member_from_user() and not caller_cleared_high:
+            schedule_result = get_payment_schedule(member)
+        else:
+            schedule_result = _payment_schedule(member)
 
-        # get_payment_schedule is itself a @*_api endpoint, so an in-process call
-        # receives a serialized dict (not an OperationResult). Normalize before use.
+        # _unwrap_internal_result accepts a serialized dict or a raw OperationResult.
         success, schedule, raw = _unwrap_internal_result(schedule_result)
         if not success:
             return raw
@@ -648,7 +682,22 @@ def retry_failed_payment(invoice_id: str) -> OperationResult[Dict[str, Any]]:
         from verenigingen.utils.payment_retry import PaymentRetryManager
 
         retry_manager = PaymentRetryManager()
-        result = retry_manager.schedule_retry(invoice_id, "MANUAL", "Manual retry requested by member")
+        try:
+            result = retry_manager._schedule_retry(invoice_id, "MANUAL", "Manual retry requested by member")
+        except Exception as e:
+            # The handler below returns the failure, so critical_api would audit this call as a
+            # success. Before #2280 the nested critical schedule_retry audited the raise as
+            # api_call_failed (the #352 N1 class); record it here through the decorators' emitter.
+            get_audit_emitter().log_api_call(
+                func=retry_failed_payment,
+                security_level=SecurityLevel.CRITICAL,
+                success=False,
+                error=str(e),
+                user=frappe.session.user,
+                args_count=0,
+                kwargs_keys=["invoice_id"],
+            )
+            raise
 
         if result["scheduled"]:
             data = {"next_retry": result["next_retry"]}
@@ -728,10 +777,9 @@ def export_payment_history_csv(year=None) -> OperationResult[Dict[str, Any]]:
         if not member:
             return OperationResult.fail(_("No member found for current user"))
 
-        history_result = get_payment_history(member, year)
+        history_result = _payment_history(member, year)
 
-        # get_payment_history is itself a @*_api endpoint, so an in-process call
-        # receives a serialized dict (not an OperationResult). Normalize before use.
+        # _unwrap_internal_result accepts a serialized dict or a raw OperationResult.
         success, history, raw = _unwrap_internal_result(history_result)
         if not success:
             return raw
@@ -787,13 +835,11 @@ def export_all_financial_data() -> OperationResult[Dict[str, Any]]:
         # "All" financial data means all of it: get_payment_history's own default
         # (Limits.DEFAULT_PAGE_SIZE * 5 = 100) would otherwise truncate the CSV
         # silently while the mandate history below carries every row.
-        success, history, raw = _unwrap_internal_result(
-            get_payment_history(member, limit=Limits.MAX_PAGE_SIZE)
-        )
+        success, history, raw = _unwrap_internal_result(_payment_history(member, limit=Limits.MAX_PAGE_SIZE))
         if not success:
             return raw
 
-        mandate_success, mandates, mandate_raw = _unwrap_internal_result(get_mandate_history(member))
+        mandate_success, mandates, mandate_raw = _unwrap_internal_result(_mandate_history(member))
         if not mandate_success:
             return mandate_raw
 

@@ -19,6 +19,7 @@ from frappe import _
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
 from verenigingen.utils.security.client_ip import get_client_ip as centralized_get_client_ip
 from verenigingen.utils.security.types import AuditEventType, AuditSeverity
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 def _try_parse_json(value: str):
@@ -105,7 +106,13 @@ class SelfServiceAccessController:
             user: User email (defaults to current session user)
 
         Returns:
-            Member name or None if not found
+            Member name, or None when the user is genuinely not linked to a Member
+
+        Raises:
+            VPermissionError: if the lookup itself errors. An error is not "no
+                member": callers treat None as "skip the member-scoped check" (the
+                decorator's deep TOCTOU inspection runs only `if user_member`), so
+                swallowing it to None would drop that check (#2297).
         """
         if not user:
             user = frappe.session.user
@@ -119,8 +126,14 @@ class SelfServiceAccessController:
             from verenigingen.utils.member_utils import get_member_name_for_board_access
 
             return get_member_name_for_board_access(user)
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception:
-            return None
+            frappe.log_error(
+                title="Self-service member lookup failed",
+                message=frappe.get_traceback(),
+            )
+            raise VPermissionError(_("Access denied: Unable to verify member access for this user right now"))
 
     def get_volunteer_member(self, volunteer_name: str) -> Optional[str]:
         """
@@ -132,12 +145,25 @@ class SelfServiceAccessController:
         Returns:
             Member name or None if not found
         """
+        if not isinstance(volunteer_name, str):
+            # A request-supplied dict/list must not reach get_doc or the Error Log.
+            return None
         try:
             volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
             if hasattr(volunteer_doc, "member") and volunteer_doc.member:
                 return volunteer_doc.member
+        except frappe.DoesNotExistError:
+            # An unknown volunteer is an answer, not an error: nothing to record.
+            return None
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception:
-            pass
+            # Fail CLOSED: None makes validate_access refuse the target. Recorded (#2283)
+            # so the refusal is diagnosable.
+            frappe.log_error(
+                title="Self-service volunteer member lookup failed",
+                message=f"volunteer={volunteer_name[:140]}\n{frappe.get_traceback()}",
+            )
         return None
 
     def validate_access(self, implicit_allowed: bool = False, **kwargs) -> bool:

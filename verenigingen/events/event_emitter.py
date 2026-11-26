@@ -6,6 +6,43 @@ chapter_events and team_events.
 """
 
 import frappe
+from rq.exceptions import InvalidJobOperation
+
+
+def enqueue_deduplicated(*args, **enqueue_kwargs):
+    """``frappe.enqueue(..., deduplicate=True)`` that a dedupe race cannot turn into a failed save (#2505).
+
+    With ``deduplicate=True`` frappe fetches the job by id and, when it is not queued or
+    started, deletes it. ``Job.delete`` re-reads the job's status, and when a concurrent
+    enqueue or worker removed the hash in between, rq raises ``InvalidJobOperation``. Called
+    from a document hook, that aborted the business save.
+
+    The race means the job hash is gone, so the enqueue is retried ONCE: ``get_job`` then
+    returns None and the job is queued. The race is logged. If the retry also raises
+    ``InvalidJobOperation`` that is logged too and the call returns None, so the save
+    survives but this job was NOT queued. Any other exception, on either attempt, propagates:
+    a lock or deadlock error must still reach the caller.
+
+    Arguments are forwarded unchanged, so callers keep their positional/keyword shape.
+    """
+    try:
+        return frappe.enqueue(*args, deduplicate=True, **enqueue_kwargs)
+    except InvalidJobOperation as e:
+        _log_dedupe_race(args, enqueue_kwargs, e, "retrying once")
+    try:
+        return frappe.enqueue(*args, deduplicate=True, **enqueue_kwargs)
+    except InvalidJobOperation as e:
+        _log_dedupe_race(args, enqueue_kwargs, e, "retry failed too, job NOT queued")
+
+
+def _log_dedupe_race(args, enqueue_kwargs, error, outcome):
+    frappe.log_error(
+        title="Event dedupe enqueue race (InvalidJobOperation)",
+        message=(
+            f"{outcome}: job_id={enqueue_kwargs.get('job_id')} "
+            f"method={args[0] if args else enqueue_kwargs.get('method')}: {error}"
+        ),
+    )
 
 
 def emit_event(
@@ -80,7 +117,7 @@ def emit_event(
         # (verified with scripts/testing/order_dependence_detector.py against the
         # bulk-account-creation suite). The read-stale race it would guard against is
         # low-frequency and already handled by idempotent, retrying subscribers. See #168.
-        frappe.enqueue(
+        enqueue_deduplicated(
             method=subscriber,
             queue="short",
             job_id="_".join(
@@ -88,7 +125,6 @@ def emit_event(
                 + [str(event_data.get(k)) for k in job_id_keys]
                 + [subscriber]
             ),
-            deduplicate=True,
             enqueue_after_commit=after_commit,
             timeout=300,
             **extra_kwargs,

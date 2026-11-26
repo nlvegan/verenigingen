@@ -46,6 +46,16 @@ after_sync = [
 # admin's grant (#1629).
 before_migrate = [
     "verenigingen.setup.custom_docperm_setup.snapshot_own_declared_permissions",
+    # New post_model_sync patches are fragment files, not patches.txt lines (#2407). Frappe builds its
+    # patch list after these hooks run, from get_patches_from_app, which this wraps.
+    "verenigingen.setup.patch_fragments.install",
+]
+
+# Run at the start of `install-app`, before set_all_patches_as_completed() marks every patch done
+# without running it: the patch fragments (#2407) must be in that list, or a fresh site would run
+# them all on its first migrate.
+before_install = [
+    "verenigingen.setup.patch_fragments.install",
 ]
 
 # Run after database migrations complete
@@ -112,7 +122,11 @@ on_logout = "verenigingen.auth_hooks.on_logout"
 # password / social / OTP logins, `auth_hooks` covers every request (cookie session, API key,
 # bearer token).
 on_login = ["verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication"]
-auth_hooks = ["verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication"]
+auth_hooks = [
+    "verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication",
+    # runs after the user is known; Frappe 16.61 run_doc_method 404s an unknown name (#2562 oracle)
+    "verenigingen.permissions.refuse_unknown_run_doc_method_target",
+]
 
 # Run at the start of every background job (after frappe.local.job is set). Keeps a job whose
 # user was deleted from recursing in _() (#1970).
@@ -134,9 +148,8 @@ boot_session = [
 
 # Note: The following hooks are DISABLED due to issues:
 #
-# on_session_creation: Disabled because it interferes with session resumption.
-# The hook gets called during session.resume() before user is properly set.
-# on_session_creation = "verenigingen.auth_hooks.on_session_creation"
+# on_session_creation: the handler was deleted (#2253). It interfered with session
+# resumption and resolved the Member leniently; do not re-add it.
 #
 # before_request: Disabled because it was causing "User None is disabled" errors
 # by interfering with Frappe's core session initialization process.

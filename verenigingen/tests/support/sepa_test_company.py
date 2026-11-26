@@ -20,6 +20,8 @@ has created. ``_unusable_reasons`` is the single definition of "usable".
 import frappe
 from frappe.utils import today
 
+from verenigingen.services.supplier_group_resolver import resolve_non_group_supplier_group
+
 # The app's EUR test company, scoped to the current fiscal year. Preferred.
 _PREFERRED_EUR_COMPANY = "TEST-Payment-Integration-Company"
 
@@ -461,7 +463,7 @@ def create_test_supplier(name_hint: str, prefix: str = "_Test Supplier") -> "fra
         {
             "doctype": "Supplier",
             "supplier_name": f"{prefix} {name_hint} {frappe.generate_hash(length=6)}",
-            "supplier_group": "All Supplier Groups",
+            "supplier_group": resolve_non_group_supplier_group(),
             "supplier_type": "Company",
         }
     ).insert(ignore_permissions=True)

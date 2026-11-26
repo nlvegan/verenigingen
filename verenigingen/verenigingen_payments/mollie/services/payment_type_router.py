@@ -59,22 +59,24 @@ class PaymentTypeRouter:
             frappe.logger().error(f"❌ Failed to fetch payment {payment_id}: {e}")
             raise
 
-    def classify_payment(self, payment: Any) -> Dict[str, Any]:
+    def classify_payment(self, payment: Any, alert_staff: bool = False) -> Dict[str, Any]:
         """
         Classify payment type using PaymentClassifier.
 
         Args:
             payment: Mollie payment object
+            alert_staff: True only from a delivery/booking path (#1497 (2)); default quiet
 
         Returns:
             Dict with classification details:
-                - payment_type: "dues", "donation", or "unknown"
+                - payment_type: "dues", "donation", "order", "unknown" or "ambiguous"
+                  (a Mollie id held by several Members; route_payment refuses it)
                 - confidence: Confidence level of classification
                 - matched_by: Which rule produced the classification
                 - member_id: Associated member (if dues)
                 - donor_id: Associated donor (if donation)
         """
-        classification = self.classifier.classify(payment)
+        classification = self.classifier.classify(payment, alert_staff)
 
         result = {
             "payment_type": classification.payment_type,
@@ -91,13 +93,17 @@ class PaymentTypeRouter:
 
         return result
 
-    def route_payment(self, payment_id: str, payment: Optional[Any] = None) -> Dict[str, Any]:
+    def route_payment(
+        self, payment_id: str, payment: Optional[Any] = None, alert_staff: bool = False
+    ) -> Dict[str, Any]:
         """
         Route payment to appropriate processor based on type.
 
         Args:
             payment_id: Mollie payment ID
             payment: Optional pre-fetched payment object
+            alert_staff: True only from a delivery path (the webhook, #1497 (2)); handed to the
+                dues processor's member match (#2576)
 
         Returns:
             Dict with processing result:
@@ -137,7 +143,9 @@ class PaymentTypeRouter:
                 result["processor"] = "DuesPaymentProcessor"
 
                 # Process as membership dues
-                dues_result = self.dues_processor.process_dues_payment(payment_id, payment)
+                dues_result = self.dues_processor.process_dues_payment(
+                    payment_id, payment, alert_staff=alert_staff
+                )
                 result.update(dues_result)
 
             elif classification["payment_type"] == PaymentType.DONATION:
@@ -149,6 +157,16 @@ class PaymentTypeRouter:
                 # DonationProcessor's docstring. #872, part B of #345.
                 donation_result = self.donation_processor.process_donation_payment(payment_id, payment)
                 result.update(donation_result)
+
+            elif classification["payment_type"] == PaymentType.AMBIGUOUS:
+                # A shared Mollie id: the classifier logged it and attributed it to nobody.
+                frappe.logger().warning(f"Payment {payment_id} matches more than one party - not routed")
+                result["status"] = "error"
+                result["processor"] = "none"
+                result["message"] = (
+                    f"More than one member/donor carries this payment's Mollie id; not booked. "
+                    f"Classification: {classification['matched_by']}"
+                )
 
             else:
                 # Unknown payment type

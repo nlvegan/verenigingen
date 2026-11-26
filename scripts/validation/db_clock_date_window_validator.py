@@ -83,6 +83,9 @@ from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # the sibling, however this file is loaded
+import shrink_relocation  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASELINE = Path(__file__).with_name("db_clock_date_window_baseline.txt")
 
@@ -193,7 +196,9 @@ def _enclosing_qualname(lineno: int, scopes: list[tuple[str, int, int]]) -> str:
     return best
 
 
-def scan_file(path: Path) -> tuple[list[tuple[str, int]], list[tuple[int, str]]]:
+def scan_file(
+    path: Path, unscannable: list[str] | None = None
+) -> tuple[list[tuple[str, int]], list[tuple[int, str]]]:
     """Return (findings, bad_pragmas) for one file.
 
     findings: list of (qualified_function, lineno)
@@ -201,7 +206,12 @@ def scan_file(path: Path) -> tuple[list[tuple[str, int]], list[tuple[int, str]]]
     """
     try:
         source = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as exc:
+        # #2815: an unreadable file must not count as having no findings. (A
+        # SyntaxError below is different: the scan is line-based and complete, and
+        # only the qualname degrades to <module>, which reads as growth.)
+        if unscannable is not None:
+            unscannable.append(f"{path}: {type(exc).__name__}: {exc}")
         return [], []
 
     lines = source.splitlines()
@@ -288,10 +298,15 @@ def _iter_py(paths: list[str]):
         yield path
 
 
+# #2815: a file the scan could not read is reported, not treated as clean.
+UNSCANNABLE_PREFIX = "UNSCANNABLE (the count would understate the tree): "
+
+
 def _counts(paths: list[str]) -> tuple[Counter, list[str]]:
     """Map 'path::qualname' -> number of finding sites; plus bad-pragma messages."""
     counts: Counter = Counter()
     problems: list[str] = []
+    unscannable: list[str] = []
     for path in _iter_py(paths):
         rel = _rel(path)
         # Tests may legitimately construct the bad shape to probe the defect itself.
@@ -302,7 +317,7 @@ def _counts(paths: list[str]) -> tuple[Counter, list[str]]:
         # "prose describing the pattern" from "the pattern" within its own file).
         if path.name == "db_clock_date_window_validator.py":
             continue
-        findings, bad = scan_file(path)
+        findings, bad = scan_file(path, unscannable)
         for qualname, _lineno in findings:
             counts[f"{rel}::{qualname}"] += 1
         for lineno, reason in bad:
@@ -310,6 +325,7 @@ def _counts(paths: list[str]) -> tuple[Counter, list[str]]:
                 f"{rel}:{lineno}: invalid `db-clock-window-ok` reason {reason!r}; "
                 f"use one of {sorted(VALID_REASONS)}"
             )
+    problems.extend(f"{UNSCANNABLE_PREFIX}{msg}" for msg in unscannable)
     return counts, problems
 
 
@@ -364,13 +380,22 @@ class UnexplainedShrink(NamedTuple):
     reason: str
 
 
-def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[UnexplainedShrink]:
+def explain_shrink(
+    baseline: dict[str, int], paths: list[str], base_root: Path | None = None
+) -> list[UnexplainedShrink]:
     """Baseline entries whose count DROPPED without the predicate being fixed.
 
     Mirrors ``log_error_arg_order_validator.explain_shrink``: a shrink is the
     one direction this ratchet would otherwise accept without question, and
     it can happen two ways that are NOT a real fix -- a suppression pragma
     added on a still-matching line, or the file leaving SCAN_ROOTS.
+
+    With ``base_root`` (a checkout of the base commit) it also reports the cases the
+    head tree alone cannot see, because they leave no still-matching site under the
+    baseline's own path and function name (#1858): the code MOVED -- to another file,
+    under ``tests/``, outside SCAN_ROOTS -- or its function was renamed and then
+    pragma'd, or a pragma was added to one baselined site while a NEW plain site kept
+    the function's count level. See ``_relocated_db_clock_sites``.
     """
     counts, _ = _counts(paths)
     by_path: dict[str, list[tuple[str, int]]] = {}
@@ -404,7 +429,44 @@ def explain_shrink(baseline: dict[str, int], paths: list[str]) -> list[Unexplain
             flagged = [(n, "suppressed") for n in suppressed] + [(n, "unscanned") for n in unscanned]
             for lineno, reason in sorted(flagged)[:missing]:
                 out.append(UnexplainedShrink(f"{rel}::{qualname}", lineno, reason))
+    if base_root is not None:
+        out = shrink_relocation.merge_relocated(out, _relocated_db_clock_sites(baseline, base_root))
     return out
+
+
+def _db_clock_counted_by_path(rel: str) -> bool:
+    """Would `_counts` look at a file with this repo-relative path at all? Pinned by a test."""
+    return shrink_relocation.counted_by_path(rel, SCAN_ROOTS, ("db_clock_date_window_validator.py",))
+
+
+def _site_text_for_relocation(line: str) -> str:
+    """A site's identity across a move: its source line, indentation and pragma removed."""
+    return _MARKER.sub("", line).strip()
+
+
+def _db_clock_extract(path: Path, rel: str) -> list[tuple[str, int, str, bool]]:
+    """One file's finding sites for the relocation census: (qualname, lineno, text, counted)."""
+    try:
+        source = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    if not re.search(_CLOCK, source):
+        return []  # cheap prefilter: every pattern needs NOW or CURDATE
+    lines = source.splitlines()
+    by_path = _db_clock_counted_by_path(rel)
+    return [
+        (qualname, lineno, _site_text_for_relocation(lines[lineno - 1]),
+         by_path and not _suppressed(lineno, lines)[0])
+        for qualname, lineno in scan_file_all(path)
+    ]
+
+
+def _relocated_db_clock_sites(baseline: dict[str, int], base_root: Path) -> list[UnexplainedShrink]:
+    """Baselined sites whose text left the COUNT without leaving the code (#1858)."""
+    return shrink_relocation.relocated_sites(
+        baseline, base_root, REPO_ROOT, _db_clock_extract,
+        lambda key, lineno, _text: UnexplainedShrink(key, lineno, "relocated"),
+    )
 
 
 def main(argv: list[str]) -> int:
@@ -419,20 +481,37 @@ def main(argv: list[str]) -> int:
         metavar="BASE_BASELINE",
         help="report baseline entries that LEFT without the predicate being fixed",
     )
+    ap.add_argument(
+        "--base-tree",
+        type=Path,
+        metavar="DIR",
+        help="a checkout of the base commit; lets --check-shrink see a predicate that MOVED "
+        "or was renamed instead of fixed (#1858)",
+    )
     args = ap.parse_args(argv[1:])
 
     paths = args.paths or list(SCAN_ROOTS)
 
     if args.check_shrink:
         unexplained = explain_shrink(
-            load_baseline(args.check_shrink), [str(REPO_ROOT / root) for root in SCAN_ROOTS]
+            load_baseline(args.check_shrink),
+            [str(REPO_ROOT / root) for root in SCAN_ROOTS],
+            base_root=args.base_tree,
         )
+        if args.base_tree is None:
+            print("note: no --base-tree, so a MOVED or renamed predicate cannot be reported.")
         if not unexplained:
-            print("Every entry that left the baseline was fixed, deleted, or moved out of scan range.")
+            print(
+                "Every entry that left the baseline was fixed or deleted."
+                if args.base_tree is not None
+                else shrink_relocation.NO_BASE_TREE_SUCCESS
+            )
             return 0
         why = {
             "suppressed": "a `# db-clock-window-ok:` pragma was added -- the line still matches",
             "unscanned": "the file left SCAN_ROOTS; the predicate itself never changed",
+            "relocated": "the same predicate text is now pragma'd, under tests/ or outside "
+            "SCAN_ROOTS, and no longer counted (moved, not fixed). " + shrink_relocation.relocated_hint(),
         }
         print("\n\U0001f6d1 Baseline entries that LEFT without the predicate being fixed\n")
         for u in unexplained:
@@ -440,7 +519,12 @@ def main(argv: list[str]) -> int:
         return 1
 
     if args.update_baseline:
-        counts, _ = _counts([str(REPO_ROOT / root) for root in SCAN_ROOTS])
+        counts, regen_problems = _counts([str(REPO_ROOT / root) for root in SCAN_ROOTS])
+        skipped = [m for m in regen_problems if m.startswith(UNSCANNABLE_PREFIX)]
+        if skipped:
+            # Writing now would drop the unreadable file's entries from the baseline.
+            print("\n".join(skipped), file=sys.stderr)
+            return 1
         write_baseline(args.baseline, counts)
         print(f"baseline written: {len(counts)} functions, {sum(counts.values())} sites")
         return 0

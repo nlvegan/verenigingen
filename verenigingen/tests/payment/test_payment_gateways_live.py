@@ -22,6 +22,9 @@ from verenigingen.verenigingen_payments.mollie.tests.mollie_test_helper import (
 from verenigingen.verenigingen_payments.utils.payment_gateways import MollieGateway
 
 
+CI_ALWAYS_SKIPS = "live payment-gateway tests; every test skips without gateway credentials, which CI never has"
+
+
 class TestMollieGatewayLive(EnhancedTestCase):
     """MollieGateway against the real Mollie test API (skips without a key)."""
 

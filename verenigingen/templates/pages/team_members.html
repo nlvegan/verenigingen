@@ -1,6 +1,6 @@
 {% extends "templates/web.html" %}
 
-{% block title %}{{ _("Team Members") }} - {{ team.team_name|e }}{% endblock %}
+{% block title %}{{ _("Team Members") }}{% if team %} - {{ team.team_name|e }}{% endif %}{% endblock %}
 
 {% block head_include %}
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
@@ -235,6 +235,8 @@
 {% endblock %}
 
 {% block page_content %}
+{% include "templates/includes/portal_no_member_error.html" %}
+{% if not no_member_record %}
 <div class="team-members-page">
     {% if show_team_selector %}
     <!-- Team Selector View -->
@@ -368,4 +370,5 @@
     {% endif %}
     {% endif %}
 </div>
+{% endif %}
 {% endblock %}

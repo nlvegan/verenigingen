@@ -64,7 +64,8 @@ from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key imp
     FIELDNAME,
     PONTO_TRANSACTION_ID_FIELDNAME,
     build_reference_key,
-    in_scope_sql_condition,
+    legacy_prefix_matches,
+    legacy_scope_sql_condition,
 )
 
 DOCTYPE = "Bank Transaction"
@@ -150,7 +151,7 @@ def _find_duplicates():
         f"""
         SELECT bank_account, reference_number, COUNT(*) AS count
         FROM `tab{DOCTYPE}`
-        WHERE {in_scope_sql_condition()}
+        WHERE {legacy_scope_sql_condition()}
         GROUP BY bank_account, reference_number
         HAVING count > 1
         ORDER BY count DESC
@@ -178,7 +179,10 @@ def _abort_on_duplicates(duplicates):
 
 
 def _backfill():
-    condition = in_scope_sql_condition()
+    # This patch is the PREFIX-era classifier (#1267): it runs before
+    # `mark_system_issued_bank_transaction_references_1349`, which moves the rule onto a
+    # writer-set flag (#1349), so it keeps the frozen prefix-or-Ponto rule.
+    condition = legacy_scope_sql_condition()
     ponto_column = (
         PONTO_TRANSACTION_ID_FIELDNAME
         if frappe.db.has_column(DOCTYPE, PONTO_TRANSACTION_ID_FIELDNAME)
@@ -194,7 +198,12 @@ def _backfill():
     )
 
     for row in rows:
-        key = build_reference_key(row.bank_account, row.reference_number, row.ponto_transaction_id)
+        key = build_reference_key(
+            row.bank_account,
+            row.reference_number,
+            row.ponto_transaction_id,
+            system_issued=legacy_prefix_matches(row.reference_number),
+        )
         frappe.db.set_value(DOCTYPE, row.name, FIELDNAME, key, update_modified=False)
 
     # A re-run after the predicate narrowed would otherwise strand a key on a row that is no

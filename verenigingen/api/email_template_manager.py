@@ -184,19 +184,19 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
                 </div>
 
                 <div style="background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;">
-                    <p>Dear {{ approver_name }},</p>
+                    <p>Dear {{ approver_name | e }},</p>
 
                     <p>A new expense has been submitted and requires your <strong>{{ required_level }} level</strong> approval:</p>
 
                     <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
                         <table style="width: 100%; border-collapse: collapse;">
                             <tr><td style="padding: 5px 0; font-weight: bold;">Expense ID:</td><td>{{ doc.name }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Volunteer:</td><td>{{ volunteer_name }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Description:</td><td>{{ doc.description }}</td></tr>
+                            <tr><td style="padding: 5px 0; font-weight: bold;">Volunteer:</td><td>{{ volunteer_name | e }}</td></tr>
+                            <tr><td style="padding: 5px 0; font-weight: bold;">Description:</td><td>{{ doc.description | e }}</td></tr>
                             <tr><td style="padding: 5px 0; font-weight: bold;">Amount:</td><td style="font-size: 18px; color: #e74c3c;">{{ formatted_amount }}</td></tr>
                             <tr><td style="padding: 5px 0; font-weight: bold;">Date:</td><td>{{ formatted_date }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Category:</td><td>{{ category_name }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Organization:</td><td>{{ organization_name }} ({{ doc.organization_type }})</td></tr>
+                            <tr><td style="padding: 5px 0; font-weight: bold;">Category:</td><td>{{ category_name | e }}</td></tr>
+                            <tr><td style="padding: 5px 0; font-weight: bold;">Organization:</td><td>{{ organization_name | e }} ({{ doc.organization_type }})</td></tr>
                         </table>
                     </div>
 
@@ -230,14 +230,14 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
                 </div>
 
                 <div style="background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;">
-                    <p>Dear {{ volunteer_name }},</p>
+                    <p>Dear {{ volunteer_name | e }},</p>
 
-                    <p>Great news! Your expense has been approved by {{ approved_by_name }}.</p>
+                    <p>Great news! Your expense has been approved by {{ approved_by_name | e }}.</p>
 
                     <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
                         <table style="width: 100%; border-collapse: collapse;">
                             <tr><td style="padding: 5px 0; font-weight: bold;">Expense ID:</td><td>{{ doc.name }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Description:</td><td>{{ doc.description }}</td></tr>
+                            <tr><td style="padding: 5px 0; font-weight: bold;">Description:</td><td>{{ doc.description | e }}</td></tr>
                             <tr><td style="padding: 5px 0; font-weight: bold;">Amount:</td><td style="font-size: 18px; color: #28a745;">{{ formatted_amount }}</td></tr>
                             <tr><td style="padding: 5px 0; font-weight: bold;">Approved On:</td><td>{{ approved_on }}</td></tr>
                         </table>
@@ -264,21 +264,21 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
                 </div>
 
                 <div style="background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;">
-                    <p>Dear {{ volunteer_name }},</p>
+                    <p>Dear {{ volunteer_name | e }},</p>
 
-                    <p>We regret to inform you that your expense has been rejected by {{ rejected_by_name }}.</p>
+                    <p>We regret to inform you that your expense has been rejected by {{ rejected_by_name | e }}.</p>
 
                     <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
                         <table style="width: 100%; border-collapse: collapse;">
                             <tr><td style="padding: 5px 0; font-weight: bold;">Expense ID:</td><td>{{ doc.name }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Description:</td><td>{{ doc.description }}</td></tr>
+                            <tr><td style="padding: 5px 0; font-weight: bold;">Description:</td><td>{{ doc.description | e }}</td></tr>
                             <tr><td style="padding: 5px 0; font-weight: bold;">Amount:</td><td>{{ formatted_amount }}</td></tr>
                         </table>
                     </div>
 
                     <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #ffc107;">
                         <p style="margin: 0; font-weight: bold;">Rejection Reason:</p>
-                        <p style="margin: 5px 0 0 0;">{{ rejection_reason }}</p>
+                        <p style="margin: 5px 0 0 0;">{{ rejection_reason | e }}</p>
                     </div>
 
                     <p>If you have questions about this decision, please contact your organization's board or the person who rejected the expense.</p>
@@ -297,7 +297,7 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
                 "subject": "Thank you for your donation - {{ donation_id }}",
                 "response": """
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2>Dear {{ donor_name }},</h2>
+                <h2>Dear {{ donor_name | e }},</h2>
 
                 <p>Thank you for your generous donation to {{ organization_name }}!</p>
 
@@ -318,7 +318,7 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
                         </tr>
                         <tr>
                             <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Purpose:</strong></td>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ earmarking }}</td>
+                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ earmarking | e }}</td>
                         </tr>
                         <tr>
                             <td style="padding: 8px 0;"><strong>Status:</strong></td>
@@ -331,7 +331,7 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
 
                 {% if donation_notes %}
                 <p><strong>Your message:</strong><br>
-                <em>{{ donation_notes }}</em></p>
+                <em>{{ donation_notes | e }}</em></p>
                 {% endif %}
 
                 <p>If you have any questions about your donation, please don't hesitate to contact us at {{ organization_email }}.</p>
@@ -346,7 +346,7 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
                 "subject": "Payment Received - Donation {{ donation_id }}",
                 "response": """
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2>Dear {{ donor_name }},</h2>
+                <h2>Dear {{ donor_name | e }},</h2>
 
                 <p>We have received your payment for donation {{ donation_id }}. Thank you for your generous support!</p>
 
@@ -367,12 +367,12 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
                         </tr>
                         <tr>
                             <td style="padding: 8px 0;"><strong>Reference:</strong></td>
-                            <td style="padding: 8px 0;">{{ payment_reference }}</td>
+                            <td style="padding: 8px 0;">{{ payment_reference | e }}</td>
                         </tr>
                     </table>
                 </div>
 
-                <p>Your contribution of €{{ donation_amount }} for {{ earmarking }} will help us continue our important work.</p>
+                <p>Your contribution of €{{ donation_amount }} for {{ earmarking | e }} will help us continue our important work.</p>
 
                 <p>This email serves as your payment receipt. Please keep it for your records.</p>
 
@@ -390,7 +390,7 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2>Tax Deduction Receipt (ANBI)</h2>
 
-                <p>Dear {{ donor_name }},</p>
+                <p>Dear {{ donor_name | e }},</p>
 
                 <p>This receipt confirms your tax-deductible donation under ANBI regulations.</p>
 
@@ -471,7 +471,7 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2>Contact Request Received</h2>
 
-                <p>Dear {{ contact_name }},</p>
+                <p>Dear {{ contact_name | e }},</p>
 
                 <p>We have received your contact request and will respond within 2-3 business days.</p>
 
@@ -500,7 +500,7 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
                 {% if doc.message %}
                 <div style="background-color: #e9ecef; padding: 15px; border-radius: 5px; margin: 15px 0;">
                     <h4>Your Message:</h4>
-                    <p style="margin: 0;">{{ doc.message }}</p>
+                    <p style="margin: 0;">{{ doc.message | e }}</p>
                 </div>
                 {% endif %}
 

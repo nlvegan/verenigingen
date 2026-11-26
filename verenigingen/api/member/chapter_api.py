@@ -21,6 +21,7 @@ Error Codes:
 
 import frappe
 
+from verenigingen.utils.boolean_utils import cbool
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     standard_api,
@@ -56,6 +57,8 @@ def get_member_current_chapters(member_name: str, structured_response=False):
     Returns:
         List of chapter data, or structured response if requested
     """
+    # Over HTTP the flag is a string and "0" is truthy (#2377).
+    structured_response = cbool(structured_response)
     if not member_name:
         if structured_response:
             return {"success": True, "data": [], "message": "No member specified"}
@@ -107,6 +110,8 @@ def get_member_chapter_names(member_name: str, structured_response=False):
         member_name: The member's document name
         structured_response: If True, return {"success": bool, "data": [], "error": str}
     """
+    # Over HTTP the flag is a string and "0" is truthy (#2377).
+    structured_response = cbool(structured_response)
     if not member_name:
         if structured_response:
             return {"success": True, "data": [], "message": "No member specified"}
@@ -145,6 +150,8 @@ def get_member_chapter_display_html(member_name: str, structured_response=False)
         member_name: The member's document name
         structured_response: If True, return {"success": bool, "data": str, "error": str}
     """
+    # Over HTTP the flag is a string and "0" is truthy (#2377).
+    structured_response = cbool(structured_response)
     empty_html = "<div class='text-muted'>No member specified</div>"
 
     if not member_name:

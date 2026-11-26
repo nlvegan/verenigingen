@@ -41,7 +41,6 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
             last_name="Professional",
             email="sarah.professional@example.com",
             birth_date="1995-03-15",
-            student_status=False,
         )
 
         # Student member
@@ -50,7 +49,6 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
             last_name="Student",
             email="tom.student@example.com",
             birth_date="2000-08-20",
-            student_status=True,
         )
 
         # Long-term member with legacy data
@@ -59,7 +57,6 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
             last_name="Legacy",
             email="margaret.legacy@example.com",
             birth_date="1970-05-10",
-            student_status=False,
         )
 
         # Member facing financial hardship
@@ -68,7 +65,6 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
             last_name="Hardship",
             email="david.hardship@example.com",
             birth_date="1985-12-03",
-            student_status=False,
         )
 
     def _submit_membership(self, membership):
@@ -308,11 +304,6 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         # generated schedule records provenance in `notes` (with the amendment name).
         self.assertIn("graduated", amendment.reason.lower())
         self.assertIn(amendment.name, new_schedule.notes or "")
-
-        # Update member's student status
-        self.student_member.reload()
-        self.student_member.student_status = False
-        self.student_member.save()
 
     def test_financial_hardship_scenario(self):
         """

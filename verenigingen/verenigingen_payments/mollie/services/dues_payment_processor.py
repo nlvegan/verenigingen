@@ -21,8 +21,10 @@ from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_e
 from verenigingen.e_boekhouden.utils.security_helper import migration_context
 from verenigingen.services.billing.coverage_calculator import calculate_coverage_for_payment_date
 from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
+from verenigingen.services.billing.invoice_matcher import find_matching_invoice
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
-from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
+from verenigingen.utils.retry_utilities import execute_with_deadlock_retry
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, insert_and_submit_atomically
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.domain.payment_classification import PaymentClassifier
 from verenigingen.verenigingen_payments.mollie.services.unified_idempotency_manager import (
@@ -33,6 +35,11 @@ from verenigingen.verenigingen_payments.services.bank_transaction_creator import
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 from verenigingen.verenigingen_payments.services.payment.payment_entry_creation_service import (
     payment_entry_service,
+)
+from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    forward_payment_staff_cancelled,
+    refuse_staff_cancelled_forward_payment,
 )
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
@@ -114,7 +121,7 @@ class DuesPaymentProcessor:
 
         return member, customer
 
-    def identify_payment_type(self, payment: Any) -> str:
+    def identify_payment_type(self, payment: Any, alert_staff: bool = False) -> str:
         """
         Identify whether a payment is for membership dues or a donation.
 
@@ -122,14 +129,16 @@ class DuesPaymentProcessor:
 
         Args:
             payment: Mollie payment object
+            alert_staff: True only from a delivery/booking path (#1497 (2)); default quiet
 
         Returns:
-            str: "dues", "donation", or "unknown"
+            str: "dues", "donation", "order", "unknown", or "ambiguous" (a Mollie id several
+            Members hold; callers that act only on "dues" or "donation" refuse it)
         """
-        result = self.classifier.classify(payment)
+        result = self.classifier.classify(payment, alert_staff)
         return result.payment_type
 
-    def find_member_for_payment(self, payment) -> Optional[str]:
+    def find_member_for_payment(self, payment, alert_staff: bool = False) -> Optional[str]:
         """
         Find the Member record associated with a Mollie payment.
 
@@ -143,16 +152,18 @@ class DuesPaymentProcessor:
 
         Args:
             payment: Mollie payment object
+            alert_staff: True only from a delivery/booking path (#1497 (2)); default quiet
 
         Returns:
-            str: Member name if found, None otherwise
+            str: Member name if found, None otherwise (also None when the payment's customer
+            id is shared by several Members, #2576)
         """
         from verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher import (
             get_member_payment_matcher,
         )
 
         matcher = get_member_payment_matcher()
-        member = matcher.find_member_for_payment(payment)
+        member = matcher.find_member_for_payment(payment, alert_staff)
 
         if member:
             frappe.logger().info(f"[Mollie] Found member {member['name']} for payment {payment.id}")
@@ -450,6 +461,11 @@ class DuesPaymentProcessor:
 
             return invoice_name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A None here reads as "no invoice", and _create_payment_entry_for_dues then books the
+            # payment UNALLOCATED. A lock error means the server discarded the work: the caller must
+            # see it (#3001, #2983).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="Historical Invoice Creation Error",
@@ -557,7 +573,8 @@ class DuesPaymentProcessor:
             Sales Invoice name if successful, None if creation fails
 
         Raises:
-            Does not raise exceptions - logs errors and returns None for graceful degradation
+            QueryDeadlockError / QueryTimeoutError (1213 / 1205): never swallowed, never retried here.
+            Any other exception is logged and None is returned for graceful degradation.
 
         Side Effects:
             - Creates and submits Sales Invoice
@@ -570,6 +587,7 @@ class DuesPaymentProcessor:
         """
         # Setup phase: gather configuration (not retryable - these are config errors)
         settings = frappe.get_single("Verenigingen Settings")
+        from verenigingen.utils.invoice_price_list import get_selling_price_list_for_currency
         from verenigingen.utils.settings_utils import get_payments_settings
 
         payments_settings = get_payments_settings()
@@ -587,11 +605,22 @@ class DuesPaymentProcessor:
             frappe.logger().error("No income account configured")
             return None
 
-        # Invoice creation function - wrapped with deadlock retry
+        # No retry here: after a 1213 the server has rolled the whole transaction back, so re-running
+        # only this closure would write the invoice into a transaction that has lost the caller's
+        # earlier work (#3001, as #2983 for bank_transaction_creator). The layer that owns the whole
+        # unit decides whether to retry.
         def create_invoice():
             invoice = frappe.new_doc("Sales Invoice")
             invoice.customer = member_doc.customer
             invoice.company = settings.company
+            # #3034/#2810: pin the company currency (as invoice_generator does) and a selling price list in
+            # it. Left unset, the site-default currency can mismatch the company's receivable account, and
+            # a default list in another currency makes erpnext fetch a live rate, refused for a non-System user.
+            invoice.currency = frappe.get_cached_value("Company", settings.company, "default_currency")
+            invoice.conversion_rate = 1.0
+            invoice.selling_price_list = get_selling_price_list_for_currency(
+                invoice.currency, member_doc.customer
+            )
 
             # Set posting date explicitly (must be done before insert to prevent auto-setting)
             invoice.posting_date = payment_date
@@ -640,21 +669,16 @@ class DuesPaymentProcessor:
             invoice.submit()
             return invoice.name
 
-        # Execute with deadlock retry - only retries on MySQL deadlock errors
         try:
-            return execute_with_deadlock_retry(
-                create_invoice,
-                operation_name=f"create Sales Invoice for {member_doc.name}",
-                log_errors=True,
-            )
+            return create_invoice()
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
-            # Non-deadlock errors or deadlock retries exhausted
-            if not is_deadlock_error(e):
-                frappe.logger().error(f"Failed to create simple invoice: {str(e)}")
-                frappe.log_error(
-                    title="Sales Invoice Creation Error",
-                    message=f"Sales Invoice creation failed for member {member_doc.name}: {e}",
-                )
+            frappe.logger().error(f"Failed to create simple invoice: {str(e)}")
+            frappe.log_error(
+                title="Sales Invoice Creation Error",
+                message=f"Sales Invoice creation failed for member {member_doc.name}: {e}",
+            )
             return None
 
     def _get_or_create_dues_item(self, item_name: str, company: str, income_account: str) -> str:
@@ -671,6 +695,9 @@ class DuesPaymentProcessor:
             item.is_stock_item = 0
             item.insert(ignore_if_duplicate=True)
             return item_name
+        except NON_RESUMABLE_DB_ERRORS:
+            # Not an item problem: the generic name below would put a wrong item on the invoice (#3001).
+            raise
         except Exception:
             # If creation fails, try to find any membership dues item
             existing_item = frappe.get_all(
@@ -714,6 +741,7 @@ class DuesPaymentProcessor:
         payment=None,
         creation_mode: Optional[str] = None,
         invoice_name: Optional[str] = None,
+        alert_staff: bool = False,
     ) -> Dict[str, Any]:
         """
         Process a membership dues payment from Mollie.
@@ -729,6 +757,8 @@ class DuesPaymentProcessor:
                          "Bank Transaction" to create Bank Transaction for reconciliation
                          None (default) to use centralized configuration
             invoice_name: Optional pre-matched invoice name to allocate PE against
+            alert_staff: True only from a delivery path (the webhook, #1497 (2)): a customer id
+                several Members share raises the staff alert (#2576)
 
         Returns:
             dict: Processing result with status, payment_entry, member, etc.
@@ -761,7 +791,7 @@ class DuesPaymentProcessor:
                 return result
 
             # Check idempotency using centralized service
-            idempotency_check = self.bank_tx_creator.check_already_processed(
+            idempotency_check = self.bank_tx_creator.check_mollie_payment_processed(
                 payment_id,
                 check_payment_entry=True,  # Dual mode: check both Payment Entry and Bank Transaction
             )
@@ -778,26 +808,16 @@ class DuesPaymentProcessor:
                 result["skipped_reason"] = "Both Payment Entry and Bank Transaction already exist"
                 return result
 
-            # Only Payment Entry exists (legacy mode) - fully processed
+            # A Payment Entry exists (check_already_processed reports it without the Bank
+            # Transaction): the payment is booked. But the BT -> PE link is a separate step
+            # that can fail after the PE is submitted (#1803), leaving the cash both booked
+            # and in the reconciliation pool; a redelivery is the only retry there is.
             if has_payment_entry and not has_bank_transaction:
                 result["status"] = "already_processed"
                 result["payment_entry"] = idempotency_check["payment_entry"]
                 result["skipped_reason"] = "Payment Entry already exists (legacy mode)"
+                self._relink_unlinked_bank_transaction(payment_id, idempotency_check["payment_entry"], result)
                 return result
-
-            # Partial processing: Bank Transaction exists but no Payment Entry, AND the
-            # caller asked for the allocation (invoice_name). Continue to create that
-            # Payment Entry, skipping Bank Transaction creation.
-            #
-            # Without an invoice, "Bank Transaction only" is the COMPLETE outcome of
-            # Bank Transaction mode, so a repeat delivery of the same payment id (a
-            # Mollie retry, or the re-post that announces a refund) must leave state
-            # alone. Completing it used to post an UNALLOCATED Payment Entry and
-            # reconcile the BT to it: cash became a customer advance and the BT left the
-            # reconciliation queue (#1780). That caller falls through to the Bank
-            # Transaction branch below, whose create() returns the existing row (and
-            # resubmits it if it was left in draft).
-            partial_processing = has_bank_transaction and not has_payment_entry and bool(invoice_name)
 
             # Identify payment type
             payment_type = self.identify_payment_type(payment)
@@ -809,13 +829,42 @@ class DuesPaymentProcessor:
                 return result
 
             # Find associated member
-            member_name = self.find_member_for_payment(payment)
+            member_name = self.find_member_for_payment(payment, alert_staff)
             if not member_name:
                 result["status"] = "error"
                 result["error"] = "No member found for this payment"
                 return result
 
             result["member"] = member_name
+
+            # #1803: a confirmed payment is booked ALLOCATED to the member's open dues
+            # invoice when exactly one is identifiable; otherwise it stays a Bank
+            # Transaction for staff (never a guess between several).
+            if not invoice_name:
+                invoice_name = self._match_open_dues_invoice(member_name, payment)
+                result["matched_invoice"] = invoice_name
+
+            # Partial processing: Bank Transaction exists but no Payment Entry, AND there
+            # is an invoice to allocate to (the caller's, or the one matched above).
+            # Continue to create that Payment Entry, skipping Bank Transaction creation.
+            #
+            # Without an invoice, "Bank Transaction only" is the COMPLETE outcome of
+            # Bank Transaction mode, so a repeat delivery of the same payment id (a
+            # Mollie retry, or the re-post that announces a refund) must leave state
+            # alone. Completing it used to post an UNALLOCATED Payment Entry and
+            # reconcile the BT to it: cash became a customer advance and the BT left the
+            # reconciliation queue (#1780). That caller falls through to the Bank
+            # Transaction branch below, whose create() returns the existing row (and
+            # resubmits it if it was left in draft).
+            #
+            # A DRAFT Bank Transaction also goes through that branch: it must be
+            # submitted before a Payment Entry is linked to it.
+            partial_processing = (
+                has_bank_transaction
+                and not has_payment_entry
+                and bool(invoice_name)
+                and idempotency_check.get("docstatus") != 0
+            )
 
             # Extract and save consumer bank data from Mollie payment
             # This populates Member.iban and creates Bank Account links for future matching
@@ -853,7 +902,7 @@ class DuesPaymentProcessor:
                     # BT<->PE; partial processing must do the same or the existing
                     # BT and the new PE are left unlinked.
                     result["reconciled"] = self._reconcile_bank_transaction_with_payment_entry(
-                        existing_bt, record_name
+                        existing_bt, record_name, payment_id=payment_id
                     )
                     result["message"] = (
                         f"Completed partial processing: Created Payment Entry {record_name} "
@@ -888,8 +937,10 @@ class DuesPaymentProcessor:
                         result["skipped_reason"] = "Bank Transaction already exists (Bank Transaction mode)"
                     result["bank_transaction"] = bt_name
 
-                    # If invoice_name provided, also create PE and reconcile
-                    if invoice_name:
+                    # If an invoice is known, also create the PE and reconcile. Only against
+                    # a SUBMITTED Bank Transaction: a draft one (its submit failed) is left
+                    # for the retry, which resubmits it and then allocates.
+                    if invoice_name and frappe.db.get_value("Bank Transaction", bt_name, "docstatus") == 1:
                         pe_name = self._create_payment_entry_for_dues(
                             member_name, payment, invoice_name=invoice_name
                         )
@@ -899,7 +950,7 @@ class DuesPaymentProcessor:
 
                             # Link BT to PE using ERPNext's reconciliation pattern
                             result["reconciled"] = self._reconcile_bank_transaction_with_payment_entry(
-                                bt_name, pe_name
+                                bt_name, pe_name, payment_id=payment_id
                             )
                         else:
                             result["payment_entry"] = None
@@ -964,6 +1015,11 @@ class DuesPaymentProcessor:
                     if sales_invoices:
                         result["sales_invoices"] = sales_invoices
 
+                except frappe.QueryDeadlockError:
+                    # 1213 only: the transaction (and the booking just written) is gone, so reporting
+                    # success would be false. A 1205 keeps the booking intact; the list is
+                    # informational and answering Mollie an error for a booked payment buys nothing.
+                    raise
                 except Exception as si_error:
                     frappe.log_error(
                         title="Sales Invoice Fetch Error",
@@ -974,10 +1030,22 @@ class DuesPaymentProcessor:
                     f"[Mollie] Successfully processed dues payment {payment_id} for member {member_name} "
                     f"(created {record_type}: {record_name})"
                 )
+            elif forward_payment_staff_cancelled(payment_id):
+                # The writer refused (#2406): staff cancelled this payment's entry, the Error Log
+                # row and the staff alert are already out. Not a failure: "error" would make the
+                # webhook answer 5xx and Mollie retry a payment staff decided about, against the
+                # ruling to acknowledge.
+                result["status"] = "skipped"
+                result["skipped_reason"] = "Payment Entry was cancelled by staff; not booked again"
             else:
                 result["status"] = "error"
                 result["error"] = f"Failed to create {record_type}"
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A deadlock (1213) / lock timeout (1205) is not a payment failure to report: the server
+            # has already discarded the work, and execute_with_deadlock_retry (the caller in
+            # batch_process_customer_payments) can only retry what it sees raised (#2983, #2700).
+            raise
         except Exception as e:
             result["status"] = "error"
             result["error"] = str(e)
@@ -988,12 +1056,68 @@ class DuesPaymentProcessor:
 
         return result
 
-    def _reconcile_bank_transaction_with_payment_entry(self, bt_name: str, pe_name: str) -> bool:
+    def _match_open_dues_invoice(self, member_name: str, payment) -> Optional[str]:
+        """The one open dues invoice this paid Mollie payment discharges, or None.
+
+        Delegates to the shared invoice matcher (exact amount, coverage window, and a
+        REFUSAL, logged to the Error Log, when several invoices fit equally well; #567).
+        None means "leave it a Bank Transaction": the payment is booked, just not
+        allocated, and staff reconcile it.
+        """
+        extractor = get_payment_data_extractor()
+        match = find_matching_invoice(
+            member_name=member_name,
+            payment_date=extractor.extract_date(payment, field_name="paid_at"),
+            payment_amount=extractor.extract_amount(payment),
+            check_overlap=False,
+        )
+        return match.invoice_name
+
+    def _relink_unlinked_bank_transaction(self, payment_id: str, pe_name: str, result: dict) -> None:
+        """Retry a BT -> PE link that failed earlier for an already-booked payment.
+
+        Acts only on a SUBMITTED Payment Entry and a SUBMITTED Bank Transaction of this
+        payment that carry no link row between them; anything else is left alone (a
+        cancelled or draft document is staff's or the retry path's business). Idempotent:
+        a linked pair is not touched, so no second Payment Entry or link row appears.
+
+        The Bank Transaction is resolved the way the creator resolves it, scoped to the
+        Mollie bank account and company: ``reference_number`` is unique only per bank
+        account, and an unscoped lookup can pick another account's newer row.
+
+        Known behaviour: a Bank Transaction that staff deliberately unreconciled
+        (ERPNext's ``unreconcile_transaction``) is linked again by a redelivery. Mollie
+        rarely redelivers a settled payment, so the exposure is small; not changed here.
+        """
+        if frappe.db.get_value("Payment Entry", pe_name, "docstatus") != 1:
+            return
+        config = self.bank_tx_creator.get_mollie_bank_account_config()
+        if config.get("error"):
+            return
+        bt = self.bank_tx_creator._find_matching_bank_transaction(
+            payment_id, config["bank_account"], config["company"]
+        )
+        if not bt or bt.docstatus != 1:
+            return
+        bt_name = bt.name
+        if frappe.db.exists("Bank Transaction Payments", {"parent": bt_name, "payment_entry": pe_name}):
+            return
+        result["bank_transaction"] = bt_name
+        result["reconciled"] = self._reconcile_bank_transaction_with_payment_entry(
+            bt_name, pe_name, payment_id=payment_id
+        )
+
+    def _reconcile_bank_transaction_with_payment_entry(
+        self, bt_name: str, pe_name: str, payment_id: Optional[str] = None
+    ) -> bool:
         """Link a Bank Transaction to a Payment Entry via ERPNext's reconciliation.
 
         Shared by the full-creation path (new BT + new PE) and partial processing
         (existing BT + new PE) so both leave the BT and PE reconciled. Returns
-        True on success, False (logged, non-fatal) on failure.
+        True on success, False on failure. A failure is non-fatal for the webhook (the
+        Payment Entry is already booked) but is written to the Error Log: the Bank
+        Transaction then stays in the reconciliation pool next to booked cash, and
+        frappe.logger() output is never read.
         """
         try:
             bt_doc = frappe.get_doc("Bank Transaction", bt_name)
@@ -1005,8 +1129,20 @@ class DuesPaymentProcessor:
             bt_doc.save()
             frappe.logger().info(f"[Mollie] Reconciled BT {bt_name} with PE {pe_name}")
             return True
+        except frappe.QueryDeadlockError:
+            # 1213 only: the Payment Entry written just before is gone with the transaction (#2983).
+            # A 1205 leaves it booked, so it keeps the logged reconciled=False answer below.
+            raise
         except Exception as e:
-            frappe.logger().warning(f"Could not reconcile BT {bt_name} with PE {pe_name}: {e}")
+            frappe.log_error(
+                title="Mollie dues: Bank Transaction not linked to Payment Entry",
+                message=(
+                    f"Mollie payment {payment_id}: Payment Entry {pe_name} is booked but could not be "
+                    f"linked to Bank Transaction {bt_name}; the Bank Transaction stays unreconciled "
+                    f"and a redelivery will retry the link. Do not book it by hand again. Error: {e}\n\n"
+                    f"{frappe.get_traceback()}"
+                ),
+            )
             return False
 
     def _create_payment_entry_for_dues(
@@ -1062,6 +1198,11 @@ class DuesPaymentProcessor:
                 f"[Mollie] Payment Entry already exists for payment {payment_id}: {existing_pe}"
             )
             return existing_pe
+
+        # Staff cancelled this payment's entry: do not book it again, staff decide (#2406).
+        # None, not an exception: the webhook is acknowledged and Mollie stops retrying.
+        if refuse_staff_cancelled_forward_payment(payment_id, amount, "the dues processor"):
+            return None
 
         # Determine company - prioritize invoice's company if available
         # This prevents company/account mismatches
@@ -1323,8 +1464,9 @@ class DuesPaymentProcessor:
                 "custom_member": member_name,
             }
         )
-        payment_entry.insert()
-        payment_entry.submit()
+        # One unit: a failed submit must not leave a draft or a half-posted row holding
+        # this payment's reference and idempotency key (#2406).
+        insert_and_submit_atomically(payment_entry)
         return payment_entry
 
     @staticmethod
@@ -1405,6 +1547,8 @@ class DuesPaymentProcessor:
             party_type="Customer",
             party=customer,
             custom_member=member_name,
+            # A Mollie payment id is issued by Mollie, unique by construction (#1349).
+            **{SYSTEM_ISSUED_FIELDNAME: 1},
         )
 
         if bank_transaction_name:
@@ -1479,10 +1623,13 @@ class DuesPaymentProcessor:
 
                     # Strategy 2: If create_payment_entry requested, also create PE and link them
                     # IMPORTANT: PE creation is INSIDE the retry loop to handle deadlocks
+                    # process_dues_payment already linked an allocated Payment Entry when it
+                    # matched an invoice (#1803); linking a second row would double-count it.
                     if (
                         create_payment_entry
                         and result.get("status") == "success"
                         and result.get("bank_transaction")
+                        and not result.get("payment_entry")
                     ):
                         member_name = result.get("member")
                         if member_name:

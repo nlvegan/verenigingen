@@ -58,6 +58,7 @@ Technical Implementation:
 import time
 
 import frappe
+from frappe.utils import cint
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import (
@@ -462,7 +463,7 @@ def _check_chapter_board_access(user, target_member_name, include_pending=False)
     # get_member_name_for_user's Member.email fallback. Every caller of this
     # helper (Donor, SEPA Mandate, Membership, Donation, Address, Membership
     # Termination Request) uses it purely to decide board access, never
-    # own-record access, so the swap is safe here for all of them.
+    # own-record access. (#2205: own-record access is now strict too.)
     user_member = get_member_name_for_board_access(user)
     if not user_member:
         frappe.logger().debug(f"User {user} has no Member record linked via user")
@@ -494,6 +495,11 @@ def has_member_permission(doc, user=None, ptype=None):
     frappe.logger().debug(f"Checking Member permissions for user {user} with roles {frappe.get_roles(user)}")
 
     user_roles = frappe.get_roles(user)
+
+    # #2562: Member.has_permission() calls this directly, so Frappe's hook list never runs for it.
+    # Unrestricted DocPerm holders (staff, System Manager) are let through inside the guard itself.
+    if not has_unforged_owner(doc, user, ptype):
+        return False
 
     # Admin roles always have access
     if _has_admin_access(user_roles):
@@ -558,7 +564,7 @@ def has_member_permission(doc, user=None, ptype=None):
     # For regular members, check if they own the record
     if Roles.VERENIGINGEN_MEMBER in user_roles:
         # Get user's member record
-        user_member = get_member_name_for_user(user)
+        user_member = get_member_name_for_board_access(user)
         if user_member == member_name:
             frappe.logger().debug(f"User {user} accessing own member record")
             return True
@@ -615,7 +621,7 @@ def has_volunteer_permission(doc, user=None, ptype=None):
         return False
 
     # Get current user's member record
-    user_member = get_member_name_for_user(user)
+    user_member = get_member_name_for_board_access(user)
     if not user_member:
         frappe.logger().debug(f"User {user} has no Member record")
         return False
@@ -627,9 +633,8 @@ def has_volunteer_permission(doc, user=None, ptype=None):
             return True
 
     # Chapter Board Members can access volunteers in their chapters. #1546:
-    # board access is resolved strictly (Member.user only), separately from
-    # `user_member` above -- that variable also answers the OWN-record check
-    # just above and must keep the email fallback for that unrelated question.
+    # board access is resolved strictly (Member.user only), like the own-record
+    # check above (#2205: no Member.email fallback anywhere in this module).
     if Roles.CHAPTER_BOARD_MEMBER in user_roles:
         try:
             board_member = get_member_name_for_board_access(user)
@@ -781,7 +786,7 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
         # For regular members, grant only their own records
         if Roles.VERENIGINGEN_MEMBER in user_roles:
             try:
-                user_member = get_member_name_for_user(user)
+                user_member = get_member_name_for_board_access(user)
                 if not user_member:
                     frappe.logger().debug(
                         f"User {user} has Verenigingen Member role but no member record found"
@@ -842,7 +847,7 @@ def _make_member_linked_permission(doctype, member_field="member", include_pendi
 
         # For regular members, limit to records linked to their own member record
         if Roles.VERENIGINGEN_MEMBER in user_roles:
-            user_member = get_member_name_for_user(user)
+            user_member = get_member_name_for_board_access(user)
             if user_member:
                 conditions.append(f"{table}.{member_field} = {frappe.db.escape(user_member)}")
 
@@ -905,6 +910,122 @@ has_sepa_mandate_permission, get_sepa_mandate_permission_query = _make_member_li
 has_membership_permission = _make_member_linked_permission("Membership", include_pending=True)[0]
 
 
+def _is_run_doc_method_dispatch():
+    """True while the request being served is ``run_doc_method`` (v1 ``cmd``, short or dotted, or the v2 path).
+
+    Those are the only routes that build a document from the CLIENT's dict and permission-check it.
+    Elsewhere an unsaved document owned by the caller is server-made (``frappe.new_doc``, e.g. the
+    check File.validate runs for an attachment on a form that is not saved yet), so it is legitimate."""
+    cmd = str(frappe.form_dict.get("cmd") or "")  # str(): a client can post a non-string cmd
+    path = getattr(getattr(frappe.local, "request", None), "path", None) or ""
+    return cmd.rsplit(".", 1)[-1] == "run_doc_method" or path.rstrip("/").endswith("/run_doc_method")
+
+
+def _holds_unrestricted_permission(doctype, user, ptype):
+    """True if one of the user's DocPerm rows grants ``ptype`` WITHOUT ``if_owner`` (Frappe's own notion,
+    ``get_role_permissions``). Only an if_owner grant can be satisfied by posting an owner (#2562).
+
+    Relies on the shape of Frappe's ``get_role_permissions``: ``perms[ptype]`` is 1 for ANY grant,
+    including an if_owner-only one, and ``perms["if_owner"]`` lists the ptypes granted only with
+    if_owner. Staff and a bare System Manager hold only an if_owner read on Donation Campaign, so
+    this returns False for them there and they still get 403 on a forged owner, by design."""
+    perms = frappe.permissions.get_role_permissions(frappe.get_meta(doctype), user)
+    ptype = ptype or "read"
+    # an if_owner-only grant still reads as perms[read] == 1 (list access), but is keyed in perms.if_owner
+    return bool(perms.get(ptype)) and ptype not in perms.get("if_owner", {})
+
+
+def has_unforged_owner(doc, user=None, ptype=None):
+    """has_permission hook: refuse a document whose ``owner`` was posted by the client (#2562).
+
+    ``frappe.handler.run_doc_method`` (and the v2 twin) with ``docs=`` builds the document from the
+    CLIENT's dict and runs the permission check on it, so a role's ``if_owner`` row was satisfied by
+    posting ``owner=<me>``. Frappe's own check cannot tell, so deny here: a document whose
+    claimed owner is the caller but whose stored row says otherwise (or has no stored row) is refused.
+    An unknown name is refused too, so it matches the forbidden one on every channel (a bare 404
+    would tell the caller which ids exist). Only the owner claim is examined, and only when it names
+    the caller, so staff and the real owner pay one lookup and are otherwise untouched.
+
+    Deliberate behaviour change: inside a ``run_doc_method`` request an UNSAVED document owned by the
+    caller now returns False for every ptype except ``create`` (it was True), because "unsaved" is
+    exactly what a forged posted dict looks like. Outside that dispatch the guard stands down for a
+    NAMELESS document only (a named one is always compared with its stored row): a server-built
+    ``new_doc`` is also unsaved and owned by the caller (a File attached to a Member form that is not
+    saved yet checks write on one), and nothing there carries a client-posted owner. Returning True
+    from a has_permission hook never grants access; it only falls through to
+    Frappe's own check. That is why the non-``get`` input path (a bare name) may return True: a name
+    carries no posted owner, so there is nothing to refuse and Frappe's DocPerm/if_owner check decides.
+    """
+    if not hasattr(doc, "get"):  # a bare name or other non-document input: nothing was posted
+        return True
+    user = user or frappe.session.user
+    if _holds_unrestricted_permission(doc.get("doctype"), user, ptype):
+        return True  # a forged owner claim cannot widen a grant that is not if_owner
+    claimed = (doc.get("owner") or "").lower()
+    # `create` is the one verb a not-yet-stored document legitimately asks for (Document.insert sets
+    # the owner itself). `__islocal` and `name` are NOT trusted: the client's posted dict controls both.
+    if claimed != user.lower() or ptype == "create":
+        return True
+    if not doc.get("name") and not _is_run_doc_method_dispatch():
+        return True  # server-built unsaved doc (frappe.new_doc); no client posted this owner
+    stored = frappe.db.get_value(doc.get("doctype"), doc.get("name"), "owner") if doc.get("name") else None
+    return (stored or "").lower() == claimed
+
+
+# Doctypes whose run_doc_method guard (#2562) refuses a forged owner. Their unknown names must be
+# refused exactly like a forbidden one (see `refuse_unknown_run_doc_method_target`).
+_RUN_DOC_METHOD_GUARDED_DOCTYPES = frozenset(
+    {"Donation Campaign", "Member", "Membership", "Contribution Amendment Request"}
+)
+
+
+def _posted_run_doc_method_document():
+    """The document dict a ``run_doc_method`` request posted (v1 ``docs``, v2 ``document``), or None."""
+    posted = frappe.form_dict.get("docs") or frappe.form_dict.get("document")
+    try:
+        posted = frappe.parse_json(posted) if isinstance(posted, str) else posted
+    except ValueError:
+        return None
+    return posted if isinstance(posted, dict) else None
+
+
+def _frappe_loads_run_doc_method_target_by_name():
+    """True on Frappe >= 16.61.0, whose ``run_doc_method`` loads a posted document without a truthy
+    ``__islocal`` by name (``frappe.has_permission(doctype, ptype, name, throw=True)``). Older Frappe
+    permission-checks the posted dict instead, which never raises DoesNotExistError."""
+    try:
+        return tuple(int(x) for x in frappe.__version__.split("-")[0].split(".")[:3]) >= (16, 61, 0)
+    except ValueError:
+        return True  # an unparseable version string: assume the newer behaviour (the stricter refusal)
+
+
+def refuse_unknown_run_doc_method_target():
+    """auth_hooks hook: an unknown name must be refused like a forbidden one on ``run_doc_method`` (#2562).
+
+    Frappe 16.61 (version-16, 2026-11-24) loads the target of ``run_doc_method`` (v1 ``docs=``, and v2)
+    by name when the posted document has no truthy ``__islocal`` (or no name). For an id that does not
+    exist that load raises DoesNotExistError (404) while a real, forbidden id gets 403: an existence
+    oracle, and ``has_unforged_owner`` never runs because there is no row to hand it. This runs after
+    authentication (``before_request`` runs BEFORE it, so the user is not known there) and, for the
+    guarded doctypes only, asks Frappe the permission question for the posted document with its
+    ``owner`` dropped, which is what a stored row owned by somebody else looks like to it: the same 403
+    with the same message a real forbidden id gets (a posted owner would make ``has_unforged_owner``
+    answer instead, with another message). A caller who passes that check falls through to Frappe, and
+    a posted ``__islocal`` is left to Frappe's own not-stored branch, which already refuses."""
+    if not _is_run_doc_method_dispatch() or not _frappe_loads_run_doc_method_target_by_name():
+        return
+    posted = _posted_run_doc_method_document()
+    doctype = posted.get("doctype") if posted else None
+    if doctype not in _RUN_DOC_METHOD_GUARDED_DOCTYPES or cint(posted.get("__islocal")):
+        return
+    name = posted.get("name")
+    if isinstance(name, str) and name and frappe.db.exists(doctype, name):
+        return  # a stored row: Frappe loads it and the has_permission hook judges it
+    is_v2_write = "/api/v2/" in frappe.request.path and frappe.request.method != "GET"
+    unowned = frappe.get_doc({k: v for k, v in posted.items() if k != "owner"})
+    frappe.has_permission(doctype, "write" if is_v2_write else "read", doc=unowned, throw=True)
+
+
 def has_donation_permission(doc, user=None, ptype=None):
     """Direct permission check for Donation doctype
 
@@ -955,7 +1076,7 @@ def has_donation_permission(doc, user=None, ptype=None):
     # For regular members, check if donation is linked to their donor record
     if Roles.VERENIGINGEN_MEMBER in user_roles:
         try:
-            user_member = get_member_name_for_user(user)
+            user_member = get_member_name_for_board_access(user)
             if not user_member:
                 return False
 
@@ -1010,7 +1131,7 @@ def get_donation_permission_query(user):
 
     # For regular members, limit to donations linked to their donor records
     if Roles.VERENIGINGEN_MEMBER in user_roles:
-        user_member = get_member_name_for_user(user)
+        user_member = get_member_name_for_board_access(user)
         if user_member:
             conditions.append(
                 f"""
@@ -1061,7 +1182,7 @@ def has_address_permission(doc, user=None, ptype=None):
             )
 
     # Check if this address is linked to the user's own member record
-    member_name = get_member_name_for_user(user)
+    member_name = get_member_name_for_board_access(user)
 
     if member_name:
         # Check if address is linked to this member via Dynamic Link
@@ -1083,16 +1204,8 @@ def has_address_permission(doc, user=None, ptype=None):
         if member_primary_address == address_name:
             return True
 
-    # Fall back to standard Contact-based permissions. has_common_link needs the
-    # Address document (it reads doc.links); this function also accepts a bare
-    # address name as `doc`, so load the document in that case rather than handing
-    # a string to has_common_link (which would raise AttributeError).
-    contact_name = frappe.db.get_value("Contact", {"email_id": user}, "name")
-    if contact_name:
-        contact = frappe.get_doc("Contact", contact_name)
-        address_doc = doc if hasattr(doc, "links") else frappe.get_doc("Address", address_name)
-        return contact.has_common_link(address_doc)
-
+    # #2436: no Contact.email_id fallback. A login that merely equals the email of a
+    # Contact linked to the Address is not an owner; identity is Member.user only (#2205).
     return False
 
 
@@ -1111,7 +1224,7 @@ def get_address_permission_query(user):
     conditions = []
 
     # Find member by email or user field
-    member_name = get_member_name_for_user(user)
+    member_name = get_member_name_for_board_access(user)
 
     if member_name:
         # Add condition for addresses linked to this member
@@ -1128,9 +1241,8 @@ def get_address_permission_query(user):
         )
 
     # Chapter Board Members can see addresses of members in their chapters.
-    # #1546: board access resolved strictly (Member.user only) -- deliberately
-    # NOT `member_name` above, which keeps the email fallback for the
-    # own-address condition and must not be reused for board access.
+    # #1546: board access resolved strictly (Member.user only), as is the
+    # own-address condition above (#2205).
     board_member = (
         get_member_name_for_board_access(user) if Roles.CHAPTER_BOARD_MEMBER in user_roles else None
     )
@@ -1161,25 +1273,10 @@ def get_address_permission_query(user):
             """
             )
 
-    # Also check Contact-based addresses (original ERPNext behavior)
-    contact_name = frappe.db.get_value("Contact", {"email_id": user}, "name")
-    if contact_name:
-        escaped_contact_name = frappe.db.escape(contact_name)
-        conditions.append(
-            f"""
-            `tabAddress`.name in (
-                SELECT parent FROM `tabDynamic Link`
-                WHERE parenttype = 'Address'
-                AND link_doctype = 'Contact'
-                AND link_name = {escaped_contact_name}
-            )
-        """
-        )
-
     if conditions:
         return f"({' OR '.join(conditions)})"
 
-    # No member or contact found - no access
+    # No Member.user link (and not a board member): no access
     return "1=0"
 
 
@@ -1330,7 +1427,7 @@ def get_membership_permission_query(user):
 
     # Members can see their own membership records
     if Roles.VERENIGINGEN_MEMBER in user_roles:
-        user_member = get_member_name_for_user(user)
+        user_member = get_member_name_for_board_access(user)
         if user_member:
             conditions.append(f"`tabMembership`.member = {frappe.db.escape(user_member)}")
 
@@ -1729,13 +1826,12 @@ def get_chapter_member_permission_query(user):
     # Allow users to see Chapter Member records for:
     # 1. Their own member record
     # 2. Chapters where they have board access
-    requesting_member = get_member_name_for_user(user)
+    requesting_member = get_member_name_for_board_access(user)
     if not requesting_member:
         return "1=0"  # No access if not a member
 
     # Get chapters where user has board access. #1546: resolved strictly
-    # (Member.user only), deliberately NOT `requesting_member` above, which
-    # keeps the email fallback for the own-record condition below.
+    # (Member.user only), as is `requesting_member` above (#2205).
     user_chapters = []
     board_member = get_member_name_for_board_access(user)
     volunteer_records = (
@@ -1874,7 +1970,8 @@ def has_membership_termination_request_permission(doc, user=None, ptype=None):
 
 def get_user_chapter_board_positions(user_member):
     """
-    Get all active board positions for a user across all chapters
+    Get all active board positions for a user across all chapters.
+    A seat on a deactivated Chapter Role confers nothing (#2958).
     Returns list of dicts with chapter_name, chapter_role, and permissions_level
     """
     try:
@@ -1890,6 +1987,7 @@ def get_user_chapter_board_positions(user_member):
             JOIN `tabVolunteer` v ON cbm.volunteer = v.name
             WHERE v.member = %s
             AND cbm.is_active = 1
+            AND cr.is_active = 1
             ORDER BY cbm.parent, cr.permissions_level
         """,
             user_member,
@@ -1906,6 +2004,9 @@ def assign_chapter_board_role(user_email):
     Automatically assign Chapter Board Member role to users with active board positions
     This should be called when chapter board positions are created/updated
     """
+    from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+    from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
     try:
         # Get user's member record. #1546: resolved strictly (Member.user
         # only) -- this decides whether to GRANT or REMOVE the Chapter Board
@@ -1969,16 +2070,145 @@ def assign_chapter_board_role(user_email):
             if DocumentExistenceValidator.check_document_exists(
                 "Has Role", {"parent": user_email, "role": Roles.CHAPTER_BOARD_MEMBER}
             ):
-                frappe.db.delete("Has Role", {"parent": user_email, "role": Roles.CHAPTER_BOARD_MEMBER})
+                try:
+                    _withdraw_chapter_board_access(user_email, user_member)
+                except (BoardAccessWithdrawalError, *NON_RESUMABLE_DB_ERRORS):
+                    raise
+                except Exception as e:
+                    # #2718: ANY other failure here (a ValidationError from User.save, a TypeError)
+                    # leaves the board access attached. The catch-all below would log it and return
+                    # False ("nothing to remove"), so refuse in the type every caller already handles.
+                    frappe.log_error(
+                        title="Board access withdrawal failed",
+                        message=f"Withdrawing Chapter Board Member access of {user_email}: "
+                        f"{e.__class__.__name__}: {e}\n{frappe.get_traceback()}",
+                    )
+                    raise BoardAccessWithdrawalError(
+                        frappe._("Board access of User {0} could not be withdrawn: {1}").format(
+                            user_email, f"{e.__class__.__name__}: {e}"
+                        )
+                    ) from e
                 frappe.logger().info(f"Removed Chapter Board Member role from {user_email}")
                 return True
             else:
                 frappe.logger().debug(f"User {user_email} doesn't have Chapter Board Member role to remove")
                 return False
 
+    except BoardAccessWithdrawalError:
+        # A failed WITHDRAWAL must reach the caller (#1953, #702): logging it and returning
+        # False reads as "nothing to remove" while the user keeps the board access.
+        raise
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # a deadlock/lock-wait leaves the transaction unusable: never read as "False"
     except Exception as e:
         frappe.log_error(f"Error assigning chapter board role to {user_email}: {str(e)}")
         return False
+
+
+def _withdraw_chapter_board_access(user_email, user_member):
+    """Withdraw a seatless user's board role AND the role profile that would re-grant it (#702).
+
+    User.populate_role_profile_roles resets ``roles`` to the attached profiles' roles on every
+    save, so deleting the Has Role row alone is undone by the next User.save(). Same order as
+    BoardManager.flush_pending_board_profile_syncs: profile first, then the role, then a
+    post-condition that raises, because a withdrawal that did not withdraw must be loud (#1953).
+    """
+    from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+    if user_member:
+        _withdraw_via_profile_sync(user_email, user_member)
+    else:
+        # No Member.user link (an email-only holder, or the OLD user of a Member.user re-link):
+        # the calculator derives nothing for this user, so the sync cannot run for it.
+        _strip_board_profiles_and_role(user_email)
+
+    frappe.clear_cache(user=user_email)
+    # Same shape as BoardManager._assert_board_access_withdrawn (#1953): the board role may
+    # legitimately survive through ANOTHER profile (a manual Treasurer or National one), so
+    # only a profile the SYNC owns that is still attached is a failed withdrawal.
+    still_attached = _sync_owned_board_profiles_attached(user_email)
+    if still_attached:
+        raise BoardAccessWithdrawalError(
+            frappe._("Board membership of {0} ended but role profile(s) {1} are still attached.").format(
+                user_email, ", ".join(still_attached)
+            )
+        )
+
+
+def _sync_owned_board_profiles_attached(user_email):
+    """Board-conferring profiles still on the user that the sync granted (and so must withdraw).
+
+    The recorded sync-granted set is authoritative; only when nothing was ever recorded (None,
+    the bootstrap case) do the built-in profiles count as ours.
+    """
+    from verenigingen.services.member.account.user_role_profile_calculator import (
+        BUILTIN_PROFILES,
+        get_user_role_profiles,
+        read_sync_granted_profiles,
+    )
+
+    recorded = read_sync_granted_profiles(user_email)
+    owned = BUILTIN_PROFILES if recorded is None else set(recorded)
+    return [p for p in get_user_role_profiles(user_email) if p in owned and _profile_confers_board_role(p)]
+
+
+def _withdraw_via_profile_sync(user_email, user_member):
+    """The sanctioned two steps for a user with a Member: recalculate the profile, then drop the role."""
+    from verenigingen.services.member.account.user_role_profile_calculator import sync_user_role_profile
+    from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+    from verenigingen.verenigingen.doctype.chapter_board_member.chapter_board_member import (
+        withdraw_board_member_role_if_unseated,
+    )
+
+    # allow_disabled: this only ever downgrades, and a disabled account still holds its profile.
+    # A deadlock/lock-wait is re-raised by the sync itself for every caller (#1888).
+    result = sync_user_role_profile(user_email, allow_disabled=True)
+    if not result.get("success"):
+        raise BoardAccessWithdrawalError(
+            frappe._(
+                "Board access of User {0} could not be withdrawn because its role profile could not be "
+                "recalculated: {1}. Fix or remove the invalid role row on that User, then try again."
+            ).format(user_email, result.get("error"))
+        )
+    for volunteer in frappe.get_all("Volunteer", filters={"member": user_member}, pluck="name"):
+        withdraw_board_member_role_if_unseated(volunteer)
+
+
+def _strip_board_profiles_and_role(user_email):
+    """Drop the board-conferring profiles the sync owns, and the board role, from an unlinked User."""
+    from verenigingen.services.member.account.user_role_profile_calculator import (
+        _has_multi_profile_support,
+        get_user_role_profiles,
+        read_sync_granted_profiles,
+        record_sync_granted_profiles,
+    )
+
+    user_doc = frappe.get_doc("User", user_email)
+    drop = _sync_owned_board_profiles_attached(user_email)
+
+    for row in [r for r in user_doc.roles if r.role == Roles.CHAPTER_BOARD_MEMBER]:
+        user_doc.roles.remove(row)
+    if drop:
+        held = get_user_role_profiles(user_email)
+        keep = [p for p in held if p not in drop]
+        if _has_multi_profile_support():
+            user_doc.set("role_profiles", [{"role_profile": p} for p in keep])
+        record_sync_granted_profiles(
+            user_doc, [p for p in (read_sync_granted_profiles(user_email) or []) if p not in drop]
+        )
+        user_doc.role_profile_name = keep[0] if keep else None
+    # Security: ignore_permissions is safe here. This is an internal hook/maintenance path whose
+    # outcome derives only from the user's own (absent) board seats, never from the caller, and it
+    # only ever removes the board role and the sync-granted board profiles.
+    user_doc.save(ignore_permissions=True)
+
+
+def _profile_confers_board_role(profile):
+    if not frappe.db.exists("Role Profile", profile):
+        return False
+    return any(
+        r.role == Roles.CHAPTER_BOARD_MEMBER for r in frappe.get_cached_doc("Role Profile", profile).roles
+    )
 
 
 def update_all_chapter_board_roles():
@@ -1986,6 +2216,9 @@ def update_all_chapter_board_roles():
     Update Chapter Board Member roles for all users based on their current board positions
     This can be run as a maintenance function
     """
+    from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+    from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
     try:
         # Get all users with active board positions
         board_members = frappe.db.sql(
@@ -2016,15 +2249,48 @@ def update_all_chapter_board_roles():
         # skip calling assign_chapter_board_role for exactly that user,
         # silently keeping their role forever instead of letting this
         # maintenance run correct it.
+        failed = []
         for user_email in _users_with_chapter_board_role():
-            assign_chapter_board_role(user_email)
+            _withdraw_for_sweep(user_email, failed)
 
         frappe.logger().info(f"Updated chapter board roles for {success_count} users")
+        if failed:
+            # Every user was attempted first, so one bad account cannot shield the others; the
+            # failure is still loud because a withdrawal that did not withdraw must not read
+            # as "N users updated" (#702, #1953).
+            raise BoardAccessWithdrawalError(
+                frappe._("Board access was not withdrawn for: {0}").format(", ".join(failed))
+            )
         return success_count
 
+    except (BoardAccessWithdrawalError, *NON_RESUMABLE_DB_ERRORS):
+        raise
     except Exception as e:
         frappe.log_error(f"Error updating all chapter board roles: {str(e)}")
         return 0
+
+
+def _withdraw_for_sweep(user_email, failed):
+    """One user's turn in the sweep: a refusal is collected in ``failed``, never allowed to abort the rest."""
+    from frappe.database import savepoint
+
+    from verenigingen.verenigingen.doctype.chapter.managers import BoardAccessWithdrawalError
+
+    if not frappe.db.exists("User", user_email):
+        # An orphan Has Role row (its User was deleted) has nothing to withdraw from.
+        frappe.log_error(
+            title="Chapter board sweep: orphan Has Role row",
+            message=f"Has Role '{Roles.CHAPTER_BOARD_MEMBER}' points at missing User {user_email}; skipped.",
+        )
+        return
+    # The savepoint undoes this user's half-done writes when the withdrawal is refused; a
+    # deadlock/lock-wait is not caught by it and propagates, as it must.
+    withdrawn = False
+    with savepoint(catch=BoardAccessWithdrawalError):
+        assign_chapter_board_role(user_email)
+        withdrawn = True
+    if not withdrawn:
+        failed.append(user_email)
 
 
 def _users_with_chapter_board_role():
@@ -2048,7 +2314,7 @@ def get_volunteer_permission_query(user):
         return ""
 
     # Get requesting user's member record
-    requesting_member = get_member_name_for_user(user)
+    requesting_member = get_member_name_for_board_access(user)
     if not requesting_member:
         return "1=0"  # No access if not a member
 
@@ -2136,7 +2402,7 @@ def get_team_member_permission_query(user):
         return ""
 
     # Get requesting user's member and volunteer records
-    requesting_member = get_member_name_for_user(user)
+    requesting_member = get_member_name_for_board_access(user)
     if not requesting_member:
         return "1=0"  # No access if not a member
 
@@ -2165,6 +2431,30 @@ def get_team_member_permission_query(user):
     return f"({team_filter})"
 
 
+def _amended_from_is_allowed(doc, user, ptype):
+    """A claim may be created, or re-pointed, only at an ``amended_from`` the user may read (#3035).
+
+    Frappe checks that the link exists, never that the user may see it, so a member could amend a
+    stranger's cancelled claim onto their own employee. This runs from the create/write permission
+    check because Frappe validates links BEFORE any validate hook, and answers "not found" for an
+    unknown id only; here an unknown and a forbidden id take one path and leave one refusal.
+    Admins never reach it (they return earlier); ``ignore_permissions`` never calls the check.
+    """
+    source = doc.get("amended_from")
+    if not source:
+        return True
+    if doc.get("name") and source == frappe.db.get_value("Expense Claim", doc.name, "amended_from"):
+        return True  # stored link, unchanged: a legacy link is not re-judged on any later check
+
+    stored = frappe.db.get_value("Expense Claim", source, ["employee", "custom_chapter"], as_dict=True)
+    if not stored:
+        # Equaliser, not a lookup: for an existing source has_expense_claim_permission reads its
+        # employee's user; an unknown id skips that read, so repeat one query of the same shape here.
+        # It must mirror that extra query, or an unknown and a forbidden id differ in query count.
+        frappe.db.get_value("Employee", "", "user_id")
+    return bool(stored) and has_expense_claim_permission(stored, user)
+
+
 def has_expense_claim_permission(doc, user=None, ptype=None):
     """Permission check for Expense Claim doctype
 
@@ -2183,6 +2473,13 @@ def has_expense_claim_permission(doc, user=None, ptype=None):
     # Admin roles can see all
     if _has_admin_access(user_roles, Roles.EXPENSE_CLAIM_FULL_ACCESS_ROLES):
         return True
+
+    if (
+        not isinstance(doc, str)
+        and ptype in ("create", "write")
+        and not _amended_from_is_allowed(doc, user, ptype)
+    ):
+        return False
 
     # Get expense claim chapter
     if isinstance(doc, str):

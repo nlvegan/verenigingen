@@ -51,6 +51,7 @@ from verenigingen.tests.payment.test_sepa_literal_recipients import (
     _restore_rows,
     _snapshot_rows,
 )
+from verenigingen.utils.operation_result import OperationResult
 
 EMAIL_FACTORY = "verenigingen.services.communication.email_service.get_email_service"
 ENQUEUE = "verenigingen.services.volunteer.expense_handlers.frappe.enqueue"
@@ -68,7 +69,7 @@ class TestExpenseHandlersCoverage(EnhancedTestCase):
         so the handler walks the success log branch.
         """
         service = MagicMock(name="EmailService")
-        service.send_simple_email.return_value = MagicMock(success=True, error_message=None)
+        service.send_simple_email.return_value = OperationResult.ok({})
         with patch(EMAIL_FACTORY, return_value=service):
             yield service
 

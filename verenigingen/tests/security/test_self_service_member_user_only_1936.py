@@ -91,15 +91,6 @@ class TestMemberUserOnlyIdentity1936(EnhancedTestCase):
         self.assertTrue(ctx.no_member_record)
         self.assertFalse(ctx.get("address_data"))
 
-    def test_validate_member_for_user_is_user_link_only(self):
-        from verenigingen.utils.error_handling import validate_member_for_user
-
-        with self.as_user(self.unlinked.user):
-            with self.assertRaises(frappe.DoesNotExistError):
-                validate_member_for_user()
-        with self.as_user(self.linked.user):
-            self.assertEqual(validate_member_for_user(), self.linked.member.name)
-
     # ---- SEPA Mandate permission hooks -------------------------------------
 
     def test_sepa_mandate_hooks_do_not_grant_by_email(self):

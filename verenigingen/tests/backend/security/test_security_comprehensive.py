@@ -37,6 +37,25 @@ class TestSecurityComprehensive(VereningingenTestCase):
         )
         cls.guest_user = "Guest"
         frappe.db.commit()
+        # #2561: these Users are committed, so the class has to delete them again itself.
+        cls.addClassCleanup(cls._cleanup_security_users)
+
+    #: Every User `setUpClass` creates; the class cleanup deletes exactly these.
+    SECURITY_USERS = (
+        "sec_admin@test.com",
+        "sec_chapter1@test.com",
+        "sec_chapter2@test.com",
+        "sec_user@test.com",
+    )
+
+    @classmethod
+    def _cleanup_security_users(cls):
+        for email in cls.SECURITY_USERS:
+            if frappe.db.exists("User", email):
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        # The delete only persists because the next class cleanup (own_settings_company's
+        # _write) commits; commit here so it does not depend on that.
+        frappe.db.commit()
 
     @classmethod
     def _ensure_security_user(cls, email, roles):

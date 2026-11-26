@@ -4,6 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.model.workflow import apply_workflow
 from frappe.utils import add_months, add_years, date_diff, flt, getdate
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, utility_api
@@ -12,6 +13,7 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 class PeriodicDonationAgreement(Document):
     def validate(self):
         self.validate_activation_goes_through_workflow()
+        self.validate_closing_goes_through_workflow()
         self.calculate_end_date()
         self.calculate_payment_amount()
         self.validate_dates()
@@ -56,6 +58,30 @@ class PeriodicDonationAgreement(Document):
         if not was_active and self.get("workflow_state") != "Active":
             frappe.throw(
                 _("An agreement can only be activated with the workflow action 'Verify and Activate'."),
+                frappe.ValidationError,
+            )
+
+    def validate_closing_goes_through_workflow(self):
+        """Refuse a web-request save that makes `status` Completed/Cancelled without the workflow (#1850).
+
+        Same shape and scope as the activation guard (#1811): a real transition sets
+        workflow_state to the matching state in the same save, before validate runs; a plain
+        write (REST PUT, frappe.client.set_value/save, the form) leaves workflow_state behind.
+        That matters because Accounts User holds doctype write but no workflow transition,
+        so the workflow's role and end_date conditions were bypassable by a plain save.
+        Internal Python (jobs, scripts, tests) is trusted, as for activation.
+        """
+        if self.status not in ("Completed", "Cancelled") or not getattr(frappe.local, "request", None):
+            return
+        if not self.meta.get_workflow():
+            return
+        if self._doc_before_save and self._doc_before_save.status == self.status:
+            return
+        if self.get("workflow_state") != self.status:
+            frappe.throw(
+                _("An agreement can only be set to {0} with the matching workflow action.").format(
+                    _(self.status)
+                ),
                 frappe.ValidationError,
             )
 
@@ -427,7 +453,7 @@ class PeriodicDonationAgreement(Document):
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
-    def cancel_agreement(self, reason=None, send_email=False):
+    def cancel_agreement(self, reason=None, send_email: bool = False):
         """Cancel the agreement
 
         Args:
@@ -437,12 +463,20 @@ class PeriodicDonationAgreement(Document):
         if self.status == "Cancelled":
             frappe.throw(_("Agreement is already cancelled"))
 
-        self.status = "Cancelled"
         self.cancellation_date = frappe.utils.today()
         self.cancellation_reason = reason or _("Cancelled by donor request")
         self.cancellation_processed_by = frappe.session.user
 
-        self.save()
+        if self.meta.get_workflow():
+            # The workflow decides who may cancel from which state (#1850). apply_workflow
+            # reloads the doc from the database and its condition reads cancellation_reason,
+            # so the reason must be saved first; a refused transition rolls it back.
+            self.save()
+            # apply_workflow loads the doc in place, so self ends up as the saved row.
+            apply_workflow(self, "Cancel Agreement")
+        else:
+            self.status = "Cancelled"
+            self.save()
 
         # Optionally send cancellation confirmation
         if send_email:
@@ -471,7 +505,7 @@ class PeriodicDonationAgreement(Document):
                 ),
             }
 
-            email_service.send_templated_email(
+            result = email_service.send_templated_email(
                 template_name="periodic_agreement_cancellation",
                 recipients=[donor.donor_email],
                 context=context,
@@ -483,7 +517,10 @@ class PeriodicDonationAgreement(Document):
                 notification_key="periodic_donation_cancellation",
             )
 
-            self.db_set("cancellation_confirmation_sent", 1)
+            # Only a mail that was really queued counts: a skipped (cooldown, disabled key,
+            # opt-out) or failed mail must not be recorded as sent (#2178)
+            if result.success and not result.skip_reason:
+                self.db_set("cancellation_confirmation_sent", 1)
 
         except Exception as e:
             frappe.log_error(

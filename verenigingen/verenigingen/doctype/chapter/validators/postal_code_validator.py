@@ -4,6 +4,8 @@ from typing import Dict, List, Optional
 
 import frappe
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
 from .base_validator import BaseValidator, ValidationResult
 
 
@@ -457,6 +459,10 @@ class PostalCodeValidator(BaseValidator):
         try:
             settings = frappe.get_single("Verenigingen Settings")
             return getattr(settings, setting_name, default_value)
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213/1205 leave no usable transaction; falling back would let the save
+            # report success on state the server discarded (#2602).
+            raise
         except Exception:
             return default_value
 

@@ -9,6 +9,7 @@ import frappe
 from frappe.utils import getdate, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.collection_rows import (
     refuse_invoices_with_more_than_one_row,
 )
@@ -142,7 +143,8 @@ class SEPAMandateService:
     def get_sequence_types_batch(self, mandate_invoice_pairs: List[Tuple[str, str]]) -> Dict[str, str]:
         """
         Determine sequence types for multiple mandate-invoice pairs
-        Returns dict with 'mandate_name:invoice_name' as key and sequence type as value
+        Returns dict with 'mandate_name:invoice_name' as key and sequence type as value.
+        A pair whose type could not be determined has NO entry (#2716).
         """
         if not mandate_invoice_pairs:
             return {}
@@ -175,19 +177,24 @@ class SEPAMandateService:
                 sequence_type = sequence_info["sequence_type"]
 
                 cache_key = f"{mandate_name}:{invoice_name}"
+                # A determination that fell back to a guess is not cached: this service is a
+                # process-wide singleton with no TTL, so the guess would stick (#2628).
+                if sequence_info.get("error"):
+                    # Undeterminable (#2716): leave the key out so the caller leaves the invoice
+                    # out of the batch; a guess can contradict the mandate's history at the bank.
+                    continue
                 self._sequence_cache[cache_key] = sequence_type
                 results[cache_key] = sequence_type
 
+            except NON_RESUMABLE_DB_ERRORS:
+                raise
             except Exception as e:
                 # Log error but continue processing
                 frappe.log_error(
                     f"Error determining sequence type for mandate {mandate_name}, invoice {invoice_name}: {str(e)}",
                     "SEPA Mandate Service - Sequence Type Error",
                 )
-                # Default to RCUR for safety
-                cache_key = f"{mandate_name}:{invoice_name}"
-                self._sequence_cache[cache_key] = "RCUR"
-                results[cache_key] = "RCUR"
+                # No entry for this pair (#2716): neither cached (#2628) nor guessed.
 
         return results
 

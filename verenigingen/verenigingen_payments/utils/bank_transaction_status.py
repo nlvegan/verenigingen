@@ -33,6 +33,30 @@ def pool_filters():
     }
 
 
+RECONCILED_STATE = "reconciled"
+UNRECONCILED_STATE = "unreconciled"
+PENDING_STATE = "pending"
+
+
+def row_outcome(docstatus, status, marker):
+    """Classify one Bank Transaction for display: reconciled, unreconciled or pending (#2396).
+
+    A submitted row's state is ERPNext's ``status``; a draft's is the pool's marker, because
+    ERPNext keeps every draft at "Pending". A draft with no terminal marker (none, or an
+    in-progress label such as "Partial - Manual Review Required") is still pending.
+    """
+    if docstatus == 2:
+        return PENDING_STATE  # cancelled: no outcome, whatever marker it still carries
+    if docstatus == 1:
+        # A submitted "Settled" (or any other) status is deliberately pending, as in the counts.
+        return {"Reconciled": RECONCILED_STATE, "Unreconciled": UNRECONCILED_STATE}.get(status, PENDING_STATE)
+    if marker in RECONCILED_OUTCOMES:
+        return RECONCILED_STATE
+    if marker == FAILED:
+        return UNRECONCILED_STATE
+    return PENDING_STATE
+
+
 def record_pool_outcome(bank_transaction, outcome):
     """Record ``outcome`` on a DRAFT ``bank_transaction``; no-op once submitted.
 
@@ -43,3 +67,31 @@ def record_pool_outcome(bank_transaction, outcome):
     if bank_transaction.docstatus != 0:
         return
     bank_transaction.db_set(FIELD, outcome, update_modified=False)
+
+
+def count_reconciled(filters):
+    """Count Bank Transactions matching ``filters`` that are reconciled (#2344).
+
+    A submitted row's state is ERPNext's ``status``; a draft's is the pool's own marker,
+    because ERPNext keeps every draft at "Pending".
+    """
+    import frappe
+
+    return frappe.db.count("Bank Transaction", {**filters, "docstatus": 1, "status": "Reconciled"}) + (
+        frappe.db.count(
+            "Bank Transaction", {**filters, "docstatus": 0, FIELD: ["in", list(RECONCILED_OUTCOMES)]}
+        )
+    )
+
+
+def count_unreconciled(filters):
+    """Count Bank Transactions matching ``filters`` that are unreconciled (#2344).
+
+    Submitted ``status = 'Unreconciled'`` plus drafts the pool gave up on (FAILED). A plain
+    draft still in the pool is neither reconciled nor unreconciled: it is pending.
+    """
+    import frappe
+
+    return frappe.db.count("Bank Transaction", {**filters, "docstatus": 1, "status": "Unreconciled"}) + (
+        frappe.db.count("Bank Transaction", {**filters, "docstatus": 0, FIELD: FAILED})
+    )

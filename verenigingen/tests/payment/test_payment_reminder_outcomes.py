@@ -10,6 +10,7 @@ loops.
 from unittest.mock import patch
 
 import frappe
+from frappe.utils import add_days, today
 
 from verenigingen.api.payment_processing import (
     execute_bulk_payment_action,
@@ -19,6 +20,7 @@ from verenigingen.api.payment_processing import (
 )
 from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.tests.utils.reminder_mail_state import clear_email_cooldowns, configure_notification_key
 from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_templates, _load_fixture_rows
 
@@ -33,6 +35,7 @@ LOG_MARKER = "Payment reminder sent"
 FINAL_MARKER = "Final Payment Notice"
 BULK_MARKER = "You have outstanding membership payments"
 CHAPTER_MARKER = "Overdue Member Payment"
+PAYMENT_LINK_PATH = "/payment_retry?"
 
 
 class TestPaymentReminderOutcomes(EnhancedTestCase):
@@ -44,11 +47,10 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self._ensure_outgoing_account()
+        own_notification_keys(self, *KEYS)  # first: its snapshot is the site's own state (#2053)
         ensure_notification_registry_rows()
         self._ensure_shipped_templates()
         self._configure_email_master(master=1, respect_prefs=1)
-        for key in KEYS:
-            configure_notification_key(key, 1, 0)
 
         self.member = self._new_reminder_member("Outcome")
         self.info = {
@@ -304,6 +306,45 @@ class TestPaymentReminderOutcomes(EnhancedTestCase):
         self.assertEqual(len(rows), 1, "the board mail must be queued from the shipped template")
         self.assertEqual(rows[0].recipients, [board_email])
         self.assertEqual(outcome.status, "sent")
+
+    def _flag_run(self, chapter, flag):
+        """One overdue run with both boolean flags sent as the STRING an HTTP client delivers (#2377)."""
+        board_email = f"board.{frappe.generate_hash(length=8)}@example.com"
+        # Mock justified: the report's data source is imported locally per call; fixes the member set.
+        with self._board_patch(board_email), patch(
+            self.GET_DATA, return_value=self._overdue_rows(chapter, [self.member])
+        ):
+            return send_overdue_payment_reminders(
+                reminder_type="Friendly Reminder", send_to_chapters=flag, include_payment_link=flag
+            )
+
+    def test_false_flag_strings_neither_copy_the_board_nor_add_a_payment_link(self):
+        for flag in ("0", "false"):
+            clear_email_cooldowns()
+            chapter = self._make_reminder_chapter()
+            result = self._flag_run(chapter, flag)
+            self.assertEqual(result.get("count"), 1, (flag, result))
+            self.assertNotIn("chapters", result, flag)
+            self.assertEqual(self._mail_for(chapter, CHAPTER_MARKER), [], flag)
+            for mail in self._mail_for(self.member):
+                self.assertNotIn(PAYMENT_LINK_PATH, mail.message, flag)
+
+    def test_true_flag_strings_still_copy_the_board_and_add_a_payment_link(self):
+        """Control: the same run with "1"/"true" must show both, so the test above can fail."""
+        # The link names the member's oldest overdue invoice (#2109), so the member needs one.
+        self.create_test_sales_invoice(
+            customer=self.member.name,
+            posting_date=add_days(today(), -60),
+            due_date=add_days(today(), -30),
+        )
+        for flag in ("1", "true"):
+            clear_email_cooldowns()
+            chapter = self._make_reminder_chapter()
+            result = self._flag_run(chapter, flag)
+            self.assertEqual(result["chapters"][chapter.name]["status"], "sent", (flag, result))
+            self.assertEqual(len(self._mail_for(chapter, CHAPTER_MARKER)), 1, flag)
+            linked = [m for m in self._mail_for(self.member) if PAYMENT_LINK_PATH in m.message]
+            self.assertTrue(linked, f"{flag}: the member reminder must carry the payment link")
 
     def test_one_board_mail_per_chapter_lists_every_overdue_member(self):
         # Maintainer ruling on #2006: ONE mail per chapter per run. The seeded payment_failure

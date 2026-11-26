@@ -109,6 +109,10 @@ def process_expired_memberships():
 
 
 def _process_expired_memberships_impl():
+    from verenigingen.verenigingen.doctype.membership.membership import (
+        cancel_dues_schedule_if_end_of_period_cancelled,
+    )
+
     batch_size = 500
 
     memberships = frappe.get_all(
@@ -122,6 +126,7 @@ def _process_expired_memberships_impl():
     for membership in memberships:
         try:
             doc = frappe.get_doc("Membership", membership.name)
+            cancel_dues_schedule_if_end_of_period_cancelled(doc)
             doc.status = "Expired"
             # `status` is not allow_on_submit, so changing it on a submitted
             # (docstatus 1) membership otherwise raises UpdateAfterSubmitError —
@@ -138,7 +143,11 @@ def _process_expired_memberships_impl():
             doc.update_member_status()
             count += 1
         except Exception as e:
-            frappe.logger().error(f"Error updating membership {membership.name}: {str(e)}")
+            # frappe.logger() writes nowhere a person reads; a membership stuck Active must be visible.
+            frappe.log_error(
+                title=f"Membership expiry failed: {membership.name}",
+                message=f"{e}\n\n{frappe.get_traceback()}",
+            )
 
     if count:
         frappe.logger().info(f"Processed {count} expired memberships")
@@ -211,7 +220,7 @@ def _send_renewal_reminders_impl():
                 "company": frappe.defaults.get_global_default("company"),
             }
 
-            email_service.send_templated_email(
+            result = email_service.send_templated_email(
                 template_name=template,
                 recipients=[membership.email],
                 context=enhanced_context,
@@ -221,7 +230,10 @@ def _send_renewal_reminders_impl():
                 notification_key="membership_renewal_reminder",
             )
 
-            # Log the email
+            # A skip (cooldown, disabled key, opt-out) or a failure sent nothing (#2178)
+            if not result.success or result.skip_reason:
+                continue
+
             frappe.logger().info(
                 f"Sent renewal reminder to {membership.email} for membership {membership.name}"
             )

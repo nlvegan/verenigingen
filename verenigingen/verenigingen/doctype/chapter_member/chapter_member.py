@@ -9,7 +9,8 @@ class ChapterMember(Document):
     def after_insert(self):
         """Handle new chapter member creation"""
         self._send_chapter_welcome_notification()
-        self._notify_board_of_member_joined()
+        # The board's "member joined" mail is sent by Chapter.on_update (#1843); this hook
+        # never runs for a row saved through its parent and ignored enabled/status.
 
     def on_trash(self):
         """Handle chapter member removal"""
@@ -125,17 +126,6 @@ class ChapterMember(Document):
             reference_doctype="Chapter",
             reference_name=self.parent,
             notification_key="chapter_member_left",
-        )
-
-    def _notify_board_of_member_joined(self):
-        """Notify the chapter board that a member joined."""
-        if not self._board_lifecycle_notifications_enabled():
-            return
-
-        self._dispatch_board_notification(
-            template_name="chapter_board_member_joined",
-            notification_key="chapter_member_joined",
-            effective_date=self.chapter_join_date or frappe.utils.today(),
         )
 
     def _notify_board_of_member_left(self):

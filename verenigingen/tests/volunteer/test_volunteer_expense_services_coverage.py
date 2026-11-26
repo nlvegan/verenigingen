@@ -206,6 +206,64 @@ class TestExpenseSubmissionServiceDeep(_ExpenseFixtureMixin, EnhancedTestCase):
         svc = self._svc()
         self.assertIsNone(svc._validate_chapter_access(chapter.name))
 
+    # -- #2601: the chapter pre-check applies the Expense Claim hook's rule (#2528) --
+
+    def _row(self, chapter_name):
+        return frappe.db.get_value(
+            "Chapter Member",
+            {"parent": chapter_name, "member": self.member.name},
+            ["enabled", "status"],
+            as_dict=True,
+        )
+
+    def test_chapter_access_refuses_pending_request_with_specific_message(self):
+        """Pending row written by the REAL request_to_join flow."""
+        chapter = self.ensure_test_chapter("ExpAccessPending")
+        frappe.get_doc("Chapter", chapter.name).member_manager.request_to_join(self.member.name, notify=False)
+        row = self._row(chapter.name)
+        self.assertEqual(row.status, "Pending", "fixture: request_to_join did not leave a Pending row")
+        err = self._svc()._validate_chapter_access(chapter.name)
+        self.assertIsNotNone(err)
+        self.assertIn("not active", err)
+        self.assertIn(chapter.name, err)
+
+    def test_chapter_access_refuses_disabled_row_with_specific_message(self):
+        """enabled=0 row written by the REAL remove_member(permanent=False) flow."""
+        chapter = self.ensure_test_chapter("ExpAccessDisabled")
+        self._add_chapter_member(chapter.name, self.member.name)
+        frappe.get_doc("Chapter", chapter.name).member_manager.remove_member(
+            self.member.name, leave_reason="left", notify=False
+        )
+        self.assertEqual(self._row(chapter.name).enabled, 0, "fixture: remove_member left the row enabled")
+        err = self._svc()._validate_chapter_access(chapter.name)
+        self.assertIsNotNone(err)
+        self.assertIn("not active", err)
+
+    def test_chapter_access_refuses_inactive_status_row(self):
+        """PROBE SHORTCUT: status='Inactive' is set with db.set_value, standing in for the
+        termination writer (enabled=0/status=Inactive); the enabled=1 variant isolates `status`."""
+        chapter = self.ensure_test_chapter("ExpAccessInactive")
+        self._add_chapter_member(chapter.name, self.member.name)
+        frappe.db.set_value(
+            "Chapter Member",
+            {"parent": chapter.name, "member": self.member.name},
+            "status",
+            "Inactive",
+        )
+        self.assertEqual(self._row(chapter.name).enabled, 1)
+        err = self._svc()._validate_chapter_access(chapter.name)
+        self.assertIsNotNone(err)
+        self.assertIn("not active", err)
+
+    def test_chapter_access_active_row_control_and_no_membership_wording_kept(self):
+        """Control: a real Active enabled row passes; no row keeps the original message."""
+        chapter = self.ensure_test_chapter("ExpAccessControl")
+        self.assertIn("Chapter membership required", self._svc()._validate_chapter_access(chapter.name))
+        self._add_chapter_member(chapter.name, self.member.name)
+        row = self._row(chapter.name)
+        self.assertEqual((row.enabled, row.status), (1, "Active"))
+        self.assertIsNone(self._svc()._validate_chapter_access(chapter.name))
+
     # -- _validate_organization_access: team --
 
     def test_team_access_denied_without_membership(self):
@@ -236,6 +294,73 @@ class TestExpenseSubmissionServiceDeep(_ExpenseFixtureMixin, EnhancedTestCase):
         cat = self._make_expense_category(policy_covered=0, name_hint="Luxury")
         svc = self._svc()
         self.assertIsNone(svc._validate_national_access(cat.name))
+
+    # -- #2704: the national-board pre-check applies the #2528 rule (enabled AND Active) --
+
+    def _seat_on_national_board_2704(self, state):
+        """Point national_board_chapter at a fresh chapter and leave the filer's row in ``state``,
+        written by the real flow: request_to_join (Pending), the Member suspend writer
+        (enabled=1, Inactive), remove_member(permanent=False) (enabled=0), or add (Active)."""
+        from verenigingen.events.subscribers.member_subscribers import _update_chapter_membership_status
+
+        chapter = self.ensure_test_chapter(f"Nat2704{state}")
+        previous = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", chapter.name)
+        self.addCleanup(
+            frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", previous
+        )
+        if state == "pending":
+            frappe.get_doc("Chapter", chapter.name).member_manager.request_to_join(
+                self.member.name, notify=False
+            )
+        else:
+            self._add_chapter_member(chapter.name, self.member.name)
+        if state == "suspended":
+            _update_chapter_membership_status(self.member, "Suspended")
+        elif state == "removed":
+            frappe.get_doc("Chapter", chapter.name).member_manager.remove_member(
+                self.member.name, leave_reason="left", notify=False
+            )
+        row = frappe.db.get_value(
+            "Chapter Member",
+            {"parent": chapter.name, "member": self.member.name},
+            ["enabled", "status"],
+            as_dict=True,
+        )
+        expected = {
+            "pending": (1, "Pending"),
+            "suspended": (1, "Inactive"),
+            "removed": (0, None),
+            "active": (1, "Active"),
+        }[state]
+        self.assertEqual(row.enabled, expected[0], f"fixture: {state} row {row}")
+        if expected[1]:
+            self.assertEqual(row.status, expected[1], f"fixture: {state} row {row}")
+        return chapter
+
+    def _national_error_2704(self, state):
+        self._seat_on_national_board_2704(state)
+        cat = self._make_expense_category(policy_covered=0, name_hint="Luxury")
+        return self._svc()._validate_national_access(cat.name)
+
+    def test_national_access_active_board_row_control_passes(self):
+        self.assertIsNone(self._national_error_2704("active"))
+
+    def test_national_access_refuses_pending_board_row(self):
+        err = self._national_error_2704("pending")
+        self.assertIsNotNone(err)
+        self.assertIn("National board membership required", err)
+
+    def test_national_access_refuses_suspended_board_row(self):
+        """enabled=1, status=Inactive: what the Member suspend writer really leaves."""
+        err = self._national_error_2704("suspended")
+        self.assertIsNotNone(err)
+        self.assertIn("National board membership required", err)
+
+    def test_national_access_refuses_removed_board_row(self):
+        err = self._national_error_2704("removed")
+        self.assertIsNotNone(err)
+        self.assertIn("National board membership required", err)
 
     # -- _is_policy_covered_expense database vs keyword --
 
@@ -530,6 +655,26 @@ class TestVolunteerExpensePortalUtils(_ExpenseFixtureMixin, EnhancedTestCase):
         self.assertIn(chapter.name, chapter_names)
         self.assertIn(team.name, team_names)
 
+    def test_get_volunteer_organizations_omits_pending_chapter_keeps_active(self):
+        """#2601 sibling: a chapter the filer is only Pending in (REAL request_to_join) is not
+        offered in the portal dropdown, since the expense hook would refuse it; an Active one is."""
+        from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
+            get_volunteer_organizations,
+        )
+
+        active = self.ensure_test_chapter("PortalOrgActive")
+        self._add_chapter_member(active.name, self.member.name)
+        pending = self.ensure_test_chapter("PortalOrgPending")
+        frappe.get_doc("Chapter", pending.name).member_manager.request_to_join(self.member.name, notify=False)
+        status = frappe.db.get_value(
+            "Chapter Member", {"parent": pending.name, "member": self.member.name}, "status"
+        )
+        self.assertEqual(status, "Pending", "fixture: request_to_join did not leave a Pending row")
+
+        names = [c["name"] for c in get_volunteer_organizations(self.volunteer.name)["chapters"]]
+        self.assertIn(active.name, names)
+        self.assertNotIn(pending.name, names)
+
     def test_get_volunteer_organizations_nonexistent(self):
         from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
             get_volunteer_organizations,
@@ -617,62 +762,6 @@ class TestVolunteerExpensePortalUtils(_ExpenseFixtureMixin, EnhancedTestCase):
         )
 
         self.assertEqual(get_volunteer_expenses_from_claims("NONEXISTENT-VOL-CLM"), [])
-
-    # -- validate_volunteer_organization_access --
-
-    def test_validate_org_access_chapter_direct(self):
-        from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
-            validate_volunteer_organization_access,
-        )
-
-        chapter = self.ensure_test_chapter("PortalAccessChap")
-        # The volunteer's member is a direct Chapter Member -> access granted.
-        # (Regression: the check previously filtered Chapter Member on a phantom
-        # `volunteer` column, which never matched and denied genuine members.)
-        self._add_chapter_member(chapter.name, self.member.name)
-        result = validate_volunteer_organization_access(self.volunteer.name, "Chapter", chapter.name)
-        self.assertTrue(result)
-
-    def test_validate_org_access_chapter_denied_without_membership(self):
-        from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
-            validate_volunteer_organization_access,
-        )
-
-        chapter = self.ensure_test_chapter("PortalAccessChapDeny")
-        # No chapter membership and no team-fallback -> access denied.
-        result = validate_volunteer_organization_access(self.volunteer.name, "Chapter", chapter.name)
-        self.assertFalse(result)
-
-    def test_validate_org_access_team_direct(self):
-        from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
-            validate_volunteer_organization_access,
-        )
-
-        team = self.create_test_team(team_name="PortalAccessTeam")
-        self.create_test_team_member(team.name, self.volunteer.name)
-        self.assertTrue(validate_volunteer_organization_access(self.volunteer.name, "Team", team.name))
-
-    def test_validate_org_access_team_denied(self):
-        from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
-            validate_volunteer_organization_access,
-        )
-
-        team = self.create_test_team(team_name="PortalAccessTeam2")
-        self.assertFalse(validate_volunteer_organization_access(self.volunteer.name, "Team", team.name))
-
-    def test_validate_org_access_national_open(self):
-        from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
-            validate_volunteer_organization_access,
-        )
-
-        self.assertTrue(validate_volunteer_organization_access(self.volunteer.name, "National", "National"))
-
-    def test_validate_org_access_unknown_type(self):
-        from verenigingen.services.volunteer.volunteer_expense_portal_utils import (
-            validate_volunteer_organization_access,
-        )
-
-        self.assertFalse(validate_volunteer_organization_access(self.volunteer.name, "Nonsense", "X"))
 
     # -- is_policy_covered_expense (module-level) --
 
@@ -844,8 +933,9 @@ class TestVolunteerExpensePortalUtils(_ExpenseFixtureMixin, EnhancedTestCase):
 
         theme = get_theme_settings()
         # Either an Owl Theme Settings single or the fallback _dict; both expose
-        # the keys the templates read.
-        self.assertTrue(hasattr(theme, "background_color"))
+        # the keys the templates read. hasattr is True for ANY name on a _dict, so
+        # read the value through .get(), which is None for a key that is not there.
+        self.assertIsNotNone(theme.get("background_color"))
 
 
 # ---------------------------------------------------------------------------

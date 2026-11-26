@@ -5,10 +5,12 @@ Unified service layer for all Mollie API debugging operations
 
 import frappe
 from frappe import _
+from frappe.utils import add_days, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.error_handling import sanitize_error_for_audit
 from verenigingen.utils.security.api_security_framework import OperationType
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, submit_atomically
 from verenigingen.verenigingen_payments.core.compliance.audit_trail import (
     AuditEventType,
     AuditSeverity,
@@ -23,6 +25,7 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     validate_mollie_amount,
 )
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
 
 class MollieDebugService(StatelessService):
@@ -541,8 +544,14 @@ class MollieDebugService(StatelessService):
             try:
                 from frappe.utils import getdate
 
+                from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
+                    mollie_signature_date,
+                )
+
                 parsed_date = getdate(signature_date)
-                if parsed_date > getdate():
+                # Mollie 422s on a date after ITS (UTC) today, so compare to UTC, not the
+                # site-local day (#3041).
+                if parsed_date > getdate(mollie_signature_date()):
                     raise ValueError(_("Signature date cannot be in the future"))
                 return str(parsed_date)
             except ValueError:
@@ -607,9 +616,9 @@ class MollieDebugService(StatelessService):
                 "status": mandate.status,
                 "method": mandate.method,
                 "signatureDate": str(mandate.signature_date) if mandate.signature_date else None,
-                "mandateReference": mandate.mandate_reference
-                if hasattr(mandate, "mandate_reference")
-                else None,
+                "mandateReference": (
+                    mandate.mandate_reference if hasattr(mandate, "mandate_reference") else None
+                ),
                 "createdAt": str(mandate.created_at),
             }
 
@@ -1576,12 +1585,16 @@ class MollieDebugService(StatelessService):
                     "description": subscription.description,
                     "webhook_url": getattr(subscription, "webhook_url", None)
                     or getattr(subscription, "webhookUrl", None),
-                    "start_date": str(subscription.start_date)
-                    if hasattr(subscription, "start_date") and subscription.start_date
-                    else None,
-                    "next_payment_date": str(subscription.next_payment_date)
-                    if hasattr(subscription, "next_payment_date") and subscription.next_payment_date
-                    else None,
+                    "start_date": (
+                        str(subscription.start_date)
+                        if hasattr(subscription, "start_date") and subscription.start_date
+                        else None
+                    ),
+                    "next_payment_date": (
+                        str(subscription.next_payment_date)
+                        if hasattr(subscription, "next_payment_date") and subscription.next_payment_date
+                        else None
+                    ),
                     "timestamp": frappe.utils.now(),
                 },
             )
@@ -1905,7 +1918,7 @@ class MollieDebugService(StatelessService):
 
             for payment in payments:
                 # Check if already processed using centralized service
-                idempotency_check = bank_tx_creator.check_already_processed(
+                idempotency_check = bank_tx_creator.check_mollie_payment_processed(
                     payment.id, check_payment_entry=True  # Check both Payment Entry and Bank Transaction
                 )
 
@@ -2291,8 +2304,6 @@ class MollieDebugService(StatelessService):
 
         Returns canceled date object or None. Marks member_result as skipped on 410.
         """
-        from datetime import datetime
-
         client = self.mollie_client.sdk_client
 
         try:
@@ -2316,9 +2327,8 @@ class MollieDebugService(StatelessService):
         if not latest_canceled_at:
             return None
 
-        if isinstance(latest_canceled_at, str):
-            return datetime.fromisoformat(latest_canceled_at.replace("Z", "+00:00")).date()
-        return latest_canceled_at.date()
+        # The site-local day of the UTC timestamp, not the UTC day (#2378)
+        return mollie_timestamp_to_local_date(latest_canceled_at)
 
     def _sync_single_member_end_date(self, member, member_result, result, dry_run):
         """Sync end date for a single member from Mollie subscription cancellation.
@@ -2442,8 +2452,9 @@ class MollieDebugService(StatelessService):
         if not (hasattr(payment, "created_at") and payment.created_at):
             return False
 
-        payment_date_str = payment.created_at[:10]
-        if payment_date_str < start_date_str:
+        # Site-local day of created_at, not the UTC day of the timestamp (#2192)
+        payment_date = mollie_timestamp_to_local_date(payment.created_at)
+        if payment_date is not None and str(payment_date) < start_date_str:
             result["total_filtered_by_date"] += 1
             consecutive_old_payments += 1
             result["_consecutive_old"] = consecutive_old_payments
@@ -2465,7 +2476,9 @@ class MollieDebugService(StatelessService):
                 return False
 
         # Idempotency check
-        idempotency_check = bank_tx_creator.check_already_processed(payment.id, check_payment_entry=True)
+        idempotency_check = bank_tx_creator.check_mollie_payment_processed(
+            payment.id, check_payment_entry=True
+        )
         is_processed = idempotency_check["already_processed"]
 
         # Invoice matching for unprocessed paid payments
@@ -2567,8 +2580,6 @@ class MollieDebugService(StatelessService):
                 - members: List of member details with payments
                 - api_calls_made: Number of API calls to Mollie
         """
-        from datetime import datetime, timedelta
-
         from verenigingen.verenigingen_payments.mollie.utils.member_payment_matcher import (
             get_member_payment_matcher,
         )
@@ -2607,9 +2618,8 @@ class MollieDebugService(StatelessService):
             )
 
             # Calculate date range
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days_back)
-            start_date_str = start_date.strftime("%Y-%m-%d")
+            # Site-local days on both sides (#2192)
+            start_date_str = str(add_days(today(), -days_back))
 
             # Get raw Mollie client
             client = self.mollie_client.sdk_client
@@ -2738,19 +2748,27 @@ class MollieDebugService(StatelessService):
             )
 
     def _submit_processed_documents(self, processing_result, payment_id, payment_result):
-        """Submit bank transaction and payment entry if they exist and are in draft."""
+        """Submit bank transaction and payment entry if they exist and are in draft.
+
+        Each submit is atomic (#2447): this handler swallows the failure into ``submit_error``
+        and the request commits, so a throw inside ``on_submit`` would otherwise leave the
+        Payment Entry as docstatus 1 with no GL rows instead of the draft staff can retry.
+        """
         try:
             if processing_result.bank_transaction:
                 bt_doc = frappe.get_doc("Bank Transaction", processing_result.bank_transaction)
                 if bt_doc.docstatus == 0 and frappe.has_permission("Bank Transaction", "submit", bt_doc):
-                    bt_doc.submit()
+                    submit_atomically(bt_doc)
                     payment_result["bank_transaction_submitted"] = True
 
             if processing_result.payment_entry:
                 pe_doc = frappe.get_doc("Payment Entry", processing_result.payment_entry)
                 if pe_doc.docstatus == 0 and frappe.has_permission("Payment Entry", "submit", pe_doc):
-                    pe_doc.submit()
+                    submit_atomically(pe_doc)
                     payment_result["payment_entry_submitted"] = True
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3059: not a failed submit; the transaction is gone (1213) or half-applied (1205)
+            raise
         except Exception as submit_error:
             payment_result["submit_error"] = str(submit_error)
             self.logger.error(f"Submission error for {payment_id}: {submit_error}")
@@ -2904,6 +2922,9 @@ class MollieDebugService(StatelessService):
                 f"{result['skipped']} skipped, {result['errors']} errors"
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3059: a 1213/1205 from the orchestrator is not a per-request error to report
+            raise
         except Exception as e:
             result["error"] = str(e)
             self.logger.error(f"Bulk processing error: {e}")
@@ -2948,6 +2969,9 @@ class MollieDebugService(StatelessService):
 
             return result
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3059: fail the job visibly instead of returning a dict the enqueuer never reads
+            raise
         except Exception as e:
             error_msg = f"Background job {job_id}: Batch {batch_num} failed - {str(e)}"
             self.logger.error(error_msg)

@@ -27,20 +27,27 @@ from frappe.model.document import Document
 from frappe.utils import add_to_date, now
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.flag_restore import restored_flags
+from verenigingen.utils.secure_operations import follow_on_ignore_permissions
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
+ACCOUNT_JOB = "verenigingen.services.member.account.account_creation_api.process_account_creation_request"
+# The job of a request queued by an authorised approval (#1930): not whitelisted, and it proves the approval
+# from the database before it runs, so a board member cannot start it for any other request.
+APPROVED_ACCOUNT_JOB = (
+    "verenigingen.services.member.account.account_creation_api.process_approved_account_creation_request"
+)
 
 
 def safe_log_error(message, title=None):
-    """Helper to log errors with length protection"""
-    # Truncate message to prevent log title validation errors
-    safe_message = message[:100] + "..." if len(message) > 100 else message
+    """Helper to log errors; the message is kept in full (#1138), the title is never empty."""
     # frappe.log_error(title=None, message=<truthy>) raises TypeError inside
     # frappe's own swap-detection heuristic (`"\n" in title`) -- title must
     # never be None/empty here (#1121 follow-up). Fall back to the message's
     # own first line so the fallback itself can never look like a multi-line
     # traceback and re-trigger that same heuristic.
-    safe_title = title or safe_message.split("\n")[0][:140]
-    frappe.log_error(title=safe_title, message=safe_message)
+    safe_title = title or message.split("\n")[0][:140]
+    frappe.log_error(title=safe_title, message=message)
 
 
 class AccountCreationCancelled(frappe.ValidationError):
@@ -151,6 +158,11 @@ class AccountCreationRequest(Document):
 
     def validate_permissions(self):
         """Validate that current user can create account requests"""
+        # An approval's own request (#1930) is inserted with ignore_permissions inside
+        # authorised_follow_on_steps, after the approver was authorised; its roles are built by the system.
+        if follow_on_ignore_permissions():
+            return
+
         # Check if user has permission to create user accounts
         if not frappe.has_permission("User", "create"):
             frappe.throw(_("Insufficient permissions to create user account requests"))
@@ -308,6 +320,14 @@ class AccountCreationRequest(Document):
     @critical_api(operation_type=OperationType.ADMIN)
     def queue_processing(self):
         """Queue this request for background processing with intelligent throttling"""
+        return self._queue_for_processing()
+
+    def _queue_for_processing(self):
+        """The body of queue_processing, without its security-tier gate.
+
+        Inside `authorised_follow_on_steps` (an approval's own request, #1930) the job queued is the
+        approval-proving one: the standard job needs an administrator, which the approver is not.
+        """
         # Get fresh status from database to avoid stale data
         current_status = frappe.db.get_value(self.doctype, self.name, "status")
         if current_status not in ["Requested", "Failed"]:
@@ -341,7 +361,7 @@ class AccountCreationRequest(Document):
 
         # Queue background job
         frappe.enqueue(
-            "verenigingen.services.member.account.account_creation_api.process_account_creation_request",
+            APPROVED_ACCOUNT_JOB if follow_on_ignore_permissions() else ACCOUNT_JOB,
             request_name=self.name,
             queue="long",
             timeout=600,
@@ -633,14 +653,13 @@ def bulk_queue_requests(request_names):
             except json.JSONDecodeError:
                 frappe.throw(_("Invalid request_names format"))
 
-    # Set flag to indicate we're in a bulk operation
-    # This prevents nested queue_processing() calls from being rate limited individually
-    frappe.flags.bulk_account_creation = True
-
     queued_count = 0
     errors = []
 
-    try:
+    # Flag a bulk operation so nested queue_processing() calls are not rate limited
+    # individually. #2577: restore the caller's value (the #2559 endpoints already set it), not False.
+    with restored_flags("bulk_account_creation"):
+        frappe.flags.bulk_account_creation = True
         for name in request_names:
             try:
                 doc = frappe.get_doc("Account Creation Request", name)
@@ -654,9 +673,6 @@ def bulk_queue_requests(request_names):
                 queued_count += 1
             except Exception as e:
                 errors.append(f"{name}: {str(e)}")
-    finally:
-        # Always clear the flag when done
-        frappe.flags.bulk_account_creation = False
 
     return {
         "success": len(errors) == 0,

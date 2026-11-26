@@ -290,20 +290,17 @@ class TestPontoPaymentLink(EnhancedTestCase):
     def test_increment_payment_count_periodic(self):
         """Periodic payment counter logic should increment correctly.
 
-        Since Periodic type is blocked by validation, we test the counter logic
-        directly without going through save().
-        """
+        Since Periodic type is blocked by validation, the in-memory type is flipped after the
+        insert. The write is unmocked (#2974: a mocked ``save`` could not see that saving a
+        submitted link refuses the counter), so the stored value is asserted too."""
         link = self._create_link()
         link.insert()
-        # Test the counter logic directly: if payment_type were Periodic
         link.payment_type = "Periodic"
-        link.total_payments_collected = 0
-        # Call the method but mock save to avoid re-validation
-        from unittest.mock import patch
 
-        with patch.object(link, "save"):
-            link.increment_payment_count()
+        link.increment_payment_count()
+
         self.assertEqual(link.total_payments_collected, 1)
+        self.assertEqual(frappe.db.get_value("Ponto Payment Link", link.name, "total_payments_collected"), 1)
 
 
 class TestPontoPaymentRequest(EnhancedTestCase):

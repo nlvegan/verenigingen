@@ -248,7 +248,6 @@ All scheduled tasks are defined in `vereinigingen/hooks/scheduler.py`. Tasks are
 | `process_expired_memberships` | Mark expired memberships as inactive |
 | `send_renewal_reminders` | Send membership renewal reminder emails |
 | `notify_about_orphaned_records` | Alert about memberships without active members |
-| `send_overdue_notifications` | Notify about overdue membership applications |
 | `auto_create_missing_dues_schedules_scheduled` | Create dues schedules for members missing them |
 | `generate_dues_invoices` | Generate Sales Invoices from due schedules |
 | `check_and_notify_stuck_schedules` | Alert about stuck dues schedules |

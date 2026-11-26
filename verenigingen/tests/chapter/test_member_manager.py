@@ -12,8 +12,8 @@ Tests create real Members and Chapters via the test factory (no business-logic
 mocking) and run as Administrator. Notification helpers send through the unified
 EmailService and are wrapped in try/except in production, so they are exercised
 indirectly via approve/reject/join and asserted only on their observable side
-effects (status, history, comments) -- the email send itself is a no-op in the
-test environment.
+effects (status, history, comments). The join-request tests are the exception: they
+own an outgoing Email Account and the key row, and assert on the queued mail itself.
 """
 
 import json
@@ -22,6 +22,8 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestMemberManager(VereningingenTestCase):
@@ -81,7 +83,7 @@ class TestMemberManager(VereningingenTestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row.status, "Active")
         self.assertTrue(row.enabled)
-        self.assertEqual(str(row.chapter_join_date), today())
+        assert_written_today(self, row.chapter_join_date)
 
     def test_add_member_requires_member_id(self):
         with self.assertRaises(frappe.ValidationError):
@@ -496,6 +498,9 @@ class TestMemberManager(VereningingenTestCase):
         from verenigingen.setup.notification_registry_setup import _registry_row
         from verenigingen.tests.fixtures.singleton_backup import SingletonBackup
 
+        # EmailService refuses to queue without a default outgoing account, and a fresh CI site has
+        # none ("No active email account configured"), so the board got 0 mails (#2361).
+        ensure_outgoing_email_account(self)
         key = "chapter_join_request_submitted"
         backup = SingletonBackup("Verenigingen Email Configuration")
         backup.backup()
@@ -676,7 +681,7 @@ class TestMemberManager(VereningingenTestCase):
         self._reload_chapter()
         row = self.manager._find_chapter_member(self.member.name)
         self.assertEqual(row.status, "Active")
-        self.assertEqual(str(row.chapter_join_date), today())
+        assert_written_today(self, row.chapter_join_date)
 
     def test_approve_member_request_no_request(self):
         result = self.manager.approve_member_request(self.member.name)
@@ -692,11 +697,9 @@ class TestMemberManager(VereningingenTestCase):
         self.assertIn("not pending", result["message"])
 
     def test_approve_member_request_promotes_row_to_active(self):
-        # The join request already wrote a Pending history row;
-        # ChapterMembershipHistoryManager deliberately refuses to add an "Active"
-        # row while a "Pending" one exists (it warns to use update_membership_status
-        # instead). So the observable, durable effect of approval is that the
-        # Chapter Member row flips to Active -- assert that rather than a new row.
+        # The join request wrote a Pending history row; approval moves that entry to Active
+        # (#2430). This test used to assert the Pending entry SURVIVED approval, which encoded the
+        # defect (add_membership_history refuses Active beside Pending and the caller ignored it).
         self.manager.request_to_join(self.member.name, notify=False)
         self._reload_chapter()
         result = self.manager.approve_member_request(self.member.name)
@@ -706,17 +709,16 @@ class TestMemberManager(VereningingenTestCase):
         row = self.manager._find_chapter_member(self.member.name)
         self.assertEqual(row.status, "Active")
 
-        # The originating Pending history row is still present (not lost on approve).
-        pending = frappe.get_all(
+        history = frappe.get_all(
             "Chapter Membership History",
             filters={
                 "parent": self.member.name,
                 "parenttype": "Member",
                 "chapter_name": self.chapter.name,
-                "status": "Pending",
             },
+            pluck="status",
         )
-        self.assertGreater(len(pending), 0)
+        self.assertEqual(history, ["Active"])
 
     # ------------------------------------------------------------------ reject_member_request
 

@@ -100,11 +100,12 @@ class TestBankPsuIp(_RequestCase):
         with (
             # Mock justified: External Service - the bank HTTP API (requests.get) is the boundary under observation;
             # the two frappe patches only stand in for a Bank Integration Settings row that test sites lack.
-            patch("frappe.get_single", return_value=settings),  # Mock justified: no settings row on test sites
+            patch("frappe.get_single", return_value=settings) as fake_single,  # Mock justified: no settings row on test sites
             patch("frappe.db.exists", return_value=True),  # Mock justified: same
             patch("requests.get", return_value=response) as get,  # Mock justified: External Service - bank API
         ):
             BankAPIClient().fetch_statements("2026-01-02")
+        fake_single.assert_called_once_with("Bank Integration Settings")
         return get.call_args.kwargs["headers"]
 
     def test_spoofed_leftmost_xff_is_not_sent_as_psu_ip(self):
@@ -173,20 +174,6 @@ class TestAuditRecordsIp(_RequestCase):
         self.assertEqual(trail._get_system_context()["ip_address"], REAL_CLIENT)
         self._install_behind_proxy_with_spoof()  # behind nginx REMOTE_ADDR is the proxy
         self.assertEqual(trail._get_system_context()["ip_address"], REAL_CLIENT)
-
-    def test_membership_application_rate_limit_is_per_client_not_per_proxy(self):
-        from verenigingen.api.membership_application import check_rate_limit
-
-        endpoint = f"ipsrc-{frappe.generate_hash(length=6)}"
-        self._install_behind_proxy_with_spoof()
-        keys = [f"rate_limit:{endpoint}:{ip}" for ip in (REAL_CLIENT, PROXY, SPOOF)]
-        self.addCleanup(lambda: [frappe.cache().delete(k) for k in keys])
-        self.assertTrue(check_rate_limit(endpoint))
-        self.assertEqual(
-            [bool(frappe.cache().get(k)) for k in keys],
-            [True, False, False],
-            "the bucket must belong to the real client, not the proxy or the forged value",
-        )
 
 
 class TestNoSpoofableIpSourcesRemain(VereningingenTestCase):

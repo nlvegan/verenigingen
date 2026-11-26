@@ -4,7 +4,7 @@ from difflib import SequenceMatcher
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import cint, flt, getdate
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.utils.security.authorization import (
@@ -13,13 +13,21 @@ from verenigingen.utils.security.authorization import (
     require_sepa_permission,
 )
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
-from verenigingen.utils.transaction_errors import insert_and_submit_atomically
+from verenigingen.utils.transaction_errors import (
+    DATABASE_ERROR,
+    NON_RESUMABLE_DB_ERRORS,
+    insert_and_submit_atomically,
+)
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
-from verenigingen.verenigingen_payments.utils import bank_transaction_status
+from verenigingen.verenigingen_payments.utils import bank_transaction_reference_key, bank_transaction_status
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
+)
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    is_mollie_style_reference,
+    refuse_staff_cancelled_forward_payment,
 )
 from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
 
@@ -29,14 +37,10 @@ from verenigingen.verenigingen_payments.utils.shared.money import safe_decimal
 #: is what ``match_transaction`` compares against before calling
 #: ``create_reconciliation``. Raising this above the threshold reinstates #547.
 #:
-#: What this DOES buy: the transaction is left ``Pending`` and unallocated, so it
+#: What this buys: the transaction is left ``Pending`` and unallocated, so it
 #: stays in the operator's bank-reconciliation queue instead of being booked against
-#: a guess. What it does NOT buy, contrary to an earlier version of this comment:
-#: the ``match_reason`` built below is not persisted anywhere. ``match_transaction``
-#: returns False on a sub-threshold best match and writes nothing -- no comment, no
-#: Error Log -- so WHICH settlement nearly matched, and why it was refused, is
-#: currently discarded for every strategy, not just this one. Filed separately;
-#: do not restate the visibility claim until something reads this string.
+#: a guess, and (#560) ``match_transaction`` records the refused candidate and its
+#: ``match_reason`` as a Comment on the Bank Transaction.
 SETTLEMENT_UNCONFIRMED_CONFIDENCE = 0.60
 
 #: Minimum length for a settlement `reference` to be trusted as an identifier.
@@ -109,6 +113,12 @@ class PaymentReconciliationManager:
     # counted on the next run. Comments are the only per-transaction attempt record;
     # Bank Transaction has no retry-count field.
     RETRY_COMMENT_MARKER = "Reconciliation failed (will retry)"
+
+    # Prefix of the Comment `_record_near_miss` writes for a sub-threshold best match (#560).
+    NEAR_MISS_COMMENT_MARKER = "Near-miss reconciliation candidate"
+    # #2520: the Comment left when a description names a draft/cancelled invoice.
+    NON_SUBMITTED_INVOICE_COMMENT_MARKER = "names a Sales Invoice that is not submitted"
+    DESCRIPTION_INVOICE_PATTERN = r"INVOICE\s+([A-Z0-9-]+)"
 
     # Every DocType a Mollie settlement books. The settlement is refused unless the
     # acting user can SUBMIT all of them -- see `_require_submit_permission`.
@@ -193,6 +203,8 @@ class PaymentReconciliationManager:
                     ).format(", ".join(missing_fields))
                 )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             frappe.log_error(f"Error validating Bank Transaction fields: {str(e)}")
             frappe.throw(_("Unable to validate Bank Transaction fields. Please check system configuration."))
@@ -248,6 +260,11 @@ class PaymentReconciliationManager:
     def match_transaction(self, transaction):
         """Try to match a bank transaction with SEPA payments"""
 
+        # #2520: a description naming a draft/cancelled invoice contradicts any other
+        # candidate, so no strategy may book this line (see _refuse_non_submitted_invoice).
+        if self._refuse_non_submitted_invoice(transaction):
+            return False
+
         # Try different matching strategies
         matches = []
 
@@ -277,8 +294,107 @@ class PaymentReconciliationManager:
             best_match = max(matches, key=lambda x: x["confidence"])
             if best_match["confidence"] >= self.match_threshold:
                 return self.create_reconciliation(transaction, best_match)
+            self._record_near_miss(transaction, best_match)
 
         return False
+
+    def _refuse_non_submitted_invoice(self, transaction):
+        """True (after leaving a Comment) when the description names an existing Sales
+        Invoice that is a draft or cancelled, so the line is NOT auto-reconciled (#2520).
+
+        Not only "do not suggest that invoice": `match_transaction` takes the highest
+        confidence, so dropping the 0.9 description match alone lets the 0.95
+        amount+reference strategy book a DIFFERENT same-amount invoice (measured: it
+        did, with the cancelled invoice named in the description). The payer cited an
+        invoice that cannot be paid; which live invoice they meant is a choice for
+        staff. The line stays Pending (retryable), unlike a failed Payment Entry build,
+        which marked it terminally 'Reconciliation Failed'.
+        """
+        match = re.search(self.DESCRIPTION_INVOICE_PATTERN, (transaction.get("description") or "").upper())
+        if not match:
+            return False
+        invoice = match.group(1)
+        docstatus = frappe.db.get_value("Sales Invoice", invoice, "docstatus")
+        if docstatus is None or docstatus == 1:
+            return False
+        self._comment_non_submitted_invoice(transaction, invoice, docstatus)
+        return True
+
+    def _comment_non_submitted_invoice(self, transaction, invoice, docstatus):
+        """Comment once per distinct content: the daily pool revisits every Pending line."""
+        name = transaction.get("name")
+        if not name:
+            return
+        state = "cancelled" if docstatus == 2 else "a draft"
+        content = (
+            f"Not auto-reconciled: the description {self.NON_SUBMITTED_INVOICE_COMMENT_MARKER}: "
+            f"{invoice} is {state}. Reconcile this transaction manually."
+        )
+        try:
+            if self._near_miss_already_recorded(name, content):
+                return
+            bank_trans = frappe.get_doc("Bank Transaction", name)
+        except Exception as e:
+            _log_error_with_traceback(
+                "Bank Transaction Comment",
+                f"Could not read comment history for {name}: {str(e)}. Content was: {content}",
+            )
+            return
+        self._add_comment_without_failing(bank_trans, content)
+
+    def _record_near_miss(self, transaction, best_match):
+        """Leave a Comment saying which candidate nearly matched and why it was refused.
+
+        #560: the best sub-threshold candidate's ``match_reason`` used to be dropped, so
+        staff looking at a Pending transaction could not tell what the matcher knew. A
+        Comment (no schema, visible on the form) rather than an Error Log row: near-misses
+        are a normal outcome. ``reconcile_bank_transactions`` runs daily over every
+        still-Pending draft, so an identical Comment is written once, not once per run.
+        """
+        name = transaction.get("name")
+        if not name:
+            return
+        content = (
+            f"{self.NEAR_MISS_COMMENT_MARKER}: {best_match.get('type')} "
+            f"{best_match.get('reference') or '(several)'}, confidence "
+            f"{best_match['confidence']:.2f} is below the auto-match threshold "
+            f"{self.match_threshold:.2f}. Reason: {best_match.get('match_reason')}"
+        )
+        try:
+            if self._near_miss_already_recorded(name, content):
+                return
+            bank_trans = frappe.get_doc("Bank Transaction", name)
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception as e:
+            _log_error_with_traceback(
+                "Bank Transaction Comment",
+                f"Could not read near-miss history for {name}: {str(e)}. Content was: {content}",
+            )
+            return
+        self._add_comment_without_failing(bank_trans, content)
+
+    def _near_miss_already_recorded(self, bank_transaction_name, content):
+        """True when ANY earlier near-miss Comment on this transaction has this content.
+
+        Any, not just the newest: a candidate that alternates A, B, A would otherwise be
+        rewritten every run. Compared in the form Comment.validate stores (it sanitises
+        content, so '&' is stored as '&amp;').
+        """
+        stored_form = frappe.utils.sanitize_html(
+            content, always_sanitize=True, disallowed_tags=["form", "input", "button"]
+        )
+        return bool(
+            frappe.db.exists(
+                "Comment",
+                {
+                    "reference_doctype": "Bank Transaction",
+                    "reference_name": bank_transaction_name,
+                    "comment_type": "Comment",
+                    "content": stored_form,
+                },
+            )
+        )
 
     def match_by_batch_reference(self, transaction):
         """Match transaction by SEPA batch reference"""
@@ -374,7 +490,7 @@ class PaymentReconciliationManager:
                 },
                 as_dict=True,
             )
-        except frappe.db.DatabaseError as e:
+        except DATABASE_ERROR as e:
             frappe.log_error(f"Database error in amount/reference matching: {str(e)}")
             return None
 
@@ -406,7 +522,7 @@ class PaymentReconciliationManager:
 
         # Common patterns in SEPA descriptions
         patterns = [
-            (r"INVOICE\s+([A-Z0-9-]+)", "invoice"),
+            (self.DESCRIPTION_INVOICE_PATTERN, "invoice"),
             (r"MEMBERSHIP\s+([A-Z0-9-]+)", "membership"),
             (r"MEMBER\s+ID\s*:?\s*([A-Z0-9-]+)", "member"),
             (r"MANDATE\s*:?\s*([A-Z0-9-]+)", "mandate"),
@@ -418,7 +534,9 @@ class PaymentReconciliationManager:
                 reference = match.group(1)
 
                 if match_type == "invoice":
-                    if frappe.db.exists("Sales Invoice", reference):
+                    # docstatus 1 only (#2520, class of #856/#209/#939): a draft or
+                    # cancelled invoice is not payable.
+                    if frappe.db.exists("Sales Invoice", {"name": reference, "docstatus": 1}):
                         return {
                             "type": "invoice",
                             "reference": reference,
@@ -752,6 +870,8 @@ class PaymentReconciliationManager:
                     ),
                 )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             _log_error_with_traceback(
                 "Mollie Settlement Matching", f"Error matching Mollie settlement: {str(e)}"
@@ -853,7 +973,7 @@ class PaymentReconciliationManager:
                 {"amount": amount},
                 as_dict=True,
             )
-        except frappe.db.DatabaseError as e:
+        except DATABASE_ERROR as e:
             frappe.log_error(f"Database error in fuzzy matching: {str(e)}")
             return None
 
@@ -896,9 +1016,24 @@ class PaymentReconciliationManager:
             """,
                 {"member_id": member_id, "amount": amount},
             )
-        except frappe.db.DatabaseError as e:
+        except DATABASE_ERROR as e:
             frappe.log_error(f"Database error getting unpaid invoices: {str(e)}")
             return []
+
+    @staticmethod
+    def _is_mollie_payment_line(bank_trans):
+        """True only for a row whose WRITER says its reference is a Mollie payment id.
+
+        The refusal helper keys on reference_no alone. A bank-supplied reference (MT940
+        NONREF, a payer's end-to-end reference) can repeat across unrelated payments, and a
+        cancelled Payment Entry under one must not block the next. Both conditions: the
+        writer's system-issued flag (#1349: a prefix alone is a guess about who wrote the
+        string) AND the Mollie id shape the idempotency key uses, since the flag is also set
+        for settlement ids and e-Boekhouden `EB-` references, which are not forward payments.
+        """
+        return bool(
+            bank_trans.get(bank_transaction_reference_key.SYSTEM_ISSUED_FIELDNAME)
+        ) and is_mollie_style_reference(bank_trans.reference_number)
 
     def create_reconciliation(self, transaction, match):
         """Create reconciliation entry for matched transaction"""
@@ -913,6 +1048,22 @@ class PaymentReconciliationManager:
 
             bank_trans = frappe.get_doc("Bank Transaction", transaction["name"])
 
+            # The Payment Entry written for an invoice match carries reference_no = the Bank
+            # Transaction's reference, which for a Mollie row is the payment id. Staff cancelled
+            # that payment's entry: refuse like the Mollie writers do (#2470, ruling of #2406).
+            # The line stays in the pool; the helper alerts staff once per payment.
+            if match["type"] == "invoice" and self._is_mollie_payment_line(bank_trans):
+                if refuse_staff_cancelled_forward_payment(
+                    bank_trans.reference_number,
+                    bank_trans.deposit,
+                    "the bank transaction reconciliation pool",
+                ):
+                    return False
+
+            # "batch" is deliberately not guarded above. A batch match keys on a BATCH-<name>
+            # in the Bank Transaction's DESCRIPTION (not its reference) with matching totals,
+            # so a Mollie row reaches it only if its app-generated description contains a
+            # BATCH- name and the totals agree. Improbable for a Mollie row; not measured.
             if match["type"] == "batch":
                 # A batch match's `reference` is a Direct Debit Batch name, NOT a
                 # Sales Invoice name. Reconcile each invoice in the batch rather
@@ -967,6 +1118,8 @@ class PaymentReconciliationManager:
                         transaction, f"Batch reconciliation validation failed: {str(ve)}"
                     )
                     return False
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
                 except Exception as pe:
                     _log_error_with_traceback(
                         "SEPA Batch Reconciliation", f"SEPA batch reconciliation error: {str(pe)}"
@@ -1018,6 +1171,8 @@ class PaymentReconciliationManager:
                         transaction, f"Payment entry validation failed: {str(ve)}"
                     )
                     return False
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
                 except Exception as pe:
                     _log_error_with_traceback(
                         "Payment Entry Error", f"Payment entry processing error: {str(pe)}"
@@ -1113,6 +1268,8 @@ class PaymentReconciliationManager:
                         f"Mollie settlement reconciliation validation failed: {str(ve)}",
                     )
                     return False
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
                 except Exception as pe:
                     self._record_settlement_failure(
                         transaction, match, f"Mollie settlement reconciliation failed: {str(pe)}"
@@ -1129,6 +1286,8 @@ class PaymentReconciliationManager:
                 bank_trans.save()
                 return False
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             _log_error_with_traceback("Payment Reconciliation", f"Reconciliation error: {str(e)}")
             self._mark_transaction_unreconciled(transaction, f"Reconciliation failed: {str(e)}")
@@ -1204,6 +1363,8 @@ class PaymentReconciliationManager:
                     self._existing_settlement_payout_entry(settlement_id)
                 )
             )
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             _log_error_with_traceback(
                 "Mollie Settlement Reconciliation",
@@ -1393,6 +1554,8 @@ class PaymentReconciliationManager:
             bank_trans = frappe.get_doc("Bank Transaction", transaction["name"])
             bank_trans.add_comment("Comment", f"{self.RETRY_COMMENT_MARKER}: {reason}")
             frappe.logger().info(f"Transaction {transaction['name']} left retryable: {reason}")
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             _log_error_with_traceback(
                 "Transaction Status Update",
@@ -1422,6 +1585,8 @@ class PaymentReconciliationManager:
         """
         try:
             bank_trans.db_set("custom_processing_status", status, update_modified=False)
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             _log_error_with_traceback(
                 "Bank Transaction Processing Status",
@@ -1438,6 +1603,8 @@ class PaymentReconciliationManager:
         """
         try:
             bank_trans.add_comment("Comment", content)
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             _log_error_with_traceback(
                 "Bank Transaction Comment",
@@ -1453,6 +1620,8 @@ class PaymentReconciliationManager:
             # Terminal: takes the draft out of the pool. Status stays ERPNext's (#2082).
             bank_transaction_status.record_pool_outcome(bank_trans, bank_transaction_status.FAILED)
             frappe.logger().info(f"Transaction {transaction['name']} marked as unreconciled: {reason}")
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             _log_error_with_traceback(
                 "Transaction Status Update",
@@ -1475,12 +1644,14 @@ class PaymentReconciliationManager:
             invoices = frappe.get_all(
                 "Sales Invoice",
                 filters={"name": ["in", valid_refs]},
-                fields=["name", "grand_total", "outstanding_amount", "customer", "status"],
+                fields=["name", "grand_total", "outstanding_amount", "customer", "status", "docstatus"],
             )
 
             # Return as dictionary for quick lookup
             return {inv.name: inv for inv in invoices}
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
             _log_error_with_traceback("Invoice Batch Fetch", f"Error batch fetching invoice data: {str(e)}")
             return {}
@@ -1767,10 +1938,12 @@ class PaymentReconciliationManager:
                         ):
                             invoice_data = self._current_invoice_batch[invoice_ref]
                             invoice_amount = self._safe_decimal(invoice_data.grand_total)
+                            invoice_docstatus = invoice_data.docstatus
                         elif frappe.db.exists("Sales Invoice", invoice_ref):
-                            invoice_amount = self._safe_decimal(
-                                frappe.db.get_value("Sales Invoice", invoice_ref, "grand_total")
+                            grand_total, invoice_docstatus = frappe.db.get_value(
+                                "Sales Invoice", invoice_ref, ["grand_total", "docstatus"]
                             )
+                            invoice_amount = self._safe_decimal(grand_total)
                         else:
                             processed_payments.append(
                                 {
@@ -1779,6 +1952,28 @@ class PaymentReconciliationManager:
                                     "amount": str(payment_amount),
                                     "status": "invoice_not_found",
                                     "error": f"Invoice {invoice_ref} not found",
+                                }
+                            )
+                            continue
+
+                        # Only a submitted invoice is payable (#2521, class of #856/#209).
+                        # Checked BEFORE the amount: a draft's grand_total is not a
+                        # payable amount, so an amount verdict against it names the wrong
+                        # reason. Like invoice_not_found / amount_mismatch this is an
+                        # expected per-payment outcome, reported in the result's details
+                        # and left unaccounted (the settlement stays retryable), not an
+                        # Error Log traceback.
+                        if cint(invoice_docstatus) != 1:
+                            processed_payments.append(
+                                {
+                                    "mollie_payment_id": mollie_payment_id,
+                                    "invoice": invoice_ref,
+                                    "amount": str(payment_amount),
+                                    "status": "invoice_not_submitted",
+                                    "docstatus": cint(invoice_docstatus),
+                                    "error": f"Invoice {invoice_ref} is not submitted "
+                                    f"(docstatus {cint(invoice_docstatus)}: "
+                                    f"{'draft' if cint(invoice_docstatus) == 0 else 'cancelled'})",
                                 }
                             )
                             continue
@@ -1848,6 +2043,8 @@ class PaymentReconciliationManager:
                         f"Validation error processing Mollie payment {mollie_payment_id}: {str(ve)}",
                     )
 
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
                 except Exception as e:
                     processed_payments.append(
                         {"mollie_payment_id": mollie_payment_id, "status": "error", "error": str(e)}
@@ -2456,14 +2653,26 @@ class PaymentReconciliationManager:
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.FINANCIAL)
 @require_sepa_permission(SEPAPermissionLevel.CREATE, SEPAOperation.BATCH_VALIDATE)
-def process_sepa_return_file(file_content, file_type="pain.002"):
-    """Process SEPA return/status file from bank"""
+def process_sepa_return_file(file_content=None, file_type="pain.002", file_url=None):
+    """Process SEPA return/status file from bank.
+
+    The bank file arrives either as raw ``file_content`` or, from the Direct Debit Batch
+    dialog, as ``file_url`` (an Attach control yields the uploaded File's URL, never its
+    content, #3031). A ``file_url`` is resolved through its File document, never opened as
+    a path. A file that is not a parseable pain.002 document is refused, not reported as
+    "0 of 0 returns".
+    """
 
     PaymentReconciliationManager()
 
+    if file_url:
+        file_content = _read_uploaded_return_file(file_url)
+    if file_content is None:
+        frappe.throw(_("No return file was provided"))
+
     if file_type == "pain.002":
         # Parse pain.002 status report
-        return_data = parse_pain002_file(file_content)
+        return_data = parse_pain002_file(file_content, strict=True)
     else:
         # Parse other formats (MT940, CAMT, etc.)
         frappe.throw(_("File type {0} not yet supported").format(file_type))
@@ -2486,7 +2695,37 @@ def process_sepa_return_file(file_content, file_type="pain.002"):
     return {"processed": processed_count, "total": len(return_data)}
 
 
-def parse_pain002_file(file_content):
+def _read_uploaded_return_file(file_url):
+    """Return the content of an uploaded File the caller may read, resolved by its File doc.
+
+    The URL is only a lookup key into ``tabFile``: no caller-supplied path is ever opened.
+    An unknown URL, a File the caller may not read and a File that is not a local upload
+    are refused with the SAME exception and message.
+
+    The lookup is a permission-filtered ``get_list``, so an unknown and a forbidden URL both
+    stop after the same single query (equal query count, #3031 review N1). File's
+    ``permission_query_conditions`` mirrors ``File.has_permission`` (owner, public, shares,
+    readable attachment doctype); the one residual difference is a record-level hook on the
+    attached doctype, so a surviving row is re-checked with ``has_permission`` and refused if
+    that disagrees. Only that last case costs extra queries.
+    """
+    refusal = _("Return file not found or not accessible")
+    rows = frappe.get_list("File", filters={"file_url": str(file_url)}, pluck="name", limit_page_length=0)
+    for name in rows:
+        file_doc = frappe.get_doc("File", name)
+        # a remote (http...) url has no local content to read
+        if not (file_doc.file_url or "").startswith(("/files/", "/private/files/")):
+            continue
+        if not frappe.has_permission("File", "read", doc=file_doc):
+            continue
+        try:
+            return file_doc.get_content()
+        except (OSError, frappe.DoesNotExistError):
+            continue
+    frappe.throw(refusal, frappe.PermissionError)
+
+
+def parse_pain002_file(file_content, strict=False):
     """Parse a pain.002 (Customer Payment Status Report) XML file.
 
     Extracts per-transaction status from the OrgnlPmtInfAndSts/TxInfAndSts blocks
@@ -2544,7 +2783,12 @@ def parse_pain002_file(file_content):
         root = ET.fromstring(file_content)
     except ET.ParseError as e:
         _log_error_with_traceback("SEPA Return File Parsing", f"Failed to parse pain.002 file: {str(e)}")
+        if strict:
+            frappe.throw(_("The return file is not a valid pain.002 XML document"))
         return []
+
+    if strict and localname(root.tag) != "Document":
+        frappe.throw(_("The return file is not a valid pain.002 XML document"))
 
     return_data = []
     for element in root.iter():
@@ -2583,10 +2827,14 @@ def resolve_invoice_from_reference(reference):
     ``SINV-``/``ACC-SINV-``/``INV-`` reference-to-invoice logic lives in one
     place.
 
-    Resolution order (behavior identical to the original inline implementation):
+    Resolution order:
     1. A direct match where the whole reference is itself a Sales Invoice name.
     2. The first ``INVOICE_REFERENCE_PATTERNS`` substring that names an existing
        Sales Invoice.
+
+    Only a SUBMITTED invoice (docstatus 1) resolves (#939, the class of #856/#209):
+    a draft or cancelled invoice is not payable, so a reference naming one returns
+    ``None`` and the caller reports the bank line as unmatched.
 
     Args:
         reference: Raw reference text from the bank transaction.
@@ -2598,13 +2846,13 @@ def resolve_invoice_from_reference(reference):
         return None
 
     # Direct reference match (the reference is itself an invoice name).
-    if frappe.db.exists("Sales Invoice", reference):
+    if frappe.db.exists("Sales Invoice", {"name": reference, "docstatus": 1}):
         return reference
 
     # Extract an invoice number embedded in the reference text.
     for pattern in INVOICE_REFERENCE_PATTERNS:
         match = re.search(pattern, reference)
-        if match and frappe.db.exists("Sales Invoice", match.group(1)):
+        if match and frappe.db.exists("Sales Invoice", {"name": match.group(1), "docstatus": 1}):
             return match.group(1)
 
     return None

@@ -372,6 +372,15 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                 f"settings pointing at them survive",
             )
 
+        # #2766: the stored exchange rates every test relies on, built in the factory
+        # module. Losing them to the drain puts the live-fetch refusal back.
+        from verenigingen.tests.fixtures import enhanced_test_factory as factory_module
+
+        self.assertTrue(
+            hasattr(factory_module.ensure_test_exchange_rates, "__wrapped__"),
+            "ensure_test_exchange_rates creates shared master data and must be @shared_fixture",
+        )
+
     def test_the_shared_mollie_account_helper_is_declared_shared(self):
         """`ensure_mollie_gl_accounts` creates Accounts and a Bank Account.
 
@@ -3290,6 +3299,106 @@ class CleanupManagerCommitMakesDeletesDurableTest(unittest.TestCase):
         )
 
 
+class CoreFactoryCleanupCommitMakesDeletesDurableTest(unittest.TestCase):
+    """`CoreTestDataFactory.cleanup()` has the same #489 shape (#842).
+
+    Its per-test callers run `self.factory.cleanup()` and then `super().tearDown()`,
+    whose first act is a transaction-wide rollback. A tracked row that was COMMITTED
+    before the delete (production code under test commits) is put back by it.
+    `cleanup(commit=True)` is opt-in for the same reason as #489's: a mid-test caller
+    would otherwise commit every other pending row. Callers passing it MUST run
+    `super().tearDown()` first, never before.
+    """
+
+    def setUp(self):
+        self.created = []
+
+    def tearDown(self):
+        for doctype, name in reversed(self.created):
+            try:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def _create_committed_territory_842(self, label):
+        """A COMMITTED Territory (an uncommitted row is destroyed by a rollback either way)."""
+        doc = _territory(label)
+        frappe.db.commit()
+        self.created.append(("Territory", doc.name))
+        return doc
+
+    def _create_tracking_core_factory_842(self, name):
+        from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
+
+        factory = CoreTestDataFactory(cleanup_on_exit=False)
+        factory.track_doc("Territory", name)
+        return factory
+
+    def test_default_cleanup_is_undone_by_a_later_rollback(self):
+        """Control: the untouched default still exhibits #842 (so the red below is real)."""
+        victim = self._create_committed_territory_842("zzcore-842-default")
+        self._create_tracking_core_factory_842(victim.name).cleanup()
+        self.assertFalse(frappe.db.exists("Territory", victim.name), "precondition: deleted first")
+
+        frappe.db.rollback()  # stand-in for the base teardown's rollback
+
+        self.assertTrue(
+            frappe.db.exists("Territory", victim.name),
+            "default cleanup() no longer resurrects -- the control is not exercising #842",
+        )
+
+    def test_committed_cleanup_survives_a_later_rollback(self):
+        victim = self._create_committed_territory_842("zzcore-842-commit")
+        self._create_tracking_core_factory_842(victim.name).cleanup(commit=True)
+
+        frappe.db.rollback()
+
+        self.assertFalse(
+            frappe.db.exists("Territory", victim.name),
+            "cleanup(commit=True) did not survive a later rollback (#842)",
+        )
+
+    def test_converted_teardowns_run_super_before_cleanup_commit(self):
+        """Ordering contract (#489/#842): `cleanup(commit=True)` only AFTER `super().tearDown()`.
+
+        The commit is connection-wide; before the base teardown's rollback it would make
+        every other uncommitted row permanent. Source-order check on the two converted
+        tearDowns, since the ordering is a property of the CALLERS, not of the factory.
+        """
+        import ast
+        import os
+
+        path = os.path.join(os.path.dirname(__file__), "payment", "test_payment_history_scalability.py")
+        with open(path) as handle:
+            tree = ast.parse(handle.read())
+
+        checked = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.FunctionDef) and node.name == "tearDown"):
+                continue
+            super_line = commit_line = None
+            for call in ast.walk(node):
+                if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)):
+                    continue
+                if call.func.attr == "cleanup" and any(
+                    kw.arg == "commit" and getattr(kw.value, "value", None) is True for kw in call.keywords
+                ):
+                    commit_line = call.lineno
+                if (
+                    call.func.attr == "tearDown"
+                    and isinstance(call.func.value, ast.Call)
+                    and getattr(call.func.value.func, "id", None) == "super"
+                ):
+                    super_line = call.lineno
+            if commit_line is not None:
+                self.assertIsNotNone(super_line, "a commit=True tearDown must call super().tearDown()")
+                self.assertLess(super_line, commit_line, f"tearDown at line {node.lineno}: commit before super")
+                checked.append(node.lineno)
+
+        self.assertEqual(2, len(checked), "control: expected exactly the two converted tearDowns")
+
+
 class _BorrowedChapterFixture:
     """Committed-chapter plumbing shared by the two borrowed-fixture suites.
 
@@ -3771,6 +3880,11 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
     `_drain_tracked_documents`) delete through `_remove_drained_record`, and
     `Company` is deliberately NOT in `DRAIN_EXEMPT_DOCTYPES`.
 
+    hrms `version-16` fixed its half upstream in a2fc57c64 (release 16.54.0,
+    2026-11-17): `Expense Claim Account` is now in `company_data_to_be_ignored`, so
+    `handle_linked_docs` deletes these rows in `on_trash`. Older hrms installs
+    (this bench's included) still strand them, so the sweep stays.
+
     The company here is built WITHOUT a chart of accounts and the stranded row is
     written by hand. Deliberate: creating the row is hrms's business and does not
     happen on this bench at all (the local hrms predates the function), while what
@@ -4071,9 +4185,14 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
         deletes the row successfully, so an unconditional sweep stays green
         across the whole module (measured -- it does).
 
-        `update_naming_series` is the real step immediately before
-        `delete_from_table`, so patching it lands the raise on the near side of
-        the row removal; the control below asserts exactly that.
+        The raise is injected at `check_permission_and_not_submitted`, the step
+        BEFORE `on_trash`, so nothing but the sweep can remove the seeded row.
+        It used to be injected at `update_naming_series`, AFTER `on_trash`. That
+        stopped working when hrms `version-16` (a2fc57c64, release 16.54.0) added
+        `Expense Claim Account` to `company_data_to_be_ignored`: hrms's Company
+        `on_trash` (`handle_linked_docs`) now deletes the row itself, so it was
+        gone with the Company still alive and the test went red on every
+        merge-queue run, whatever the PR.
         """
         self._create_company()
         self._strand_the_row_hrms_would_have_written()
@@ -4081,12 +4200,17 @@ class DrainSweepsCompanyOrphansTest(unittest.TestCase):
         self.assertTrue(seeded, "sanity check: the seed must actually have stranded a row")
 
         with mock.patch(
-            "frappe.model.delete_doc.update_naming_series",
+            "frappe.model.delete_doc.check_permission_and_not_submitted",
             side_effect=RuntimeError("pre-removal step failed"),
-        ):
-            with self.assertRaises(RuntimeError):
+        ) as pre_removal_step:
+            with self.assertRaisesRegex(RuntimeError, "pre-removal step failed"):
                 _probe()._remove_drained_record("Company", self.company)
 
+        self.assertTrue(
+            pre_removal_step.called,
+            "control: the raise must come from the patched step (before on_trash), "
+            "not from somewhere else in the delete",
+        )
         self.assertTrue(
             frappe.db.exists("Company", self.company),
             "control: the raise has to land BEFORE the row was removed, or this "

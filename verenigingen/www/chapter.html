@@ -121,7 +121,7 @@
         let currentUser = '';
         let memberInfo = null;
 
-        // Note: escapeHtml, unwrapOperationResult, getErrorMessage are provided by
+        // Note: escapeHtml, unwrapOperationResult, getErrorMessage, getHttpErrorMessage are provided by
         // /assets/verenigingen/js/utils/operation-result-helpers.js (loaded via web_include_js)
 
         // Load chapters on page load
@@ -148,7 +148,7 @@
                 .then(response => {
                     if (!response.ok) {
                         return response.json().then(err => {
-                            throw new Error(err.exc || err.message || 'Network response was not ok');
+                            throw new Error(getHttpErrorMessage(err, 'Network response was not ok'));
                         });
                     }
                     return response.json();
@@ -171,7 +171,7 @@
                         document.getElementById('loading').classList.add('hidden');
                         document.getElementById('content').classList.remove('hidden');
                     } else {
-                        const errorMsg = (data.message && data.message.message) || data.exc || 'Unknown error';
+                        const errorMsg = getErrorMessage(data.message, 'Unknown error');
                         showError('Failed to load chapters: ' + errorMsg);
                     }
                 })
@@ -353,7 +353,7 @@
             .then(response => {
                 if (!response.ok) {
                     return response.json().then(err => {
-                        throw new Error(err.exc || err.message || 'Failed to submit request');
+                        throw new Error(getHttpErrorMessage(err, 'Failed to submit request'));
                     });
                 }
                 return response.json();
@@ -369,7 +369,7 @@
                 } else {
                     // Handle error response - check both Frappe wrapped format and direct format
                     console.log('Error response data:', data);
-                    const errorMsg = (data.message && data.message.message) || data.error || data.exc || 'Failed to submit request';
+                    const errorMsg = getErrorMessage(data.message, 'Failed to submit request');
                     throw new Error(errorMsg);
                 }
             })
