@@ -469,7 +469,10 @@ def _check_chapter_board_access(user, target_member_name, include_pending=False)
         frappe.logger().debug(f"User {user} has no Member record linked via user")
         return False
 
-    board_chapters = _get_board_chapters_for_member(user_member)
+    from verenigingen.services.chapter.chapter_utils import get_active_seat_chapters
+
+    # A seat on a deactivated Chapter Role confers nothing (#3286, #3183 class)
+    board_chapters = get_active_seat_chapters(user_member)
     if not board_chapters:
         frappe.logger().debug(f"User {user} is not an active board member in any chapter")
         return False
@@ -1755,25 +1758,21 @@ def can_terminate_member(member_name, user=None):
     except Exception as e:
         frappe.logger().error(f"Permission evaluation query failed for member {member_doc.name}: {str(e)}")
         return False
-    for member_chapter in member_chapters:
-        try:
-            chapter_doc = frappe.get_doc("Chapter", member_chapter.parent)
-            if chapter_doc.is_board_member(member_name=requesting_member):
-                frappe.logger().debug(
-                    f"User {user} has board access in member's chapter {member_chapter.parent}"
-                )
-                return True
-        except Exception as e:
-            frappe.logger().error(f"Error checking chapter board access: {str(e)}")
+    # Seats on a deactivated Chapter Role confer nothing (#3286, #3183 class), which
+    # Chapter.is_board_member does not look at.
+    from verenigingen.services.chapter.chapter_utils import get_active_seat_chapters
+
+    # A failing lookup raises: the caller is refused by the error, not by a swallowed False.
+    seat_chapters = set(get_active_seat_chapters(requesting_member))
+    if seat_chapters.intersection(mc.parent for mc in member_chapters):
+        return True
 
     # Check if user is a board member of the national chapter (if configured)
     try:
         settings = frappe.get_single("Verenigingen Settings")
-        if hasattr(settings, "national_board_chapter") and settings.national_board_chapter:
-            national_chapter_doc = frappe.get_doc("Chapter", settings.national_board_chapter)
-            if national_chapter_doc.is_board_member(member_name=requesting_member):
-                frappe.logger().debug(f"User {user} has board access in national chapter")
-                return True
+        if getattr(settings, "national_board_chapter", None) in seat_chapters:
+            frappe.logger().debug(f"User {user} has board access in national chapter")
+            return True
     except Exception as e:
         frappe.logger().debug(f"No national chapter configured or error checking: {str(e)}")
 

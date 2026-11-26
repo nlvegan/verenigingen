@@ -92,13 +92,14 @@ class TestTerminationApproverRoles3286(MemberOwnershipProbeMixin, EnhancedTestCa
             }
         ).insert()
 
-    def _dispatch_3286(self, user, name, method, args):
+    def _dispatch_3286(self, user, name, method, args, http="POST"):
         """Real dispatch; returns every observable channel."""
         form = {"dt": DT, "dn": name, "method": method}
         if args:
             form["args"] = json.dumps(args)
-        env = EnvironBuilder(path="/api/method/run_doc_method", data=form, method="POST").get_environ()
+        env = EnvironBuilder(path="/api/method/run_doc_method", data=form, method=http).get_environ()
         original, in_test = frappe.session.user, frappe.flags.in_test
+        original_request = getattr(frappe.local, "request", None)
         frappe.set_user(user)
         frappe.flags.in_test = False
         # Mock justified: Infrastructure - the request context the web server sets before execute_cmd
@@ -123,10 +124,14 @@ class TestTerminationApproverRoles3286(MemberOwnershipProbeMixin, EnhancedTestCa
         finally:
             # Mock justified: Infrastructure - restore the test-mode flag turned off for dispatch
             frappe.flags.in_test = in_test
+            # Mock justified: Infrastructure - a GET dispatch must not leak its method into later calls
+            frappe.local.request = original_request
             frappe.set_user(original)
 
-    def _approve_3286(self, user, name, decision="approved"):
-        return self._dispatch_3286(user, name, "approve_request", {"decision": decision, "notes": "n"})
+    def _approve_3286(self, user, name, decision="approved", http="POST"):
+        return self._dispatch_3286(
+            user, name, "approve_request", {"decision": decision, "notes": "n"}, http=http
+        )
 
     def _status_3286(self, name):
         return frappe.db.get_value(DT, name, ["status", "approved_by"], as_dict=True)
@@ -232,3 +237,101 @@ class TestTerminationApproverRoles3286(MemberOwnershipProbeMixin, EnhancedTestCa
                     self._approve_3286(user, name)["outcome"],
                     "refusal text must be stable across repeats",
                 )
+
+    # --- round 2: GET, plain saves, Chapter Role.is_active, Treasurer ------------
+
+    def test_approve_request_is_post_only_and_a_get_dispatch_is_refused(self):
+        """GET skips Frappe's CSRF check (it only guards unsafe methods): approve must be POST."""
+        from verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request import (
+            MembershipTerminationRequest,
+        )
+
+        fn = MembershipTerminationRequest.approve_request
+        self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[fn], ["POST"])
+        for user in (self.admin, self.staff, self.own_board):
+            name = self._pending_request_3286()
+            result = self._approve_3286(user, name, http="GET")
+            self.assertEqual(result["outcome"][0], "PermissionError", msg=f"{user}: {result}")
+            self.assertEqual(self._status_3286(name).status, "Pending", msg=f"{user}: GET approved")
+
+    def _save_as_3286(self, user, name, **changes):
+        """Plain doc.save() as `user` (no service). Returns the exception class name or None."""
+        with self.set_user(user):
+            doc = frappe.get_doc(DT, name)
+            doc.update(changes)
+            try:
+                doc.save()
+            except Exception as exc:  # noqa: BLE001 - the exception class IS the observation
+                return type(exc).__name__
+        return None
+
+    def _assert_plain_save_refused_3286(self, user, label, **changes):
+        name = self._pending_request_3286()
+        before = frappe.db.get_value(DT, name, ["status", "termination_reason", "approved_by"], as_dict=True)
+        refusal = self._save_as_3286(user, name, **changes)
+        after = frappe.db.get_value(DT, name, ["status", "termination_reason", "approved_by"], as_dict=True)
+        self.assertIsNotNone(refusal, msg=f"{label}: plain save was accepted")
+        self.assertEqual(before, after, msg=f"{label}: state changed")
+
+    def test_staff_and_national_cannot_flip_status_by_a_plain_save(self):
+        for user in (self.staff, self.national, self.own_board):
+            self._assert_plain_save_refused_3286(user, f"status flip by {user}", status="Rejected")
+
+    def test_staff_and_national_cannot_edit_another_chapters_request(self):
+        for user in (self.staff, self.national):
+            self._assert_plain_save_refused_3286(user, f"edit by {user}", termination_reason="edited")
+
+    def test_staff_and_national_cannot_create_a_request_for_another_chapter(self):
+        for user in (self.staff, self.national):
+            with self.set_user(user):
+                with self.assertRaises(Exception, msg=f"{user} created a request"):
+                    self._insert_request_3286(self.member)
+
+    def test_board_member_of_the_own_chapter_may_still_plain_save_other_fields(self):
+        """Control: the status guard must not break the own-chapter board member's edit."""
+        name = self._pending_request_3286()
+        self.assertIsNone(self._save_as_3286(self.own_board, name, termination_reason="edited"))
+        self.assertEqual(frappe.db.get_value(DT, name, "termination_reason"), "edited")
+
+    def test_a_deactivated_chapter_role_confers_no_approval_for_that_chapter(self):
+        """Two seats: a live one in chapter B, one in chapter A on a role that is then deactivated."""
+        user = self.other_board  # live seat in chapter B
+        volunteer = frappe.db.get_value("Volunteer", {"member": frappe.db.get_value("Member", {"user": user})})
+        role = frappe.get_doc(
+            {
+                "doctype": "Chapter Role",
+                "role_name": f"Seat3286 {frappe.generate_hash(length=6)}",
+                "permissions_level": "Admin",
+                "is_active": 1,
+            }
+        ).insert()
+        self.factory.track_document("Chapter Role", role.name, priority=3)
+        chapter = frappe.get_doc("Chapter", self.chapter_a.name)
+        chapter.append(
+            "board_members",
+            {"volunteer": volunteer, "chapter_role": role.name, "from_date": today(), "is_active": 1},
+        )
+        chapter.save()
+
+        # control: while the role is active the seat in chapter A DOES let them approve
+        self._assert_allowed_3286(user, "live seat in the member's chapter")
+
+        role.reload()
+        role.is_active = 0
+        role.save()
+        self.assertEqual(frappe.db.get_value("Chapter Role", role.name, "is_active"), 0)
+        name = self._pending_request_3286()
+        self.assertTrue(frappe.db.exists("Chapter Board Member", {"parent": self.chapter_b.name, "volunteer": volunteer, "is_active": 1}))
+        self._assert_refused_3286(user, "seat on a deactivated Chapter Role", name=name)
+        with self.assertRaises(frappe.ValidationError):
+            TerminationApprovalService(frappe.get_doc(DT, name)).validate_approver_permissions(user)
+
+    def test_a_treasurer_profile_user_may_approve(self):
+        """Maintainer ruling 2026-11-26: the Treasurer carries Staff and National Board and may approve."""
+        email, _member = self._user_linked_to_own_member("Treas3286", "Verenigingen Member", None)
+        assign_role_profile_to_user(email, "Verenigingen Treasurer")
+        self.assertTrue(
+            {Roles.VERENIGINGEN_STAFF, Roles.NATIONAL_BOARD_MEMBER} <= set(frappe.get_roles(email)),
+            msg=frappe.get_roles(email),
+        )
+        self._assert_allowed_3286(email, "treasurer")

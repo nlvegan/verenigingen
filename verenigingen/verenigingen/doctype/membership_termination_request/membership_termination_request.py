@@ -166,7 +166,9 @@ class MembershipTerminationRequest(Document):
         approval_service = TerminationApprovalService(self)
         return approval_service.submit_for_approval()
 
-    @frappe.whitelist()
+    # POST only: HIGH tier allows GET, and Frappe checks CSRF only on unsafe methods, so a GET
+    # run_doc_method would approve without a CSRF token. critical_api was POST-only; keep that.
+    @frappe.whitelist(methods=["POST"])
     # HIGH tier, not CRITICAL (#3286): the approvers are chapter board members, national board
     # members and staff, and the HIGH profiles are exactly those. Who may approve THIS request is
     # decided in TerminationApprovalService.validate_approver_permissions (role + chapter scope).
@@ -196,17 +198,16 @@ class MembershipTerminationRequest(Document):
         if getattr(self.flags, "skip_termination_validation", False):
             return
 
-        from verenigingen.permissions import can_access_termination_functions, can_terminate_member
-        from verenigingen.services.approval import TerminationApprovalService
-        from verenigingen.utils.constants import Roles
-
-        # Staff and national board are unscoped approvers (#3286); they hold DocPerms on this doctype
-        # but are neither in the admin pair nor seated on the member's chapter, so the checks below
-        # would refuse every save of the request they were asked to approve. The admin pair keeps
-        # its existing path through the checks below.
-        roles = set(frappe.get_roles())
-        if not roles & Roles.ADMIN_PAIR and roles & TerminationApprovalService.UNSCOPED_APPROVAL_ROLES:
+        # The approval service sets this flag for its own status-changing save, after it has checked
+        # the caller's role and chapter scope (#3286). Staff and national board are approve-only: they
+        # hold DocPerms here but not the create/edit rights this check withholds, so the flag is the
+        # ONLY way past it for them.
+        if getattr(self.flags, "approval_service_transition", False):
             return
+
+        from verenigingen.permissions import can_access_termination_functions, can_terminate_member
+
+        self.validate_status_changes_only_through_the_service()
 
         # Check if user can access termination functions in general
         if not can_access_termination_functions():
@@ -215,6 +216,21 @@ class MembershipTerminationRequest(Document):
         # Check if user can terminate this specific member
         if self.member and not can_terminate_member(self.member):
             frappe.throw(_("You don't have permission to terminate this member"))
+
+    def validate_status_changes_only_through_the_service(self):
+        """A plain save may not change `status`: that is the approval service's job (#3286).
+
+        The admin pair keeps its existing latitude (execution and the scheduler run as them)."""
+        from verenigingen.utils.constants import Roles
+
+        if self.is_new() or Roles.ADMIN_PAIR & set(frappe.get_roles()):
+            return
+        before = self.get_doc_before_save()
+        if before and before.status != self.status:
+            frappe.throw(
+                _("The status of a termination request changes only by approving or rejecting it"),
+                frappe.PermissionError,
+            )
 
     def validate_dates(self):
         """Validate termination and grace period dates"""

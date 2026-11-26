@@ -123,8 +123,13 @@ class TerminationApprovalService(StatefulService):
         # Calculate termination date
         self.request.calculate_termination_date()
 
-        # Save the document
-        self.request.save()
+        # Save the document. The caller's role and chapter scope were checked above, so tell
+        # validate_permissions this is the approval transition and not a plain edit.
+        self.request.flags.approval_service_transition = True
+        try:
+            self.request.save()
+        finally:
+            self.request.flags.approval_service_transition = False
 
         # Add audit entry
         self.request.add_audit_entry("Submitted for Approval", f"Status changed to {self.request.status}")
@@ -170,8 +175,13 @@ class TerminationApprovalService(StatefulService):
         else:
             frappe.throw(_("Invalid decision. Must be 'approved' or 'rejected'"))
 
-        # Save the document
-        self.request.save()
+        # Save the document. The caller's role and chapter scope were checked above, so tell
+        # validate_permissions this is the approval transition and not a plain edit.
+        self.request.flags.approval_service_transition = True
+        try:
+            self.request.save()
+        finally:
+            self.request.flags.approval_service_transition = False
 
         return {"status": self.request.status, "message": message}
 
