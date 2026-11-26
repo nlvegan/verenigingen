@@ -146,6 +146,7 @@ _KNOWN_SCRIPTS_FILES_IMPORTED_UNDER_TESTS = {
     "scripts/monitoring/zabbix_integration.py",  # tests/unit/test_zabbix_churn_metric.py (#1541)
     "scripts/validation/except_order_validator.py",  # tests/test_except_order_validator.py
     "scripts/validation/doctype_name_validator.py",  # tests/test_doctype_name_ratchet.py
+    "scripts/validation/bench_resolution.py",  # tests/test_doctype_name_ratchet.py (#1085 canary)
     "scripts/validation/secure_operation_result_validator.py",  # tests/test_secure_operation_result_validator.py
     "scripts/testing/check_new_test_failures.py",  # tests/test_check_new_test_failures.py
     "scripts/validation/hooks_parser.py",  # tests/backend/validation/test_import_validation_integration.py
