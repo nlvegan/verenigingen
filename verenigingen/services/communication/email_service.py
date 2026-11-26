@@ -224,6 +224,7 @@ class EmailService(StatelessService):
                     "recipients_count": len(recipients) if isinstance(recipients, list) else 1,
                 },
                 raise_error=False,
+                propagate_non_resumable=False,  # 1205 keeps the failure result (#2996)
             )
             return OperationResult.from_exception(e)
 
@@ -302,6 +303,7 @@ class EmailService(StatelessService):
                 "Send notification",
                 {"notification_type": notification_type},
                 raise_error=False,
+                propagate_non_resumable=False,  # 1205 keeps the failure result (#2996)
             )
             return OperationResult.from_exception(e)
 
@@ -384,7 +386,12 @@ class EmailService(StatelessService):
             raise
         except Exception as e:
             handle_service_error(
-                e, "EmailService", "Send bulk emails", {"batch_size": len(email_batch)}, raise_error=False
+                e,
+                "EmailService",
+                "Send bulk emails",
+                {"batch_size": len(email_batch)},
+                raise_error=False,
+                propagate_non_resumable=False,  # 1205 keeps the failure result (#2996)
             )
             return OperationResult.from_exception(e)
 
@@ -448,6 +455,7 @@ class EmailService(StatelessService):
                     "recipient_count": len(recipients) if isinstance(recipients, list) else 1,
                 },
                 raise_error=False,
+                propagate_non_resumable=False,  # 1205 keeps the failure result (#2996)
             )
             return OperationResult.from_exception(e)
 
