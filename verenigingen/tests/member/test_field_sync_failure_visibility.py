@@ -135,3 +135,18 @@ class TestMemberSelfRenameSyncsCustomer(EnhancedTestCase):
             fields=["method", "error"],
         )
         self.assertEqual(rows, [])
+
+    def test_empty_full_name_is_refused_not_written(self):
+        # Customer.save refused an empty customer_name (reqd); the direct write must too,
+        # so sync_fields logs it instead of blanking the Customer's name.
+        customer = self.rn_member.customer
+        before = frappe.db.get_value("Customer", customer, "customer_name")
+        self.assertTrue(before, "precondition: the Customer has a name")
+
+        member = frappe.get_doc("Member", self.rn_member.name)
+        member.load_doc_before_save()
+        member.full_name = ""
+        with self.assertRaises(frappe.MandatoryError):
+            _sync_to_target(member, "Customer", FIELD_SYNC_CONFIG["Member"]["Customer"])
+
+        self.assertEqual(frappe.db.get_value("Customer", customer, "customer_name"), before)

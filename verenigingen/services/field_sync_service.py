@@ -103,6 +103,9 @@ FIELD_SYNC_CONFIG = {
             # permission-checked frappe.set_value, which a member editing their own
             # record (portal session) cannot pass, so every portal rename failed (#3182).
             # A name-only update needs none of that cascade.
+            # direct_write gives up the target's validate, on_update hooks (here also
+            # this app's Customer cache invalidation) and its Version row; required
+            # fields are still enforced by _write_target_columns.
             "direct_write": True,
             "sync_flag": "syncing_member_customer_fields",
         },
@@ -271,6 +274,13 @@ def _write_target_columns(source_doc, target_doctype: str, target_name: str, cha
     for source_field, target_fields in changed_fields.get("transforms", {}).items():
         for target_field in target_fields:
             values[target_field] = getattr(source_doc, source_field, None)
+    # The save this replaces refused an empty required field; refuse it here too, so
+    # sync_fields logs it instead of blanking the target. Raised, not frappe.throw():
+    # sync_fields swallows it, and throw would leave a message in a portal response.
+    meta = frappe.get_meta(target_doctype)
+    empty_required = [f for f, v in values.items() if not v and meta.get_field(f) and meta.get_field(f).reqd]
+    if empty_required:
+        raise frappe.MandatoryError(f"{target_doctype} {target_name}: empty required {empty_required}")
     frappe.db.set_value(target_doctype, target_name, values)
 
 
