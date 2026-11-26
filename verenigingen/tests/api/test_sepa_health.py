@@ -188,6 +188,102 @@ class TestSEPAHealthEndpoint(FrappeTestCase):
                 )
             frappe.db.sql("DELETE FROM `tabDirect Debit Batch` WHERE name=%s", batch_name)
 
+    def _seed_3213_batch_with_old_pending_rows(self, batch_status, row_count, row_status="Pending"):
+        """Seed a parent batch in `batch_status` plus `row_count` rows 10 days old.
+
+        Probe shortcut: batch and rows are written by raw SQL (the batch validate()
+        needs real Sales Invoices), so batch_status is SET DIRECTLY rather than
+        reached through the rollback/cancel flows. #3021's real rollback flow is
+        what leaves Pending rows under a Rolled Back batch (maintainer ruling).
+        """
+        batch_name = frappe.generate_hash(length=10)
+        now = now_datetime()
+        frappe.db.sql(
+            """
+            INSERT INTO `tabDirect Debit Batch`
+                (name, creation, modified, modified_by, owner, docstatus,
+                 batch_date, batch_description, currency, status, batch_type,
+                 total_amount, entry_count)
+            VALUES
+                (%(name)s, %(now)s, %(now)s, %(user)s, %(user)s, 0,
+                 %(today)s, 'Health check 3213 parent', 'EUR', %(status)s,
+                 'CORE', 0, 0)
+            """,
+            {
+                "name": batch_name,
+                "now": now,
+                "user": frappe.session.user,
+                "today": frappe.utils.today(),
+                "status": batch_status,
+            },
+        )
+        old_creation = add_days(now, -10)
+        for i in range(row_count):
+            frappe.db.sql(
+                """
+                INSERT INTO `tabDirect Debit Batch Invoice`
+                    (name, creation, modified, modified_by, owner, docstatus,
+                     parent, parentfield, parenttype, idx, status, amount, currency)
+                VALUES
+                    (%(name)s, %(creation)s, %(creation)s, %(user)s, %(user)s, 0,
+                     %(parent)s, 'invoices', 'Direct Debit Batch', %(idx)s, %(row_status)s, 25.0, 'EUR')
+                """,
+                {
+                    "name": frappe.generate_hash(length=10),
+                    "creation": old_creation,
+                    "user": frappe.session.user,
+                    "parent": batch_name,
+                    "idx": i + 1,
+                    "row_status": row_status,
+                },
+            )
+        return batch_name
+
+    def _count_3213_unreconciled_delta(self, batch_status, row_count=51, row_status="Pending"):
+        """Return (before, after) `_check_unreconciled` results around one seeded batch."""
+        from verenigingen.api.sepa_health import _check_unreconciled
+
+        before = _check_unreconciled()
+        batch_name = self._seed_3213_batch_with_old_pending_rows(batch_status, row_count, row_status)
+        try:
+            return before, _check_unreconciled()
+        finally:
+            frappe.db.sql("DELETE FROM `tabDirect Debit Batch Invoice` WHERE parent=%s", batch_name)
+            frappe.db.sql("DELETE FROM `tabDirect Debit Batch` WHERE name=%s", batch_name)
+
+    def test_3213_rolled_back_batch_rows_are_not_unreconciled(self):
+        """#3213: Pending rows of a Rolled Back batch never reconcile (re-collection is
+        via a NEW batch, #3021), so 51 of them must not move the count or health."""
+        before, after = self._count_3213_unreconciled_delta("Rolled Back")
+        self.assertEqual(after["count"], before["count"])
+        self.assertEqual(after["healthy"], before["healthy"])
+
+    def test_3213_rolled_back_rows_do_not_flip_a_clean_site_unhealthy(self):
+        """Same, but asserting the user-visible harm on a site that was healthy."""
+        before, after = self._count_3213_unreconciled_delta("Rolled Back", row_count=51)
+        if before["count"] >= 50:
+            self.skipTest("site already carries >=50 unreconciled rows; harm not observable")
+        self.assertTrue(after["healthy"])
+
+    def test_3213_cancelled_batch_rows_are_not_unreconciled(self):
+        before, after = self._count_3213_unreconciled_delta("Cancelled")
+        self.assertEqual(after["count"], before["count"])
+
+    def test_3213_control_submitted_batch_rows_still_count(self):
+        """Control: a live (Submitted) batch's old Pending rows ARE awaiting reconciliation."""
+        before, after = self._count_3213_unreconciled_delta("Submitted")
+        self.assertEqual(after["count"], before["count"] + 51)
+
+    def test_3213_control_failed_batch_pending_rows_still_count(self):
+        """Control: a Failed batch can be reset and retried (#2799), so its Pending rows count."""
+        before, after = self._count_3213_unreconciled_delta("Failed")
+        self.assertEqual(after["count"], before["count"] + 51)
+
+    def test_3213_control_rolled_back_batch_with_successful_rows_unchanged(self):
+        """Row status still filters: non-Pending rows never count, whatever the batch status."""
+        before, after = self._count_3213_unreconciled_delta("Submitted", row_status="Successful")
+        self.assertEqual(after["count"], before["count"])
+
     def _create_upload_log(self, batch_name):
         """Factory helper: seed one SEPA Batch Upload Log row for the given batch.
         The doctype is immutable (on_trash blocks deletion for audit integrity,

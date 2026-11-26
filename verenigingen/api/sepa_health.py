@@ -6,6 +6,7 @@ This endpoint can be used by external monitoring tools (Zabbix, Prometheus, etc.
 to track the health of SEPA-related components.
 """
 import frappe
+from frappe.query_builder.functions import Count
 from frappe.utils import add_days, now_datetime
 
 from verenigingen.api.sepa_duplicate_prevention import check_redis_health
@@ -115,6 +116,10 @@ def _check_pending_batches() -> dict:
         }
 
 
+# Batch statuses whose Pending rows are never reconciled (see _check_unreconciled).
+DEAD_BATCH_STATUSES = ("Rolled Back", "Cancelled")
+
+
 def _check_unreconciled() -> dict:
     """
     Check count of unreconciled transactions older than 7 days.
@@ -127,14 +132,22 @@ def _check_unreconciled() -> dict:
     threshold = 50
     try:
         seven_days_ago = add_days(now_datetime(), -7)
-        # Count pending invoice items in batches older than 7 days
-        unreconciled = frappe.db.count(
-            "Direct Debit Batch Invoice",
-            filters={
-                "status": "Pending",
-                "creation": ["<", seven_days_ago],
-            },
-        )
+        # Rows of a dead batch never reconcile: a Rolled Back batch's rows are reset
+        # to Pending (#3021) and re-collected only through a NEW batch; a Cancelled
+        # batch is likewise terminal. Failed/Partially* batches stay countable: they
+        # can be reset and retried (#2799).
+        item = frappe.qb.DocType("Direct Debit Batch Invoice")
+        batch = frappe.qb.DocType("Direct Debit Batch")
+        unreconciled = (
+            frappe.qb.from_(item)
+            .join(batch)
+            .on(item.parent == batch.name)
+            .select(Count(item.name))
+            .where(item.parenttype == "Direct Debit Batch")
+            .where(item.status == "Pending")
+            .where(item.creation < seven_days_ago)
+            .where(batch.status.notin(DEAD_BATCH_STATUSES))
+        ).run()[0][0]
         return {
             "healthy": unreconciled < threshold,
             "count": unreconciled,
