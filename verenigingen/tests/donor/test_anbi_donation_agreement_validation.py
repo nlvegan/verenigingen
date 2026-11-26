@@ -360,7 +360,7 @@ class TestANBIDonationAgreementValidation(VereningingenTestCase):
             "agreement_duration_years": "Lifetime (ANBI)",
             "annual_amount": 5000.00,
             "payment_frequency": "Annually",
-            "payment_method": "SEPA Direct Debit",
+            "payment_method": "Bank Transfer",  # SEPA would need a mandate (#814)
             "anbi_eligible": 0,  # Will be automatically set to 1 by validation logic
             "status": "Draft"
         })
@@ -908,7 +908,7 @@ class TestANBIDonationAgreementValidation(VereningingenTestCase):
             "agreement_duration_years": "8 Years (ANBI)",
             "annual_amount": 3600.00,
             "payment_frequency": "Monthly",
-            "payment_method": "SEPA Direct Debit",
+            "payment_method": "Bank Transfer",  # SEPA would need a mandate (#814)
             "anbi_eligible": 1,
             "donor_tax_bracket": "49.5% (High income)",
             "status": "Draft"

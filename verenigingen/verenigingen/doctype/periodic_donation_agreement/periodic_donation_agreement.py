@@ -33,9 +33,31 @@ class PeriodicDonationAgreement(Document):
         if original_anbi_claim and not self.anbi_eligible:
             self._validate_anbi_claim_against_system_rules()
 
+        self.validate_sepa_has_mandate()
         self.update_donation_tracking()
         self.set_commitment_type()
         self.set_default_tax_year()
+
+    def validate_sepa_has_mandate(self):
+        """Refuse SEPA Direct Debit with no mandate attached (#814).
+
+        The collection pipeline resolves mandates by Member only, so a mandate-less SEPA
+        agreement looks collectable and never is (#762, #781). #776 and #807 guard the
+        web form and create_periodic_agreement(); this covers every other writer.
+        Only presence is checked. A Completed/Cancelled row is exempt so a legacy
+        mandate-less agreement can still be closed.
+        """
+        if self.payment_method != "SEPA Direct Debit" or self.sepa_mandate:
+            return
+        if self.status in ("Completed", "Cancelled"):
+            return
+        frappe.throw(
+            _(
+                "SEPA Direct Debit requires a SEPA mandate. "
+                "Please select a mandate or choose a different payment method."
+            ),
+            frappe.ValidationError,
+        )
 
     def validate_activation_goes_through_workflow(self):
         """Refuse a web-request save that makes `status` Active without the workflow's Active state.

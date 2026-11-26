@@ -192,7 +192,7 @@ class TestEnsureDonationForRecurringCharge(EnhancedTestCase):
                 "anbi_eligible": 0,
                 "annual_amount": 300,
                 "payment_frequency": "Monthly",
-                "payment_method": "SEPA Direct Debit",
+                "payment_method": "Bank Transfer",  # SEPA would need a mandate (#814); not what this suite tests
                 "status": "Draft",
             }
         ).insert(ignore_permissions=True)
