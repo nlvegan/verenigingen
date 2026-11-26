@@ -33,6 +33,16 @@ from verenigingen.verenigingen_payments.utils.sepa_mandate_service import (
 
 
 class SEPAMandate(Document):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # consent_ip / consent_text sit at permlevel 1 (#2480) so only staff READ them. Frappe
+        # also resets a permlevel field to its stored/default value on save for a caller without
+        # permlevel write, which would silently wipe the values the member's own consent capture
+        # sets (a member holds permlevel 0 only) and turn a forged edit into a quiet no-op.
+        # Write access is governed by enforce_consent_provenance (insert-only, refuses any later
+        # change for every caller), so the permlevel reset is switched off for these two fields.
+        self.flags.ignore_permlevel_for_fields = ["consent_ip", "consent_text"]
+
     def validate(self):
         enforce_consent_provenance(self)
         self.set_scheme_default()
