@@ -31,6 +31,7 @@ from verenigingen.e_boekhouden.utils.data_integrity import (
     safe_log_mutation_error,
     submit_with_duplicate_handling,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 from .base_processor import BaseTransactionProcessor
 
@@ -159,6 +160,8 @@ class StockProcessor(BaseTransactionProcessor):
                 self.debug_info.append(f"⚠️ Failed to create Stock Reconciliation for mutation {mutation_id}")
                 return None
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # #3061: a lock error is not a per-mutation failure to log and return None past
         except Exception as e:
             self.debug_info.append(f"❌ Error creating Stock Reconciliation: {str(e)}")
             safe_log_mutation_error(
@@ -241,6 +244,8 @@ class StockProcessor(BaseTransactionProcessor):
 
         try:
             ensure_fiscal_year_exists(stock_reco.posting_date, self.company, self.debug_info)
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # #3061: a lock error is not a per-mutation failure to log and return None past
         except Exception as fy_error:
             self.debug_info.append(f"WARNING: Could not ensure fiscal year: {str(fy_error)}")
 
@@ -330,6 +335,8 @@ class StockProcessor(BaseTransactionProcessor):
             warehouse_doc.save()
             self.debug_info.append(f"Created default warehouse: {warehouse_doc.name}")
             return warehouse_doc.name
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # #3061: a lock error is not a per-mutation failure to log and return None past
         except Exception as e:
             self.debug_info.append(f"Error creating warehouse: {str(e)}")
             return None
@@ -378,6 +385,8 @@ class StockProcessor(BaseTransactionProcessor):
             self.debug_info.append(f"Created stock item: {item_code} for account {stock_account}")
             return item_code
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # #3061: a lock error is not a per-mutation failure to log and return None past
         except Exception as e:
             self.debug_info.append(f"Error creating stock item for {stock_account}: {str(e)}")
             return None

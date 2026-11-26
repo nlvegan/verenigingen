@@ -1461,6 +1461,11 @@ def import_single_mutation(migration_name: str, mutation_id: str, overwrite_exis
                     else:
                         debug_info.append("⚠️ New processors returned None, falling back to legacy")
 
+            except NON_RESUMABLE_DB_ERRORS:
+                # #3061: a 1213/1205 is not a "new processor failed" to fall back from; legacy
+                # processing and the commit below would run on a transaction the server may have
+                # rolled back.
+                raise
             except Exception as e:
                 # Log processor failure but don't fail the import
                 frappe.log_error(
@@ -1499,6 +1504,8 @@ def import_single_mutation(migration_name: str, mutation_id: str, overwrite_exis
                 "debug_info": debug_info,
             }
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #3061: do not turn a lock error into {"success": False}
     except Exception as e:
         frappe.log_error(
             title=f"Import Error - Mutation {mutation_id}",
