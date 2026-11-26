@@ -39,11 +39,11 @@ REFUSAL_1984 = "Access denied. You do not have permission for this operation."
 
 # Kept in sync with the module's `templates` list so cleanup is exhaustive.
 MANAGED_TEMPLATES = {
-    "expense_approval_request": "💰 Expense Approval Required - {{ doc.name }}",
-    "expense_approved": "✅ Expense Approved - {{ doc.name }}",
-    "expense_rejected": "❌ Expense Rejected - {{ doc.name }}",
-    "donation_confirmation": "Thank you for your donation - {{ donation_id }}",
-    "donation_payment_confirmation": "Payment Received - Donation {{ donation_id }}",
+    "expense_approval_request": "Expense Approval Required - {{ expense.name|e }}",
+    "expense_approved": "Expense Approved - {{ expense.name|e }}",
+    "expense_rejected": "Expense Rejected - {{ expense.name|e }}",
+    "donation_confirmation": "Thank you for your donation - {{ donation_id|e }}",
+    "donation_payment_confirmation": "Payment Received - Donation {{ donation_id|e }}",
     "anbi_tax_receipt": "Tax Deduction Receipt - {{ receipt_number }}",
     "termination_overdue_notification": "Overdue Termination Requests - {{ count }} items",
     "member_contact_request_received": "Contact Request Received - {{ doc.name }}",
@@ -117,13 +117,13 @@ class TestEmailTemplateManager(VereningingenTestCase):
         self.assertIn("{{ receipt_number }}", anbi.subject)
 
         donation = frappe.get_doc("Email Template", "donation_confirmation")
-        self.assertIn("{{ donor_name | e }}", donation.response)
+        self.assertIn("{{ donor_name|e }}", donation.response)
         # The donation send context (send_donation_confirmation_email) provides a
         # FLAT key, not a `doc`, so the template must use {{ donation_amount }}.
         self.assertIn("{{ donation_amount }}", donation.response)
 
         approval = frappe.get_doc("Email Template", "expense_approval_request")
-        self.assertIn("{{ approver_name | e }}", approval.response)
+        self.assertIn("{{ approver_name|e }}", approval.response)
         self.assertIn("{{ approval_url }}", approval.response)
 
     def test_donation_templates_render_with_real_send_context(self):
@@ -241,7 +241,7 @@ class TestEmailTemplateManager(VereningingenTestCase):
 
         restored = frappe.get_doc("Email Template", "expense_approved")
         self.assertEqual(restored.subject, MANAGED_TEMPLATES["expense_approved"])
-        self.assertIn("✅ Expense Approved", restored.response)
+        self.assertIn("{{ approved_by_name|e }}", restored.response)
         self.assertNotIn("tampered", restored.response)
         self.assertNotIn("tampered", restored.response_html)
         self.assertTrue(frappe.db.exists("Email Template", "expense_rejected"))
@@ -429,14 +429,15 @@ class TestEmailTemplateManager(VereningingenTestCase):
         self._delete_managed_templates()
         create_comprehensive_email_templates()
 
-        result = test_email_template("expense_approval_request")
+        # The built-in sample context is `doc`-shaped (doc.name=TEST-001), which is the shape of
+        # the contact-request template; the expense templates take `expense` (#1984 moved their
+        # seed text to the wording live sites carry), so they do not render from it.
+        result = test_email_template("member_contact_request_received")
         self.assertIsInstance(result, dict)
         self.assertTrue(result["success"], f"render failed: {result.get('error')}")
         data = result["data"]
-        self.assertEqual(data["template_name"], "expense_approval_request")
-        # Built-in sample context sets doc.name=TEST-001 and approver_name=Test Approver.
+        self.assertEqual(data["template_name"], "member_contact_request_received")
         self.assertIn("TEST-001", data["subject"])
-        self.assertIn("Test Approver", data["message"])
         self.assertNotIn("{{ doc.name }}", data["subject"])
 
     def test_test_email_template_endpoint_custom_context(self):
@@ -502,7 +503,7 @@ class TestEmailTemplateManager(VereningingenTestCase):
         # collapse, auto-closed tags), so it won't be byte-identical to the TextEditor
         # `response`. What matters is that response_html carries the same real markup.
         self.assertIn("<div", doc.response_html, "response_html must carry the HTML body")
-        self.assertIn("{{ donor_name | e }}", doc.response_html, "response_html must carry the template content")
+        self.assertIn("{{ donor_name|e }}", doc.response_html, "response_html must carry the template content")
 
         # response_ (the property Frappe uses) returns response_html when use_html=1,
         # so it must be the real HTML body, not empty.
@@ -687,7 +688,7 @@ class TestEmailTemplateManager(VereningingenTestCase):
                     "company": "Org",
                     "formatted_amount": "€10.00",
                     "approved_on": "2026-06-16",
-                    "doc": frappe._dict({"name": "EXP-NOKEY", "description": "d"}),
+                    "expense": frappe._dict({"name": "EXP-NOKEY", "description": "d"}),
                 },
                 # notification_key intentionally omitted -> warning branch.
             )

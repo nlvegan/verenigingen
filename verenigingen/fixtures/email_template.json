@@ -148,42 +148,6 @@
     "doctype": "Email Template",
     "enabled": 1,
     "modified": "2026-01-04 12:00:00",
-    "name": "expense_approval_request",
-    "reference_doctype": "Expense Claim",
-    "response": null,
-    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-primary\">\n        <h2 class=\"email-title\">💰 Expense Approval Required</h2>\n        <p class=\"email-subtitle\">{{ company|e }}</p>\n    </div>\n    \n    <div class=\"email-content\">\n        <p>Dear {{ approver_name|e }},</p>\n        \n        <p>A new expense requires your <strong>{{ required_level|e }} level</strong> approval:</p>\n        \n        <div class=\"email-content-box\">\n            <table class=\"email-data-table\">\n                <tbody><tr>\n                    <td><strong>Expense ID:</strong></td>\n                    <td>{{ expense.name|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Volunteer:</strong></td>\n                    <td>{{ volunteer_name|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Amount:</strong></td>\n                    <td style=\"font-size: 18px; color: #e74c3c;\">{{ formatted_amount|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Description:</strong></td>\n                    <td>{{ expense.description|e }}</td>\n                </tr>\n            </tbody></table>\n        </div>\n        \n        <div style=\"text-align: center; margin: 25px 0;\">\n            <a href=\"{{ approval_url }}\" class=\"email-btn-primary\">Review & Approve</a>\n        </div>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            Automated notification from {{ company|e }}\n        </div>\n    </div>\n</div>",
-    "subject": "Expense Approval Required - {{ expense.name|e }}",
-    "use_html": 1
-  },
-  {
-    "docstatus": 0,
-    "doctype": "Email Template",
-    "enabled": 1,
-    "modified": "2026-01-04 12:00:00",
-    "name": "expense_approved",
-    "reference_doctype": "Expense Claim",
-    "response": null,
-    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-success\">\n        <h2 class=\"email-title\">✅ Expense Approved</h2>\n        <p class=\"email-subtitle\">{{ company|e }}</p>\n    </div>\n    \n    <div class=\"email-content\">\n        <p>Dear {{ volunteer_name|e }},</p>\n        \n        <p>Your expense has been approved by {{ approved_by_name|e }}.</p>\n        \n        <div class=\"email-content-box\">\n            <table class=\"email-data-table\">\n                <tbody><tr>\n                    <td><strong>Expense ID:</strong></td>\n                    <td>{{ expense.name|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Amount:</strong></td>\n                    <td style=\"font-size: 18px; color: #28a745;\">{{ formatted_amount|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Description:</strong></td>\n                    <td>{{ expense.description|e }}</td>\n                </tr>\n            </tbody></table>\n        </div>\n        \n        <p>Your expense will be processed for reimbursement according to the payment schedule.</p>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            Automated notification from {{ company|e }}\n        </div>\n    </div>\n</div>",
-    "subject": "Expense Approved - {{ expense.name|e }}",
-    "use_html": 1
-  },
-  {
-    "docstatus": 0,
-    "doctype": "Email Template",
-    "enabled": 1,
-    "modified": "2026-01-04 12:00:00",
-    "name": "expense_rejected",
-    "reference_doctype": "Expense Claim",
-    "response": null,
-    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-danger\">\n        <h2 class=\"email-title\">❌ Expense Rejected</h2>\n        <p class=\"email-subtitle\">{{ company|e }}</p>\n    </div>\n    \n    <div class=\"email-content\">\n        <p>Dear {{ volunteer_name|e }},</p>\n        \n        <p>Your expense has been rejected by {{ rejected_by_name|e }}.</p>\n        \n        <div class=\"email-content-box\">\n            <table class=\"email-data-table\">\n                <tbody><tr>\n                    <td><strong>Expense ID:</strong></td>\n                    <td>{{ expense.name|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Amount:</strong></td>\n                    <td>{{ formatted_amount|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Description:</strong></td>\n                    <td>{{ expense.description|e }}</td>\n                </tr>\n            </tbody></table>\n        </div>\n        \n        <div class=\"email-alert-warning\">\n            <p style=\"margin: 0; font-weight: bold;\">Rejection Reason:</p>\n            <p style=\"margin: 5px 0 0 0;\">{{ rejection_reason|e }}</p>\n        </div>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            Automated notification from {{ company|e }}\n        </div>\n    </div>\n</div>",
-    "subject": "Expense Rejected - {{ expense.name|e }}",
-    "use_html": 1
-  },
-  {
-    "docstatus": 0,
-    "doctype": "Email Template",
-    "enabled": 1,
-    "modified": "2026-01-04 12:00:00",
     "name": "expense_escalated",
     "reference_doctype": "Expense Claim",
     "response": null,
@@ -261,30 +225,6 @@
     "response": null,
     "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-warning\">\n        <h2 class=\"email-title\">💰 Payment Notification</h2>\n        <p class=\"email-subtitle\">{{ (company or \"Payment Processing\")|e }}</p>\n    </div>\n    \n    <div class=\"email-content\">\n        <p>Dear {{ member_name|e }},</p>\n        \n        <p>{{ notification_message|e }}</p>\n        \n        <div class=\"email-content-box\">\n            <table class=\"email-data-table\">\n                <tbody>\n                    {% if payment_reference %}\n                    <tr>\n                        <td><strong>Reference:</strong></td>\n                        <td>{{ payment_reference|e }}</td>\n                    </tr>\n                    {% endif %}\n                    {% if amount %}\n                    <tr>\n                        <td><strong>Amount:</strong></td>\n                        <td>{{ amount|e }}</td>\n                    </tr>\n                    {% endif %}\n                    {% if payment_date %}\n                    <tr>\n                        <td><strong>Date:</strong></td>\n                        <td>{{ payment_date|e }}</td>\n                    </tr>\n                    {% endif %}\n                    {% if payment_method %}\n                    <tr>\n                        <td><strong>Method:</strong></td>\n                        <td>{{ payment_method|e }}</td>\n                    </tr>\n                    {% endif %}\n                </tbody>\n            </table>\n        </div>\n        \n        {% if action_required %}\n        <div class=\"email-alert-warning\">\n            <p style=\"margin: 0; font-weight: bold;\">Action Required:</p>\n            <p style=\"margin: 5px 0 0 0;\">{{ action_required|e }}</p>\n        </div>\n        {% endif %}\n        \n        {% if next_steps %}\n        <div class=\"email-alert-info\">\n            <p style=\"margin: 0; font-weight: bold;\">Next Steps:</p>\n            <p style=\"margin: 5px 0 0 0;\">{{ next_steps|e }}</p>\n        </div>\n        {% endif %}\n        \n        <p>If you have any questions about this payment, please contact our support team.</p>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            Best regards,<br>\n            The Payment Processing Team<br>\n            {{ (company or \"Payment Processing\")|e }}\n        </div>\n    </div>\n</div>",
     "subject": "Payment Notification - {{ payment_reference|e }}",
-    "use_html": 1
-  },
-  {
-    "docstatus": 0,
-    "doctype": "Email Template",
-    "enabled": 1,
-    "modified": "2026-01-04 12:00:00",
-    "name": "donation_confirmation",
-    "reference_doctype": "Donation",
-    "response": null,
-    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-success\">\n        <h2 class=\"email-title\">🙏 Thank You for Your Donation!</h2>\n        <p class=\"email-subtitle\">{{ (organization_name or \"Our Organization\")|e }}</p>\n    </div>\n    \n    <div class=\"email-content\">\n        <p>Dear {{ donor_name|e }},</p>\n        \n        <p>Thank you for your generous donation to {{ organization_name|e }}! Your support makes a meaningful difference in our work.</p>\n        \n        <div class=\"email-content-box\">\n            <h3 style=\"margin-top: 0; color: #2c3e50;\">Donation Details:</h3>\n            <table class=\"email-data-table\">\n                <tbody>\n                    <tr>\n                        <td><strong>Donation ID:</strong></td>\n                        <td>{{ donation_id|e }}</td>\n                    </tr>\n                    <tr>\n                        <td><strong>Amount:</strong></td>\n                        <td>€{{ donation_amount }}</td>\n                    </tr>\n                    <tr>\n                        <td><strong>Date:</strong></td>\n                        <td>{{ donation_date|e }}</td>\n                    </tr>\n                    <tr>\n                        <td><strong>Purpose:</strong></td>\n                        <td>{{ earmarking|e }}</td>\n                    </tr>\n                    <tr>\n                        <td><strong>Status:</strong></td>\n                        <td>{{ donation_status|e }}</td>\n                    </tr>\n                </tbody>\n            </table>\n        </div>\n        \n        {% if donation_notes %}\n        <div class=\"email-alert-info\">\n            <p style=\"margin: 0; font-weight: bold;\">Your Message:</p>\n            <p style=\"margin: 5px 0 0 0; font-style: italic;\">{{ donation_notes|e }}</p>\n        </div>\n        {% endif %}\n        \n        <p>Your donation helps us make a positive impact in our community. We will send you a payment confirmation once your payment has been processed.</p>\n        \n        <p>If you have any questions about your donation, please don't hesitate to contact us at {{ organization_email|e }}.</p>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            With gratitude,<br>\n            {{ organization_name|e }}<br>\n            <br>\n            This is an automated confirmation from our donation system.\n        </div>\n    </div>\n</div>",
-    "subject": "Thank you for your donation - {{ donation_id|e }}",
-    "use_html": 1
-  },
-  {
-    "docstatus": 0,
-    "doctype": "Email Template",
-    "enabled": 1,
-    "modified": "2026-01-04 12:00:00",
-    "name": "donation_payment_confirmation",
-    "reference_doctype": "Donation",
-    "response": null,
-    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-success\">\n        <h2 class=\"email-title\">✅ Payment Confirmed</h2>\n        <p class=\"email-subtitle\">{{ (organization_name or \"Our Organization\")|e }}</p>\n    </div>\n    \n    <div class=\"email-content\">\n        <p>Dear {{ donor_name|e }},</p>\n        \n        <p>We have received your payment for donation {{ donation_id|e }}. Thank you for your generous support!</p>\n        \n        <div class=\"email-content-box\">\n            <h3 style=\"margin-top: 0; color: #155724;\">Payment Confirmed</h3>\n            <table class=\"email-data-table\">\n                <tr>\n                    <td><strong>Amount Paid:</strong></td>\n                    <td>€{{ donation_amount }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Payment Date:</strong></td>\n                    <td>{{ payment_date|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Payment Method:</strong></td>\n                    <td>{{ payment_method|e }}</td>\n                </tr>\n                <tr>\n                    <td><strong>Reference:</strong></td>\n                    <td>{{ payment_reference|e }}</td>\n                </tr>\n            </table>\n        </div>\n        \n        <p>Your contribution of €{{ donation_amount }} for {{ earmarking|e }} will help us continue our important work.</p>\n        \n        <p>This email serves as your payment receipt. Please keep it for your records.</p>\n        \n        <p>Thank you again for your support!</p>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            Best regards,<br>\n            {{ organization_name|e }}\n        </div>\n    </div>\n</div>",
-    "subject": "Payment Received - Donation {{ donation_id|e }}",
     "use_html": 1
   },
   {
@@ -429,18 +369,6 @@
     "response": null,
     "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-info\">\n        <h2 class=\"email-title\">📋 ANBI Consent Request</h2>\n        <p class=\"email-subtitle\">{{ organization_name|e }}</p>\n    </div>\n    \n    <div class=\"email-content\">\n        <p>Dear {{ donor_name|e }},</p>\n        \n        <p>Thank you for your generous donations to {{ organization_name|e }}.</p>\n        \n        <p>As an ANBI-registered organization, we can provide you with tax benefits for your donations. To enable these benefits and comply with Dutch tax regulations, we need your consent to:</p>\n        \n        <ul>\n            <li>Store your tax identification number (BSN for individuals, RSIN for organizations)</li>\n            <li>Report eligible donations to the Belastingdienst for automatic tax deduction</li>\n        </ul>\n        \n        <div class=\"email-alert-info\">\n            <h3 style=\"margin-top: 0;\">Benefits for You</h3>\n            <ul style=\"margin-bottom: 0;\">\n                <li>Automatic tax deduction for donations</li>\n                <li>No need to manually claim deductions in your tax return</li>\n                <li>Full deductibility for periodic donation agreements (5+ years)</li>\n            </ul>\n        </div>\n        \n        <div class=\"email-content-box\">\n            <h3 style=\"margin-top: 0;\">Your Privacy is Protected</h3>\n            <ul style=\"margin-bottom: 0;\">\n                <li>Tax identifiers are encrypted and stored securely</li>\n                <li>Data is only used for tax reporting purposes</li>\n                <li>You can withdraw consent at any time</li>\n            </ul>\n        </div>\n        \n        <p><strong>To provide your consent:</strong></p>\n        <ol>\n            <li>Log in to your donor portal</li>\n            <li>Navigate to your profile settings</li>\n            <li>Click on \"ANBI Consent\" and follow the instructions</li>\n        </ol>\n        \n        <p>If you have any questions, please don't hesitate to contact us at {{ organization_email|e }}.</p>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            With gratitude,<br>\n            {{ organization_name|e }}<br>\n            <br>\n            This email was sent because you are a registered donor. If you no longer wish to receive these communications, please update your preferences in your donor portal.\n        </div>\n    </div>\n</div>",
     "subject": "ANBI Consent Request - Tax Benefits for Your Donations",
-    "use_html": 1
-  },
-  {
-    "docstatus": 0,
-    "doctype": "Email Template",
-    "enabled": 1,
-    "modified": "2026-01-04 12:00:00",
-    "name": "termination_overdue_notification",
-    "reference_doctype": null,
-    "response": null,
-    "response_html": "<div class=\"email-container\">\n    <div class=\"email-header-danger\">\n        <h2 class=\"email-title\">⚠️ Overdue Termination Requests</h2>\n        <p class=\"email-subtitle\">System Administration</p>\n    </div>\n    \n    <div class=\"email-content\">\n        <p>Dear Administrator,</p>\n        \n        <p>The following termination requests are overdue and require immediate attention:</p>\n        \n        <div class=\"email-content-box\">\n            <table class=\"email-data-table\" style=\"border: 1px solid #dee2e6;\">\n                <thead style=\"background-color: #f8f9fa;\">\n                    <tr>\n                        <th style=\"padding: 8px; text-align: left;\">Request ID</th>\n                        <th style=\"padding: 8px; text-align: left;\">Member</th>\n                        <th style=\"padding: 8px; text-align: left;\">Request Date</th>\n                        <th style=\"padding: 8px; text-align: left;\">Days Overdue</th>\n                    </tr>\n                </thead>\n                <tbody>\n                    {% for request in overdue_requests %}\n                    <tr>\n                        <td style=\"padding: 8px;\">{{ request.name|e }}</td>\n                        <td style=\"padding: 8px;\">{{ request.member_name|e }}</td>\n                        <td style=\"padding: 8px;\">{{ request.request_date|e }}</td>\n                        <td style=\"padding: 8px;\">{{ request.days_overdue|e }}</td>\n                    </tr>\n                    {% endfor %}\n                </tbody>\n            </table>\n        </div>\n        \n        <p>Please review and process these requests promptly to maintain compliance with termination procedures.</p>\n        \n        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e9ecef;\">\n        <div class=\"email-footer\">\n            Best regards,<br>\n            System Administrator\n        </div>\n    </div>\n</div>",
-    "subject": "Overdue Termination Requests - {{ count }} items",
     "use_html": 1
   },
   {

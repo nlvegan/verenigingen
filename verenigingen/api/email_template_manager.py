@@ -59,6 +59,8 @@ Author: Verenigingen Development Team
 License: MIT
 """
 
+import json
+import os
 import traceback
 from typing import Any, Dict
 
@@ -96,6 +98,30 @@ def reset_stock_email_templates() -> OperationResult[Dict[str, Any]]:
     is the one that overwrites. Same ADMIN/critical gate as the create endpoint.
     """
     return _seed_comprehensive_email_templates(overwrite=True)
+
+
+SHIPPED_TEMPLATES_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "setup", "stock_email_templates.json"
+)
+
+
+def _load_shipped_email_templates():
+    """Stock rows that used to ship as fixtures, in the shape the seeder loop expects (#1984).
+
+    They are NOT under fixtures/: Frappe's sync_fixtures re-imports every fixtures/*.json on
+    each migrate, which overwrote staff edits. Here they are only ever created when missing.
+    """
+    with open(SHIPPED_TEMPLATES_PATH, encoding="utf-8") as f:
+        rows = json.load(f)
+    return [
+        {
+            "name": row["name"],
+            "subject": row["subject"],
+            "response": row["response_html"],
+            "reference_doctype": row.get("reference_doctype"),
+        }
+        for row in rows
+    ]
 
 
 def _seed_comprehensive_email_templates(overwrite: bool = False) -> OperationResult[Dict[str, Any]]:
@@ -194,217 +220,9 @@ def _seed_comprehensive_email_templates(overwrite: bool = False) -> OperationRes
     """
     try:
         templates = [
-            # Expense notification templates
-            {
-                "name": "expense_approval_request",
-                "subject": "💰 Expense Approval Required - {{ doc.name }}",
-                "response": """
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                    <h2 style="color: #2c3e50; margin: 0;">💰 Expense Approval Required</h2>
-                    <p style="color: #7f8c8d; margin: 5px 0 0 0;">{{ company }}</p>
-                </div>
-
-                <div style="background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;">
-                    <p>Dear {{ approver_name | e }},</p>
-
-                    <p>A new expense has been submitted and requires your <strong>{{ required_level }} level</strong> approval:</p>
-
-                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                        <table style="width: 100%; border-collapse: collapse;">
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Expense ID:</td><td>{{ doc.name }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Volunteer:</td><td>{{ volunteer_name | e }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Description:</td><td>{{ doc.description | e }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Amount:</td><td style="font-size: 18px; color: #e74c3c;">{{ formatted_amount }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Date:</td><td>{{ formatted_date }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Category:</td><td>{{ category_name | e }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Organization:</td><td>{{ organization_name | e }} ({{ doc.organization_type }})</td></tr>
-                        </table>
-                    </div>
-
-                    <div style="text-align: center; margin: 25px 0;">
-                        <a href="{{ approval_url }}" style="background-color: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
-                            Review & Approve Expense
-                        </a>
-                    </div>
-
-                    <p style="text-align: center; margin-top: 15px;">
-                        <a href="{{ dashboard_url }}" style="color: #007bff;">View All Pending Approvals</a>
-                    </p>
-
-                    <hr style="margin: 20px 0; border: none; border-top: 1px solid #e9ecef;">
-                    <p style="font-size: 12px; color: #6c757d;">
-                        This is an automated notification from {{ company }}.
-                        Please do not reply to this email.
-                    </p>
-                </div>
-            </div>
-            """,
-            },
-            {
-                "name": "expense_approved",
-                "subject": "✅ Expense Approved - {{ doc.name }}",
-                "response": """
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background-color: #d4edda; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                    <h2 style="color: #155724; margin: 0;">✅ Expense Approved</h2>
-                    <p style="color: #155724; margin: 5px 0 0 0;">{{ company }}</p>
-                </div>
-
-                <div style="background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;">
-                    <p>Dear {{ volunteer_name | e }},</p>
-
-                    <p>Great news! Your expense has been approved by {{ approved_by_name | e }}.</p>
-
-                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                        <table style="width: 100%; border-collapse: collapse;">
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Expense ID:</td><td>{{ doc.name }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Description:</td><td>{{ doc.description | e }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Amount:</td><td style="font-size: 18px; color: #28a745;">{{ formatted_amount }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Approved On:</td><td>{{ approved_on }}</td></tr>
-                        </table>
-                    </div>
-
-                    <p>Your expense will be processed for reimbursement according to the organization's payment schedule.</p>
-
-                    <hr style="margin: 20px 0; border: none; border-top: 1px solid #e9ecef;">
-                    <p style="font-size: 12px; color: #6c757d;">
-                        This is an automated notification from {{ company }}.
-                    </p>
-                </div>
-            </div>
-            """,
-            },
-            {
-                "name": "expense_rejected",
-                "subject": "❌ Expense Rejected - {{ doc.name }}",
-                "response": """
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background-color: #f8d7da; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                    <h2 style="color: #721c24; margin: 0;">❌ Expense Rejected</h2>
-                    <p style="color: #721c24; margin: 5px 0 0 0;">{{ company }}</p>
-                </div>
-
-                <div style="background-color: white; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px;">
-                    <p>Dear {{ volunteer_name | e }},</p>
-
-                    <p>We regret to inform you that your expense has been rejected by {{ rejected_by_name | e }}.</p>
-
-                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                        <table style="width: 100%; border-collapse: collapse;">
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Expense ID:</td><td>{{ doc.name }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Description:</td><td>{{ doc.description | e }}</td></tr>
-                            <tr><td style="padding: 5px 0; font-weight: bold;">Amount:</td><td>{{ formatted_amount }}</td></tr>
-                        </table>
-                    </div>
-
-                    <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #ffc107;">
-                        <p style="margin: 0; font-weight: bold;">Rejection Reason:</p>
-                        <p style="margin: 5px 0 0 0;">{{ rejection_reason | e }}</p>
-                    </div>
-
-                    <p>If you have questions about this decision, please contact your organization's board or the person who rejected the expense.</p>
-
-                    <hr style="margin: 20px 0; border: none; border-top: 1px solid #e9ecef;">
-                    <p style="font-size: 12px; color: #6c757d;">
-                        This is an automated notification from {{ company }}.
-                    </p>
-                </div>
-            </div>
-            """,
-            },
-            # Donation templates
-            {
-                "name": "donation_confirmation",
-                "subject": "Thank you for your donation - {{ donation_id }}",
-                "response": """
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2>Dear {{ donor_name | e }},</h2>
-
-                <p>Thank you for your generous donation to {{ organization_name }}!</p>
-
-                <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                    <h3>Donation Details</h3>
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <tr>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Donation ID:</strong></td>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ donation_id }}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Amount:</strong></td>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">€{{ donation_amount }}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Date:</strong></td>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ donation_date }}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Purpose:</strong></td>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ earmarking | e }}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 8px 0;"><strong>Status:</strong></td>
-                            <td style="padding: 8px 0;">{{ donation_status }}</td>
-                        </tr>
-                    </table>
-                </div>
-
-                <p>Your donation helps us make a positive impact in our community. We will send you a payment confirmation once your payment has been processed.</p>
-
-                {% if donation_notes %}
-                <p><strong>Your message:</strong><br>
-                <em>{{ donation_notes | e }}</em></p>
-                {% endif %}
-
-                <p>If you have any questions about your donation, please don't hesitate to contact us at {{ organization_email }}.</p>
-
-                <p>With gratitude,<br>
-                {{ organization_name }}</p>
-            </div>
-            """,
-            },
-            {
-                "name": "donation_payment_confirmation",
-                "subject": "Payment Received - Donation {{ donation_id }}",
-                "response": """
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2>Dear {{ donor_name | e }},</h2>
-
-                <p>We have received your payment for donation {{ donation_id }}. Thank you for your generous support!</p>
-
-                <div style="background-color: #d4edda; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;">
-                    <h3 style="color: #155724; margin-top: 0;">Payment Confirmed</h3>
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <tr>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;"><strong>Amount Paid:</strong></td>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;">€{{ donation_amount }}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;"><strong>Payment Date:</strong></td>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;">{{ payment_date }}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;"><strong>Payment Method:</strong></td>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;">{{ payment_method }}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 8px 0;"><strong>Reference:</strong></td>
-                            <td style="padding: 8px 0;">{{ payment_reference | e }}</td>
-                        </tr>
-                    </table>
-                </div>
-
-                <p>Your contribution of €{{ donation_amount }} for {{ earmarking | e }} will help us continue our important work.</p>
-
-                <p>This email serves as your payment receipt. Please keep it for your records.</p>
-
-                <p>Thank you again for your support!</p>
-
-                <p>Best regards,<br>
-                {{ organization_name }}</p>
-            </div>
-            """,
-            },
+            # The six rows the fixture sync used to own (#1984): expense_*, donation_*,
+            # termination_overdue_notification. Same wording live sites carry today.
+            *_load_shipped_email_templates(),
             {
                 "name": "anbi_tax_receipt",
                 "subject": "Tax Deduction Receipt - {{ receipt_number }}",
@@ -448,41 +266,6 @@ def _seed_comprehensive_email_templates(overwrite: bool = False) -> OperationRes
 
                 <p>Best regards,<br>
                 {{ organization_name }}</p>
-            </div>
-            """,
-            },
-            # Termination templates
-            {
-                "name": "termination_overdue_notification",
-                "subject": "Overdue Termination Requests - {{ count }} items",
-                "response": """
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #dc3545;">⚠️ Overdue Termination Requests</h2>
-
-                <p>Dear Administrator,</p>
-
-                <p>The following termination requests are overdue and require immediate attention:</p>
-
-                <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <thead>
-                            <tr style="background-color: #e9ecef;">
-                                <th style="padding: 8px; text-align: left;">Request ID</th>
-                                <th style="padding: 8px; text-align: left;">Member</th>
-                                <th style="padding: 8px; text-align: left;">Request Date</th>
-                                <th style="padding: 8px; text-align: left;">Days Overdue</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {{ request_rows }}
-                        </tbody>
-                    </table>
-                </div>
-
-                <p>Please review and process these requests promptly to maintain compliance with termination procedures.</p>
-
-                <p>Best regards,<br>
-                System Administrator</p>
             </div>
             """,
             },
@@ -575,6 +358,7 @@ def _seed_comprehensive_email_templates(overwrite: bool = False) -> OperationRes
                             # With use_html=1, Frappe renders response_html, so it
                             # must carry the HTML too — otherwise native sends are empty.
                             "response_html": template_data["response"],
+                            "reference_doctype": template_data.get("reference_doctype"),
                             "enabled": 1,
                         }
                     )
@@ -597,10 +381,11 @@ def _seed_comprehensive_email_templates(overwrite: bool = False) -> OperationRes
                         )
 
             except Exception as e:
-                failures.append(f"{template_name}: {str(e)}")
+                reason = str(e)
+                failures.append(f"{template_name}: {reason}")
                 frappe.log_error(
                     title="Email Template Error",
-                    message=f"Failed to {'reset' if overwrite else 'create'} template '{template_name}': {str(e)}",
+                    message=f"Failed to {'reset' if overwrite else 'create'} template '{template_name}': {reason}",
                 )
 
         frappe.db.commit()

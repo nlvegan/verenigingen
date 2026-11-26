@@ -109,6 +109,9 @@ after_migrate = [
     # (When a key IS missing the Single is saved, so a pre-existing invalid row, e.g. a bad email
     # or duplicate key, would fail that save and so the migrate; the v2_2 patch shares the risk.)
     "verenigingen.setup.notification_registry_setup.ensure_notification_registry_rows",
+    # The stock Email Templates are no longer fixtures (the fixture sync overwrote staff edits on
+    # every migrate, #1984); create the missing ones here. Create-only: existing rows are left alone.
+    "verenigingen.setup.stock_email_templates_setup.ensure_stock_email_templates",
 ]
 
 # Run before test suite executes
