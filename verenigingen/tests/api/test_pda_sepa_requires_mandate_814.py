@@ -125,6 +125,20 @@ class TestPdaSepaRequiresMandate814(VereningingenTestCase):
             legacy.save()
         self.assertEqual(frappe.db.get_value("Periodic Donation Agreement", legacy.name, "status"), "Active")
 
+    def test_a_refused_cancel_does_not_leave_the_exemption_on_the_document(self):
+        # Review nit: if the workflow refuses the transition, a caller that catches the
+        # error and keeps saving the same object must not inherit the cancel exemption.
+        # Fault injected at the controller's apply_workflow (a refusal is not reachable
+        # with this site's workflow roles).
+        legacy = self._plant_legacy_active_sepa_row_814()
+        controller = "verenigingen.verenigingen.doctype.periodic_donation_agreement.periodic_donation_agreement"
+        with patch(f"{controller}.apply_workflow", side_effect=frappe.PermissionError("refused")):
+            with self.assertRaises(frappe.PermissionError):
+                legacy.cancel_agreement(reason="legacy cleanup")
+        legacy.annual_amount = 1777
+        with self.assertRaises(frappe.ValidationError):
+            legacy.save()
+
     def test_payment_method_defaults_to_bank_transfer(self):
         self.assertEqual(frappe.new_doc("Periodic Donation Agreement").payment_method, "Bank Transfer")
 

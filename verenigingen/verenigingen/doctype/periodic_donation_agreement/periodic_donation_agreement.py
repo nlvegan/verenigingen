@@ -491,17 +491,20 @@ class PeriodicDonationAgreement(Document):
         self.cancellation_reason = reason or _("Cancelled by donor request")
         self.cancellation_processed_by = frappe.session.user
         self.flags.cancelling = True  # exempts this save from validate_sepa_has_mandate (#814)
-
-        if self.meta.get_workflow():
-            # The workflow decides who may cancel from which state (#1850). apply_workflow
-            # reloads the doc from the database and its condition reads cancellation_reason,
-            # so the reason must be saved first; a refused transition rolls it back.
-            self.save()
-            # apply_workflow loads the doc in place, so self ends up as the saved row.
-            apply_workflow(self, "Cancel Agreement")
-        else:
-            self.status = "Cancelled"
-            self.save()
+        try:
+            if self.meta.get_workflow():
+                # The workflow decides who may cancel from which state (#1850). apply_workflow
+                # reloads the doc from the database and its condition reads cancellation_reason,
+                # so the reason must be saved first; a refused transition rolls it back.
+                self.save()
+                # apply_workflow loads the doc in place, so self ends up as the saved row.
+                apply_workflow(self, "Cancel Agreement")
+            else:
+                self.status = "Cancelled"
+                self.save()
+        finally:
+            # A refused transition must not leave the exemption on this object for a later save.
+            self.flags.pop("cancelling", None)
 
         # Optionally send cancellation confirmation
         if send_email:
