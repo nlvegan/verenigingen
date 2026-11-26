@@ -287,6 +287,27 @@ def _process_rows(run) -> None:
         # mean this payment was imported.
         existing = creator.find_mollie_bank_transaction(row.payment_id, config=mollie_config)
         existing_bt = existing.name if existing else None
+        if existing_bt and existing.docstatus == 0:
+            # #822: a DRAFT is an unfinished import (an earlier caller lacked submit
+            # permission), not a finished one. Retry the submit, scoped to the Mollie
+            # account like the lookup (#383); only a submitted row may skip the payment.
+            creator._resolve_existing_bank_transaction(
+                row.payment_id, mollie_config["bank_account"], mollie_config["company"]
+            )
+            if frappe.db.get_value("Bank Transaction", existing_bt, "docstatus") == 0:
+                row.bank_transaction = existing_bt
+                row.row_status = "Failed"
+                row.message = (
+                    f"Bank Transaction {existing_bt} for {row.payment_id} is still a draft "
+                    "(submit refused); retry after it is submitted"
+                )[:1000]
+                row.processed_at = now_datetime()
+                failed += 1
+                idx += 1
+                if idx % PROGRESS_CHECKPOINT_INTERVAL == 0 or idx == total:
+                    _checkpoint(run, idx, succeeded, skipped, failed, total)
+                    run.reload()
+                continue
         if existing_bt:
             row.bank_transaction = existing_bt
             row.row_status = "Skipped"
