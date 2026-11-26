@@ -53,7 +53,10 @@ def create_user_for_volunteer(volunteer_doc):
 
         # Validate current user has permission to create users
         if not frappe.has_permission("User", "create"):
-            # Use AccountCreationManager for secure user creation instead
+            # Use AccountCreationManager for secure user creation instead.
+            # The link below is dead today: the manager only queues the request and returns
+            # None, so _link_volunteer_to_user never gets a user here (#3342 tracks the
+            # queued path).
             frappe.logger().info(
                 f"Using AccountCreationManager for secure user creation: {volunteer_doc.email}"
             )
@@ -311,31 +314,14 @@ def fix_existing_employee_user_links():
 
         for record in employees_without_users:
             try:
-                # Determine which email to use
-                email = record.volunteer_email or record.personal_email or record.company_email
-                if not email:
-                    errors.append(f"No email found for volunteer {record.volunteer_id}")
-                    continue
-
-                # Check if user exists
-                existing_user = frappe.db.get_value("User", {"email": email}, "name")
-
-                if existing_user:
-                    # Link existing user
-                    if update_employee_with_user(record.employee_id, existing_user):
-                        fixed_count += 1
-                        _link_volunteer_to_user(
-                            frappe.get_doc("Volunteer", record.volunteer_id), existing_user
-                        )
-                else:
-                    # Create new user
-                    volunteer_doc = frappe.get_doc("Volunteer", record.volunteer_id)
-                    user_id = create_user_for_volunteer(volunteer_doc)
-                    if user_id and update_employee_with_user(record.employee_id, user_id):
-                        fixed_count += 1
-
+                fixed, error = _fix_one_employee_link(record)
             except Exception as e:
                 errors.append(f"Error processing employee {record.employee_id}: {str(e)}")
+                continue
+            if error:
+                errors.append(error)
+            elif fixed:
+                fixed_count += 1
 
         return {
             "success": True,
@@ -347,6 +333,32 @@ def fix_existing_employee_user_links():
     except Exception as e:
         frappe.log_error(f"Error fixing employee user links: {str(e)}")
         return {"success": False, "error": str(e)}
+
+
+def _fix_one_employee_link(record):
+    """Link one user-less Employee (and its Volunteer) to a User.
+
+    Returns ``(fixed, error)``; unexpected exceptions propagate to the caller.
+    """
+    # Determine which email to use
+    email = record.volunteer_email or record.personal_email or record.company_email
+    if not email:
+        return False, f"No email found for volunteer {record.volunteer_id}"
+
+    # Check if user exists
+    existing_user = frappe.db.get_value("User", {"email": email}, "name")
+
+    if existing_user:
+        # Link existing user
+        if update_employee_with_user(record.employee_id, existing_user):
+            _link_volunteer_to_user(frappe.get_doc("Volunteer", record.volunteer_id), existing_user)
+            return True, None
+        return False, None
+
+    # Create new user
+    volunteer_doc = frappe.get_doc("Volunteer", record.volunteer_id)
+    user_id = create_user_for_volunteer(volunteer_doc)
+    return bool(user_id and update_employee_with_user(record.employee_id, user_id)), None
 
 
 def enhanced_create_minimal_employee(volunteer_doc):

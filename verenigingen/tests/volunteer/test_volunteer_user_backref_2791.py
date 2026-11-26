@@ -17,7 +17,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.employee_user_link import (
     create_employee_for_approved_volunteer,
     enhanced_create_minimal_employee,
-    fix_existing_employee_user_links,
+    _fix_one_employee_link,
 )
 
 
@@ -131,7 +131,18 @@ class TestVolunteerUserBackref2791(EnhancedTestCase):
         ).insert()
         self.factory.track_document("Employee", employee.name, priority=0)
         frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", employee.name, update_modified=False)
-        result = fix_existing_employee_user_links()
-        self.assertTrue(result["success"], result)
+        # Drive the per-record helper for OUR row only: the whitelisted site-wide function
+        # scans every user-less Employee (#3348 widens that), which is not hermetic.
+        fixed, error = _fix_one_employee_link(
+            frappe._dict(
+                employee_id=employee.name,
+                personal_email=self.email_2791,
+                company_email=None,
+                volunteer_id=self.volunteer.name,
+                volunteer_email=self.email_2791,
+                volunteer_name=self.volunteer.volunteer_name,
+            )
+        )
+        self.assertEqual((fixed, error), (True, None))
         self.assertEqual(frappe.db.get_value("Employee", employee.name, "user_id"), user.name)
         self.assertEqual(self._volunteer_user_2791(), user.name)
