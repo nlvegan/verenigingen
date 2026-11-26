@@ -102,8 +102,8 @@ class TestEmailFunctionality(EnhancedTestCase):
             email="optout@example.com"
         )
 
-        # Check that the field exists (even if it's None)
-        self.assertTrue(hasattr(member, 'accepts_optional_communications'))
+        # Ask the meta: hasattr on a Document is True for every real field.
+        self.assertTrue(frappe.get_meta("Member").has_field("accepts_optional_communications"))
 
         # Test opting out (accepts = 0)
         member.accepts_optional_communications = 0

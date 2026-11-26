@@ -109,6 +109,12 @@ class TestScheduleMaintenance(VereningingenTestCase):
         for mship in frappe.get_all("Membership", filters={"member": member}, pluck="name"):
             frappe.db.sql("DELETE FROM `tabMembership` WHERE name = %s", mship)
         frappe.db.sql("DELETE FROM `tabMember` WHERE name = %s", member)
+        # The raw delete also strands the Member's child rows (e.g. a Chapter Membership
+        # History row linking a Chapter). Frappe's link check counts them as references,
+        # and a Chapter delete is refused while one exists (#2745), so the test's Chapter
+        # would leak at teardown. Remove them with the parent they belong to.
+        for table_field in frappe.get_meta("Member").get_table_fields():
+            frappe.db.delete(table_field.options, {"parent": member, "parenttype": "Member"})
         return member
 
     def _persist_zero_rate(self, schedule_name):

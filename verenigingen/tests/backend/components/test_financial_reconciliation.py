@@ -439,9 +439,13 @@ class TestFinancialReconciliationComprehensive(VereningingenTestCase):
         member.save()
 
         mandate.status = "Cancelled"
-        mandate.cancellation_date = today()
+        mandate.cancelled_date = today()
         mandate.cancellation_reason = "Member terminated"
         mandate.save()
+
+        self.assertEqual(
+            frappe.db.get_value("SEPA Mandate", mandate.name, "cancelled_date"), getdate(today())
+        )
 
         # Process mandate cancellation impact
         cancellation_impact = self.process_mandate_cancellation_impact(mandate.name, scheduled_transactions)

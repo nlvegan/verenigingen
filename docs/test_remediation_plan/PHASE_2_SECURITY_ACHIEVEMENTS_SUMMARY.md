@@ -203,6 +203,8 @@ with secure_user_context(get_creation_user(), "member creation") as ctx:
 
 **Script**: `scripts/monitoring/context_switching_performance_monitor.py`
 
+_Removed in #2859: the script recorded nothing; its event source (`SecureContextManager`) never existed._
+
 **Monitoring Features:**
 
 - Real-time context switching latency tracking

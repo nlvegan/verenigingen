@@ -17,9 +17,12 @@ verenigingen/utils/bank_integration.py (re-exports *).
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import frappe
+import requests
 
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.utils.bank_integration import (
@@ -203,7 +206,7 @@ class TestCamt053Parsing(VereningingenTestCase):
         self.assertEqual(txn["reference"], "")
         self.assertEqual(txn["description"], "")
         # No BookgDt -> defaults to today()
-        self.assertEqual(txn["date"], frappe.utils.today())
+        assert_written_today(self, txn["date"])
 
 
 # --------------------------------------------------------------------------- #
@@ -845,6 +848,152 @@ class TestMT940ImportOnlyPaysSubmittedInvoices(VereningingenTestCase):
         self.assertEqual(
             resolve_invoice_from_reference(f"PAYMENT {submitted.name} THANKS"), submitted.name
         )
+
+
+class TestBankStatementImportDuplicateGuardAndCamtPath(VereningingenTestCase):
+    """#2591: `_create_payment_entry`'s "Payment already exists" guard and the CAMT.053
+    parse-to-paid-invoice path. Entered at `_import_camt053` with real CAMT.053 XML
+    (not through `import_statement`, which only reads the file and dispatches), a real
+    Sales Invoice and a real Payment Entry; nothing is stubbed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.company, _income = self._owned_company_and_income_account()
+        customer = frappe.new_doc("Customer")
+        customer.customer_name = f"Dup Guard Debtor {frappe.generate_hash(length=6)}"
+        customer.customer_type = "Individual"
+        customer.save()
+        self.track_doc("Customer", customer.name)
+        self.customer = customer.name
+        self.invoice = self.create_test_sales_invoice(customer=self.customer, company=self.company)
+        self.invoice.submit()
+        self.invoice.reload()
+        self.assertEqual(self.invoice.docstatus, 1, "premise: a submitted invoice")
+
+    def _statement(self, amount):
+        """A CAMT.053 file whose one credit names the invoice in EndToEndId."""
+        entry = (
+            f'<Ntry><Amt Ccy="EUR">{amount:.2f}</Amt><CdtDbtInd>CRDT</CdtDbtInd>'
+            "<BookgDt><Dt>2026-11-12</Dt></BookgDt><NtryDtls><TxDtls>"
+            f"<Refs><EndToEndId>{self.invoice.name}</EndToEndId></Refs>"
+            "<RltdPties><Dbtr><Nm>Nobody In Particular</Nm></Dbtr></RltdPties>"
+            "<RmtInf><Ustrd>Dues</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>"
+        )
+        handle = tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False, encoding="utf-8")
+        handle.write(_camt053(entry))
+        handle.close()
+        self.addCleanup(os.unlink, handle.name)
+        return handle.name
+
+    def _import_camt(self, amount):
+        importer = BankStatementImporter()
+        result = importer._import_camt053(open(self._statement(amount), encoding="utf-8").read())
+        return importer, result
+
+    def _guard_payment_entries(self):
+        names = frappe.get_all(
+            "Payment Entry",
+            filters={"reference_no": f"BANK_IMPORT_{self.invoice.name}", "docstatus": 1},
+            pluck="name",
+        )
+        for name in names:
+            self.track_doc("Payment Entry", name)
+        return names
+
+    def test_a_camt_credit_naming_a_submitted_invoice_pays_it(self):
+        """The full CAMT.053 path: parse -> resolve -> Payment Entry -> invoice paid."""
+        total = float(self.invoice.grand_total)
+        importer, result = self._import_camt(total)
+        self.assertEqual(result["transactions_imported"], 1, (importer.errors, importer.warnings))
+        self.assertEqual(len(self._guard_payment_entries()), 1)
+        self.invoice.reload()
+        self.assertEqual(float(self.invoice.outstanding_amount), 0.0)
+        self.assertEqual(self.invoice.status, "Paid")
+
+    def test_importing_the_same_statement_twice_books_one_payment(self):
+        total = float(self.invoice.grand_total)
+        first, first_result = self._import_camt(total)
+        self.assertEqual(first_result["transactions_imported"], 1, (first.errors, first.warnings))
+        self.assertEqual(len(self._guard_payment_entries()), 1, "premise: the first import paid")
+
+        second, second_result = self._import_camt(total)
+
+        self.assertEqual(second_result["transactions_imported"], 0)
+        self.assertEqual(len(self._guard_payment_entries()), 1, "the second import booked a duplicate")
+        self.assertEqual(second.errors, [], "the refusal must come from the guard, not from a failure")
+        self.assertEqual(
+            second.warnings,
+            [f"Payment already exists for invoice {self.invoice.name}"],
+        )
+
+    def test_a_cancelled_payment_does_not_block_a_reimport(self):
+        """The guard counts only SUBMITTED Payment Entries: after the first one is
+        cancelled (through the real cancel()), the same statement pays the invoice again."""
+        total = float(self.invoice.grand_total)
+        first, first_result = self._import_camt(total)
+        self.assertEqual(first_result["transactions_imported"], 1, (first.errors, first.warnings))
+        (first_name,) = self._guard_payment_entries()
+        frappe.get_doc("Payment Entry", first_name).cancel()
+        self.invoice.reload()
+        self.assertAlmostEqual(float(self.invoice.outstanding_amount), total, places=2)
+
+        second, second_result = self._import_camt(total)
+
+        self.assertEqual(second_result["transactions_imported"], 1, (second.errors, second.warnings))
+        (second_name,) = self._guard_payment_entries()
+        self.assertNotEqual(second_name, first_name)
+        self.assertEqual(frappe.db.get_value("Payment Entry", first_name, "docstatus"), 2)
+
+
+class TestBankApiTransportFailures(VereningingenTestCase):
+    """#2591: `BankAPIClient.fetch_statements` reports a Timeout or ConnectionError from the
+    bank as a failure with a specific message, never as success.
+
+    Driven through the real method with `requests.get` replaced at the IO boundary. No
+    Bank Integration Settings row exists on a test site (the DocType never installs, #2881),
+    so the settings lookup is stood in for as `test_client_ip_sources.TestBankPsuIp` does.
+    """
+
+    def _fetch_with_transport(self, **requests_get_kwargs):
+        settings = frappe._dict(api_endpoint="https://bank.invalid", account_id="ACC1", access_token="")
+        real_exists = frappe.db.exists
+
+        def exists_only_for_settings_doctype(*args, **kwargs):
+            if args[:2] == ("DocType", "Bank Integration Settings"):
+                return True
+            return real_exists(*args, **kwargs)
+
+        with (
+            # Scoped to that one doctype check; every other exists() call reaches the real database.
+            # Mock justified: call-through spy that fakes only the Bank Integration Settings DocType check (#2881, the DocType never installs)
+            patch("frappe.db.exists", side_effect=exists_only_for_settings_doctype),
+            patch("frappe.get_single", return_value=settings) as fake_single,  # Mock justified: same missing settings row
+            patch("requests.get", **requests_get_kwargs) as fake_get,  # Mock justified: External Service
+        ):
+            result = BankAPIClient().fetch_statements("2025-03-15")
+        fake_single.assert_called_once_with("Bank Integration Settings")
+        return result, fake_get
+
+    def test_a_request_timeout_is_reported_as_a_timeout(self):
+        result, fake_get = self._fetch_with_transport(side_effect=requests.exceptions.Timeout())
+        self.assertEqual(fake_get.call_count, 1, "premise: the request was attempted")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "Bank API request timeout - please try again later")
+
+    def test_a_connection_error_is_reported_as_a_connection_error(self):
+        result, fake_get = self._fetch_with_transport(side_effect=requests.exceptions.ConnectionError())
+        self.assertEqual(fake_get.call_count, 1, "premise: the request was attempted")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "Cannot connect to bank API - please check network connection")
+
+    def test_a_generic_failure_takes_neither_transport_handler(self):
+        """Control: an unrelated exception reaches the catch-all, so the two messages above
+        really belong to their own handlers."""
+        self.expectErrorLog("Bank API integration error: boom")
+        result, _ = self._fetch_with_transport(side_effect=ValueError("boom"))
+        self.assertFalse(result["success"])
+        self.assertTrue(result["error"].startswith("Unexpected error"), result)
 
 
 if __name__ == "__main__":

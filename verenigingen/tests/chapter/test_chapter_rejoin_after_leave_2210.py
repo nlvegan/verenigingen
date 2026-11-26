@@ -12,6 +12,7 @@ which is not what is under test; the method it calls is the same one).
 
 import frappe
 
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
 from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -118,7 +119,7 @@ class TestChapterRejoinAfterLeave2210(EnhancedTestCase):
         self.assertEqual(len(after), len(requested), "approval adds no entry")
         # #2430: approval moves the rejoin's Pending entry to Active (it used to stay Pending).
         self.assertEqual(after[-1].status, "Active", after)
-        self.assertEqual(after[-1].start_date, frappe.utils.getdate(frappe.utils.today()))
+        assert_written_today(self, after[-1].start_date)
 
     def test_second_rejoin_after_second_leave_still_one_row(self):
         for _i in range(2):

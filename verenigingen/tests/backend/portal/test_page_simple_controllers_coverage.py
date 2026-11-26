@@ -77,8 +77,8 @@ class TestSimplePortalControllers(EnhancedTestCase):
             brand_css_disabled.get_context(context)
         self.assertEqual(context.no_cache, 1)
         self.assertIn("--brand-primary", context.css_content)
-        self.assertEqual(frappe.response.content_type, "text/css; charset=utf-8")
-        self.assertIn("no-cache", frappe.response.headers["Cache-Control"])
+        self.assertEqual(frappe.local.response_headers["Content-Type"], "text/css; charset=utf-8")
+        self.assertIn("no-cache", frappe.local.response_headers["Cache-Control"])
 
     # ------------------------------------------------------------------ #
     # Permission-gated tool pages: allowed as Administrator

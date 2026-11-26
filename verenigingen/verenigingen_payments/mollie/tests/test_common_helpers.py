@@ -29,7 +29,6 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     create_success_response,
     format_mollie_amount,
     format_mollie_amount_string,
-    get_member_by_customer_id,
     get_member_by_subscription_id,
     get_members_by_customer,
     get_mollie_currency,
@@ -343,26 +342,6 @@ class TestMemberLookupUtilities(EnhancedTestCase):
         self.assertEqual(result["name"], member.name)
         self.assertEqual(result["mollie_customer_id"], "cst_test_789")
 
-    def test_get_member_by_customer_id_not_found(self):
-        """Test lookup returns None for non-existent customer"""
-        result = get_member_by_customer_id("cst_nonexistent_999")
-        self.assertIsNone(result)
-
-    def test_get_member_by_customer_id_with_test_member(self):
-        """Test lookup finds member by Mollie customer ID"""
-        import time
-
-        unique_suffix = str(int(time.time() * 1000))[-6:]  # Last 6 digits of timestamp
-
-        member = self.create_test_member(first_name=f"Customer{unique_suffix}", last_name="Test")
-
-        test_customer_id = "cst_test_customer_abc"
-        member.db_set("mollie_customer_id", test_customer_id)
-
-        result = get_member_by_customer_id(test_customer_id)
-        self.assertIsNotNone(result)
-        self.assertEqual(result["name"], member.name)
-
     def test_get_members_by_customer_not_found(self):
         """Test lookup returns empty list for non-existent customer"""
         result = get_members_by_customer("CUST-NONEXISTENT-001")
@@ -389,12 +368,6 @@ class TestMemberLookupUtilities(EnhancedTestCase):
         """Test lookup handles empty string gracefully"""
         result = get_member_by_subscription_id("")
         self.assertIsNone(result)
-
-    def test_get_member_by_customer_id_none_value(self):
-        """Test lookup handles None value gracefully"""
-        result = get_member_by_customer_id(None)
-        self.assertIsNone(result)
-
 
 class TestMollieUtilityIntegration(EnhancedTestCase):
     """Integration tests for Mollie utility chains"""
@@ -469,13 +442,10 @@ class TestMollieUtilityIntegration(EnhancedTestCase):
         self.assertEqual(formatted_amount["value"], "75.00")
         self.assertEqual(formatted_amount["currency"], "EUR")
 
-        # Step 3: Verify member lookups work in both directions
-        by_customer = get_member_by_customer_id(test_customer_id)
+        # Step 3: Verify the member lookup by subscription ID
         by_subscription = get_member_by_subscription_id(test_subscription_id)
 
-        self.assertIsNotNone(by_customer, "Member lookup by customer ID failed")
         self.assertIsNotNone(by_subscription, "Member lookup by subscription ID failed")
-        self.assertEqual(by_customer["name"], member.name)
         self.assertEqual(by_subscription["name"], member.name)
 
         # Step 4: Test complete subscription data structure

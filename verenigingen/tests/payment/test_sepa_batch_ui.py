@@ -45,6 +45,7 @@ from frappe.utils import add_days, getdate, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.payment.sepa_batch_loader_test_helpers import (
+    BatchRowBankDataFromMandateMixin,
     customer_only_invoice,
     put_invoice_in_batch,
 )
@@ -915,6 +916,10 @@ class TestCreateSepaBatchValidated(SepaBatchUITestBase):
         self.assertFalse(result["success"])
         joined = " ".join(result.get("errors", []))
         self.assertIn("not in EUR", joined)
+
+
+class TestCreateSepaBatchValidatedBankDataFromMandate(BatchRowBankDataFromMandateMixin, SepaBatchUITestBase):
+    _create_endpoint = staticmethod(ui.create_sepa_batch_validated)
 
 
 class TestLoadUnpaidInvoicesResolvesRealMembership(SepaBatchUITestBase):

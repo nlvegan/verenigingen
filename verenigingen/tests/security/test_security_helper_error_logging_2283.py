@@ -116,8 +116,11 @@ class TestSecurityHelperErrorLogging2283(EnhancedTestCase):
         return f"rp2283-{frappe.generate_hash(length=10)}@example.com"
 
     def test_control_role_profiles_empty_for_unknown_user_without_error(self):
+        # Compare before/after, not "no such row site-wide": Error Log is MyISAM, so rows written by
+        # any earlier module (an intentional-error control) survive teardown on the same DB (#2409).
+        before = self._error_log_rows_2283(RP_TITLE)
         self.assertEqual(get_authorization_engine().get_user_role_profiles(self._fresh_user()), [])
-        self.assertEqual(self._error_log_rows_2283(RP_TITLE), [])
+        self.assertEqual(len(self._error_log_rows_2283(RP_TITLE)), len(before))
 
     def test_role_profile_error_returns_empty_and_is_recorded(self):
         self.expectErrorLog(RP_TITLE)

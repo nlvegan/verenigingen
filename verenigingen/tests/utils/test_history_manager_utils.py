@@ -40,7 +40,6 @@ from verenigingen.utils.history_manager_utils import (
     check_duplicate_entry,
     cleanup_child_table_broken_links,
     ensure_doc_exists,
-    error_relates_to_child_table,
     find_entry_by_criteria,
     get_child_table_doctype,
     get_request_cache,
@@ -285,9 +284,10 @@ class TestHistoryManagerUtils(EnhancedTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["chapter_name"], self.chapter.name)
 
-    def test_auto_cleanup_skipped_when_error_unrelated(self):
-        """When the validation error does not relate to the child table, cleanup
-        is skipped and the failure is returned untouched (no rows removed)."""
+    def test_auto_cleanup_deletes_nothing_when_the_failure_is_not_from_this_table(self):
+        """#2931: the old premise ("error text names another doctype -> skip") was a text match.
+        Now the data decides: every row in OUR table is alive, so nothing is removed whatever
+        the message says."""
         from unittest.mock import patch
 
         from frappe.model.document import Document
@@ -296,7 +296,7 @@ class TestHistoryManagerUtils(EnhancedTestCase):
             raise frappe.ValidationError("Could not find Row #5: Some Unrelated Doctype: WIDGET-1")
 
         doc = self._fresh_member_doc()
-        self._append_history(doc, GHOST_CHAPTER, status="Active")
+        self._append_history(doc, self.chapter.name, status="Active")
 
         with patch.object(Document, "update_child_table", raise_unrelated):
             result = safe_child_table_update(
@@ -304,8 +304,7 @@ class TestHistoryManagerUtils(EnhancedTestCase):
             )
         self.assertFalse(result.success)
         self.assertEqual(result.message, "Validation failed")
-        # The in-memory broken row was NOT cleaned (error deemed unrelated)
-        self.assertEqual(len(doc.chapter_membership_history), 1)
+        self.assertEqual([r.chapter_name for r in doc.chapter_membership_history], [self.chapter.name])
 
     def test_validation_error_without_autocleanup_returns_failure(self):
         from unittest.mock import patch
@@ -420,35 +419,6 @@ class TestHistoryManagerUtils(EnhancedTestCase):
     def test_get_child_table_doctype_unknown_field_returns_none(self):
         doc = self._fresh_member_doc()
         self.assertIsNone(get_child_table_doctype(doc, "not_a_table_field"))
-
-    # =============================================== error_relates_to_child_table
-
-    def test_error_relates_when_doctype_name_in_message(self):
-        self.assertTrue(
-            error_relates_to_child_table(
-                "Could not find Row #11 in Chapter Membership History", CHILD_DOCTYPE
-            )
-        )
-
-    def test_error_relates_when_link_field_in_message(self):
-        # chapter_name is a Link field on the child doctype
-        self.assertTrue(
-            error_relates_to_child_table("Invalid value for chapter_name on the row", CHILD_DOCTYPE)
-        )
-
-    def test_error_relates_when_target_doctype_in_message(self):
-        # 'Chapter' is the options/target of the chapter_name Link field
-        self.assertTrue(error_relates_to_child_table("Could not find Chapter: GHOST", CHILD_DOCTYPE))
-
-    def test_error_relates_false_for_unrelated_message(self):
-        self.assertFalse(
-            error_relates_to_child_table("Could not find Row in Sales Invoice Item", CHILD_DOCTYPE)
-        )
-
-    def test_error_relates_false_for_empty_inputs(self):
-        self.assertFalse(error_relates_to_child_table("", CHILD_DOCTYPE))
-        self.assertFalse(error_relates_to_child_table("some error", ""))
-        self.assertFalse(error_relates_to_child_table(None, CHILD_DOCTYPE))
 
     # =============================================== cleanup_child_table_broken_links
 
@@ -592,25 +562,6 @@ class TestHistoryManagerUtils(EnhancedTestCase):
         self.assertTrue(result.errors)
         # No row should have been written by the denied call
         self.assertEqual(len(self._persisted_rows()), 0)
-
-    # =============================================== error_relates extra branches
-
-    def test_error_relates_via_underscored_table_pattern(self):
-        # The child-table snake_case pattern ("chapter_membership_history")
-        # appearing in the message is a positive match.
-        self.assertTrue(
-            error_relates_to_child_table(
-                "could not sync row in chapter_membership_history table",
-                CHILD_DOCTYPE,
-            )
-        )
-
-    def test_error_relates_meta_lookup_for_unknown_doctype(self):
-        # A non-existent child doctype name: frappe.get_meta raises internally,
-        # the except swallows it, and the function conservatively returns False.
-        self.assertFalse(
-            error_relates_to_child_table("Could not find Row #3: nothing here", "No Such Doctype ZZZ")
-        )
 
     # =============================================== get_child_table_doctype meta path
 

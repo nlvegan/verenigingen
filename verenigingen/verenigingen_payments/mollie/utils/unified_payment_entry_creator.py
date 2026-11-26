@@ -191,6 +191,7 @@ def create_unified_payment_entry(
                 "cost_center": cost_center,
                 "title": base_title,
                 "remarks": base_remarks,
+                "custom_remarks": 1,  # else ERPNext's set_remarks regenerates it on validate (#3088)
                 # Custom fields for reversal tracking
                 "custom_reversal_type": reversal_type_value,
                 "custom_original_payment_id": original_payment_id,

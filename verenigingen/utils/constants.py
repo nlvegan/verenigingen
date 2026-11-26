@@ -280,14 +280,12 @@ class PaymentStatus:
 
     # Status groups for filtering.
     #
-    # PAID_STATUSES means SETTLED -- nothing is owed -- not "the member paid". Its two
-    # consumers deliberately want different things from that, which is why the set is
-    # left alone rather than split (#653):
-    #   * dues_schedule_manager asks "should we still chase this?" and must answer NO
-    #     for a credited invoice -- a waived member must not become collectable again.
-    #   * payment_dashboard asks "what does the member see?" and must NOT say Paid for
-    #     an invoice that was waived. It branches on the credit-note statuses BEFORE
-    #     consulting this set.
+    # PAID_STATUSES means SETTLED -- nothing is owed -- not "the member paid" (#653).
+    # Its one consumer, payment_dashboard, asks "what does the member see?" and must
+    # NOT say Paid for an invoice that was waived, so it branches on the credit-note
+    # statuses BEFORE consulting this set. (#653 kept the set unsplit for a second
+    # consumer, dues_schedule_manager's sync; that function never persisted anything
+    # and was deleted in #3092.)
     PAID_STATUSES: Set[str] = {INVOICE_PAID, INVOICE_CREDIT_NOTE_ISSUED}
 
     # The two ERPNext statuses that mean "credited, not paid": the credit note itself

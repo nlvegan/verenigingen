@@ -72,14 +72,48 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
         # The method intentionally clears ALL existing roles before applying the
         # member profile (member accounts should hold only member roles).
         self._require_role_profiles()
-        user = self._make_user(roles=["System Manager"])
-        self.assertIn("System Manager", [r.role for r in user.roles])
+        # A non-staff pre-existing role (#3217: System Manager accounts are now refused).
+        user = self._make_user(roles=["Accounts User"])
+        self.assertIn("Accounts User", [r.role for r in user.roles])
 
         self.service.add_member_roles_to_user(user.name)
 
         refreshed = frappe.get_doc("User", user.name)
         roles_after = [r.role for r in refreshed.roles]
-        self.assertNotIn("System Manager", roles_after)
+        self.assertNotIn("Accounts User", roles_after)
+        self.assertIn("Verenigingen Member", roles_after)  # control: the profile WAS applied
+
+    # ============================================================ #3217 staff guard
+
+    def _has_role_names_3217(self, user_name):
+        return sorted(frappe.get_all("Has Role", filters={"parent": user_name, "parenttype": "User"}, pluck="role"))
+
+    def test_administrator_is_refused_and_keeps_roles(self):
+        self._require_role_profiles()
+        before = self._has_role_names_3217("Administrator")
+        user_type = frappe.db.get_value("User", "Administrator", "user_type")
+        self.assertTrue(before, "fixture: Administrator must have roles")
+
+        with self.assertErrorLog("Member roles NOT applied"):
+            result = self.service.add_member_roles_to_user("Administrator")
+        self.expectErrorLog("Member roles NOT applied")
+
+        self.assertIsNone(result)
+        self.assertEqual(self._has_role_names_3217("Administrator"), before)
+        self.assertEqual(frappe.db.get_value("User", "Administrator", "user_type"), user_type)
+
+    def test_system_manager_user_is_refused_and_keeps_roles(self):
+        self._require_role_profiles()
+        user = self._make_user(roles=["System Manager"])
+        before = self._has_role_names_3217(user.name)
+
+        with self.assertErrorLog("Member roles NOT applied"):
+            result = self.service.add_member_roles_to_user(user.name)
+        self.expectErrorLog("Member roles NOT applied")
+
+        self.assertIsNone(result)
+        self.assertEqual(self._has_role_names_3217(user.name), before)
+        self.assertIn("System Manager", before)
 
     def test_add_volunteer_profile_when_specified(self):
         self._require_role_profiles()

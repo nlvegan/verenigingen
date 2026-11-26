@@ -44,10 +44,20 @@ PASSED_THROUGH = {
     "verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings:reorganize_account_hierarchy": [
         "dry_run"
     ],
+    "verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings:parse_groups_and_suggest_type_mappings": [
+        "merge_mode"
+    ],
     "verenigingen.e_boekhouden.utils.import_manager:update_existing_imports": ["force_update"],
-    "verenigingen.utils.api_endpoint_optimizer:run_api_optimization": ["dry_run"],
     "verenigingen.utils.admin_utilities.mandate_sync_utility:run_mandate_sync": ["dry_run"],
     "verenigingen.utils.migration.stock_migration:migrate_stock_transactions_standalone": ["dry_run"],
+    "verenigingen.templates.pages.mollie_payments_debug:list_subscriptions": ["active_only"],
+    "verenigingen.templates.pages.mollie_payments_debug:check_balance_transaction_status": [
+        "include_mollie_data"
+    ],
+    "verenigingen.templates.pages.mollie_payments_debug:check_all_customers_for_new_payments": [
+        "all_history"
+    ],
+    "verenigingen.utils.orphaned_child_table_cleanup:cleanup_orphaned_child_tables": ["skip_index_check"],
 }
 
 
@@ -65,7 +75,7 @@ class TestPassedThroughFlagsAreCoerced2730(VereningingenTestCase):
                 for raw, expected in (("false", False), ("0", False), ("true", True), ("1", True)):
                     self.assertEqual(self._coerced(target, param, raw), expected, (target, param, raw))
                     checked += 1
-        self.assertEqual(checked, 10 * 4)  # guards a silently shrunk table
+        self.assertEqual(checked, 14 * 4)  # guards a silently shrunk table
 
     def test_an_unrecognised_string_is_refused(self):
         for target, params in PASSED_THROUGH.items():
@@ -147,3 +157,62 @@ class TestDrivenEndpoints2730(VereningingenTestCase):
                 with self.assertRaises(frappe.exceptions.FrappeTypeError, msg=raw):
                     module.update_existing_imports(force_update=raw)
             callee.assert_not_called()
+
+
+class TestHandParsedFlagsAreCoerced2952(VereningingenTestCase):
+    """#2952: four flags used ``isinstance(x, str)`` + ``.lower() in ("true", "1", "yes")``, which read
+    "on" (and a typo such as "ture") as False. Only the parameter coercion is exercised: no gateway call
+    is made, the callee is stubbed at the module boundary (``# Mock justified:`` below)."""
+
+    def setUp(self):
+        super().setUp()
+        frappe.set_user("Administrator")
+        # check_all_customers_for_new_payments takes a 60 s Redis cooldown that no rollback undoes.
+        self._clear_discovery_cooldown()
+        self.addCleanup(self._clear_discovery_cooldown)
+
+    def _clear_discovery_cooldown(self):
+        frappe.cache().delete(f"bulk_payment_discovery_limit:{frappe.session.user}")
+
+    def test_on_reaches_the_gateway_helpers_as_true(self):
+        from verenigingen.templates.pages import mollie_payments_debug as page
+
+        # Mock justified: the Mollie debug service / bulk checker / status helper would call the Mollie
+        # API; this test only asserts which value the endpoint hands them after parameter coercion.
+        with patch.object(page, "MollieDebugService") as service:
+            service.return_value.list_subscriptions.return_value = {}
+            page.list_subscriptions("cst_x", active_only="on")
+            self.assertEqual(service.return_value.list_subscriptions.call_args.args[2], True)
+        with patch(
+            "verenigingen.verenigingen_payments.api.balance_transaction_processing.check_transaction_status",
+            return_value={},
+        ) as status:
+            page.check_balance_transaction_status("baltr_x", include_mollie_data="on")
+            self.assertEqual(status.call_args.kwargs["include_mollie_data"], True)
+        with patch(
+            "verenigingen.verenigingen_payments.mollie.services.bulk_payment_checker.BulkPaymentChecker"
+        ) as checker:
+            checker.return_value.check_all_customers_for_new_payments.return_value = {}
+            page.check_all_customers_for_new_payments(all_history="on")
+            kwargs = checker.return_value.check_all_customers_for_new_payments.call_args.kwargs
+            self.assertEqual(kwargs["all_history"], True)
+
+    def test_an_unusable_value_is_refused_and_active_only_keeps_its_default(self):
+        import inspect
+
+        from verenigingen.templates.pages import mollie_payments_debug as page
+
+        self.assertIs(inspect.signature(page.list_subscriptions).parameters["active_only"].default, True)
+        for raw in ("maybe", "ture", ""):
+            with self.assertRaises(frappe.exceptions.FrappeTypeError, msg=raw):
+                page.list_subscriptions("cst_x", active_only=raw)
+
+    def test_on_is_coerced_to_true_for_the_orphan_cleanup(self):
+        from verenigingen.utils import orphaned_child_table_cleanup as module
+
+        _args, kwargs = transform_parameter_types(
+            module.cleanup_orphaned_child_tables, (), {"skip_index_check": "on"}
+        )
+        self.assertEqual(kwargs["skip_index_check"], True)
+        with self.assertRaises(frappe.exceptions.FrappeTypeError):
+            transform_parameter_types(module.cleanup_orphaned_child_tables, (), {"skip_index_check": "maybe"})

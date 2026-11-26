@@ -2,6 +2,7 @@ import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.api.member_management import add_member_to_chapter_roster, assign_member_to_chapter
+from verenigingen.services.chapter.chapter_utils import get_member_primary_chapter
 import unittest
 
 
@@ -33,21 +34,6 @@ def _error_text(result):
     if isinstance(error, dict):
         return error.get("message", "")
     return error or ""
-
-
-def get_member_primary_chapter(member_name):
-    """Helper function to get member's primary chapter from Chapter Member table"""
-    try:
-        chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-            limit=1,
-        )
-        return chapters[0].parent if chapters else None
-    except Exception:
-        return None
 
 
 class TestChapterAssignmentEdgeCases(EnhancedTestCase):

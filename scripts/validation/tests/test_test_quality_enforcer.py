@@ -738,8 +738,11 @@ class WholeTreeTotalsTest(unittest.TestCase):
         # (fault injection and call-through spies) now carry a per-site
         # `# Mock justified: <reason>` marker, and 44 findings / 33 keys (return-value
         # fakes, whole-fake suites) were baselined. See the baseline file's header.
-        self.assertEqual(255, len(self.findings), "finding count moved")
-        self.assertEqual(225, len(tqe.counts_of(self.findings)), "key count moved")
+        # 255 -> 248 findings, 225 -> 219 keys (#2787): deleting the dead test_volunteer_journey.py
+        # removed its 6 PERMISSION BYPASS keys (7 findings). Totals re-derived from
+        # `test_quality_enforcer.py --update-baseline` output after merging develop (#1493).
+        self.assertEqual(248, len(self.findings), "finding count moved")
+        self.assertEqual(219, len(tqe.counts_of(self.findings)), "key count moved")
 
     def test_findings_are_keyed_to_a_named_scope(self):
         """A key of '<module>' is legitimate but should stay rare; a flood of them

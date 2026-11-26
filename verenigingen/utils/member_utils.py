@@ -411,6 +411,19 @@ def validate_member_ownership(member_id: str, error_message: str = None, allow_a
         frappe.throw(message, frappe.PermissionError)
 
 
+def get_orphan_volunteer_for_email(email: str) -> Optional[str]:
+    """Name of the UNLINKED Volunteer carrying `email`, or None (#2784).
+
+    The application flows adopt a Volunteer created before its Member existed. They may
+    adopt only an orphan (`member` empty): matching a Volunteer already linked to another
+    Member would repoint it, which `validate_member_repoint` (#2752) refuses for non-staff
+    writers. Volunteer.email is unique, so the match is deterministic.
+    """
+    if not email:
+        return None
+    return frappe.db.get_value("Volunteer", {"email": email, "member": ["in", (None, "")]}, "name")
+
+
 def get_volunteer_for_member(member_name: str) -> Optional[str]:
     """
     Get volunteer record name for a given member with standardized lookup pattern.

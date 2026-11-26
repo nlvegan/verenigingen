@@ -6,6 +6,7 @@ from frappe.utils import add_days, today
 
 from verenigingen.api.membership_application import submit_application
 from verenigingen.services.member.application.application_materialiser import materialise_member
+from verenigingen.services.chapter.chapter_utils import get_member_primary_chapter
 from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.integration.test_application_record_approval import SUBMISSION, ApprovalCase
 from verenigingen.tests.harness_logger import get_harness_logger
@@ -71,21 +72,6 @@ class ApplicationFlowCase(ApprovalCase):
         return self._approve_as(
             self._confirmed(form), user="Administrator", notes=notes, create_invoice=create_invoice
         )
-
-
-def get_member_primary_chapter(member_name):
-    """Helper function to get member's primary chapter from Chapter Member table"""
-    try:
-        chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-            limit=1,
-        )
-        return chapters[0].parent if chapters else None
-    except Exception:
-        return None
 
 
 class TestMembershipApplication(ApplicationFlowCase):
@@ -484,8 +470,9 @@ class TestMembershipApplicationLoad(ApplicationFlowCase):
         self.assertEqual(member.application_status, "Pending")
 
         # KEY TEST: Verify no fee change tracking was triggered
-        self.assertFalse(
-            hasattr(member, "_pending_fee_change"),
+        self.assertEqual(
+            len(member.fee_change_history),
+            0,
             "Application with custom fee should not trigger fee change tracking",
         )
 
@@ -1274,6 +1261,26 @@ class TestChapterSelection(ApplicationFlowCase):
         for chapter in chapters:
             print(f"   - {chapter['name']} ({chapter.get('region', 'No region')})")
 
+    def _assert_chapter_pending_1161(self, member_name, chapter_name):
+        """The application flow seats the member on the selected chapter as a PENDING Chapter Member
+        row (create_pending_chapter_membership); approval flips it to Active. Production's
+        get_member_primary_chapter counts only Active rows, so before approval it must NOT name the
+        chapter. (These tests used a test-local shadow that ignored `status` and so saw the Pending
+        row as the primary chapter: #1161.)"""
+        rows = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member_name, "parent": chapter_name},
+            fields=["enabled", "status"],
+        )
+        self.assertEqual(
+            [(r.enabled, r.status) for r in rows],
+            [(1, "Pending")],
+            f"Selected chapter {chapter_name} should be a pending membership",
+        )
+        self.assertIsNone(
+            get_member_primary_chapter(member_name), "A Pending membership is not the primary chapter"
+        )
+
     def test_chapter_selection_in_application(self):
         """Test chapter selection during application submission"""
         # Submit application with specific chapter selection
@@ -1285,12 +1292,9 @@ class TestChapterSelection(ApplicationFlowCase):
 
         # Verify chapter was assigned to member
         member = frappe.get_doc("Member", member_name)
-        primary_chapter = get_member_primary_chapter(member.name)
-        self.assertEqual(
-            primary_chapter, "Test Chapter Utrecht", "Selected chapter should be assigned to member"
-        )
+        self._assert_chapter_pending_1161(member.name, "Test Chapter Utrecht")
 
-        print(f"✅ Chapter selection works: {primary_chapter}")
+        print("✅ Chapter selection works: Test Chapter Utrecht")
 
     def test_application_without_chapter_selection(self):
         """Test application submission without chapter selection (optional field)"""
@@ -1394,8 +1398,7 @@ class TestChapterSelection(ApplicationFlowCase):
         member = frappe.get_doc("Member", self._materialised(application_data))
 
         # Verify both chapter and custom amount were processed
-        primary_chapter = get_member_primary_chapter(member.name)
-        self.assertEqual(primary_chapter, "Test Chapter Rotterdam", "Chapter should be assigned")
+        self._assert_chapter_pending_1161(member.name, "Test Chapter Rotterdam")
         self.assertEqual(member.dues_rate, 75.0, "Custom amount should be set")
 
         print("✅ Chapter selection works with custom amounts")
@@ -1411,8 +1414,7 @@ class TestChapterSelection(ApplicationFlowCase):
 
         # Verify initial assignment
         member = frappe.get_doc("Member", member_name)
-        primary_chapter = get_member_primary_chapter(member.name)
-        self.assertEqual(primary_chapter, "Test Chapter Amsterdam")
+        self._assert_chapter_pending_1161(member.name, "Test Chapter Amsterdam")
 
         # Approve the application
         approval_result = self._approve_as(application, notes="Test approval", create_invoice=True)
@@ -1510,12 +1512,7 @@ class TestChapterSelection(ApplicationFlowCase):
 
         member = frappe.get_doc("Member", self._materialised(application_data))
 
-        primary_chapter = get_member_primary_chapter(member.name)
-        self.assertEqual(
-            primary_chapter,
-            additional_chapter_name,
-            "Should be able to select specific chapter even in same region",
-        )
+        self._assert_chapter_pending_1161(member.name, additional_chapter_name)
 
         print("✅ Multiple chapters in same region handled correctly")
 

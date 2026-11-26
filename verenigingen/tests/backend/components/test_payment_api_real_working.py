@@ -79,12 +79,12 @@ class TestPaymentAPIRealWorking(EnhancedTestCase):
     def test_payment_reminder_with_real_member_data(self, mock_sendmail):
         """Tests real member document retrieval - eliminates member document mocks"""
         mock_sendmail.return_value = None  # sendmail returns an Email Queue doc or None, never a bool
-        # A reminder is skipped (and reported as success) when its key is unseeded or in cooldown, so
-        # own the key rather than depend on the site (#2010).
-        own_notification_keys(self, "payment_reminder_friendly")
         # EmailService refuses without a DB outgoing Email Account, which a fresh site (CI's
         # per-module PR run) lacks; only a leaked account made this pass in a full shard (#1879).
         ensure_outgoing_email_account(self)
+        # A reminder is skipped (and reported as success) when its key is unseeded or in cooldown, so
+        # own the key rather than depend on the site (#2010).
+        own_notification_keys(self, "payment_reminder_friendly")
 
         # Create real member with real email
         real_member = self.create_test_member(

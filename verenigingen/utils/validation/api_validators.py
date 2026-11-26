@@ -365,34 +365,6 @@ def require_roles(required_roles: List[str], any_role: bool = True):
     return decorator
 
 
-def rate_limit(max_requests: int = 100, window_minutes: int = 60):
-    """
-    Decorator to implement rate limiting for API endpoints
-
-    Args:
-        max_requests: Maximum requests allowed
-        window_minutes: Time window in minutes
-    """
-
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            # Simple rate limiting implementation
-            # In production, this would use Redis or similar
-            # cache_key = "rate_limit:{frappe.session.user}:{func.__name__}"
-
-            # For now, just log the rate limit attempt
-            frappe.logger("verenigingen.rate_limit").info(
-                "Rate limit check for {frappe.session.user} on {func.__name__}"
-            )
-
-            return func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
-
-
 # Common validation patterns for API endpoints
 
 

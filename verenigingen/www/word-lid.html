@@ -8,10 +8,10 @@
 {{ brand_css() }}
 <style>
     .wl-input { border: 2px solid #d1d5db; border-radius: 0.5rem; padding: 0.6rem 0.9rem; width: 100%; background: #fff; color: #111827; }
-    .wl-input:focus { border-color: {{ primary_color }}; outline: none; box-shadow: 0 0 0 3px {{ primary_color }}20; }
+    .wl-input:focus { border-color: {{ primary_color|e }}; outline: none; box-shadow: 0 0 0 3px {{ primary_color|e }}20; }
     .wl-label { font-weight: 600; color: #374151; display: block; margin-bottom: 0.25rem; }
     .wl-card { background: #fff; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-    .wl-button { background: {{ primary_color }}; color: #fff; padding: 0.75rem 1.5rem; border-radius: 0.5rem; font-weight: 600; }
+    .wl-button { background: {{ primary_color|e }}; color: #fff; padding: 0.75rem 1.5rem; border-radius: 0.5rem; font-weight: 600; }
     .wl-button:disabled { opacity: .6; }
     .wl-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
     .wl-hint { color: #6b7280; font-size: 0.875rem; }
@@ -37,10 +37,10 @@
     {% if intro_html %}<div class="mb-6">{{ intro_html | safe }}</div>{% endif %}
 
     <form id="short-application-form" novalidate
-          data-door="{{ door.name }}"
-          data-shape="{{ door.form_shape }}"
+          data-door="{{ door.name|e }}"
+          data-shape="{{ door.form_shape|e }}"
           data-plans='{{ plans | tojson }}'
-          data-default-plan="{{ default_plan_id or '' }}">
+          data-default-plan="{{ (default_plan_id or '')|e }}">
         <div class="wl-hp" aria-hidden="true">
             <label>Laat dit veld leeg <input type="text" name="leave_this_empty" tabindex="-1" autocomplete="off" value=""></label>
         </div>
@@ -63,7 +63,7 @@
                 {% endfor %}
             </fieldset>
             {% endif %}
-            <input type="hidden" name="plan" id="wl-plan" value="{{ default_plan_id or '' }}">
+            <input type="hidden" name="plan" id="wl-plan" value="{{ (default_plan_id or '')|e }}">
 
             <div class="mb-4" id="wl-amount-block">
                 <span class="wl-label">{{ _("Amount") }}</span>

@@ -119,15 +119,6 @@ class TestChapterHead(EnhancedTestCase):
             except Exception as e:
                 print(f"Error cleaning up role {role.name}: {str(e)}")
 
-        # Delete any test chapters
-        for chapter in frappe.get_all(
-            "Chapter", filters={"name": ["like", f"Test Chapter {self.unique_id}%"]}
-        ):
-            try:
-                frappe.delete_doc("Chapter", chapter.name, force=True)
-            except Exception as e:
-                print(f"Error cleaning up chapter {chapter.name}: {str(e)}")
-
         # Delete any test volunteers
         for volunteer in frappe.get_all(
             "Volunteer", filters={"email": ["like", f"%{self.unique_id}@example.org"]}
@@ -143,6 +134,16 @@ class TestChapterHead(EnhancedTestCase):
                 frappe.delete_doc("Member", member.name, force=True)
             except Exception as e:
                 print(f"Error cleaning up member {member.name}: {str(e)}")
+
+        # Chapters last: a Chapter that a Volunteer or Member still references cannot be deleted (#2745)
+        # Delete any test chapters
+        for chapter in frappe.get_all(
+            "Chapter", filters={"name": ["like", f"Test Chapter {self.unique_id}%"]}
+        ):
+            try:
+                frappe.delete_doc("Chapter", chapter.name, force=True)
+            except Exception as e:
+                print(f"Error cleaning up chapter {chapter.name}: {str(e)}")
 
     def test_chapter_head_auto_update(self):
         """Test that chapter head is automatically updated based on chair role"""

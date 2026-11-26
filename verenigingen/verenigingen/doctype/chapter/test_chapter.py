@@ -35,19 +35,20 @@ class TestChapter(EnhancedTestCase):
 
     def cleanup_test_data(self):
         """Clean up test data"""
-        # Delete test chapters
-        for chapter in frappe.get_all("Chapter", filters={"name": ["like", f"%{self.base_id}%"]}):
-            try:
-                frappe.delete_doc("Chapter", chapter.name, force=True)
-            except Exception as e:
-                print(f"Error cleaning up chapter {chapter.name}: {str(e)}")
-
         # Delete test members
         for member in frappe.get_all("Member", filters={"email": ["like", f"%{self.base_id}@example.com"]}):
             try:
                 frappe.delete_doc("Member", member.name, force=True)
             except Exception as e:
                 print(f"Error cleaning up member {member.name}: {str(e)}")
+
+        # Chapters last: a Chapter that a Member still references cannot be deleted (#2745)
+        # Delete test chapters
+        for chapter in frappe.get_all("Chapter", filters={"name": ["like", f"%{self.base_id}%"]}):
+            try:
+                frappe.delete_doc("Chapter", chapter.name, force=True)
+            except Exception as e:
+                print(f"Error cleaning up chapter {chapter.name}: {str(e)}")
 
     def create_test_prerequisites(self):
         """Create test prerequisites"""
@@ -272,8 +273,9 @@ class TestChapter(EnhancedTestCase):
                 "Chapter member status should be set to Active when adding board member",
             )
 
-        # Clean up
-        frappe.delete_doc("Chapter", chapter.name, force=True)
+        # Clean up. The Chapter is NOT force-deleted here: the board seat made its Member a
+        # referrer (Chapter Membership History), which a Chapter delete refuses (#2745); the
+        # harness drain removes the Member before the Chapter.
         frappe.delete_doc("Chapter Role", role.name, force=True)
         frappe.delete_doc("Volunteer", volunteer.name, force=True)
 
@@ -311,17 +313,16 @@ class TestChapter(EnhancedTestCase):
                 "region": self.test_region,
                 "status": "Active",
                 "introduction": "Test chapter",
-                "email": f"chapter{unique_id}@example.org",
-                "phone": "+31612345678",
-                "website": "https://example.org",
+                "contact_email": f"chapter{unique_id}@example.org",
             }
         )
         chapter.insert()  # EnhancedTestCase handles permissions
 
-        # Verify contact information
-        self.assertEqual(chapter.email, f"chapter{unique_id}@example.org")
-        self.assertEqual(chapter.phone, "+31612345678")
-        self.assertEqual(chapter.website, "https://example.org")
+        # Read back from the DB, not the in-memory doc: reload() keeps attributes that are
+        # not fields, so an in-memory assertion passes for a field that does not exist (#3098).
+        self.assertEqual(
+            frappe.db.get_value("Chapter", chapter.name, "contact_email"), f"chapter{unique_id}@example.org"
+        )
 
     def test_chapter_publication_status(self):
         """Test chapter publication status"""
@@ -349,28 +350,6 @@ class TestChapter(EnhancedTestCase):
         # Verify published status
         chapter.reload()
         self.assertEqual(chapter.published, 1)
-
-    def test_chapter_location_info(self):
-        """Test chapter location information"""
-        unique_id = self.get_unique_id()
-        chapter = frappe.get_doc(
-            {
-                "doctype": "Chapter",
-                "name": f"Test Chapter {unique_id}",
-                "region": self.test_region,
-                "status": "Active",
-                "introduction": "Test chapter",
-                "city": "Amsterdam",
-                "state": "North Holland",
-                "country": "Netherlands",
-            }
-        )
-        chapter.insert()  # EnhancedTestCase handles permissions
-
-        # Verify location information
-        self.assertEqual(chapter.city, "Amsterdam")
-        self.assertEqual(chapter.state, "North Holland")
-        self.assertEqual(chapter.country, "Netherlands")
 
     def test_chapter_matching_by_postal_code(self):
         """Test chapter matching functionality by postal code"""
@@ -640,7 +619,7 @@ class TestChapter(EnhancedTestCase):
         frappe.delete_doc("Volunteer", volunteer.name, force=True)
         if frappe.db.exists("Chapter Role", role_name):
             frappe.delete_doc("Chapter Role", role_name, force=True)
-        frappe.delete_doc("Chapter", chapter.name, force=True)
+        # No Chapter force-delete: its Member still references it (#2745); the drain owns it.
 
     def test_chapter_search_and_filtering(self):
         """Test chapter search and filtering capabilities"""

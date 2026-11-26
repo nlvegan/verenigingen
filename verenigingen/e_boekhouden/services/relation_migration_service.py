@@ -38,6 +38,7 @@ API Format Compatibility:
 import frappe
 
 from verenigingen.e_boekhouden.utils.security_helper import validate_and_insert
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class RelationMigrationService:
@@ -125,6 +126,9 @@ class RelationMigrationService:
             frappe.logger().warning(f"Customer data has no usable information: {customer_data}")
             return False
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the batch back; returning False reports the party as skipped (#3029).
+            raise
         except Exception as e:
             frappe.logger().warning(f"Error in customer creation: {str(e)}")
             self._log_error(f"Error in customer creation: {str(e)}", "Customer", customer_data)
@@ -197,6 +201,9 @@ class RelationMigrationService:
             frappe.logger().warning(f"Supplier data has no usable information: {supplier_data}")
             return False
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the batch back; returning False reports the party as skipped (#3029).
+            raise
         except Exception as e:
             frappe.logger().warning(f"Error in supplier creation: {str(e)}")
             self._log_error(f"Error in supplier creation: {str(e)}", "Supplier", supplier_data)
@@ -337,6 +344,9 @@ class RelationMigrationService:
             )
             return True
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the caller's batch back; returning False lets it carry on (#3008).
+            raise
         except Exception as e:
             self._log_error(f"Failed to create {party_type.lower()} {display_name}: {str(e)}")
             return False
