@@ -572,6 +572,19 @@ class QueryBuilderDateWindowTest(unittest.TestCase):
             with self.subTest(expr=expr):
                 self.assertEqual(len(_flagged(f"def f():\n    q = {expr}\n")), 1)
 
+    def test_import_aliases_and_keyword_custom_function_are_flagged(self):
+        # Review nit on #946: an `as` alias or a `name=` keyword hid the clock call.
+        for src in (
+            "from frappe.query_builder.functions import CurDate as cd\n"
+            "def f():\n    q = M.creation > cd()\n",
+            "from frappe.query_builder.functions import Now as n, DateDiff as dd\n"
+            "def f():\n    q = dd(n(), M.creation)\n",
+            "def f():\n    X = CustomFunction(name='CURDATE', params=[])\n"
+            "    q = M.creation >= X()\n",
+        ):
+            with self.subTest(src=src):
+                self.assertEqual(len(_flagged(src)), 1)
+
     def test_python_side_date_math_is_not_flagged(self):
         for expr in (
             "frappe.qb.from_(M).where(M.creation > add_days(today(), -7))",

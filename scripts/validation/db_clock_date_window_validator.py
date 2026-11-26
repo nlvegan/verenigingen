@@ -141,15 +141,25 @@ def _callee_name(call: ast.Call) -> str | None:
 
 
 def _custom_function_aliases(tree: ast.AST) -> tuple[set[str], set[str]]:
-    """Names bound by ``X = CustomFunction("SQLNAME", ...)``: (clock aliases, window aliases)."""
+    """Names bound by ``X = CustomFunction("SQLNAME", ...)`` or ``import Now as n``: (clock aliases, window aliases)."""
     clocks: set[str] = set()
     windows: set[str] = set()
     for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.asname and a.name in _QB_CLOCK_NAMES:
+                    clocks.add(a.asname)
+                if a.asname and a.name in _QB_WINDOW_FUNCS:
+                    windows.add(a.asname)
+            continue
         if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)):
             continue
-        if _callee_name(node.value) != "CustomFunction" or not node.value.args:
+        if _callee_name(node.value) != "CustomFunction":
             continue
-        arg = node.value.args[0]
+        name_kw = [k.value for k in node.value.keywords if k.arg == "name"]
+        if not node.value.args and not name_kw:
+            continue
+        arg = node.value.args[0] if node.value.args else name_kw[0]
         if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
             continue
         sql = arg.value.upper()
