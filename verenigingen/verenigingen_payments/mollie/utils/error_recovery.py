@@ -90,6 +90,8 @@ class MollieErrorRecovery:
         self.logger = MollieLogger("error_recovery")
         self.circuit_breakers: Dict[str, CircuitBreakerState] = {}
         self.recovery_queues: Dict[str, List[Dict]] = {}
+        # Per-queue cap on processed ("completed"/"failed") items kept in memory (#1310).
+        self.max_terminal_items_per_queue = 100
 
     def execute_with_retry(
         self,
@@ -263,6 +265,7 @@ class MollieErrorRecovery:
             self.recovery_queues[workflow_name] = []
 
         self.recovery_queues[workflow_name].append(recovery_data)
+        self._evict_processed_items(workflow_name)
 
         self.logger.info(
             "Created recovery workflow",
@@ -277,6 +280,22 @@ class MollieErrorRecovery:
         self._persist_recovery_workflow(recovery_data)
 
         return workflow_id
+
+    def _evict_processed_items(self, workflow_name: str) -> None:
+        """Drop the oldest processed items beyond the cap (#1310).
+
+        Only "completed"/"failed" items are ever evicted: a "pending" item is
+        unprocessed recovery work and must never be dropped. Every item was
+        already persisted to Error Log at creation, so eviction loses only
+        the in-memory status counters.
+        """
+        queue = self.recovery_queues[workflow_name]
+        terminal = [item for item in queue if item["status"] in ("completed", "failed")]
+        excess = len(terminal) - self.max_terminal_items_per_queue
+        if excess <= 0:
+            return
+        evicted = {id(item) for item in terminal[:excess]}
+        queue[:] = [item for item in queue if id(item) not in evicted]
 
     def process_recovery_queue(self, workflow_name: str, max_items: int = 10) -> Dict[str, Any]:
         """
@@ -340,7 +359,9 @@ class MollieErrorRecovery:
         Get comprehensive error recovery status.
 
         Returns:
-            Status summary with metrics and circuit breaker states
+            Status summary with metrics and circuit breaker states.
+            Per-queue total_items is not cumulative: processed items beyond the
+            cap are evicted (#1310).
         """
         # Get circuit breaker states
         circuit_status = {}
