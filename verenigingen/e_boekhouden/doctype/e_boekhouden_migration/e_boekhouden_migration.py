@@ -17,6 +17,7 @@ from verenigingen.e_boekhouden.utils.security_helper import (
     validate_and_save,
 )
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class EBoekhoudenMigration(Document):
@@ -1751,6 +1752,8 @@ def import_opening_balances_only(migration_name: str, force: bool = False):
             },
         }
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #3060: do not report a lock error as a "Failed" migration the operator re-runs
     except Exception as e:
         frappe.log_error(f"Opening balance import failed: {str(e)}")
 

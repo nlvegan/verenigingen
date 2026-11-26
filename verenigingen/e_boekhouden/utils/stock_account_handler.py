@@ -12,6 +12,7 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class StockAccountHandler:
@@ -449,6 +450,8 @@ def import_opening_balances_with_stock_handling(
                 "debug_info": debug_info,
             }
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #3060
     except Exception as e:
         import traceback
 

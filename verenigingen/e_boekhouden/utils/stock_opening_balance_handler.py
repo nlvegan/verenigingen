@@ -9,6 +9,7 @@ import frappe
 from frappe.utils import flt, getdate
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 def create_stock_reconciliation_for_opening_balance(stock_accounts_data, company, debug_info):
@@ -124,6 +125,8 @@ def create_stock_reconciliation_for_opening_balance(stock_accounts_data, company
                     f"Qty={qty}, Rate={rate}, Amount={balance}"
                 )
 
+            except NON_RESUMABLE_DB_ERRORS:
+                raise  # #3060: not a per-account failure to `continue` past
             except Exception as e:
                 debug_info.append(f"Error creating Stock Reconciliation for {account}: {str(e)}")
                 continue
@@ -134,6 +137,8 @@ def create_stock_reconciliation_for_opening_balance(stock_accounts_data, company
             "message": f"Created {len(created_reconciliations)} Stock Reconciliation entries",
         }
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #3060
     except Exception as e:
         debug_info.append(f"Error in stock reconciliation process: {str(e)}")
         return {"success": False, "error": str(e)}
@@ -181,6 +186,8 @@ def _get_or_create_stock_item_for_account(account, company, debug_info):
         debug_info.append(f"Created stock item: {item_code} for account {account}")
         return item_code
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #3060: None would read as "no item" and skip the account
     except Exception as e:
         debug_info.append(f"Error creating stock item for {account}: {str(e)}")
         return None
