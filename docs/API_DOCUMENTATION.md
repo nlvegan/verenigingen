@@ -665,7 +665,8 @@ Note: This module is listed in `whitelist_files.txt` but contains no `@frappe.wh
 
 | Endpoint | Auth | Security Decorator | Description |
 |---|---|---|---|
-| `create_comprehensive_email_templates()` | Login | -- | Creates/updates all standard email templates |
+| `create_comprehensive_email_templates()` | Login | -- | Creates the missing standard email templates; never modifies existing ones |
+| `reset_stock_email_templates()` | Admin | critical | Explicit reset: restores stock content of all standard email templates |
 | `test_email_template(template_name, test_context)` | Login | -- | Tests rendering of an email template |
 
 Note: `send_template_email()` and `get_email_template()` are internal helper functions (not whitelisted).

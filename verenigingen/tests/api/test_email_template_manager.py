@@ -169,8 +169,9 @@ class TestEmailTemplateManager(VereningingenTestCase):
             self.assertIn("Jane Donor", rendered)
 
     def test_create_templates_is_idempotent(self):
-        """Calling twice must NOT duplicate docs. Second call updates the existing 8
-        (created=0, updated=8) and the doc count for each name stays exactly 1."""
+        """Calling twice must NOT duplicate docs. Second call creates nothing and
+        skips the existing 8 (#1984: setup is create-only), and the doc count for
+        each name stays exactly 1."""
         self._delete_managed_templates()
 
         first = create_comprehensive_email_templates()
@@ -180,9 +181,9 @@ class TestEmailTemplateManager(VereningingenTestCase):
 
         second = create_comprehensive_email_templates()
         self.assertTrue(second["success"])
-        # Idempotent: nothing new created, all 8 updated-in-place.
         self.assertEqual(second["data"]["created"], 0, "second run must not create duplicates")
-        self.assertEqual(second["data"]["updated"], 8)
+        self.assertEqual(second["data"]["updated"], 0, "create-only: existing rows are not rewritten")
+        self.assertEqual(second["data"]["skipped"], 8)
 
         # Email Template autoname=Prompt -> name is the literal; there can only ever
         # be one row per name. Assert no duplicates accumulated.
@@ -190,29 +191,79 @@ class TestEmailTemplateManager(VereningingenTestCase):
             count = frappe.db.count("Email Template", {"name": name})
             self.assertEqual(count, 1, f"expected exactly 1 '{name}', found {count}")
 
-    def test_update_path_overwrites_modified_content(self):
-        """If a managed template was hand-edited, a re-run restores the canonical
-        subject/response via the update branch (proves update actually writes)."""
+    def test_create_only_keeps_a_staff_edited_template_and_still_creates_a_missing_one(self):
+        """#1984 (maintainer ruling 2026-11-03): re-running setup must not overwrite a
+        staff-edited stock template. Control: a template that is MISSING is still created
+        in the same run (so 'skip everything' would fail this test)."""
         self._delete_managed_templates()
         create_comprehensive_email_templates()
 
-        # Mutate an existing template, then re-run.
+        edited = frappe.get_doc("Email Template", "expense_approved")
+        edited.subject = "STAFF EDITED SUBJECT"
+        edited.response = "<p>staff edited body</p>"
+        edited.response_html = "<p>staff edited body</p>"
+        edited.save()
+        frappe.delete_doc("Email Template", "expense_rejected", force=True)
+
+        result = create_comprehensive_email_templates()
+        self.assertTrue(result["success"], result)
+
+        kept = frappe.get_doc("Email Template", "expense_approved")
+        self.assertEqual(kept.subject, "STAFF EDITED SUBJECT")
+        self.assertEqual(kept.response_html, "<p>staff edited body</p>")
+        self.assertTrue(frappe.db.exists("Email Template", "expense_rejected"))
+        self.assertEqual(result["data"]["created"], 1)
+        self.assertEqual(result["data"]["updated"], 0)
+
+    def test_reset_stock_email_templates_restores_edited_and_creates_missing(self):
+        """The explicit reset action (#1984) is the one writer allowed to overwrite: it
+        restores subject/response/response_html of an edited row and creates a missing one."""
+        from verenigingen.api.email_template_manager import reset_stock_email_templates
+
+        self._delete_managed_templates()
+        create_comprehensive_email_templates()
+
         doc = frappe.get_doc("Email Template", "expense_approved")
         doc.subject = "TAMPERED SUBJECT"
         doc.response = "<p>tampered</p>"
+        doc.response_html = "<p>tampered</p>"
         doc.save()
-        frappe.db.commit()
+        frappe.delete_doc("Email Template", "expense_rejected", force=True)
 
-        result = create_comprehensive_email_templates()
-        self.assertTrue(result["success"])
-        # Everything already existed -> all updates, no creates.
-        self.assertEqual(result["data"]["created"], 0)
-        self.assertEqual(result["data"]["updated"], 8)
+        result = reset_stock_email_templates()
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["data"]["created"], 1)
+        self.assertEqual(result["data"]["updated"], 7)
 
         restored = frappe.get_doc("Email Template", "expense_approved")
         self.assertEqual(restored.subject, MANAGED_TEMPLATES["expense_approved"])
         self.assertIn("✅ Expense Approved", restored.response)
         self.assertNotIn("tampered", restored.response)
+        self.assertNotIn("tampered", restored.response_html)
+        self.assertTrue(frappe.db.exists("Email Template", "expense_rejected"))
+
+    def test_reset_stock_email_templates_is_admin_gated_like_its_sibling(self):
+        """The reset endpoint is whitelisted and refuses a user without an admin role
+        (same critical ADMIN gate as create_comprehensive_email_templates)."""
+        from verenigingen.api.email_template_manager import reset_stock_email_templates
+
+        self.assertIn(reset_stock_email_templates, frappe.whitelisted)
+        self._delete_managed_templates()
+        create_comprehensive_email_templates()
+        doc = frappe.get_doc("Email Template", "expense_approved")
+        doc.subject = "STAFF EDITED SUBJECT"
+        doc.save()
+
+        original_user = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                reset_stock_email_templates()
+        finally:
+            frappe.set_user(original_user)
+        self.assertEqual(
+            frappe.db.get_value("Email Template", "expense_approved", "subject"), "STAFF EDITED SUBJECT"
+        )
 
     # ------------------------------------------------------------------
     # get_email_template (helper: render + fallback)

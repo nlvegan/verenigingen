@@ -78,6 +78,27 @@ from verenigingen.utils.security.api_security_framework import (
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
+    """Create the stock Email Templates that are MISSING; never touch existing rows (#1984).
+
+    Setup (install and re-runs) calls this, so a template staff have edited, or one the
+    fixture sync owns, must survive it. Restoring stock content is the explicit
+    ``reset_stock_email_templates`` action.
+    """
+    return _seed_comprehensive_email_templates(overwrite=False)
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
+def reset_stock_email_templates() -> OperationResult[Dict[str, Any]]:
+    """Restore the stock content of every managed Email Template, on demand (#1984).
+
+    Maintainer ruling 2026-11-03: setup only creates, and this separate, explicit action
+    is the one that overwrites. Same ADMIN/critical gate as the create endpoint.
+    """
+    return _seed_comprehensive_email_templates(overwrite=True)
+
+
+def _seed_comprehensive_email_templates(overwrite: bool = False) -> OperationResult[Dict[str, Any]]:
     """
     Create and deploy all email templates used throughout the Verenigingen application.
 
@@ -154,7 +175,8 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
 
     Business Logic:
         - Creates templates if they don't exist
-        - Updates existing templates with new content
+        - Updates existing templates with stock content ONLY when overwrite=True
+          (reset_stock_email_templates); otherwise leaves them untouched
         - Validates template syntax and structure
         - Establishes template hierarchies and categories
         - Configures template permissions and access controls
@@ -517,6 +539,7 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
 
         created_count = 0
         updated_count = 0
+        skipped_count = 0
         failures = []
 
         for template_data in templates:
@@ -524,8 +547,12 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
 
             try:
                 # Check if template already exists
+                if frappe.db.exists("Email Template", template_name) and not overwrite:
+                    # Create-only (#1984): an existing row is left exactly as it is.
+                    skipped_count += 1
+                    continue
                 if frappe.db.exists("Email Template", template_name):
-                    # Update existing template
+                    # Explicit reset: update existing template
                     template_doc = frappe.get_doc("Email Template", template_name)
                     template_doc.subject = template_data["subject"]
                     template_doc.response = template_data["response"]
@@ -586,6 +613,7 @@ def create_comprehensive_email_templates() -> OperationResult[Dict[str, Any]]:
         data = {
             "created": created_count,
             "updated": updated_count,
+            "skipped": skipped_count,
             "total": created_count + updated_count,
         }
 
