@@ -26,6 +26,11 @@ _RESOLVER = (
     "MandateService._resolve_membership_mandate"
 )
 
+_PAIRING = (
+    "verenigingen.verenigingen_payments.ing_checkout.services.mandate_service."
+    "MandateService._mandate_owner_is_invoice_customer"
+)
+
 
 def resolves_to(mandate_name):
     """Patch the resolver to hand back one mandate, as `unambiguous_active_mandate` would.
@@ -35,6 +40,17 @@ def resolves_to(mandate_name):
     exists.
     """
     return patch(_RESOLVER, return_value=MandateChoice(frappe._dict(name=mandate_name), 1))
+
+
+def pairing_ok():
+    """Stub the mandate/invoice pairing seam (#2819) to "paired".
+
+    The mock-only suites use MagicMock mandates and invoices, whose `member`/`customer`
+    are auto-attributes; pairing is covered against real documents in
+    `test_mandate_service_invoice_pairing.py`, so here it is stubbed to keep these
+    tests on their subject (the debit payload and response handling).
+    """
+    return patch(_PAIRING, return_value=True)
 
 
 def routes_get_doc(docs_by_doctype):

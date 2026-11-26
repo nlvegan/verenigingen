@@ -242,6 +242,16 @@ class MandateService:
         mandate = frappe.get_doc("ING Checkout Mandate", mandate_name)
         invoice = frappe.get_doc("Sales Invoice", sales_invoice)
 
+        # Pairing is enforced here, not only in the API, so staff and internal
+        # callers cannot debit one member's mandate for another member's invoice
+        # (#2819, ruling 2026-11-20). Checked first: a mispaired call is refused
+        # whatever state the mandate or invoice is in.
+        if not self._mandate_owner_is_invoice_customer(mandate, invoice):
+            return {
+                "success": False,
+                "error": _("Mandate does not belong to the customer of this invoice"),
+            }
+
         if mandate.status != "Active":
             return {
                 "success": False,
@@ -310,6 +320,18 @@ class MandateService:
                 "success": False,
                 "error": str(e),
             }
+
+    @staticmethod
+    def _mandate_owner_is_invoice_customer(mandate, invoice) -> bool:
+        """True only when the mandate has a member whose Customer is the invoice's.
+
+        Fails closed: no member, a member without a customer, or an invoice
+        without a customer all refuse.
+        """
+        if not mandate.member:
+            return False
+        member_customer = frappe.db.get_value("Member", mandate.member, "customer")
+        return bool(member_customer) and member_customer == invoice.customer
 
     def sync_mandate_status(self, mandate_name: str) -> dict:
         """

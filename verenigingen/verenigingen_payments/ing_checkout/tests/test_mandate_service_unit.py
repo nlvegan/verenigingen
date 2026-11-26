@@ -24,6 +24,7 @@ from frappe.core.doctype.system_settings.system_settings import clear_system_set
 from frappe.tests.utils import FrappeTestCase
 
 from verenigingen.verenigingen_payments.ing_checkout.tests.mandate_test_helpers import (
+    pairing_ok,
     resolves_to,
     routes_get_doc,
 )
@@ -171,7 +172,7 @@ class TestMandateService(FrappeTestCase):
         mock_invoice.outstanding_amount = 100.00
 
         docs = {"ING Checkout Mandate": mock_mandate, "Sales Invoice": mock_invoice}
-        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)):
+        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)), pairing_ok():
 
             # Mock transaction creation
             with patch(
@@ -202,7 +203,7 @@ class TestMandateService(FrappeTestCase):
         mock_invoice.outstanding_amount = 100.00
 
         docs = {"ING Checkout Mandate": mock_mandate, "Sales Invoice": mock_invoice}
-        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)):
+        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)), pairing_ok():
 
             service = MandateService()
             result = service.execute_debit_for_invoice("ING-MAND-00001", "SINV-00001")
@@ -224,7 +225,7 @@ class TestMandateService(FrappeTestCase):
         mock_invoice.outstanding_amount = 0.00
 
         docs = {"ING Checkout Mandate": mock_mandate, "Sales Invoice": mock_invoice}
-        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)):
+        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)), pairing_ok():
 
             service = MandateService()
             result = service.execute_debit_for_invoice("ING-MAND-00001", "SINV-00001")
@@ -248,7 +249,7 @@ class TestMandateService(FrappeTestCase):
         mock_invoice.outstanding_amount = 100.00
 
         docs = {"ING Checkout Mandate": mock_mandate, "Sales Invoice": mock_invoice}
-        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)):
+        with patch("frappe.get_doc", side_effect=routes_get_doc(docs)), pairing_ok():
 
             service = MandateService()
             result = service.execute_debit_for_invoice("ING-MAND-00001", "SINV-00001")
