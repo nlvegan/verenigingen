@@ -131,10 +131,12 @@ class TemplateCreationService(StatelessService):
             template.billing_day = 1  # Default template billing day
             template.auto_generate = 1
 
+            # Security: follow_on_ignore_permissions() is True only inside authorised_follow_on_steps (caller already permission-checked), else None.
             template.insert(ignore_permissions=follow_on_ignore_permissions())
 
             # Link back to membership type
             membership_type_doc.dues_schedule_template = template.name
+            # Security: follow_on_ignore_permissions() is True only inside authorised_follow_on_steps (caller already permission-checked), else None.
             membership_type_doc.save(ignore_permissions=follow_on_ignore_permissions())
 
             return template
@@ -359,6 +361,7 @@ class TemplateCreationService(StatelessService):
             schedule.next_invoice_date = today()
 
         # Insert and return
+        # Security: follow_on_ignore_permissions() is True only inside authorised_follow_on_steps (caller already permission-checked), else None.
         schedule.insert(ignore_permissions=follow_on_ignore_permissions())
 
         # Link schedule back to member.  Use db.set_value to avoid

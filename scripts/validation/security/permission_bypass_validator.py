@@ -35,6 +35,7 @@ Exit Codes:
 """
 
 import argparse
+import ast
 import os
 import re
 import subprocess
@@ -62,6 +63,10 @@ class PermissionBypassFinding:
     has_justification: bool
     justification_text: Optional[str] = None
 
+
+# How many lines above a bypass a justification comment still counts (#971:
+# the old window of 5 missed a real "# Security:" block 7 lines up).
+JUSTIFICATION_LOOKBACK_LINES = 10
 
 # Patterns that indicate security justification comments
 JUSTIFICATION_PATTERNS = [
@@ -142,7 +147,7 @@ def has_security_justification(lines: List[str], line_number: int) -> Tuple[bool
 
     Looks for justification in:
     - Same line (inline comment)
-    - Previous 5 lines (comment block before)
+    - Previous JUSTIFICATION_LOOKBACK_LINES lines (comment block before)
     - Docstring of containing function
     """
     # Check same line
@@ -152,8 +157,8 @@ def has_security_justification(lines: List[str], line_number: int) -> Tuple[bool
             match = re.search(r'#\s*(.+)$', current_line)
             return True, match.group(1) if match else current_line
 
-    # Check previous 5 lines
-    start_idx = max(0, line_number - 6)
+    # Check previous JUSTIFICATION_LOOKBACK_LINES lines
+    start_idx = max(0, line_number - 1 - JUSTIFICATION_LOOKBACK_LINES)
     for i in range(line_number - 2, start_idx - 1, -1):
         if i < 0 or i >= len(lines):
             continue
@@ -181,6 +186,29 @@ def has_security_justification(lines: List[str], line_number: int) -> Tuple[bool
     return False, None
 
 
+def find_variable_bypass_lines(content: str) -> List[int]:
+    """Line numbers of `f(..., ignore_permissions=<non-literal>)` keyword arguments.
+
+    #971: a caller-controlled bypass forwarded as a variable
+    (`doc.save(ignore_permissions=ignore_permissions)`) never matched the
+    literal-True regex. Literal True is still found by the regex in
+    find_permission_bypasses; literal False/None are not bypasses.
+    """
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return []
+    lines = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for kw in node.keywords:
+            if kw.arg != "ignore_permissions" or isinstance(kw.value, ast.Constant):
+                continue
+            lines.append(kw.value.lineno)
+    return sorted(set(lines))
+
+
 def find_permission_bypasses(file_path: str) -> List[PermissionBypassFinding]:
     """Find all ignore_permissions=True usages in a file"""
     findings = []
@@ -198,8 +226,10 @@ def find_permission_bypasses(file_path: str) -> List[PermissionBypassFinding]:
     # Pattern to find ignore_permissions=True
     pattern = r'ignore_permissions\s*=\s*True'
 
+    variable_lines = set(find_variable_bypass_lines(content))
+
     for i, line in enumerate(lines, 1):
-        if re.search(pattern, line):
+        if re.search(pattern, line) or i in variable_lines:
             # Skip commented lines
             stripped = line.strip()
             if stripped.startswith('#'):
