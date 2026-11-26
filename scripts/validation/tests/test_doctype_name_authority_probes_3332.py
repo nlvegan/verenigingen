@@ -13,7 +13,6 @@ verenigingen/tests/test_doctype_name_ratchet.py.
 
 Run: python -m unittest discover -s scripts/validation/tests -p 'test_doctype_name_authority_probes_3332.py'
 """
-import functools
 import importlib.util
 import sys
 import unittest
@@ -26,39 +25,27 @@ dnv = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = dnv
 _spec.loader.exec_module(dnv)
 
-_REAL_BENCH_PROBLEM = dnv.authority_problem(dnv.known_doctypes())
+# Skip only when a sibling app is genuinely absent (CI's standalone checkout). Do NOT
+# skip on authority_problem(): a typo'd probe makes that non-None and would skip every
+# test here, hiding exactly the defect these tests exist to catch.
+_ABSENT_APPS = [app for app in dnv.REQUIRED_APPS if not dnv.doctypes_defined_by(app)]
 _needs_real_bench = unittest.skipIf(
-    _REAL_BENCH_PROBLEM is not None,
-    f"needs a full multi-app bench (frappe/erpnext/hrms/payments): {_REAL_BENCH_PROBLEM}",
+    bool(_ABSENT_APPS), f"needs a full multi-app bench; no doctypes loaded for {_ABSENT_APPS}"
 )
-
-
-@functools.lru_cache(maxsize=None)
-def _doctypes_defined_by(app_name):
-    """DocType names defined by ONE required app, via the validator's own loader."""
-    with unittest.mock.patch.object(dnv, "REQUIRED_APPS", (app_name,)):
-        return frozenset(dnv.known_doctypes())
 
 
 @_needs_real_bench
 class TestAuthorityProbesAreUniqueToTheirApp(unittest.TestCase):
     def test_every_probe_is_defined_by_exactly_its_own_app(self):
-        by_app = {app: _doctypes_defined_by(app) for app in dnv.REQUIRED_APPS}
-        for app, probe in dnv.AUTHORITY_PROBES.items():
-            definers = sorted(a for a, names in by_app.items() if probe in names)
-            self.assertEqual(
-                definers, [app],
-                f"AUTHORITY_PROBES[{app!r}] = {probe!r} is defined by {definers}; "
-                f"it only proves {app} is loaded if no other app defines it",
-            )
+        self.assertEqual(dnv.probes_not_unique_to_their_app(), {})
 
     def test_probes_cover_exactly_the_required_apps(self):
         self.assertEqual(set(dnv.AUTHORITY_PROBES), set(dnv.REQUIRED_APPS))
 
     def test_control_the_uniqueness_check_can_see_a_shared_doctype(self):
         # Control: the real shape of #3332. erpnext defines this payments-era doctype.
-        self.assertIn("Payment Gateway Account", _doctypes_defined_by("erpnext"))
-        self.assertNotIn("Payment Gateway Account", _doctypes_defined_by("payments"))
+        self.assertIn("Payment Gateway Account", dnv.doctypes_defined_by("erpnext"))
+        self.assertNotIn("Payment Gateway Account", dnv.doctypes_defined_by("payments"))
 
 
 @_needs_real_bench

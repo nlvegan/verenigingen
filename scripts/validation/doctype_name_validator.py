@@ -262,7 +262,7 @@ SUPPRESS = "doctype-ok:"
 # the authority
 
 
-def known_doctypes(bench_apps: Path = BENCH_APPS) -> dict[str, str]:
+def known_doctypes(bench_apps: Path = BENCH_APPS, apps: tuple[str, ...] | None = None) -> dict[str, str]:
     """Every DocType name defined by a JSON in a REQUIRED app -> that app.
 
     Scoped to ``REQUIRED_APPS`` so the same tree yields the same census on every
@@ -277,7 +277,7 @@ def known_doctypes(bench_apps: Path = BENCH_APPS) -> dict[str, str]:
     # None (no/unparseable pyproject.toml in the checkout) means no app matches, so every
     # app, this one included, falls back to the bench's copy: the pre-#1903 behaviour.
     local_app = DocTypeLoader._local_app_name(REPO_ROOT)
-    for app_name in REQUIRED_APPS:
+    for app_name in apps or REQUIRED_APPS:
         app_dir = REPO_ROOT if app_name == local_app else bench_apps / app_name
         if not (app_dir / "pyproject.toml").exists():
             continue
@@ -293,6 +293,20 @@ def known_doctypes(bench_apps: Path = BENCH_APPS) -> dict[str, str]:
             if data.get("doctype") == "DocType" and data.get("name"):
                 known.setdefault(data["name"], app_name)
     return known
+
+
+def doctypes_defined_by(app_name: str) -> frozenset[str]:
+    """DocType names defined by ONE app alone (used to prove a probe is unique to it, #3332)."""
+    return frozenset(known_doctypes(apps=(app_name,)))
+
+
+def probes_not_unique_to_their_app() -> dict[str, list[str]]:
+    """``{app: [every REQUIRED app defining its probe]}`` for each probe not defined by exactly its own app."""
+    by_app = {app: doctypes_defined_by(app) for app in REQUIRED_APPS}
+    definers = {
+        app: [a for a, names in by_app.items() if probe in names] for app, probe in AUTHORITY_PROBES.items()
+    }
+    return {app: found for app, found in definers.items() if found != [app]}
 
 
 # --------------------------------------------------------------------------
