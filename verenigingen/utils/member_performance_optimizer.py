@@ -103,8 +103,14 @@ class MemberPerformanceOptimizer:
             # Compute full_name explicitly: validate() (which normally derives it)
             # is skipped above, but the after_insert hook creates a Customer named
             # after member.full_name and crashes if it is still None.
-            from verenigingen.utils.dutch_name_service import update_member_full_name
+            from verenigingen.utils.dutch_name_service import (
+                update_member_full_name,
+                validate_member_name_fields,
+            )
 
+            # ignore_validate also skips the name check, so markup in any name part
+            # would reach full_name; run it explicitly (#3300).
+            validate_member_name_fields(member)
             update_member_full_name(member)
             member.insert(ignore_permissions=False)
 

@@ -49,7 +49,9 @@ def validate_member_name_fields(member_doc):
     Raises:
         frappe.ValidationError: If any name field contains invalid characters
     """
-    for field in ["first_name", "middle_name", "last_name"]:
+    # tussenvoegsel is validated like the other parts: it is interpolated into
+    # full_name, so unvalidated markup there reached every consumer of full_name (#3300).
+    for field in ["first_name", "middle_name", "tussenvoegsel", "last_name"]:
         if not hasattr(member_doc, field) or not getattr(member_doc, field):
             continue
 
