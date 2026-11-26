@@ -27,4 +27,15 @@ def assert_snippet_parses(src: str, label: str = "snippet") -> None:
 def write_py_snippet(path, src: str, *, intentionally_invalid: bool = False, **write_kwargs) -> None:
     if not intentionally_invalid:
         assert_snippet_parses(src, label=f"snippet {Path(path).name}")
+    else:
+        # A "fixed" intentionally-invalid snippet would silently stop testing the
+        # scanner's skip-unparseable path, so the opt-out must name a real failure.
+        try:
+            ast.parse(src)
+        except SyntaxError:
+            pass
+        else:
+            raise AssertionError(
+                f"snippet {Path(path).name} is marked intentionally_invalid but parses"
+            )
     Path(path).write_text(src, **write_kwargs)

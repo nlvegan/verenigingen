@@ -20,7 +20,10 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from snippet_parse_guard import write_py_snippet
+try:
+    from snippet_parse_guard import write_py_snippet
+except ImportError:  # run by dotted name: python -m unittest scripts.validation.tests.<module>
+    from .snippet_parse_guard import write_py_snippet
 
 _MOD_PATH = Path(__file__).resolve().parents[1] / "doctype_name_validator.py"
 _spec = importlib.util.spec_from_file_location("doctype_name_validator", _MOD_PATH)

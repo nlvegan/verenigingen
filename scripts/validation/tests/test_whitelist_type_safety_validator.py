@@ -20,7 +20,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from snippet_parse_guard import write_py_snippet
+try:
+    from snippet_parse_guard import write_py_snippet
+except ImportError:  # run by dotted name: python -m unittest scripts.validation.tests.<module>
+    from .snippet_parse_guard import write_py_snippet
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "security" / "whitelist_type_safety_validator.py"
 
