@@ -51,7 +51,7 @@ class PersistentTestDataGenerator:
         """Connect to Frappe site"""
         frappe.init(site=self.site_name)
         frappe.connect()
-        frappe.db.begin()  # Start explicit transaction
+        frappe.db.begin()  # db-begin-ok: own-connection  (frappe.connect() two lines up; no prior writes)
         
     def disconnect(self):
         """Disconnect from Frappe site"""

@@ -234,5 +234,53 @@ class DbBeginValidatorTest(unittest.TestCase):
         self.assertEqual(_run(src), [])
 
 
+class WholeTreeScopeTest(unittest.TestCase):
+    """#1169: the first class sweep ran `--all verenigingen` and never saw `scripts/`.
+
+    Nothing in CI invokes the validator tree-wide (the pre-push hook only gets the
+    changed files and is advisory), so this test is the tree-wide gate. It scans
+    every top-level source directory, not a hand-picked root, so a new sibling of
+    `verenigingen/` is covered without anyone remembering to add it here.
+    """
+
+    _REPO = Path(__file__).resolve().parents[3]
+    _SKIP_ROOTS = {"node_modules", "docs", "cypress", "frappe-stubs"}
+
+    def _scan_roots(self):
+        return sorted(
+            d
+            for d in self._REPO.iterdir()
+            if d.is_dir() and not d.name.startswith(".") and d.name not in self._SKIP_ROOTS
+        )
+
+    def _unsuppressed(self, roots):
+        out = []
+        for root in roots:
+            for path in sorted(root.rglob("*.py")):
+                if not dbv.is_production_file(path):
+                    continue
+                for f in dbv.check_file(path):
+                    if not f.suppressed:
+                        out.append(f"{path.relative_to(self._REPO)}:{f.line} in {f.func}()")
+        return out
+
+    def test_scripts_is_among_the_scanned_roots(self):
+        names = {d.name for d in self._scan_roots()}
+        self.assertTrue({"verenigingen", "scripts"} <= names, names)
+
+    def test_no_unsuppressed_implicit_commit_site_anywhere_in_the_source_tree(self):
+        self.assertEqual(self._unsuppressed(self._scan_roots()), [])
+
+    def test_control_the_scan_does_see_a_flagged_site_under_a_scripts_style_root(self):
+        with tempfile.TemporaryDirectory() as d:
+            sub = Path(d) / "scripts" / "migration"
+            sub.mkdir(parents=True)
+            (sub / "job.py").write_text("import frappe\ndef f():\n    frappe.db.begin()\n")
+            found = [
+                f for p in Path(d).rglob("*.py") if dbv.is_production_file(p) for f in dbv.check_file(p)
+            ]
+        self.assertEqual([f.func for f in found], ["f"])
+
+
 if __name__ == "__main__":
     unittest.main()

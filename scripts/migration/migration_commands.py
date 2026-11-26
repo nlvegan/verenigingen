@@ -154,7 +154,7 @@ def migrate_data():
         # Clean up old table
         if migrated_count == len(old_records):
             print("🧹 Cleaning up old table...")
-            frappe.db.sql("DROP TABLE IF EXISTS `tabMembership Amendment Request`")
+            frappe.db.sql_ddl("DROP TABLE IF EXISTS `tabMembership Amendment Request`")
             frappe.db.commit()
             print("✅ Old table removed")
 
