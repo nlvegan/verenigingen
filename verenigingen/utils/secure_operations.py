@@ -188,6 +188,10 @@ def verify_document_integrity(doc, bypass_validations: List[str] = None) -> List
                 f"integrity issues after bypass: {violations}"
             )
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213 rolled the transaction back, 1205 left it half-applied (transaction_errors.py):
+        # reporting either as an "integrity violation" lets the caller carry on over that state.
+        raise
     except Exception as e:
         frappe.logger().error(f"Error during integrity verification: {e}")
         violations.append(f"Integrity verification failed: {str(e)}")
@@ -588,6 +592,10 @@ def _execute_document_operation(
                 )
                 try:
                     doc.reload()
+                except NON_RESUMABLE_DB_ERRORS:
+                    # Not "could not be reloaded": the transaction is gone (1213) or half-applied
+                    # (1205), and wrapping it into a ValidationError becomes success=False.
+                    raise
                 except Exception as reload_error:
                     frappe.logger().error(
                         f"Failed to reload {doc.doctype} {doc.name} after timestamp mismatch: {reload_error}"
@@ -804,8 +812,9 @@ def get_system_user_for_operation(operation_context: str) -> str:
 
         return settings.creation_user
 
-    except ConfigurationError:
-        # Re-raise configuration errors without wrapping
+    except (ConfigurationError, *NON_RESUMABLE_DB_ERRORS):
+        # Re-raise configuration errors without wrapping; a 1213/1205 is not a configuration
+        # problem and must reach whoever owns the transaction boundary.
         raise
     except Exception as e:
         frappe.logger().error(f"SECURITY: Failed to get system user for operation '{operation_context}': {e}")
@@ -960,7 +969,10 @@ def follow_on_ignore_permissions():
 
 def _read_persisted_docstatus_best_effort(doctype, name):
     """Best-effort read of a document's current DB docstatus, for the #385
-    partial-write comparison. MUST NOT raise: this is a diagnostic signal,
+    partial-write comparison. Raises ONLY the non-resumable DB errors (1213/1205,
+    #2996): those mean the unit of work is dead or half-applied, and swallowing one
+    here would let the caller report success=False and carry on. Anything else MUST
+    NOT raise: this is a diagnostic signal,
     not the operation itself, and a caller can legitimately pass a doc whose
     `.doctype`/`.name` are not real strings (a test double standing in for a
     real document -- see test_setup_password_policy_new, which regressed
@@ -978,6 +990,11 @@ def _read_persisted_docstatus_best_effort(doctype, name):
         if not frappe.db.exists(doctype, name):
             return None
         return frappe.db.get_value(doctype, name, "docstatus")
+    except NON_RESUMABLE_DB_ERRORS:
+        # 1213 rolled the transaction back; 1205 left it half-applied (transaction_errors.py).
+        # Either way returning None would let the caller's failure handler report
+        # success=False and carry on over discarded or partial state (#2996).
+        raise
     except Exception:  # swallow-ok: best-effort
         return None
 

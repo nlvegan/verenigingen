@@ -338,6 +338,11 @@ class MemberCleanupService(StatelessService):
                 frappe.delete_doc("Chapter Member", chapter_member_name, force=True)
             except Exception as e:
                 self.logger.error(f"Error deleting Chapter Member {chapter_member_name}: {str(e)}")
+                # self.logger leaves no Error Log row; a stranded enrolment must be visible (#2868)
+                frappe.log_error(
+                    title="Member cleanup could not delete a Chapter Member",
+                    message=f"Chapter Member {chapter_member_name} of {member_doc.name}: {e}\n\n{frappe.get_traceback()}",
+                )
 
         # Handle Customer - preserve if has transactions
         if member_doc.customer:
@@ -421,6 +426,14 @@ class MemberCleanupService(StatelessService):
         schedule with none is omitted entirely.
         """
         from frappe.model.delete_doc import get_dynamic_linked_docs, get_linked_docs
+        from frappe.model.dynamic_links import get_dynamic_links, invalidate_distinct_link_doctypes
+
+        # Frappe caches (12h, Redis) which doctypes each Dynamic Link field names and evicts it only
+        # on a validated save, so a row written without validation (update_child_table) leaves an
+        # entry that omits this doctype and the check below skips that table (#3120, as #3116).
+        # Frappe's eviction drops an entry only when it lacks the doctype, i.e. the stale case.
+        for df in get_dynamic_links():
+            invalidate_distinct_link_doctypes(df.parent, df.options, "Membership Dues Schedule")
 
         blocked: Dict[str, list] = {}
         for schedule_name in schedule_names:

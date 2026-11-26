@@ -25,6 +25,7 @@ from decimal import Decimal
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.verenigingen_payments.mollie.services.payment_context_resolver import PaymentContext
 from verenigingen.verenigingen_payments.mollie.services.shared.payment_entry_factory import (
     MollieDataValidationError,
@@ -135,10 +136,10 @@ class TestSanitizationAndExtraction(EnhancedTestCase):
 
     def test_reference_date_bad_paid_at_falls_back_today(self):
         d = self.pe_factory._get_reference_date({"paid_at": "not-a-date"})
-        self.assertEqual(d, frappe.utils.getdate())
+        assert_written_today(self, d)
 
     def test_reference_date_no_paid_at(self):
-        self.assertEqual(self.pe_factory._get_reference_date({}), frappe.utils.getdate())
+        assert_written_today(self, self.pe_factory._get_reference_date({}))
 
     def test_extract_reference_from_metadata(self):
         ctx = PaymentContext("membership", "Member", "M-1")

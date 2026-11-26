@@ -533,7 +533,7 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
         
         # 1. Cancel SEPA mandate
         sepa_mandate.status = "Cancelled"
-        sepa_mandate.cancellation_date = termination_date
+        sepa_mandate.cancelled_date = termination_date
         sepa_mandate.cancellation_reason = "Member termination"
         sepa_mandate.save()
         
@@ -589,7 +589,10 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
         
         sepa_mandate.reload()
         self.assertEqual(sepa_mandate.status, "Cancelled")
-        self.assertEqual(getdate(sepa_mandate.cancellation_date), termination_date)
+        self.assertEqual(
+            frappe.db.get_value("SEPA Mandate", sepa_mandate.name, "cancelled_date"),
+            termination_date,
+        )
 
         membership.reload()
         self.assertEqual(membership.status, "Cancelled")

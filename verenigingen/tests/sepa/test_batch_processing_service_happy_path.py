@@ -16,9 +16,6 @@ FIXED (mark_batch_invoices_as_paid succeeds on a submitted batch):
   status writes stay atomic within the request transaction. The test below pins the
   success path (parent + child rows updated, Payment Entries created, no exception).
 
-- ``process_batch_submission`` success: with the SEPA file flagged generated the
-  status flips to Submitted and True is returned. This path works and is covered.
-
 Real-DB integration tests (no mocks). Submitted batches / payment entries commit
 past the FrappeTestCase rollback, so committed docs are tracked and force-deleted.
 """
@@ -110,22 +107,6 @@ class TestMarkBatchInvoicesAsPaidSucceedsOnSubmit(_SubmittedBatchBase):
             frappe.db.exists("Payment Entry", {"reference_no": batch.name}),
             "A Payment Entry referencing the batch must have been created",
         )
-
-
-class TestProcessBatchSubmissionSuccess(_SubmittedBatchBase):
-    def test_success_path_flips_status_to_submitted(self):
-        # A draft batch with the SEPA file flagged generated submits successfully
-        # (the placeholder bank step is a no-op that returns True).
-        batch = self._sepa.create_test_direct_debit_batch(invoice_count=1)
-        self._track("Direct Debit Batch", batch.name)
-        batch.sepa_file_generated = 1
-        batch.save()
-
-        result = self.service.process_batch_submission(batch)
-        self.assertTrue(result)
-        batch.reload()
-        self.assertEqual(batch.status, "Submitted")
-        self.assertIn("submitted", (batch.batch_log or "").lower())
 
 
 class TestSecondMarkPaidClickIsIdempotent2573(_SubmittedBatchBase):

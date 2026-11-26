@@ -413,6 +413,11 @@ def get_board_member_profiles(user: str, member: str) -> list:
         board_positions = get_live_seats({"volunteer": volunteer}, fields=["parent", "chapter_role"])
 
         for position in board_positions:
+            # A seat on a deactivated Chapter Role confers no profile (#2958)
+            if position.chapter_role and not frappe.db.get_value(
+                "Chapter Role", position.chapter_role, "is_active"
+            ):
+                continue
             try:
                 # Validate chapter exists
                 if not frappe.db.exists("Chapter", position.parent):

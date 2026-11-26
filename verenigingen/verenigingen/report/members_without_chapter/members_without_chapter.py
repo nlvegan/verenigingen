@@ -370,11 +370,14 @@ def suggest_chapter_for_member_optimized(member, address_info, preloaded_chapter
 def get_action_buttons(member_name, suggested_chapter):
     """Generate action buttons for each row"""
     buttons = []
+    # Names land inside HTML attributes, so escape them (chapter names are free text)
+    member_name = frappe.utils.escape_html(member_name)
 
     # Assign to suggested chapter button
     if suggested_chapter and suggested_chapter != "No suggestion available":
+        suggested_chapter = frappe.utils.escape_html(suggested_chapter)
         buttons.append(
-            """
+            f"""
             <button class="btn btn-xs btn-primary assign-chapter-btn"
                     data-member="{member_name}"
                     data-chapter="{suggested_chapter}"
@@ -386,7 +389,7 @@ def get_action_buttons(member_name, suggested_chapter):
 
     # Manual assignment button
     buttons.append(
-        """
+        f"""
         <button class="btn btn-xs btn-secondary manual-assign-btn"
                 data-member="{member_name}"
                 title="Choose chapter manually">

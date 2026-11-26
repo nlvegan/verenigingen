@@ -334,7 +334,6 @@
 ./verenigingen/utils/analyze_mutation_ledgers.py
 ./verenigingen/utils/analyze_remaining_fallbacks.py
 ./verenigingen/utils/api_doc_generator.py
-./verenigingen/utils/api_endpoint_optimizer.py
 ./verenigingen/utils/api_response.py
 ./verenigingen/utils/auth_monitoring.py
 ./verenigingen/utils/billing_frequency_transition_manager.py

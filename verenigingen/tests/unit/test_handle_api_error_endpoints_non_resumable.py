@@ -396,14 +396,18 @@ class TestEveryHandleApiErrorEndpointReRaisesNonResumableErrors(VereningingenTes
         removed ``chapter_dashboard_api.quick_approve_member`` and
         ``membership_application.approve_membership_application``; added
         ``chapter_dashboard_api.quick_approve_application`` and ``quick_approve_join_request``.
-        All four are asserted by name, so the count cannot stay at 51 by swapping again."""
+        All four are asserted by name, so the count cannot stay at 51 by swapping again.
+
+        50 since #2897 (maintainer ruling) dropped the HTTP exposure from the private helper
+        ``sepa_xml_enhanced_generator._resolve_batch_sequence_type``; its absence is asserted
+        so the count cannot stay at 50 by it coming back while another endpoint is lost."""
         endpoints = list(self._whitelisted_handle_api_error_functions())
         found = {f"{p.relative_to(APP_ROOT)}:{n.name}" for p, n in endpoints}
         self.assertEqual(
             len(endpoints),
-            51,
-            f"expected 51 whitelisted @handle_api_error endpoints "
-            f"(#481's 50 + #1727's 2 - #1866's 1), "
+            50,
+            f"expected 50 whitelisted @handle_api_error endpoints "
+            f"(#481's 50 + #1727's 2 - #1866's 1 - #2897's 1), "
             f"found {len(endpoints)}: " + ", ".join(sorted(found)),
         )
         for name in ("submit_short_application", "confirm_short_application"):
@@ -413,3 +417,7 @@ class TestEveryHandleApiErrorEndpointReRaisesNonResumableErrors(VereningingenTes
             self.assertIn(f"api/chapter_dashboard_api.py:{name}", found)
         self.assertNotIn("api/chapter_dashboard_api.py:quick_approve_member", found)
         self.assertNotIn("api/membership_application.py:approve_membership_application", found)
+        self.assertNotIn(
+            "verenigingen_payments/utils/sepa_xml_enhanced_generator.py:_resolve_batch_sequence_type",
+            found,
+        )

@@ -14,11 +14,11 @@ Run:
         --module verenigingen.tests.payment.test_mollie_orphan_forward_refusal_2406
 """
 
-from types import SimpleNamespace
 
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.payment.mollie_orphan_payment_stub import orphan_payment_stub
 from verenigingen.tests.payment.test_mollie_orchestrator_coverage_b2 import OrchestratorBase
 from verenigingen.tests.support import forward_refusal as refusal
 from verenigingen.tests.support.mollie_settings import (
@@ -99,35 +99,23 @@ class TestOrphanForwardRefusal(OrchestratorBase):
 
     # -- the whole flow: a refused payment must not leave a new orphan invoice behind ----------
 
-    def _orphan_payment_stub(self):
-        return SimpleNamespace(
-            id=self.pid,
-            status="paid",
-            amount={"value": f"{AMOUNT:.2f}", "currency": "EUR"},
-            paid_at=f"{today()}T10:05:00+00:00",
-            created_at=f"{today()}T10:00:00+00:00",
-            description="orphan 2406",
-            method="ideal",
-            metadata={},
-        )
-
     def _orphan_invoices(self):
         return frappe.db.count("Sales Invoice", {"remarks": ["like", f"%{self.pid}%"]})
 
     def test_flow_redelivery_after_staff_cancel_is_refused_before_any_new_document(self):
-        first = self.orch.process_orphaned_payment_with_invoice(self.pid, self._orphan_payment_stub())
+        first = self.orch.process_orphaned_payment_with_invoice(self.pid, orphan_payment_stub(self.pid, AMOUNT, "orphan 2406"))
         self.assertEqual(first.status, "success", f"fixture problem: {first.error}")
         frappe.get_doc("Payment Entry", first.payment_entry).cancel()
         refusal.prepare_refusal_fixture(self, self.pid)
         invoices_before = self._orphan_invoices()
 
-        result = self.orch.process_orphaned_payment_with_invoice(self.pid, self._orphan_payment_stub())
+        result = self.orch.process_orphaned_payment_with_invoice(self.pid, orphan_payment_stub(self.pid, AMOUNT, "orphan 2406"))
 
         self.assertEqual(result.status, "skipped", result.error)
         self.assertEqual(self._orphan_rows_2406(docstatus=["!=", 2]), [])
         self.assertEqual(self._orphan_invoices(), invoices_before, "a refused payment created an invoice")
         refusal.assert_refused_once(self, self.pid, "25.00")
-        self.orch.process_orphaned_payment_with_invoice(self.pid, self._orphan_payment_stub())
+        self.orch.process_orphaned_payment_with_invoice(self.pid, orphan_payment_stub(self.pid, AMOUNT, "orphan 2406"))
         refusal.assert_refused_once(self, self.pid, "25.00")
 
     def test_flow_control_cancelled_row_beside_a_live_one_is_not_a_refusal(self):
@@ -141,7 +129,7 @@ class TestOrphanForwardRefusal(OrchestratorBase):
         self._cancelled_row_of_another_party()
         refusal.prepare_refusal_fixture(self, self.pid)
 
-        result = self.orch.process_orphaned_payment_with_invoice(self.pid, self._orphan_payment_stub())
+        result = self.orch.process_orphaned_payment_with_invoice(self.pid, orphan_payment_stub(self.pid, AMOUNT, "orphan 2406"))
 
         self.assertEqual(result.status, "skipped")
         self.assertEqual(result.payment_entry, live, "the live entry should be what was found")
