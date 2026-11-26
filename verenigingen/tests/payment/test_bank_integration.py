@@ -22,6 +22,7 @@ from unittest.mock import patch
 import frappe
 import requests
 
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.tests.support.error_log_assertions import assert_error_log
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.verenigingen_payments.utils.bank_integration import (
@@ -205,7 +206,7 @@ class TestCamt053Parsing(VereningingenTestCase):
         self.assertEqual(txn["reference"], "")
         self.assertEqual(txn["description"], "")
         # No BookgDt -> defaults to today()
-        self.assertEqual(txn["date"], frappe.utils.today())
+        assert_written_today(self, txn["date"])
 
 
 # --------------------------------------------------------------------------- #

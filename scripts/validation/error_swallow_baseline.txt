@@ -294,7 +294,6 @@ verenigingen/utils/security/authorization.py::SEPAAuthorizationManager._check_co
 verenigingen/utils/security/authorization.py::SEPAAuthorizationManager._check_ip_restrictions::1
 verenigingen/utils/security/authorization.py::SEPAAuthorizationManager.get_user_permissions::1
 verenigingen/utils/security/authorization.py::SEPAAuthorizationManager.has_permission::1
-verenigingen/utils/security/authorization_engine.py::AuthorizationEngine.get_user_role_profiles::1
 verenigingen/utils/security/rate_limit_engine.py::RateLimitEngine.get_rate_limit_headers::1
 verenigingen/utils/settings_utils.py::get_brand_settings::1
 verenigingen/utils/settings_utils.py::get_domain_settings::1
