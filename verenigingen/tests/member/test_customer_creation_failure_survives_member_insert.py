@@ -68,7 +68,7 @@ class TestCustomerCreationFailureSurvivesMemberInsert(EnhancedTestCase):
         """Fault: customer creation raises ``error`` (for the non-ValidationError cases)."""
         original = application_payments_shim.create_customer_for_member
 
-        def _boom(member):
+        def _boom(member, **kwargs):
             raise error
 
         application_payments_shim.create_customer_for_member = _boom

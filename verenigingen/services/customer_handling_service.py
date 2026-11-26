@@ -139,7 +139,9 @@ class CustomerHandlingService(StatefulService):
             # (Contact is required by ERPNext for email/phone via fetch_from)
             from verenigingen.utils.application_payments import create_customer_for_member as _create_customer
 
-            customer = _create_customer(member_doc)
+            # suppress_error_log: the except below owns the single Error Log row for
+            # every failure type (#1299), so the helper's own row would be a duplicate.
+            customer = _create_customer(member_doc, suppress_error_log=True)
 
             self.logger.info(f"Created customer {customer.name} for member {member_doc.name}")
             self._end_operation(operation_name, start_time, success=True)
@@ -148,9 +150,12 @@ class CustomerHandlingService(StatefulService):
         except Exception as e:
             self._end_operation(operation_name, start_time, success=False)
             # Re-raise if it's already a ValidationError or similar, otherwise wrap
-            if isinstance(e, (frappe.ValidationError, frappe.DoesNotExistError)):
-                raise
             member_name = getattr(member_doc, "name", "Unknown")
+            if isinstance(e, (frappe.ValidationError, frappe.DoesNotExistError)):
+                # Keep the original type for the caller, but still write the one row
+                # the suppressed inner log no longer provides (#1299).
+                self.handle_error(e, operation_name, {"member": member_name}, raise_error=False)
+                raise
             self.logger.error(
                 f"Customer creation failed for member {member_name}: {type(e).__name__}: {str(e)}"
             )
