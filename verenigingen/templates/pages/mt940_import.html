@@ -1170,7 +1170,7 @@ document.addEventListener('DOMContentLoaded', function() {
         let html = '';
         for (let imp of imports.slice(0, 10)) { // Show last 10 imports
             const dateRange = imp.mollie_from_date && imp.mollie_to_date ?
-                imp.mollie_from_date + ' to ' + imp.mollie_to_date : 'N/A';
+                escapeHtml(imp.mollie_from_date) + ' to ' + escapeHtml(imp.mollie_to_date) : 'N/A';
 
             let statusClass = '';
             if (imp.import_status === 'Completed') statusClass = 'success';
@@ -1180,11 +1180,11 @@ document.addEventListener('DOMContentLoaded', function() {
             else statusClass = 'default';
 
             html += '<tr>';
-            html += '<td>' + (imp.descriptive_name || imp.name) + '</td>';
+            html += '<td>' + escapeHtml(imp.descriptive_name || imp.name) + '</td>';
             html += '<td>' + dateRange + '</td>';
-            html += '<td><span class="label label-' + statusClass + '">' + imp.import_status + '</span></td>';
-            html += '<td>' + (imp.transactions_created || 0) + ' created, ' + (imp.transactions_skipped || 0) + ' skipped</td>';
-            html += '<td><a href="/app/mt940-import/' + imp.name + '" class="btn btn-xs btn-default">View</a></td>';
+            html += '<td><span class="label label-' + statusClass + '">' + escapeHtml(imp.import_status) + '</span></td>';
+            html += '<td>' + escapeHtml(imp.transactions_created || 0) + ' created, ' + escapeHtml(imp.transactions_skipped || 0) + ' skipped</td>';
+            html += '<td><a href="/app/mt940-import/' + encodeURIComponent(imp.name) + '" class="btn btn-xs btn-default">View</a></td>';
             html += '</tr>';
         }
 
