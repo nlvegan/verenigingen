@@ -706,9 +706,6 @@ class TestDuesScheduleUtilities(EnhancedTestCase):
         # Clean up any orphaned schedules for this membership too
         self._cleanup_membership_schedules()
 
-        # Track created schedules for cleanup
-        self.created_schedules = []
-
     def _cleanup_member_schedules(self):
         """Clean up any existing dues schedules for the test member
 
@@ -780,9 +777,6 @@ class TestDuesScheduleUtilities(EnhancedTestCase):
         # Set is_template flag if needed
         if is_template:
             frappe.db.set_value("Membership Dues Schedule", schedule.name, "is_template", 1)
-
-        # Track for cleanup
-        self.created_schedules.append(schedule.name)
 
         return schedule
 

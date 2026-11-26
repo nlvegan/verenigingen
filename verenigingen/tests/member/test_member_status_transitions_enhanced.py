@@ -19,9 +19,6 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
         """Set up test data using enhanced factory"""
         super().setUp()
 
-        # Clean up any existing test data first
-        self.cleanup_test_data()
-
         # Delete existing test chapter if it has invalid region
         if frappe.db.exists("Chapter", "Member Status Test Chapter"):
             frappe.delete_doc("Chapter", "Member Status Test Chapter", force=True)
@@ -42,20 +39,6 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
             {"amount": 50.00, "currency": "EUR", "subscription_period": "Annual", "is_active": 1},
         )
 
-    def tearDown(self):
-        """Clean up test data"""
-        self.cleanup_test_data()
-        super().tearDown()
-
-    def cleanup_test_data(self):
-        """Clean up test data to prevent conflicts"""
-        # Clean up test members and related records
-        frappe.db.sql("DELETE FROM `tabMembership` WHERE member LIKE 'TEST%'")
-        frappe.db.sql("DELETE FROM `tabSEPA Mandate` WHERE member LIKE 'TEST%'")
-        frappe.db.sql("DELETE FROM `tabVolunteer` WHERE email LIKE 'TEST\\_%@test.invalid'")
-        frappe.db.sql("DELETE FROM `tabMember` WHERE email LIKE 'TEST\\_%@test.invalid'")
-        frappe.db.commit()
-
     def create_chapter_membership(self, member_name: str, chapter_name: str):
         """Create a chapter membership for testing"""
         # Check if already exists
@@ -70,20 +53,6 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
             "members", {"member": member_name, "enabled": 1, "chapter_join_date": today(), "status": "Active"}
         )
         chapter.save()
-
-    def test_cleanup_does_not_delete_members_outside_the_factory_prefix(self):
-        """#2120: `LIKE 'TEST_%@test.invalid'` let `_` match any char, so a member whose
-        email merely starts with `test` (`test-member-...`) was deleted too."""
-        email = f"test-member-{frappe.generate_hash(length=8)}@test.invalid"
-        member = self.create_test_member(email=email)
-        self.assertEqual(frappe.db.get_value("Member", member.name, "email"), email)
-
-        self.cleanup_test_data()
-
-        self.assertTrue(
-            frappe.db.exists("Member", member.name),
-            f"cleanup deleted {email}, which is not a factory `TEST_` email",
-        )
 
     # ===== BASIC STATUS TRANSITIONS =====
 
@@ -407,8 +376,8 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
                 if audit_entries:
                     # Verify audit entry contains status change info
                     audit_entry = frappe.get_doc("Communication History", audit_entries[0].name)
-                    self.assertIn("Suspended", audit_entry.content)
-                    self.assertIn(original_status, audit_entry.content)
+                    self.assertIn("Suspended", audit_entry.get("content"))
+                    self.assertIn(original_status, audit_entry.get("content"))
 
         except (frappe.DoesNotExistError, Exception):
             # Audit system not implemented yet or table structure different

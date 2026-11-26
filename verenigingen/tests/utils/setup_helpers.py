@@ -123,9 +123,9 @@ Example:
 ### 6. Cleanup and Resource Management
 Provides comprehensive cleanup with dependency awareness:
 
-Example:
-    TestEnvironmentSetup.cleanup_test_environment()
-    # Cleans: All test data in proper dependency order
+`TestEnvironmentSetup.cleanup_test_environment()` was removed (#2904): it deleted by site-wide
+`Test%` name patterns, i.e. rows the caller never created. Let the EnhancedTestCase drain
+remove what a test inserted.
 
 **Cleanup Strategy**:
 - **Reverse Dependency Order**: Deletes in proper sequence to avoid constraint violations
@@ -189,8 +189,7 @@ Example:
             self.chapter = self.environment['chapters'][0]
             self.membership_type = self.environment['membership_types'][0]
         
-        def tearDown(self):
-            TestEnvironmentSetup.cleanup_test_environment()
+        # no tearDown: the EnhancedTestCase drain removes what the environment inserted
 
 ### Factory Method Integration
 Example:
@@ -508,44 +507,3 @@ class TestEnvironmentSetup:
                 areas.append(category)
 
         return areas
-
-    @staticmethod
-    def cleanup_test_environment():
-        """Clean up test environment data"""
-        # Clean in reverse dependency order
-        cleanup_order = [
-            ("Team Member", {"volunteer": ["like", "Test%"]}),
-            ("Team", {"team_name": ["like", "Test%"]}),
-            ("Volunteer Assignment", {"role": ["like", "Test%"]}),
-            ("Volunteer Expense", {"description": ["like", "Test%"]}),
-            ("Verenigingen Volunteer", {"volunteer_name": ["like", "Test%"]}),
-            ("Membership", {"member": ["like", "Assoc-Member-Test%"]}),
-            ("Chapter Member", {"member": ["like", "Assoc-Member-Test%"]}),
-            ("Member", {"first_name": ["like", "Test%"]}),
-            ("Chapter", {"name": ["like", "Test%"]}),
-            ("Membership Type", {"membership_type_name": ["like", "Test%"]}),
-            (
-                "Volunteer Interest Area",
-                {
-                    "name": [
-                        "in",
-                        [
-                            "Event Planning",
-                            "Technical Support",
-                            "Community Outreach",
-                            "Fundraising",
-                            "Administration",
-                            "Communications",
-                        ],
-                    ]
-                },
-            ),
-        ]
-
-        for doctype, filters in cleanup_order:
-            try:
-                records = frappe.get_all(doctype, filters=filters)
-                for record in records:
-                    frappe.delete_doc(doctype, record.name, force=True)
-            except Exception as e:
-                print(f"Error cleaning up {doctype}: {e}")

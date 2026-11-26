@@ -313,51 +313,8 @@ class ANBITestPersonas:
             "agreement": agreement.name,
             "donation_count": len(amounts)
         }
-    
-    @staticmethod
-    def cleanup_test_personas():
-        """Clean up all test personas"""
-        test_donors = [
-            "Anna de Vries",
-            "Stichting Groen", 
-            "Jan Bakker",
-            "InnovateTech BV"
-        ]
-        
-        for donor_name in test_donors:
-            # Delete donations
-            donations = frappe.get_all("Donation", filters={"donor": ["like", f"%{donor_name}%"]})
-            for donation in donations:
-                doc = frappe.get_doc("Donation", donation.name)
-                if doc.docstatus == 1:
-                    doc.cancel()
-                doc.delete()
-            
-            # Delete agreements
-            agreements = frappe.get_all("Periodic Donation Agreement", 
-                                      filters={"donor": ["like", f"%{donor_name}%"]})
-            for agreement in agreements:
-                frappe.delete_doc("Periodic Donation Agreement", agreement.name)
-            
-            # Delete SEPA mandates
-            mandates = frappe.get_all("SEPA Mandate", 
-                                    filters={"donor": ["like", f"%{donor_name}%"]})
-            for mandate in mandates:
-                frappe.delete_doc("SEPA Mandate", mandate.name)
-            
-            # Delete donors
-            donors = frappe.get_all("Donor", filters={"donor_name": donor_name})
-            for donor in donors:
-                frappe.delete_doc("Donor", donor.name)
-        
-        frappe.db.commit()
 
 
 def create_test_personas():
     """Create all test personas for testing"""
     return ANBITestPersonas.create_all_personas()
-
-
-def cleanup_test_personas():
-    """Clean up all test personas"""
-    ANBITestPersonas.cleanup_test_personas()

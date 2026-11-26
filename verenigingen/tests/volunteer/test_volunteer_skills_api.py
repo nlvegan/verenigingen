@@ -42,24 +42,6 @@ class TestVolunteerSkillsAPI(EnhancedTestCase):
         """Clean up test data - Enhanced Test Factory handles automatic cleanup"""
         super().tearDown()
 
-    def cleanup_test_data(self):
-        """Remove test data"""
-        # Delete test volunteers and their skills
-        test_volunteers = frappe.get_all("Volunteer",
-            filters={"volunteer_name": ["like", "Test Volunteer%"]})
-
-        for volunteer in test_volunteers:
-            frappe.delete_doc("Volunteer", volunteer.name, force=True)
-
-        # Delete test volunteer development goals
-        test_goals = frappe.get_all("Volunteer Development Goal",
-            filters={"parent": ["like", "Test Volunteer%"]})
-
-        for goal in test_goals:
-            frappe.delete_doc("Volunteer Development Goal", goal.name, force=True)
-
-        frappe.db.commit()
-
     def create_test_volunteer_data(self):
         """Create test volunteers with skills for testing"""
         volunteers_data = [

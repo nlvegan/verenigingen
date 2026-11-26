@@ -11,7 +11,6 @@ This module tests the membership type change request workflow including:
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.base_test_case import BaseTestCase
-from verenigingen.utils.validation_utilities import QueryBuilder
 
 
 class TestMembershipTypeChange(BaseTestCase):
@@ -21,13 +20,9 @@ class TestMembershipTypeChange(BaseTestCase):
         """Set up test environment for each test"""
         super().setUp()
 
-        # Clean up any existing test membership types to avoid conflicts
-        test_types = QueryBuilder.get_all_active_records(
-            "Membership Type", additional_filters={"name": ["like", "TEST-%"]}
-        )
-        for mt in test_types:
-            self.track_test_record("Membership Type", mt.name)
-            frappe.delete_doc("Membership Type", mt.name, force=True)
+        # No `name LIKE 'TEST-%'` purge of Membership Types here (#2904): it deleted every TEST-
+        # type on the site, including other tests'. create_membership_type below gives each type a
+        # random-suffixed name and tracks it, so there is no stale type of ours to collide with.
 
         # Create test membership types
         self.basic_type = self.create_membership_type(
