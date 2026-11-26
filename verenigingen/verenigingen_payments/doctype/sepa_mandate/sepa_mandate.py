@@ -51,6 +51,7 @@ class SEPAMandate(Document):
 
         # Also synchronize status and is_active flag during validation
         self.sync_status_is_active()
+        self.stamp_cancelled_date()
 
         # Run last: relies on the normalized IBAN (set by validate_iban) and the
         # final status (set by set_status_based_on_dates / sync_status_is_active).
@@ -323,6 +324,19 @@ class SEPAMandate(Document):
             # For other fields, just use the parent class implementation
             super().set_value(fieldname, value)
         return self
+
+    def stamp_cancelled_date(self):
+        """Record cancelled_date when this save moves the mandate into Cancelled (#2997).
+
+        The lifecycle service only stamps it in on_update, after the row is written, so a bare
+        status save left it NULL. Runs on the final status; a caller-set date is kept, and a row
+        that was already Cancelled is not re-stamped by a later unrelated save.
+        """
+        if self.status != "Cancelled" or self.cancelled_date:
+            return
+        if not self.is_new() and frappe.db.get_value("SEPA Mandate", self.name, "status") == "Cancelled":
+            return
+        self.cancelled_date = today()
 
     def validate_dates(self):
         """Validate mandate dates using validation service"""
