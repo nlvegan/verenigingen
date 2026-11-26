@@ -112,7 +112,8 @@ _PATTERN = re.compile(
 # cell, `bench use <host>`, a verb in prose, a verb after `$(...)`/`xargs` --
 # is not provable and stays blocked. Splitting is safe because each command
 # is checked on its own; it never lets a host and a verb drift apart unchecked.
-_SEGMENT_SPLIT = re.compile(r"&&|\|\||[;|&]|(?<!e\.g)(?<!i\.e)\.(?=\s)")
+# A `&` inside a redirect (`2>&1`, `&>file`) is not a command separator.
+_SEGMENT_SPLIT = re.compile(r"&&|\|\||[;|]|(?<![>&])&(?![>&])|(?<!e\.g)(?<!i\.e)\.(?=\s)")
 _HOST = r"veg11\.veganisme\.org(?![\w-]|\.\w)"
 _HOST_PATTERN = re.compile(_HOST, re.IGNORECASE)
 _BOUND_HOST_PATTERN = re.compile(r"\bbench\s+--site(?:=|\s+)" + _HOST, re.IGNORECASE)
@@ -127,7 +128,9 @@ _LITERAL_SITE = re.compile(r"\bbench\b.*?--site(?:=|\s+)([A-Za-z0-9_][A-Za-z0-9_
 # aliased, or quoted. The binding rules are plain searches, so such a segment
 # could name `bench --site <host>` inside a string while another segment holds
 # a decoy; it is not provable and stays blocked (#1151 review round 2).
-_UNPROVABLE_MARKER = re.compile(r"[$(){}]|(?<![-\w])\w+=|\balias\b|['\"]\s*bench\b")
+# `xargs` runs its arguments with data from the pipe, so a `bench --site <host>` after
+# it can receive a verb that never appears beside it (#1151 review round 3).
+_UNPROVABLE_MARKER = re.compile(r"[$(){}]|(?<![-\w])\w+=|\balias\b|\bxargs\b|['\"]\s*bench\b")
 
 
 def _segment_is_provably_safe(segment: str) -> bool:

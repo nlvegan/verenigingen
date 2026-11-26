@@ -178,6 +178,22 @@ class TestQuotedOrAliasedHostWithDecoyStaysBlocked(unittest.TestCase):
             _veg11_gate_exit_code(f"V='bench --site {HOST}'; $V reinstall & bench --site test_site_1 console"), 1
         )
 
+    def test_verb_fed_as_data_through_xargs(self):
+        # Round-2 review: the verb segment held `bench --site test_site_1` as echo DATA, and
+        # xargs then ran `bench --site <host> reinstall`.
+        self.assertEqual(
+            _veg11_gate_exit_code(
+                f"echo reinstall bench --site test_site_1 | cut -d' ' -f1 | xargs bench --site {HOST}"
+            ),
+            1,
+        )
+
+    def test_redirect_ampersand_does_not_split_a_command(self):
+        # `2>&1` is a redirect, not a separator: it must not cut host from verb.
+        self.assertEqual(
+            _veg11_gate_exit_code(f"bench --site test_site_1 reinstall 2>&1 bench --site {HOST}"), 1
+        )
+
 
 class TestEachSuppressionRuleIsPinned(unittest.TestCase):
     """Each rule below was found removable with every other test green."""
