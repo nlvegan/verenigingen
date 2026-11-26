@@ -109,7 +109,7 @@ def create_sepa_indexes():
                 ON `{table}` ({columns_sql})
             """
             
-            frappe.db.sql(create_index_sql)
+            frappe.db.sql_ddl(create_index_sql)
             
             # Verify index was created
             verify_sql = f"""

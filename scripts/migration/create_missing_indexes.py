@@ -32,7 +32,7 @@ def create_missing_indexes():
             if not existing:
                 # Create index
                 sql = f"CREATE INDEX `{index_name}` ON `{table_name}` ({columns})"
-                frappe.db.sql(sql)
+                frappe.db.sql_ddl(sql)
                 results.append(f"Created index: {index_name}")
             else:
                 results.append(f"Index already exists: {index_name}")

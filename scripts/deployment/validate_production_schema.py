@@ -309,7 +309,7 @@ def create_production_indexes():
             
             if not existing_indexes:
                 # Create index
-                frappe.db.sql(f"""
+                frappe.db.sql_ddl(f"""
                     CREATE INDEX `{index_name}` ON `{table}` (`{column}`)
                 """)
                 created_indexes.append(f"✓ Created index {index_name} on {table}.{column}")
