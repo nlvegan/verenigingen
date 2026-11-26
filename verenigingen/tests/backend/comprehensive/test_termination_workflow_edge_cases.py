@@ -27,6 +27,9 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
         matched.
         """
         super().setUp()
+        # Own the specific Role Profile or skip; never adopt whichever one exists (#1332).
+        if not frappe.db.exists("Role Profile", "Verenigingen Staff"):
+            self.skipTest("Role Profile 'Verenigingen Staff' (shipped fixture) is missing")
         suffix = frappe.generate_hash(length=8)
 
         # Chapter has reqd fields (status/region/introduction) and autoname=prompt;
@@ -53,10 +56,7 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
 
         # Membership Type reqd fields: membership_type_name (autoname=field:),
         # minimum_amount, role_profile. Look up any Role Profile for the link.
-        role_profile = (
-            frappe.db.get_value("Role Profile", {"name": "Verenigingen Staff"}, "name")
-            or frappe.db.get_value("Role Profile", {}, "name")
-        )
+        role_profile = "Verenigingen Staff"
         self.membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",

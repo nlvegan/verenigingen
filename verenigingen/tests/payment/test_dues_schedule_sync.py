@@ -34,9 +34,10 @@ class TestDuesScheduleSync(EnhancedTestCase):
         import time
 
         unique_suffix = f"{int(time.time() * 1000000) % 1000000}"
-        role_profile = frappe.db.get_value(
-            "Role Profile", "Verenigingen Member", "name"
-        ) or frappe.db.get_value("Role Profile", {}, "name")
+        # Never adopt whichever Role Profile exists (#1332): use the shipped one or skip.
+        role_profile = frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
+        if not role_profile:
+            self.skipTest("Role Profile 'Verenigingen Member' (shipped fixture) is missing")
         self.membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",

@@ -7,6 +7,7 @@ MemberImportService Tests - TDD tests for member import service.
 Tests member creation/update logic extracted from MijnRood CSV Import DocType.
 """
 
+import unittest
 from unittest.mock import patch
 
 import frappe
@@ -24,9 +25,10 @@ class TestMemberImportService(FrappeTestCase):
         # Membership Type reqd fields: membership_type_name (autoname=field:),
         # minimum_amount, role_profile.
         if not frappe.db.exists("Membership Type", "Regular"):
-            role_profile = frappe.db.get_value(
-                "Role Profile", {"name": "Verenigingen Staff"}, "name"
-            ) or frappe.db.get_value("Role Profile", {}, "name")
+            # Own profile or skip: never adopt whichever Role Profile exists (#1332).
+            role_profile = frappe.db.get_value("Role Profile", {"name": "Verenigingen Staff"}, "name")
+            if not role_profile:
+                raise unittest.SkipTest("Role Profile 'Verenigingen Staff' (shipped fixture) is missing")
             frappe.get_doc(
                 {
                     "doctype": "Membership Type",

@@ -185,13 +185,9 @@ class TestCreateSimpleInvoice(EnhancedTestCase):
         self.assertTrue(self.member.customer)
         self.settings = frappe.get_single("Verenigingen Settings")
         # _create_simple_invoice takes membership_type as a free-text label used
-        # only in the item name/description, so any string works; prefer an
-        # existing Membership Type for realism.
-        self.membership_type = (
-            self.settings.default_membership_type
-            or frappe.get_value("Membership Type", {}, "name")
-            or "Coverage B3 Test Type"
-        )
+        # only in the item name/description, so any string works; never adopt
+        # whichever Membership Type exists (#1332).
+        self.membership_type = self.settings.default_membership_type or "Coverage B3 Test Type"
 
     def test_creates_backdated_invoice_with_coverage_fields(self):
         member_doc = frappe.get_doc("Member", self.member.name)
