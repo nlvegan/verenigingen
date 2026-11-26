@@ -4,8 +4,11 @@
 Test function for SecureTestDataFactory
 """
 
+import inspect
+
 import frappe
-from verenigingen.tests.fixtures.field_validator import FieldValidator, validate_field
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.field_validator import FieldValidationError, FieldValidator, validate_field
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
@@ -171,3 +174,34 @@ def run_all_factory_tests():
         "passed": successes,
         "results": results
     }
+
+class TestSecureFactoryFunctions(EnhancedTestCase):
+    """Run the module-level ``test_*`` functions above under the unittest loader (#921).
+
+    They are whitelisted dev-only endpoints, not TestCase methods, so the loader never
+    collected them. Each swallows its own exception and reports it as
+    ``{"success": False, "error": ...}``, so asserting on the return value is what
+    makes a failure visible. ``inspect.unwrap`` calls the bare body: the dev-only
+    decorator refuses to run outside development, which would make CI (developer_mode=0)
+    fail for the wrong reason.
+    """
+
+    def _run(self, endpoint):
+        result = inspect.unwrap(endpoint)()
+        self.assertTrue(result.get("success"), result.get("error"))
+
+    def test_field_validator(self):
+        self._run(test_field_validator)
+
+    def test_schema_validation(self):
+        self._run(test_schema_validation)
+
+    def test_secure_factory_basic(self):
+        self._run(test_secure_factory_basic)
+
+    def test_validator_rejects_a_nonexistent_field(self):
+        # The endpoint above only prints when the negative case does not raise, so a
+        # validator that never raises keeps the three tests above green.
+        with self.assertRaises(FieldValidationError):
+            FieldValidator().validate_field_exists("Member", "nonexistent_field")
+        self.assertTrue(FieldValidator().validate_field_exists("Member", "first_name"))
