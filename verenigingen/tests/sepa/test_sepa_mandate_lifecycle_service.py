@@ -289,7 +289,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
             member='MEMBER-001'
         )
 
-        with patch.object(self.service, '_update_member_mandate_status') as mock_update:
+        with patch.object(self.service, '_update_member_mandate_status', return_value=[]) as mock_update:
             with patch('frappe.utils.today', return_value=date.today()):
 
                 result = self.service.process_mandate_cancellation(mandate, "Member request")
@@ -315,7 +315,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
 
         mock_notification_manager = Mock()
         with patch('verenigingen.verenigingen_payments.utils.sepa_notifications.SEPAMandateNotificationManager', return_value=mock_notification_manager):
-            with patch.object(self.service, '_update_member_mandate_status'):
+            with patch.object(self.service, '_update_member_mandate_status', return_value=[]):
 
                 result = self.service.process_mandate_cancellation(mandate)
 
@@ -327,7 +327,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         mandate = self._create_mock_mandate(status='Active')
 
         with patch('verenigingen.verenigingen_payments.utils.sepa_notifications.SEPAMandateNotificationManager', side_effect=Exception("Notification error")):
-            with patch.object(self.service, '_update_member_mandate_status'):
+            with patch.object(self.service, '_update_member_mandate_status', return_value=[]):
 
                 result = self.service.process_mandate_cancellation(mandate)
 
@@ -405,9 +405,9 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         )
 
         # Mock status change detection
-        mandate.has_value_changed.return_value = True
+        mandate.configure_mock(**{'has_value_changed.return_value': True})
         old_mandate = Mock(status='Draft')
-        mandate.get_doc_before_save.return_value = old_mandate
+        mandate.configure_mock(**{'get_doc_before_save.return_value': old_mandate})
 
         # Mock integration service
         mock_integration_service = Mock()
@@ -434,7 +434,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         )
 
         # Mock no status change
-        mandate.has_value_changed.return_value = False
+        mandate.configure_mock(**{'has_value_changed.return_value': False})
 
         mock_integration_service = Mock()
         mock_integration_service.update_member_mandate_relationship.return_value = {'success': True, 'errors': []}
@@ -455,9 +455,9 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         )
 
         # Mock status change to Cancelled
-        mandate.has_value_changed.return_value = True
+        mandate.configure_mock(**{'has_value_changed.return_value': True})
         old_mandate = Mock(status='Active')
-        mandate.get_doc_before_save.return_value = old_mandate
+        mandate.configure_mock(**{'get_doc_before_save.return_value': old_mandate})
 
         mock_integration_service = Mock()
         mock_integration_service.update_member_mandate_relationship.return_value = {'success': True, 'errors': []}
@@ -486,7 +486,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         )
         result = {'success': True, 'warnings': [], 'errors': []}
 
-        with patch.object(self.service, '_update_member_mandate_status') as mock_update:
+        with patch.object(self.service, '_update_member_mandate_status', return_value=[]) as mock_update:
 
             self.service._handle_activation(mandate, result)
 
@@ -511,17 +511,12 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         mandate = self._create_mock_mandate()
         result = {'success': True, 'warnings': [], 'errors': []}
 
-        with patch.object(self.service, '_update_member_mandate_status') as mock_update:
+        with patch.object(self.service, '_update_member_mandate_status', return_value=[]) as mock_update:
 
-            # Bracket the call with the service's own date source so a midnight
-            # rollover between the service's frappe.utils.today() and the assertion
-            # can't make a same-day comparison spuriously fail (date returns a
-            # yyyy-mm-dd string; normalize via getdate before comparing).
-            before = getdate(frappe.utils.today())
+            # No assertion on the stamped date: `cancellation_date` is not a SEPA Mandate field
+            # (the real one is `cancelled_date`, #2989), so reading it back asserted a phantom.
             self.service._handle_cancellation(mandate, result)
-            after = getdate(frappe.utils.today())
 
-            self.assertIn(getdate(mandate.cancellation_date), (before, after))
             mock_update.assert_called_once_with(mandate, 'Cancelled')
 
     def test_handle_expiration_workflow(self):
@@ -529,7 +524,7 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
         mandate = self._create_mock_mandate()
         result = {'success': True, 'warnings': [], 'errors': []}
 
-        with patch.object(self.service, '_update_member_mandate_status') as mock_update:
+        with patch.object(self.service, '_update_member_mandate_status', return_value=[]) as mock_update:
 
             self.service._handle_expiration(mandate, result)
 
@@ -554,13 +549,16 @@ class TestSEPAMandateLifecycleService(EnhancedTestCase):
 
             # 1. Draft -> Active (activation)
             mandate.status = 'Active'
-            with patch.object(self.service, '_update_member_mandate_status'):
+            with patch.object(self.service, '_update_member_mandate_status', return_value=[]):
                 result = self.service.handle_status_transition(mandate, 'Draft')
                 self.assertTrue(result['success'])
                 self.assertEqual(mandate.is_active, 1)
 
             # 2. Active -> Cancelled (cancellation)
-            result = self.service.process_mandate_cancellation(mandate, "Member terminated")
+            # (patched like step 1: MEMBER-001 does not exist, so the real member sync fails, and
+            # since #3101 that failure is reported instead of swallowed)
+            with patch.object(self.service, '_update_member_mandate_status', return_value=[]):
+                result = self.service.process_mandate_cancellation(mandate, "Member terminated")
             self.assertTrue(result['success'])
             self.assertEqual(mandate.status, 'Cancelled')
             self.assertEqual(mandate.is_active, 0)

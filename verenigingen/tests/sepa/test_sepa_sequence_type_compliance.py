@@ -39,6 +39,7 @@ from frappe.utils import add_days, today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
     create_mandate_usage_record,
     get_mandate_sequence_type,
@@ -363,7 +364,7 @@ class TestMandateUsageLifecycle(_SEPASeqBase):
             "SEPA Mandate Usage", usage_name, ["status", "processing_date"], as_dict=True
         )
         self.assertEqual(usage.status, "Collected", "A confirmed collection must mark the usage Collected")
-        self.assertEqual(str(usage.processing_date), str(today()))
+        assert_written_today(self, usage.processing_date)
 
         # The NEXT collection for this mandate is therefore RCUR.
         after = get_mandate_sequence_type(mandate_name)

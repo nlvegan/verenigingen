@@ -275,7 +275,9 @@ class SEPAAuthorizationManager:
         try:
             # Get user's role profiles from the authorization engine (cached)
             auth_engine = get_authorization_engine()
-            user_role_profiles = auth_engine.get_user_role_profiles(user)
+            # raise_on_error: a failed lookup must not read as "no profile" and reach the
+            # role-name fallback below; the handler at the end denies instead (#3024).
+            user_role_profiles = auth_engine.get_user_role_profiles(user, raise_on_error=True)
             permissions = set()
 
             # Check each assigned role profile

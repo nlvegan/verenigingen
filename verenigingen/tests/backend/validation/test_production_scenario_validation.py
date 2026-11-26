@@ -147,8 +147,10 @@ class TestProductionScenarios(VereningingenTestCase):
             # Note: maximum_amount was removed as it doesn't exist
         ]
         
+        # Ask the meta: hasattr on a Document is not a reliable probe for a field.
+        meta = frappe.get_meta("Membership Dues Schedule")
         for field in required_fields:
-            self.assertTrue(hasattr(template_doc, field), 
+            self.assertTrue(meta.has_field(field),
                           f"Template should have field '{field}' that code tries to access")
 
     def test_application_workflow_name_handling(self):

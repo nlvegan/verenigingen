@@ -683,6 +683,17 @@ NOTIFICATION_KEYS = {
         "recipient_policy": POLICY_ROLE_BASED,
         "cooldown_minutes": 0,
     },
+    "board_seat_expiry_failed": {
+        "label": "Lapsed Board Seats Could Not Be Ended (Admin)",
+        "category": CATEGORY_ADMIN,
+        "description": "Sent when the daily job that ends Chapter Board Member seats past their end date "
+        "cannot end some (the Chapter will not save, or it no longer exists), so those holders keep board "
+        "access. The mail names each chapter, its seat rows and the reason. At most once a week per chapter "
+        "and reason while the problem lasts.",
+        "priority": PRIORITY_HIGH,
+        "recipient_policy": POLICY_ROLE_BASED,
+        "cooldown_minutes": 0,
+    },
     # =========================================================================
     # VOLUNTEER NOTIFICATIONS
     # =========================================================================
@@ -991,6 +1002,7 @@ REQUIRES_ACTION_KEYS = frozenset(
         "mollie_ambiguous_party",
         "door_unavailable",
         "chapter_role_holder_withdrawal_failed",
+        "board_seat_expiry_failed",
         "sepa_batch_error",
         "sepa_batch_scheduler_alert",
         "sepa_monitoring_alert",

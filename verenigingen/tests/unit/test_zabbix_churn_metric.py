@@ -36,7 +36,7 @@ import sys
 from pathlib import Path
 
 import frappe
-from frappe.utils import add_days, today
+from frappe.utils import add_days, getdate, today
 
 from verenigingen.services.termination import TerminationExecutionService
 from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
@@ -103,14 +103,15 @@ class TestZabbixChurnMetric(VereningingenTestCase):
         before = zabbix_integration._count_recent_member_terminations()
 
         member = self.create_test_member()
-        run_real_termination(self, member.name)
+        request = run_real_termination(self, member.name)
 
         after = zabbix_integration._count_recent_member_terminations()
         self.assertEqual(after, before + 1)
 
         member.reload()
         self.assertEqual(member.status, "Quit")
-        self.assertEqual(str(member.member_end_date), str(today()))
+        # The end date is the request's own termination_date (set by the fixture), not a fresh clock read.
+        self.assertEqual(str(member.member_end_date), str(getdate(request.termination_date)))
 
     def test_deceased_and_banned_are_also_counted(self):
         """Maintainer ruling: churn is ALL terminated statuses, not just Quit."""

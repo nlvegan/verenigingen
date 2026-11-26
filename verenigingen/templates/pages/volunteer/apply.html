@@ -396,7 +396,16 @@ document.getElementById('volunteer-application-form').addEventListener('submit',
         const result = await response.json();
         const responseData = unwrapOperationResult(result.message);
 
-        if (responseData) {
+        if (responseData && responseData.membership_application_error) {
+            // The volunteer application is saved, but the optional membership sign-up failed (#2653).
+            messageContainer.innerHTML = `
+                <div class="alert alert-warning">
+                    <h4 class="font-bold mb-2">{{ _("Volunteer application received") }}</h4>
+                    <p>{{ _("Your membership sign-up could not be completed:") }} ${escapeHtml(responseData.membership_application_error)}</p>
+                    <p class="mt-2"><strong>{{ _("Application ID:") }}</strong> ${escapeHtml(responseData.application_id || '')}</p>
+                </div>
+            `;
+        } else if (responseData) {
             messageContainer.innerHTML = `
                 <div class="alert alert-success">
                     <h4 class="font-bold mb-2">{{ _("Application Submitted Successfully!") }}</h4>

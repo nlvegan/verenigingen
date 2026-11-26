@@ -58,6 +58,7 @@ Technical Implementation:
 import time
 
 import frappe
+from frappe.utils import cint
 
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.member_utils import (
@@ -969,6 +970,60 @@ def has_unforged_owner(doc, user=None, ptype=None):
         return True  # server-built unsaved doc (frappe.new_doc); no client posted this owner
     stored = frappe.db.get_value(doc.get("doctype"), doc.get("name"), "owner") if doc.get("name") else None
     return (stored or "").lower() == claimed
+
+
+# Doctypes whose run_doc_method guard (#2562) refuses a forged owner. Their unknown names must be
+# refused exactly like a forbidden one (see `refuse_unknown_run_doc_method_target`).
+_RUN_DOC_METHOD_GUARDED_DOCTYPES = frozenset(
+    {"Donation Campaign", "Member", "Membership", "Contribution Amendment Request"}
+)
+
+
+def _posted_run_doc_method_document():
+    """The document dict a ``run_doc_method`` request posted (v1 ``docs``, v2 ``document``), or None."""
+    posted = frappe.form_dict.get("docs") or frappe.form_dict.get("document")
+    try:
+        posted = frappe.parse_json(posted) if isinstance(posted, str) else posted
+    except ValueError:
+        return None
+    return posted if isinstance(posted, dict) else None
+
+
+def _frappe_loads_run_doc_method_target_by_name():
+    """True on Frappe >= 16.61.0, whose ``run_doc_method`` loads a posted document without a truthy
+    ``__islocal`` by name (``frappe.has_permission(doctype, ptype, name, throw=True)``). Older Frappe
+    permission-checks the posted dict instead, which never raises DoesNotExistError."""
+    try:
+        return tuple(int(x) for x in frappe.__version__.split("-")[0].split(".")[:3]) >= (16, 61, 0)
+    except ValueError:
+        return True  # an unparseable version string: assume the newer behaviour (the stricter refusal)
+
+
+def refuse_unknown_run_doc_method_target():
+    """auth_hooks hook: an unknown name must be refused like a forbidden one on ``run_doc_method`` (#2562).
+
+    Frappe 16.61 (version-16, 2026-11-24) loads the target of ``run_doc_method`` (v1 ``docs=``, and v2)
+    by name when the posted document has no truthy ``__islocal`` (or no name). For an id that does not
+    exist that load raises DoesNotExistError (404) while a real, forbidden id gets 403: an existence
+    oracle, and ``has_unforged_owner`` never runs because there is no row to hand it. This runs after
+    authentication (``before_request`` runs BEFORE it, so the user is not known there) and, for the
+    guarded doctypes only, asks Frappe the permission question for the posted document with its
+    ``owner`` dropped, which is what a stored row owned by somebody else looks like to it: the same 403
+    with the same message a real forbidden id gets (a posted owner would make ``has_unforged_owner``
+    answer instead, with another message). A caller who passes that check falls through to Frappe, and
+    a posted ``__islocal`` is left to Frappe's own not-stored branch, which already refuses."""
+    if not _is_run_doc_method_dispatch() or not _frappe_loads_run_doc_method_target_by_name():
+        return
+    posted = _posted_run_doc_method_document()
+    doctype = posted.get("doctype") if posted else None
+    if doctype not in _RUN_DOC_METHOD_GUARDED_DOCTYPES or cint(posted.get("__islocal")):
+        return
+    name = posted.get("name")
+    if isinstance(name, str) and name and frappe.db.exists(doctype, name):
+        return  # a stored row: Frappe loads it and the has_permission hook judges it
+    is_v2_write = "/api/v2/" in frappe.request.path and frappe.request.method != "GET"
+    unowned = frappe.get_doc({k: v for k, v in posted.items() if k != "owner"})
+    frappe.has_permission(doctype, "write" if is_v2_write else "read", doc=unowned, throw=True)
 
 
 def has_donation_permission(doc, user=None, ptype=None):
@@ -1915,7 +1970,8 @@ def has_membership_termination_request_permission(doc, user=None, ptype=None):
 
 def get_user_chapter_board_positions(user_member):
     """
-    Get all active board positions for a user across all chapters
+    Get all active board positions for a user across all chapters.
+    A seat on a deactivated Chapter Role confers nothing (#2958).
     Returns list of dicts with chapter_name, chapter_role, and permissions_level
     """
     try:
@@ -1931,6 +1987,7 @@ def get_user_chapter_board_positions(user_member):
             JOIN `tabVolunteer` v ON cbm.volunteer = v.name
             WHERE v.member = %s
             AND cbm.is_active = 1
+            AND cr.is_active = 1
             ORDER BY cbm.parent, cr.permissions_level
         """,
             user_member,
@@ -2374,6 +2431,30 @@ def get_team_member_permission_query(user):
     return f"({team_filter})"
 
 
+def _amended_from_is_allowed(doc, user, ptype):
+    """A claim may be created, or re-pointed, only at an ``amended_from`` the user may read (#3035).
+
+    Frappe checks that the link exists, never that the user may see it, so a member could amend a
+    stranger's cancelled claim onto their own employee. This runs from the create/write permission
+    check because Frappe validates links BEFORE any validate hook, and answers "not found" for an
+    unknown id only; here an unknown and a forbidden id take one path and leave one refusal.
+    Admins never reach it (they return earlier); ``ignore_permissions`` never calls the check.
+    """
+    source = doc.get("amended_from")
+    if not source:
+        return True
+    if doc.get("name") and source == frappe.db.get_value("Expense Claim", doc.name, "amended_from"):
+        return True  # stored link, unchanged: a legacy link is not re-judged on any later check
+
+    stored = frappe.db.get_value("Expense Claim", source, ["employee", "custom_chapter"], as_dict=True)
+    if not stored:
+        # Equaliser, not a lookup: for an existing source has_expense_claim_permission reads its
+        # employee's user; an unknown id skips that read, so repeat one query of the same shape here.
+        # It must mirror that extra query, or an unknown and a forbidden id differ in query count.
+        frappe.db.get_value("Employee", "", "user_id")
+    return bool(stored) and has_expense_claim_permission(stored, user)
+
+
 def has_expense_claim_permission(doc, user=None, ptype=None):
     """Permission check for Expense Claim doctype
 
@@ -2392,6 +2473,13 @@ def has_expense_claim_permission(doc, user=None, ptype=None):
     # Admin roles can see all
     if _has_admin_access(user_roles, Roles.EXPENSE_CLAIM_FULL_ACCESS_ROLES):
         return True
+
+    if (
+        not isinstance(doc, str)
+        and ptype in ("create", "write")
+        and not _amended_from_is_allowed(doc, user, ptype)
+    ):
+        return False
 
     # Get expense claim chapter
     if isinstance(doc, str):

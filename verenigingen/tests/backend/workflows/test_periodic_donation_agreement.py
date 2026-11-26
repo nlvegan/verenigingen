@@ -8,6 +8,7 @@ from frappe.utils import today, add_years, add_months, getdate
 from datetime import datetime
 from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestPeriodicDonationAgreement(EnhancedTestCase):
@@ -403,7 +404,7 @@ class TestPeriodicDonationAgreement(EnhancedTestCase):
 
         # Verify cancellation
         self.assertEqual(agreement.status, "Cancelled")
-        self.assertEqual(getdate(agreement.cancellation_date), getdate(today()))
+        assert_written_today(self, agreement.cancellation_date)
         self.assertEqual(agreement.cancellation_reason, "Donor requested cancellation")
         self.assertEqual(agreement.cancellation_processed_by, frappe.session.user)
 

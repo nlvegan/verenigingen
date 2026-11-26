@@ -20,6 +20,7 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.api import fix_stuck_dues_schedule as api
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestFixStuckDuesScheduleAPI(VereningingenTestCase):
@@ -148,11 +149,11 @@ class TestFixStuckDuesScheduleAPI(VereningingenTestCase):
         self.assertEqual(res["message"], "Schedule dates have been fixed")
         # Daily + last_invoice_date in the past -> next is moved to today and
         # last is cleared so generation can resume.
-        self.assertEqual(res["changes"]["new_next_invoice_date"], str(getdate(today())))
+        assert_written_today(self, res["changes"]["new_next_invoice_date"])
         self.assertIsNone(res["changes"]["new_last_invoice_date"])
         reloaded = frappe.get_doc("Membership Dues Schedule", sched.name)
         self.assertIsNone(reloaded.last_invoice_date)
-        self.assertEqual(getdate(reloaded.next_invoice_date), getdate(today()))
+        assert_written_today(self, reloaded.next_invoice_date)
 
     def test_fix_stuck_monthly_advances_via_frequency(self):
         sched = self._force_stuck(

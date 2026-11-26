@@ -18,9 +18,11 @@ def get_context(context):
             css = f.read()
     else:
         # Fallback if file doesn't exist
-        from verenigingen.verenigingen.doctype.brand_settings.brand_settings import generate_brand_css
+        from verenigingen.verenigingen.doctype.brand_settings.brand_settings import (
+            render_public_brand_css,
+        )
 
-        css = generate_brand_css()
+        css = render_public_brand_css()
 
     # Add timestamp comment to help debug caching issues
     css_with_timestamp = f"/* Generated at {now()} */\n{css}"
@@ -50,9 +52,11 @@ def serve_brand_css():
                 css = f.read()
         else:
             # Fallback if file doesn't exist
-            from verenigingen.verenigingen.doctype.brand_settings.brand_settings import generate_brand_css
+            from verenigingen.verenigingen.doctype.brand_settings.brand_settings import (
+                render_public_brand_css,
+            )
 
-            css = generate_brand_css()
+            css = render_public_brand_css()
 
         css_with_timestamp = f"/* Generated at {now()} */\n{css}"
 

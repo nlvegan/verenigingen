@@ -12,7 +12,11 @@ Flow per run:
      progress via ``frappe.publish_realtime``.
 4. On normal completion, set status=Completed.
 5. Exceptions per payment are caught and recorded as row failures; the run
-   continues. An uncaught exception at the run level sets status=Failed.
+   continues. A lock error (1213/1205) is not a row failure: it stops the run, rolls
+   back the uncheckpointed work and sets status=Failed (#3059). That rollback also
+   discards up to PROGRESS_CHECKPOINT_INTERVAL-1 (9) successful rows since the last
+   checkpoint; a resume redoes them (deliberate: run and DB state stay consistent). An uncaught exception
+   at the run level sets status=Failed.
 
 Resume: re-enqueueing a Failed/Timed Out/Cancelled run picks up from
 ``last_processed_index``. Rows already Pending or Failed (with attempts <
@@ -28,6 +32,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.doctype.mollie_bulk_run.mollie_bulk_run import (
     ACTIVE_STATUSES,
     MAX_ATTEMPTS_PER_PAYMENT,
@@ -74,6 +79,14 @@ def execute_bulk_run(run_name: str) -> None:
             _finalize(run, status="Completed")
 
     except Exception as exc:
+        if isinstance(exc, NON_RESUMABLE_DB_ERRORS):
+            # #3059: _finalize commits. Without this a 1205 (half-applied, transaction still
+            # live) would commit what the failed row wrote since the last checkpoint, while the
+            # row never records it, so a resume would skip the payment as "BT already exists".
+            # Trade-off, deliberate: the rollback also discards up to
+            # PROGRESS_CHECKPOINT_INTERVAL-1 (9) SUCCESSFUL, un-checkpointed rows since the last
+            # checkpoint, and a resume redoes them. Run state and DB state stay consistent.
+            frappe.db.rollback()
         frappe.log_error(
             frappe.get_traceback(),
             f"Mollie Bulk Run failed: {run_name}",
@@ -295,6 +308,10 @@ def _process_rows(run) -> None:
                 skipped += 1
             elif row.row_status == "Failed":
                 failed += 1
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3059: a 1213/1205 is not this row's failure. Marking it Failed and checkpointing
+            # would commit a half-applied unit; stop the run and let execute_bulk_run roll back.
+            raise
         except Exception as exc:
             row.row_status = "Failed"
             row.message = f"Unhandled exception: {exc}"[:1000]

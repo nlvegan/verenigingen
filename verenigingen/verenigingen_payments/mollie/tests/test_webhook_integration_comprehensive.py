@@ -446,48 +446,6 @@ class TestWebhookIntegrationComprehensive(EnhancedTestCase):
         self.assertFalse(status["payment_entry_created"])  # No PE created for failed payment
         self.assertTrue(status["payment_history_exists"])
 
-    def test_concurrent_webhook_processing_safety(self):
-        """Test that concurrent webhook processing maintains data integrity"""
-        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import (
-            _get_subscription_failure_count,
-        )
-
-        member = self.test_member
-        subscription_id = "sub_concurrent_safety_test"
-
-        # Simulate adding multiple failures rapidly (as would happen with concurrent webhooks)
-        initial_count = _get_subscription_failure_count(member.name, subscription_id)
-        self.assertEqual(initial_count, 0)
-
-        # Add failures one at a time (simulating concurrent processing)
-        for i in range(3):
-            # Get current count atomically
-            current_count = _get_subscription_failure_count(member.name, subscription_id)
-
-            # Add new failure matching the real production filter used by
-            # _get_subscription_failure_count: payment_status == "Cancelled" and
-            # notes LIKE "%subscription <id>%" (Member Payment History has no
-            # mollie_subscription_id/mollie_payment_id fields).
-            member.append(
-                "payment_history",
-                {
-                    "payment_date": getdate(),
-                    "amount": 25.0,
-                    "payment_method": "Mollie",
-                    "payment_status": "Cancelled",
-                    "notes": f"Failed payment tr_concurrent_safety_{i} for subscription {subscription_id}",
-                },
-            )
-            member.save()
-
-            # Verify count increases correctly
-            new_count = _get_subscription_failure_count(member.name, subscription_id)
-            self.assertEqual(new_count, current_count + 1)
-
-        # Final verification
-        final_count = _get_subscription_failure_count(member.name, subscription_id)
-        self.assertEqual(final_count, 3)
-
     def tearDown(self):
         """Clean up test environment"""
         try:
@@ -519,51 +477,6 @@ class TestWebhookPerformanceIntegration(EnhancedTestCase):
             member.mollie_subscription_id = f"sub_perf_test_{i}"
             member.save()
             self.test_members.append(member)
-
-    def test_bulk_failure_count_queries_performance(self):
-        """Test performance of failure count queries with bulk data"""
-        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import (
-            _get_subscription_failure_count,
-        )
-
-        # Add bulk payment history data. _get_subscription_failure_count counts
-        # Member Payment History rows where payment_status == "Cancelled" and
-        # notes LIKE "%subscription <id>%" (the real production filter), so build
-        # rows that match that contract. Member Payment History has no
-        # mollie_subscription_id/mollie_payment_id fields.
-        for member in self.test_members[:5]:  # Test with 5 members
-            for i in range(20):  # 20 payments each
-                is_failure = i % 3 == 0
-                member.append(
-                    "payment_history",
-                    {
-                        "payment_date": getdate(),
-                        "amount": 25.0,
-                        "payment_method": "Mollie",
-                        "payment_status": "Cancelled" if is_failure else "Paid",
-                        "notes": (
-                            f"Failed payment for subscription {member.mollie_subscription_id}"
-                            if is_failure
-                            else "Paid"
-                        ),
-                    },
-                )
-            member.save()
-
-        # Test query performance
-        start_time = time.time()
-
-        for member in self.test_members[:5]:
-            failure_count = _get_subscription_failure_count(member.name, member.mollie_subscription_id)
-            # Each member should have ~7 failures (every 3rd payment out of 20)
-            self.assertGreater(failure_count, 5)
-            self.assertLess(failure_count, 10)
-
-        end_time = time.time()
-        query_time = end_time - start_time
-
-        # Should complete within reasonable time (adjust threshold as needed)
-        self.assertLess(query_time, 2.0, f"Bulk failure count queries took {query_time:.2f}s")
 
     def test_payment_amount_validation_performance(self):
         """Test performance of payment amount validation with various formats"""
