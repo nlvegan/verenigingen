@@ -359,8 +359,17 @@ def _ing_amount_to_charge(ref_doc, caller_amount):
     Checkout Transaction, so a caller amount below the outstanding left the invoice "Partly
     Paid" and one above it booked an unallocated credit (#3023). A draft is refused because its
     outstanding mirrors grand_total (#209/#856); a settled or over-credited invoice has nothing
-    left. Other reference doctypes have no server-side amount source and keep the caller's.
+    left. A Payment Plan Payment charges its own ``amount`` through the same
+    ``_resolve_reference_amount`` the guest PaymentHook route uses (#3076); the paid webhook
+    books that row amount, so a lower caller figure was booked as paid in full. A row with no
+    positive amount is refused. Other reference doctypes (Member) have no server-side amount
+    source and keep the caller's: a product decision, not settled here.
     """
+    if ref_doc.doctype == "Payment Plan Payment":
+        from verenigingen.verenigingen_payments.hooks.api import _resolve_reference_amount
+
+        row_amount = _resolve_reference_amount("Payment Plan Payment", ref_doc)
+        return row_amount if row_amount > 0 else None
     if ref_doc.doctype != "Sales Invoice":
         return caller_amount
     if ref_doc.docstatus != 1:
