@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.utils.security.constant_time import safe_compare_digest
 from verenigingen.utils.transaction_errors import insert_and_submit_atomically
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
@@ -980,7 +981,7 @@ def _validate_webhook_signature():
             received_signature = signature_header
 
         # Compare signatures (constant time comparison for security)
-        if not hmac.compare_digest(received_signature, expected_signature):
+        if not safe_compare_digest(received_signature, expected_signature):
             frappe.logger().error("❌ Webhook signature validation failed")
             frappe.logger().error(f"Expected: {expected_signature[:10]}...")
             frappe.logger().error(f"Received: {received_signature[:10]}...")

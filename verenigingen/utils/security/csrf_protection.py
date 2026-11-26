@@ -8,12 +8,11 @@ as it was redundant with Frappe's built-in functionality.
 See archived/security_implementations/CSRF_ARCHIVAL_NOTES.md for details.
 """
 
-import hmac
-
 import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import utility_api
+from verenigingen.utils.security.constant_time import safe_compare_digest
 
 
 class CSRFError(frappe.ValidationError):
@@ -76,7 +75,7 @@ class CSRFProtection:
 
         # Validate token matches using a constant-time comparison to avoid a
         # timing oracle on the expected token.
-        if not hmac.compare_digest(str(token), str(expected_token)):
+        if not safe_compare_digest(str(token), str(expected_token)):
             raise CSRFError(_("CSRF token is invalid"))
 
         return True

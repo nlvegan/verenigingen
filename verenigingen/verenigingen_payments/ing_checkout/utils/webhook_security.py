@@ -41,6 +41,7 @@ import frappe
 from frappe.utils import cint, now_datetime
 
 from verenigingen.utils.security.client_ip import get_client_ip
+from verenigingen.utils.security.constant_time import safe_compare_digest
 from verenigingen.utils.service_user import get_service_user, require_service_user
 from verenigingen.utils.settings_utils import get_payments_settings
 from verenigingen.utils.webhook.logging import (
@@ -212,7 +213,7 @@ def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> boo
     ).hexdigest()
 
     # Use constant-time comparison to prevent timing attacks
-    return hmac.compare_digest(signature.lower(), expected_signature.lower())
+    return safe_compare_digest(signature.lower(), expected_signature.lower())
 
 
 def verify_ing_checkout_webhook(

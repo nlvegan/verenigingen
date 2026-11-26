@@ -22,6 +22,7 @@ from frappe import _
 from frappe.utils import add_days, add_to_date, cint, cstr, flt, get_datetime, now_datetime, today
 
 from verenigingen.utils.security.client_ip import get_client_ip_or_none
+from verenigingen.utils.security.constant_time import safe_compare_digest
 
 # Member.status values that mean the membership has actually ended. "Terminated" is not
 # one of them -- it is not a valid option on the Member.status Select field, so a filter
@@ -839,7 +840,7 @@ def is_valid_request():
     configured_token = frappe.conf.get("zabbix_api_token")
     if configured_token and request is not None:
         presented = (frappe.get_request_header("X-Zabbix-Token") or "").strip()
-        if presented and hmac.compare_digest(presented, str(configured_token)):
+        if presented and safe_compare_digest(presented, str(configured_token)):
             return True
 
     # Optional source-IP allow-list.
@@ -895,7 +896,7 @@ def validate_webhook_signature():
     body = request.get_data()
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
-    return hmac.compare_digest(signature, expected)
+    return safe_compare_digest(signature, expected)
 
 
 def check_database_health():
