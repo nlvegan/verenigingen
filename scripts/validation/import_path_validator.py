@@ -352,6 +352,12 @@ class ImportPathValidator:
                 if init_file.exists():
                     self.module_cache[module_path] = (True, init_file)
                     return (True, init_file)
+                # PEP 420 namespace package (#1339): importable without __init__.py,
+                # e.g. verenigingen.patches.v*. Require a .py below it so a stray
+                # data directory is not mistaken for a package.
+                if next(package_path.rglob("*.py"), None) is not None:
+                    self.module_cache[module_path] = (True, None)
+                    return (True, None)
             
             # Check for module file
             module_file = search_path / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py"
