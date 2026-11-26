@@ -34,9 +34,23 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
         of two copies) and keeps this method's own upper-bound assertion
         behaviour, which callers throughout this file rely on.
         """
+        body_exc = None
         with count_queries() as counter:
-            yield counter
-        self.assertLessEqual(len(counter.queries), max_queries)
+            try:
+                yield counter
+            except BaseException as exc:
+                body_exc = exc
+                raise
+            finally:
+                # Checked even when the block raises (#1178); a violation replaces
+                # the body's exception, chained so both stay visible.
+                if len(counter.queries) > max_queries:
+                    failure = self.failureException(
+                        f"{len(counter.queries)} not less than or equal to {max_queries}"
+                    )
+                    if body_exc is not None:
+                        raise failure from body_exc
+                    raise failure
 
     def setUp(self):
         super().setUp()
@@ -44,6 +58,33 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
         from verenigingen.utils.member_performance_optimizer import member_optimizer
 
         member_optimizer.clear_all_member_caches()
+
+    def test_count_queries_bound_is_enforced_when_the_block_raises(self):
+        """#1178: an over-budget block that then raises must still fail the bound."""
+        with self.assertRaises(AssertionError) as cm:
+            with self._count_queries(0):
+                frappe.db.sql("select 1")
+                raise ValueError("boom")
+        self.assertIn("not less than or equal to 0", str(cm.exception))
+        self.assertIsInstance(cm.exception.__cause__, ValueError)
+
+    def test_count_queries_lets_a_within_budget_raise_propagate(self):
+        """Control: within budget, so the body's own exception is not replaced."""
+        with self.assertRaises(ValueError):
+            with self._count_queries(5):
+                frappe.db.sql("select 1")
+                raise ValueError("boom")
+
+    def test_count_queries_fails_an_over_budget_block_that_does_not_raise(self):
+        """Control: the pre-existing no-raise path still enforces the bound."""
+        with self.assertRaises(AssertionError):
+            with self._count_queries(0):
+                frappe.db.sql("select 1")
+
+    def test_count_queries_passes_a_within_budget_block(self):
+        with self._count_queries(5) as counter:
+            frappe.db.sql("select 1")
+        self.assertEqual(len(counter.queries), 1)
 
     def test_standard_vs_optimized_member_creation(self):
         """Compare standard vs optimized member creation performance"""
