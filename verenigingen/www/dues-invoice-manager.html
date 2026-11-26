@@ -611,7 +611,7 @@ function generateMissingInvoices() {
                 const errorList = errors.length > 0
                     ? `<ul class="list-disc list-inside mt-2">${errors.slice(0, 5).map(e => `<li class="text-sm">${e}</li>`).join('')}</ul>`
                     : '';
-                showResults('Generation Failed', r.message?.message || 'Failed to queue invoice generation.' + errorList, 'error');
+                showResults('Generation Failed', (r.message?.message || 'Failed to queue invoice generation.') + errorList, 'error');
             }
         },
         error: function(r) {
