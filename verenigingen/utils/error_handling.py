@@ -820,7 +820,11 @@ def cache_with_ttl(ttl=300, per_user=True):
                 user = _cache_session_segment()
             else:
                 user = "__shared__"
-            cache_key = f"{func.__name__}:{user}:{hash(str(args) + str(sorted(kwargs.items())))}"
+            # The site belongs in the key too: this dict is process-wide, one worker
+            # can serve several sites, and args such as an Address name repeat across
+            # them (#1935). Read via frappe.local so an unbound context degrades.
+            site = getattr(frappe.local, "site", None) or "__no_site__"
+            cache_key = f"{site}:{func.__name__}:{user}:{hash(str(args) + str(sorted(kwargs.items())))}"
             current_time = time.time()
 
             # Check if we have a cached result that's still valid

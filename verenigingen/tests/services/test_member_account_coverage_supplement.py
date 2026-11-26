@@ -204,24 +204,24 @@ class TestUserRoleProfileCalculatorSupplement(EnhancedTestCase):
     # ---------------------------------------------- invalidate_profile_config_cache
 
     def test_invalidate_cache_specific_entity(self):
-        calc._profile_config_cache["chapter_profile:ABC"] = ({}, frappe.utils.now_datetime())
-        calc._profile_config_cache["team_profile:XYZ"] = ({}, frappe.utils.now_datetime())
+        calc._profile_config_cache[calc._profile_config_cache_key("chapter", "ABC")] = ({}, frappe.utils.now_datetime())
+        calc._profile_config_cache[calc._profile_config_cache_key("team", "XYZ")] = ({}, frappe.utils.now_datetime())
         calc.invalidate_profile_config_cache(entity_type="chapter", entity_name="ABC")
-        self.assertNotIn("chapter_profile:ABC", calc._profile_config_cache)
-        self.assertIn("team_profile:XYZ", calc._profile_config_cache)
+        self.assertNotIn(calc._profile_config_cache_key("chapter", "ABC"), calc._profile_config_cache)
+        self.assertIn(calc._profile_config_cache_key("team", "XYZ"), calc._profile_config_cache)
 
     def test_invalidate_cache_by_type(self):
-        calc._profile_config_cache["chapter_profile:A"] = ({}, frappe.utils.now_datetime())
-        calc._profile_config_cache["chapter_profile:B"] = ({}, frappe.utils.now_datetime())
-        calc._profile_config_cache["team_profile:T"] = ({}, frappe.utils.now_datetime())
+        calc._profile_config_cache[calc._profile_config_cache_key("chapter", "A")] = ({}, frappe.utils.now_datetime())
+        calc._profile_config_cache[calc._profile_config_cache_key("chapter", "B")] = ({}, frappe.utils.now_datetime())
+        calc._profile_config_cache[calc._profile_config_cache_key("team", "T")] = ({}, frappe.utils.now_datetime())
         calc.invalidate_profile_config_cache(entity_type="chapter")
-        self.assertNotIn("chapter_profile:A", calc._profile_config_cache)
-        self.assertNotIn("chapter_profile:B", calc._profile_config_cache)
-        self.assertIn("team_profile:T", calc._profile_config_cache)
+        self.assertNotIn(calc._profile_config_cache_key("chapter", "A"), calc._profile_config_cache)
+        self.assertNotIn(calc._profile_config_cache_key("chapter", "B"), calc._profile_config_cache)
+        self.assertIn(calc._profile_config_cache_key("team", "T"), calc._profile_config_cache)
 
     def test_invalidate_cache_global(self):
-        calc._profile_config_cache["chapter_profile:A"] = ({}, frappe.utils.now_datetime())
-        calc._profile_config_cache["team_profile:T"] = ({}, frappe.utils.now_datetime())
+        calc._profile_config_cache[calc._profile_config_cache_key("chapter", "A")] = ({}, frappe.utils.now_datetime())
+        calc._profile_config_cache[calc._profile_config_cache_key("team", "T")] = ({}, frappe.utils.now_datetime())
         calc.invalidate_profile_config_cache()
         self.assertEqual(calc._profile_config_cache, {})
 
