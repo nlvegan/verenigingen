@@ -9,6 +9,7 @@ import re
 from typing import Optional
 
 import frappe
+from frappe import _
 from frappe.utils import now_datetime
 
 from verenigingen.utils.settings_utils import get_payments_settings
@@ -36,7 +37,8 @@ class SEPAMandateIdentityService:
             Generated mandate ID
 
         Raises:
-            Exception: If ID generation fails after all retries
+            frappe.ValidationError: If the configured ID cannot be generated (non-duplicate
+                error or retries exhausted). There is no fallback to the default pattern.
         """
         last_error = None
 
@@ -79,20 +81,24 @@ class SEPAMandateIdentityService:
                         f"Mandate ID duplicate key error, retrying (attempt {attempt + 1}/{max_retries})"
                     )
                     continue
-                # For other errors, log and try fallback
+                # For other errors, log and refuse
                 break
 
-        # All retries exhausted or non-recoverable error
-        if last_error:
-            frappe.log_error(
-                title="SEPA Mandate ID Generation",
-                message=f"Error in generate_mandate_id after {max_retries} attempts: {str(last_error)}",
+        # All retries exhausted or non-recoverable error. #2627 (maintainer ruling
+        # 2026-11-24): refuse rather than substitute the default pattern, because a
+        # mandate id appears on pain.008 files and member documents and must be the
+        # configured one. frappe.throw aborts the save, so no row is written.
+        reason = str(last_error) if last_error else f"id collided on all {max_retries} attempts"
+        frappe.log_error(
+            title="SEPA Mandate ID Generation",
+            message=f"Error in generate_mandate_id after {max_retries} attempts: {reason}",
+        )
+        frappe.throw(
+            _(
+                "Could not generate a SEPA mandate ID with the configured naming pattern. "
+                "The mandate was not saved; please try again or contact an administrator."
             )
-
-        # Fallback to Frappe's autoname which has its own collision handling
-        from frappe.model.naming import make_autoname
-
-        return make_autoname("MANDATE-.YY.-.MM.-.####")
+        )
 
     def _generate_mandate_id_with_counter(self, pattern: str, starting_counter: int) -> str:
         """
