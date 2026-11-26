@@ -14,6 +14,7 @@ Created: 2025-12-09
 
 import frappe
 from frappe.utils import today, add_days, add_months, now_datetime, random_string
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.test_data_factory import ensure_membership_type_exists
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
@@ -371,7 +372,7 @@ class TestMembershipTypeChangeIntegration(EnhancedTestCase):
         # The old entry should have to_date set
         for old_entry in old_entries:
             if old_entry.reason == "Initial membership":
-                self.assertEqual(str(old_entry.to_date), str(today()))
+                assert_written_today(self, old_entry.to_date)
 
     def test_schedule_notes_include_change_audit(self):
         """Test that schedule notes include audit trail of changes"""
@@ -670,4 +671,4 @@ class TestPortalTypeChangeEffectiveDate(EnhancedTestCase):
         # No dues schedule created
         effective_date = _calculate_type_change_effective_date(member.name)
 
-        self.assertEqual(str(effective_date), str(today()))
+        assert_written_today(self, effective_date)

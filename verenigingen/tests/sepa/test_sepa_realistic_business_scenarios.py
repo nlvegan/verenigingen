@@ -573,16 +573,27 @@ class TestSEPAMemoryEfficiency(EnhancedTestCase):
                 birth_date="1990-01-01"
             )
             
-            # Create customer manually since no factory method exists
-            customer = frappe.new_doc("Customer")
-            customer.update({
-                "customer_name": f"QueryTest Customer {i}",
-                "customer_type": "Individual"
+            # The optimizer only processes invoices whose member has an Active
+            # mandate; without one it skips every invoice and its query count is
+            # that of an empty run.
+            mandate = frappe.new_doc("SEPA Mandate")
+            mandate.update({
+                "member": member.name,
+                "iban": "NL91ABNA0417164300",
+                "mandate_id": f"QRY{i:05d}",
+                "status": "Active",
+                "sign_date": add_days(today(), -90),
+                "account_holder_name": member.full_name,
+                "bic": "ABNANL2A",
             })
-            customer.insert()
-            
+            mandate.insert()
+
+            # Sales Invoice.before_validate derives invoice.member from Customer.member.
+            customer_name = member.customer
+            frappe.db.set_value("Customer", customer_name, "member", member.name)
+
             invoice = frappe.new_doc("Sales Invoice")
-            invoice.customer = customer.name
+            invoice.customer = customer_name
             invoice.posting_date = today()
             _prepare_sepa_test_invoice(invoice, "TEST", 25.0)
             invoice.insert()
@@ -607,22 +618,25 @@ class TestSEPAMemoryEfficiency(EnhancedTestCase):
         from verenigingen.verenigingen_payments.utils.sepa_performance_monitor import get_sepa_performance_monitor
         monitor = get_sepa_performance_monitor()
         
-        baseline_query_count = 0
-        with monitor_sepa_operation("baseline_batch_processing") as operation:
+        # The context manager yields itself, which carries no query count: the
+        # measured count is on the metric it appends to the monitor's history when
+        # the block exits. (This used to read `operation.query_count if
+        # hasattr(operation, 'query_count') else <estimate>`: the attribute never
+        # exists, so both counts were hard-coded estimates and the assertion below
+        # could not fail.)
+        baseline_results = None
+        with monitor_sepa_operation("baseline_batch_processing"):
             baseline_results = baseline_operation(invoice_names)
-            baseline_query_count = operation.query_count if hasattr(operation, 'query_count') else len(baseline_results) * 3  # Estimate N+1 pattern
-        
-        # Measure optimized queries (should be much lower) 
-        optimized_query_count = 0
-        with monitor_sepa_operation("optimized_batch_processing") as operation:
-            try:
-                optimized_results = self.optimizer.process_batch_invoices_optimized(invoice_names)
-                optimized_query_count = operation.query_count if hasattr(operation, 'query_count') else 5  # Should be constant
-            except Exception as e:
-                # Fallback if optimizer method doesn't exist yet
-                print(f"Optimizer method not available, using baseline: {e}")
-                optimized_results = baseline_results
-                optimized_query_count = baseline_query_count
+        baseline_query_count = monitor.metrics_history[-1].query_count
+        self.assertEqual(monitor.metrics_history[-1].operation, "baseline_batch_processing")
+
+        # Measure optimized queries (should be much lower)
+        with monitor_sepa_operation("optimized_batch_processing"):
+            optimized_results = self.optimizer.process_batch_invoices_optimized(invoice_names)
+        optimized_query_count = monitor.metrics_history[-1].query_count
+        self.assertEqual(monitor.metrics_history[-1].operation, "optimized_batch_processing")
+        # The optimized run must have done real work: an empty run is cheap too.
+        self.assertEqual(len(optimized_results), len(invoice_names))
         
         # Verify significant query reduction
         query_reduction = 1 - (optimized_query_count / baseline_query_count) if baseline_query_count > 0 else 0
