@@ -163,14 +163,14 @@ class TestMemberUserAccountService(EnhancedTestCase):
         # Verify user properties. The user mirrors the member's stored names; the
         # factory appends a uniqueness suffix to last_name, so compare against the
         # member's actual stored last_name (prefix "Test"). The "Verenigingen
-        # Member" role profile grants desk-access roles, so Frappe keeps the user
-        # as "System User".
+        # Member" role profile grants no desk-access role (#2860), so Frappe
+        # normalises the user to "Website User".
         user = frappe.get_doc("User", result.data)
         self.assertEqual(user.email, member.email)
         self.assertEqual(user.first_name, "Props")
         self.assertEqual(user.last_name, member.last_name)
         self.assertTrue(member.last_name.startswith("Test"))
-        self.assertEqual(user.user_type, "System User")
+        self.assertEqual(user.user_type, "Website User")
         self.assertEqual(user.enabled, 1)
 
     def test_member_linked_to_user_after_creation(self):

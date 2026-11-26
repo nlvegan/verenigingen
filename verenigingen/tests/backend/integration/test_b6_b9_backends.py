@@ -3,7 +3,7 @@
 These endpoints back broken Member-form / Chapter-Expense-Report buttons and
 were previously only manually verified:
 
-- B6: ``member.create_organization_user`` — provisions a System User from a
+- B6: ``member.create_organization_user`` — provisions a member-role (portal) user from a
   caller-supplied org-domain email/name, assigns member roles, transfers
   ownership and links ``member.user``.
 - B9: ``expense_notifications.send_overdue_reminders`` — emails each expense
@@ -34,7 +34,7 @@ class TestCreateOrganizationUser(VereningingenTestCase):
     def _unique_email(self):
         return f"orguser-{frappe.generate_hash(length=8)}@example.org"
 
-    def test_creates_new_system_user_linked_to_member(self):
+    def test_creates_new_website_user_linked_to_member(self):
         member = self.create_test_member()
         self.assertFalse(member.user, "factory member should start without a user")
         email = self._unique_email()
@@ -55,10 +55,12 @@ class TestCreateOrganizationUser(VereningingenTestCase):
         self.assertEqual(result["action"], "created_new")
         self.assertEqual(result["user"], email)
 
-        # A real System User was created
+        # A real user was created. It only gets the member roles (a portal login for an
+        # organisation member), none of which has desk access since #2860, so Frappe
+        # normalises it to a Website User.
         self.assertTrue(frappe.db.exists("User", email))
         user = frappe.get_doc("User", email)
-        self.assertEqual(user.user_type, "System User")
+        self.assertEqual(user.user_type, "Website User")
         self.assertEqual(user.first_name, "Org")
         self.assertTrue(user.enabled)
 

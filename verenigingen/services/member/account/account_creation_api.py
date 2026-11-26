@@ -1385,6 +1385,18 @@ def upgrade_member_to_volunteer_user(member_name: str) -> OperationResult[Dict[s
 
         user_doc.save()
 
+        # user_type is derived from the roles on save, so the assignment above only sticks when the user
+        # holds a desk role. A member-only user has none since #2860 (the volunteer role normally arrives
+        # with the Active volunteer status, through the role profile sync): do not report an upgrade
+        # that did not happen.
+        user_doc.reload()
+        if user_doc.user_type != "System User":
+            return OperationResult.fail(
+                _("User has no volunteer role that grants desk access"),
+                errors=[f"User {member.user} is still a {user_doc.user_type}: no desk-access role"],
+                context={"operation": "upgrade_to_volunteer", "params": {"member_name": member_name}},
+            )
+
         frappe.logger().info(f"Successfully upgraded user {member.user} to System User for volunteer access")
 
         return OperationResult.ok(

@@ -131,10 +131,9 @@ class TestMemberDoctypePhase3Security(EnhancedTestCase):
             self.assertEqual(user_doc.email, self.test_member.email)
             self.assertEqual(user_doc.first_name, self.test_member.first_name)
             self.assertEqual(user_doc.last_name, self.test_member.last_name)
-            # The "Verenigingen Member" role profile grants desk-access roles, so
-            # Frappe keeps the user as "System User" (it would only downgrade to
-            # "Website User" if all assigned roles had desk_access=0).
-            self.assertEqual(user_doc.user_type, "System User")
+            # The "Verenigingen Member" role profile grants no desk-access role (#2860),
+            # so Frappe derives "Website User" from the assigned roles.
+            self.assertEqual(user_doc.user_type, "Website User")
             self.assertTrue(user_doc.enabled, "User should be enabled")
             
             # Verify member was updated with user link

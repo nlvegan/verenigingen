@@ -189,7 +189,8 @@ class TestMemberUserAccountServiceExtended(VereningingenTestCase):
         self.assertEqual(username, org_email)
         user = frappe.get_doc("User", username)
         self.assertEqual(user.first_name, "OrgFirst")
-        self.assertEqual(user.user_type, "System User")
+        # member roles only, none with desk access since #2860 -> a portal (Website) user
+        self.assertEqual(user.user_type, "Website User")
         self.member.reload()
         self.assertEqual(self.member.user, org_email)
 

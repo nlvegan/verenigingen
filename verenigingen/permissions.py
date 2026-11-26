@@ -2581,8 +2581,9 @@ def get_expense_claim_permission_query(user):
 
 
 # Roles that get the Verenigingen tile on the desk's Apps screen. Narrower than who may open the
-# workspace on purpose: "Verenigingen Member" and "Verenigingen Volunteer" carry desk access, so
-# every member is a System User and a desk-access gate would show the tile to all of them.
+# workspace on purpose: "Verenigingen Volunteer" carries desk access, so every volunteer is a System
+# User and a desk-access gate would show the tile to all of them. ("Verenigingen Member" has none
+# since #2860; members are Website Users.)
 # "Verenigingen Member Manager" exists only as a site-created role; it is listed so it is not lost.
 APPS_SCREEN_ROLES = frozenset(
     {

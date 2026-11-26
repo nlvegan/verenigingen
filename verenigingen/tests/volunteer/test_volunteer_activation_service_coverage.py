@@ -154,6 +154,11 @@ class TestVolunteerActivationServiceCoverage(EnhancedTestCase):
         member, _ = self._make_member("upg")
         volunteer = self._make_volunteer(member, status="New")
         user = self._make_website_user_for_member(member)
+        # user_type is derived from the roles on save. Since #2860 the member role carries no desk
+        # access, so the user needs a desk role (the volunteer one) for the upgrade to stick; a
+        # member-only user is covered by test_member_role_no_desk_access_2860.
+        user.add_roles("Verenigingen Volunteer")
+        user.db_set("user_type", "Website User", update_modified=False)
         self.assertEqual(
             frappe.db.get_value("User", user.name, "user_type"),
             "Website User",

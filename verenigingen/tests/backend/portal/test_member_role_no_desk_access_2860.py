@@ -234,6 +234,139 @@ class TestPatchRecomputesMemberUserType2860(EnhancedTestCase):
         self.assertNotIn(email, self._patch().convert_member_only_users())
         self.assertEqual(self._user_type(email), "System User")
 
+    def test_patch_keeps_every_kind_of_desk_role_holder_including_a_custom_role(self):
+        """Each of these holds the member role AND another desk_access=1 role, so the desk access
+        did not come from the member role alone. A patch that hard-codes the "other desk role" set
+        (or exempts any of these) would convert one of them to a Website User."""
+        custom_role = f"Custom Desk Role 2860 {frappe.generate_hash(length=6)}"
+        frappe.get_doc({"doctype": "Role", "role_name": custom_role, "desk_access": 1}).insert()
+        self.track_doc("Role", custom_role)
+        others = {
+            "volunteer": "Verenigingen Volunteer",
+            "desk-user": "Desk User",
+            "board": "Verenigingen Chapter Board Member",
+            "projects-user": "Projects User",
+            "custom": custom_role,
+        }
+        users = {label: self._make(f"keep-{label}", [ROLE, role]) for label, role in others.items()}
+        member_only = self._make("keep-control", [ROLE])
+        for label, name in users.items():
+            # the other role really is stored on the user (Frappe silently drops some, e.g. Employee)
+            self.assertIn(others[label], frappe.get_roles(name), f"fixture: {name} lost its role")
+        for name in (*users.values(), member_only):
+            self.assertEqual(self._user_type(name), "System User", f"fixture: {name} is a desk user")
+
+        changed = self._patch().convert_member_only_users()
+
+        self.assertIn(member_only, changed)
+        for label, name in users.items():
+            with self.subTest(role=others[label]):
+                self.assertNotIn(name, changed)
+                self.assertEqual(self._user_type(name), "System User")
+
+
+class TestUpgradeMemberToVolunteerUser2860(EnhancedTestCase):
+    """`upgrade_member_to_volunteer_user` set user_type="System User" and saved, but Frappe derives
+    user_type from the roles at save, and a member-only user holds no desk role any more (#2860):
+    the call reported "upgraded to System User" while the account stayed a Website User."""
+
+    def _converted_member_with_volunteer(self, volunteer_status="Active"):
+        member = self.create_test_member()
+        email = f"upgrade2860-{frappe.generate_hash(length=6)}@test.invalid"
+        user = self.create_test_user(email, roles=[ROLE])
+        self.track_doc("User", user.name)
+        self.assertEqual(frappe.db.get_value("User", user.name, "user_type"), "Website User")
+        frappe.db.set_value("Member", member.name, "user", user.name)
+        if volunteer_status:
+            self.create_test_volunteer(member_name=member.name, status=volunteer_status)
+        return member, user
+
+    def test_activating_a_converted_members_volunteer_leaves_a_website_user_until_the_nightly_sync(self):
+        """The real flow. Nothing live syncs the role profile on a Volunteer status change (the
+        handler is deliberately unwired, see hooks/doc_events.py), and a converted member holds no
+        desk role, so activation cannot make them a System User: upgrade_member_to_volunteer_user
+        must say so, and the scheduled sync (the only grant path) is what finally does it."""
+        from verenigingen.services.member.account.account_creation_api import (
+            upgrade_member_to_volunteer_user,
+        )
+        from verenigingen.services.member.account.user_role_profile_calculator import (
+            sync_user_role_profile,
+        )
+        from verenigingen.services.volunteer.volunteer_activation_service import activate_volunteer_record
+
+        member, user = self._converted_member_with_volunteer(volunteer_status="New")
+
+        activate_volunteer_record(member)
+
+        self.assertEqual(frappe.db.get_value("Volunteer", {"member": member.name}, "status"), "Active")
+        self.assertEqual(frappe.db.get_value("User", user.name, "user_type"), "Website User")
+        self.assertFalse(upgrade_member_to_volunteer_user(member.name).get("success"))
+        sync_user_role_profile(user.name, nightly=True)
+        self.assertEqual(frappe.db.get_value("User", user.name, "user_type"), "System User")
+        self.assertIn("Verenigingen Volunteer", frappe.get_roles(user.name))
+
+    def test_the_upgrade_succeeds_when_the_user_holds_a_desk_role(self):
+        from verenigingen.services.member.account.account_creation_api import (
+            upgrade_member_to_volunteer_user,
+        )
+
+        member, user = self._converted_member_with_volunteer(volunteer_status=None)
+        self._add_role(user.name, "Verenigingen Volunteer")
+        frappe.db.set_value("User", user.name, "user_type", "Website User")
+
+        result = upgrade_member_to_volunteer_user(member.name)
+
+        self.assertTrue(result.get("success"), result)
+        self.assertEqual(frappe.db.get_value("User", user.name, "user_type"), "System User")
+
+    @staticmethod
+    def _add_role(user_name, role):
+        user = frappe.get_doc("User", user_name)
+        user.add_roles(role)
+
+    def test_the_upgrade_does_not_claim_success_when_the_user_stays_a_website_user(self):
+        """No volunteer record -> no volunteer profile -> no desk role to grant. The call must say so."""
+        from verenigingen.services.member.account.account_creation_api import (
+            upgrade_member_to_volunteer_user,
+        )
+
+        member, user = self._converted_member_with_volunteer(volunteer_status=None)
+
+        result = upgrade_member_to_volunteer_user(member.name)
+
+        self.assertEqual(frappe.db.get_value("User", user.name, "user_type"), "Website User")
+        self.assertFalse(result.get("success"), result)
+
+
+class TestMemberDonationWithoutDonor2860(EnhancedTestCase):
+    """Behaviour change to pin, not a defect: Donation.validate and DonationDonorService branch on
+    user_type == "Website User" ("web form" donor auto-creation), and a member-only user now IS a
+    Website User, so a member who gives without choosing a Donor no longer hits "Please select a
+    Donor" but the auto-creation branch. Measured: that branch's secure insert then refuses, because
+    a member-only user holds no role in ESCALATION_ALLOWED_ROLES and has no Donor create permission,
+    so the donation is still refused and NO Donor is created (fails closed). If a member were ever
+    granted Donor create or escalation, this test reddens and the auto-creation becomes real."""
+
+    def test_a_member_only_user_donating_without_a_donor_is_refused_and_no_donor_is_created(self):
+        from verenigingen.services.donation.donor_service import get_donation_donor_service
+
+        email = f"donor2860-{frappe.generate_hash(length=6)}@test.invalid"
+        user = self.create_test_user(email, roles=[ROLE])
+        self.track_doc("User", user.name)
+        self.assertEqual(frappe.db.get_value("User", user.name, "user_type"), "Website User")
+        self.assertFalse(frappe.db.exists("Donor", {"donor_email": email}), "fixture: no donor yet")
+        donation = frappe.new_doc("Donation")
+        donation.amount = 10
+
+        with self.as_user(user.name):
+            with self.assertRaises(frappe.ValidationError) as caught:
+                get_donation_donor_service(donation).ensure_donor_exists()
+
+        # the auto-creation branch (not the "Please select a Donor" one) is what refused
+        self.assertIn("Failed to create donor", str(caught.exception))
+        self.assertFalse(frappe.db.exists("Donor", {"donor_email": email}))
+        self.assertFalse(donation.donor)
+
 
 WSGI_SCRIPT = textwrap.dedent(
     """
@@ -354,7 +487,7 @@ def _app_hrefs_2860(html):
 
 
 class TestMemberPagesRenderNoDeskLinks2860(PortalPageTestBase):
-    def _render(self, user, route):
+    def _render_member_page_2860(self, user, route):
         from frappe.website.serve import get_response_content
 
         with self.as_user(user):
@@ -379,7 +512,7 @@ class TestMemberPagesRenderNoDeskLinks2860(PortalPageTestBase):
             due.submit()
         frappe.db.set_value("Sales Invoice", due.name, "due_date", frappe.utils.add_days(frappe.utils.today(), 20))
 
-        html = self._render(user, "my_dues_schedule")
+        html = self._render_member_page_2860(user, "my_dues_schedule")
 
         # the rows are really on the page (the control: with the old links they carried /app hrefs)
         self.assertIn(paid.name, html)
@@ -409,7 +542,7 @@ class TestMemberPagesRenderNoDeskLinks2860(PortalPageTestBase):
         # only Draft / Pending Approval ones, so put this one in the state the page shows.
         frappe.db.set_value("Contribution Amendment Request", amendment.name, "status", "Pending Approval")
 
-        html = self._render(user, "membership_adjustment")
+        html = self._render_member_page_2860(user, "membership_adjustment")
 
         # the request is on the page, inline (requested amount + status), not behind a link
         self.assertIn("987.65", html)
