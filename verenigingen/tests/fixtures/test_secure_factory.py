@@ -8,7 +8,7 @@ import inspect
 
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.fixtures.field_validator import FieldValidator, validate_field
+from verenigingen.tests.fixtures.field_validator import FieldValidationError, FieldValidator, validate_field
 
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
@@ -198,3 +198,10 @@ class TestSecureFactoryFunctions(EnhancedTestCase):
 
     def test_secure_factory_basic(self):
         self._run(test_secure_factory_basic)
+
+    def test_validator_rejects_a_nonexistent_field(self):
+        # The endpoint above only prints when the negative case does not raise, so a
+        # validator that never raises keeps the three tests above green.
+        with self.assertRaises(FieldValidationError):
+            FieldValidator().validate_field_exists("Member", "nonexistent_field")
+        self.assertTrue(FieldValidator().validate_field_exists("Member", "first_name"))
