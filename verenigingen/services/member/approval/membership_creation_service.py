@@ -671,17 +671,22 @@ class MembershipCreationService(StatelessService):
             # msgprint-and-continue below would report the row as if it succeeded
             # (a warning, not a failure), on a transaction the server has discarded.
             raise
+        except frappe.PermissionError:
+            # Keep the type: the caller's PermissionError handler logs it and re-raises unchanged.
+            raise
         except Exception as e:
             self.logger.error(f"MembershipCreationService: Failed to create dues schedule: {str(e)}")
             frappe.log_error(
-                frappe.get_traceback(),
-                f"Dues Schedule Creation Failed: {member_doc.name}",
+                title=f"Dues Schedule Creation Failed: {member_doc.name}",
+                message=frappe.get_traceback(),
             )
-            # Don't fail approval if dues schedule creation fails
-            frappe.msgprint(
-                _("Warning: Dues schedule creation failed: {0}").format(str(e)[:200]),
-                alert=True,
-                indicator="orange",
+            # #2133 (maintainer ruling 2026-11-24): an approval without a dues schedule bills nobody, so
+            # it FAILS. The caller's savepoint rolls the Member, Membership and application back; the
+            # application stays Pending Review until the schedule can be created.
+            frappe.throw(
+                _(
+                    "The approval was not completed because the dues schedule could not be created: {0}"
+                ).format(str(e)[:200])
             )
 
     def _create_membership_invoice(self, member_doc, membership, membership_type, period_start=None):

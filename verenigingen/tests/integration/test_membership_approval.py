@@ -633,8 +633,16 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
             # Mock justified: External email service, not business logic
             with patch('frappe.sendmail'):
                 # Mock justified: External service configuration, not business logic
+                # #2133: a blanket return_value made every Single read an email address, including
+                # `max_reasonable_dues_rate`, so the dues schedule validation raised a TypeError that
+                # the approval used to swallow. Only the contact email is faked; every other key is real.
+                real_get_single_value = frappe.db.get_single_value
                 with patch('frappe.db.get_single_value') as mock_settings:
-                    mock_settings.return_value = 'admin@example.com'
+                    mock_settings.side_effect = lambda doctype, field, *args, **kwargs: (
+                        'admin@example.com'
+                        if (doctype, field) == ("Verenigingen Settings", "member_contact_email")
+                        else real_get_single_value(doctype, field, *args, **kwargs)
+                    )
                     
                     # Test with invoice generation disabled
                     result = approve_core(

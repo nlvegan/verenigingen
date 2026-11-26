@@ -313,9 +313,9 @@ class ProcuriosMembershipImport(BaseCSVImport):
             }
             membership_name = get_membership_import_service().create_membership_from_csv(member_doc, row_data)
             if not membership_name:
-                # Service swallows creation failures (logged to Error Log) and
-                # returns None. Surface it as a per-row error rather than a silent
-                # created/skipped miscount.
+                # The service re-raises creation failures (#2133), so None only means the
+                # pipeline produced no Membership. Surface it as a per-row error rather
+                # than a silent created/skipped miscount.
                 raise frappe.ValidationError(
                     f"membership creation returned no result for member {member_name}"
                 )

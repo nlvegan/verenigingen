@@ -1100,7 +1100,6 @@ class TestApproveApplicationBoard(ApprovalCase):
         self.assertTrue(admin_state[2], "control: the Administrator approval creates a dues schedule")
         self.assertTrue(admin_state[3], "control: the Administrator approval queues an account request")
         self.assertTrue(board_result["success"], board_result)
-        self.assertFalse(board_result.get("dues_schedule_failed"), board_result)
         self.assertTrue(board_state[1], f"board approval created no invoice: {board_result} {board_errors}")
         self.assertTrue(board_state[2], f"board approval created no dues schedule: {board_errors}")
         self.assertTrue(board_state[3], f"board approval queued no account request: {board_errors}")
@@ -1406,9 +1405,11 @@ class TestApproveApplicationBoard(ApprovalCase):
                     member, membership_type=self.membership_type.name
                 )
 
-    def test_a_failed_dues_schedule_is_reported_not_claimed_as_complete(self):
-        """A step that still fails must not read as full success. The fault is injected at the schedule
-        factory's boundary (the only way to make a permitted write fail); the Error Log row is the service's own."""
+    def test_a_failed_dues_schedule_fails_the_board_approval_and_leaves_it_pending(self):
+        """#2133 (maintainer ruling 2026-11-24, replacing "approve and flag dues_schedule_failed"): a board
+        approval whose dues schedule cannot be created FAILS and rolls back. The fault is injected at the
+        schedule factory's boundary (the only way to make a permitted write fail); the Error Log row is the
+        service's own."""
         from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
             MembershipDuesSchedule,
         )
@@ -1418,11 +1419,12 @@ class TestApproveApplicationBoard(ApprovalCase):
 
         # Mock justified: Infrastructure fault injection - a data fault that makes the factory raise.
         with patch.object(MembershipDuesSchedule, "create_from_template", side_effect=Exception("boom")):
-            result = self._approve_as(name, user=self.board.user, create_invoice=False)
+            with self.assertRaises(frappe.ValidationError) as refused:
+                self._approve_as(name, user=self.board.user, create_invoice=False)
 
-        self.assertTrue(result["success"])
-        self.assertTrue(result["dues_schedule_failed"], result)
-        self.assertIn("dues schedule could NOT be created", result["message"])
+        self.assertIn("dues schedule could not be created", str(refused.exception))
+        self.assertEqual(frappe.db.get_value(SUBMISSION, name, "status"), "Pending Review")
+        self.assertEqual(frappe.db.count("Member", {"email": self.email}), 0)
 
     def test_board_member_of_another_chapter_is_refused_and_nothing_is_created(self):
         """Control: the bypass starts only AFTER authorisation. A board member of a chapter that is not the
@@ -1775,6 +1777,14 @@ class TestApplicationChanges(ApprovalCase):
     def test_approval_still_stamps_the_approver_on_a_custom_fee(self):
         name = self._stage_with_fee("12.5")
         member = frappe.db.get_value("Member", {"email": self.email})
+        # #2133: approval FAILS when the dues schedule cannot be created, and the 12.5 fee is below this
+        # type's 25 minimum. This test used to pass only because that refusal was swallowed (no schedule,
+        # approval "succeeded"); bring the minimums down as _stage_short_and_confirm does, so the fee is valid.
+        template = frappe.db.get_value(
+            "Membership Dues Schedule", {"is_template": 1, "membership_type": self.membership_type.name}, "name"
+        )
+        frappe.db.set_value("Membership Dues Schedule", template, "minimum_amount", 2.5)
+        frappe.db.set_value("Membership Type", self.membership_type.name, "minimum_amount", 2.5)
 
         self._approve_as(name)
 
