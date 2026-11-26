@@ -60,15 +60,19 @@ describe('displayMollieHistory escaping (#3307)', () => {
 		expect(body.querySelector('a').getAttribute('href')).toBe('/app/mt940-import/MT940-IMP-0001');
 	});
 
-	test.each(['descriptive_name', 'import_status', 'mollie_from_date', 'mollie_to_date'])(
-		'markup in %s is rendered as text, not as elements',
-		(field) => {
-			const body = render([tainted({ [field]: PAYLOAD })]);
-			expect(body.querySelector('img')).toBeNull();
-			expect(body.innerHTML).not.toMatch(/<img/i);
-			expect(body.textContent).toContain(PAYLOAD);
-		}
-	);
+	test.each([
+		'descriptive_name',
+		'import_status',
+		'mollie_from_date',
+		'mollie_to_date',
+		'transactions_created',
+		'transactions_skipped'
+	])('markup in %s is rendered as text, not as elements', (field) => {
+		const body = render([tainted({ [field]: PAYLOAD })]);
+		expect(body.querySelector('img')).toBeNull();
+		expect(body.innerHTML).not.toMatch(/<img/i);
+		expect(body.textContent).toContain(PAYLOAD);
+	});
 
 	test('the name falls back to imp.name, escaped, when there is no descriptive_name', () => {
 		const body = render([tainted({ descriptive_name: '', name: PAYLOAD })]);
