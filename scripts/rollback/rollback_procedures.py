@@ -447,7 +447,7 @@ class RollbackManager:
 
                 for index_name in indexes_to_drop:
                     try:
-                        frappe.db.sql(f"DROP INDEX `{index_name}` ON `{table}`")
+                        frappe.db.sql_ddl(f"DROP INDEX `{index_name}` ON `{table}`")
                         dropped_indexes.append(f"{table}.{index_name}")
                     except Exception as e:
                         # Index might not exist, continue

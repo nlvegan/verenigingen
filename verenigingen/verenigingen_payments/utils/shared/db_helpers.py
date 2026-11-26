@@ -51,7 +51,7 @@ def ensure_table_exists(create_sql: str, *, table_name: str) -> None:
     """
     _validate_identifier(table_name, "table_name")
     try:
-        frappe.db.sql(create_sql)
+        frappe.db.sql_ddl(create_sql)
         frappe.db.commit()
     except Exception as exc:
         # Log and swallow: the table either already exists (race) or there is a

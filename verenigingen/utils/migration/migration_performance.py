@@ -400,7 +400,7 @@ def create_migration_index(doctype, fields):
     for field in fields:
         index_name = f"idx_{field}"
         try:
-            frappe.db.sql(
+            frappe.db.sql_ddl(
                 f"""
                 CREATE INDEX IF NOT EXISTS {index_name}
                 ON `{table_name}` ({field})

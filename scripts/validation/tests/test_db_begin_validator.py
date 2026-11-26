@@ -86,9 +86,63 @@ class DbBeginValidatorTest(unittest.TestCase):
         src = "import frappe\ndef f():\n    frappe.db.sql('SELECT name FROM `tabFoo`')\n"
         self.assertEqual(self._active(_run(src)), [])
 
-    def test_runtime_built_truncate_is_not_guessed_at(self):
-        """Deliberate limitation: only literal first arguments are inspected."""
-        src = "import frappe\ndef f():\n    frappe.db.sql(f'TRUNCATE TABLE `{table}`')\n"
+    # ---- dynamic SQL (#3299) ---------------------------------------------
+
+    def test_flags_fstring_ddl_with_literal_head(self):
+        src = "import frappe\ndef f(t):\n    frappe.db.sql(f'TRUNCATE TABLE `{t}`')\n"
+        findings = self._active(_run(src))
+        self.assertEqual([f.kind for f in findings], [dbv.KIND_DDL])
+
+    def test_flags_variable_assigned_a_ddl_fstring(self):
+        src = (
+            "import frappe\n"
+            "def f(table, index):\n"
+            "    drop_sql = f'ALTER TABLE `{table}` DROP INDEX `{index}`'\n"
+            "    frappe.db.sql(drop_sql)\n"
+        )
+        self.assertEqual(len(self._active(_run(src))), 1)
+
+    def test_flags_variable_assigned_a_ddl_literal(self):
+        src = "import frappe\ndef f():\n    stmt = 'DROP INDEX i ON t'\n    frappe.db.sql(stmt)\n"
+        self.assertEqual(len(self._active(_run(src))), 1)
+
+    def test_flags_ddl_named_parameter(self):
+        """db_helpers.ensure_table_exists(create_sql): the value arrives from a caller."""
+        src = "import frappe\ndef f(create_sql):\n    frappe.db.sql(create_sql)\n"
+        self.assertEqual(len(self._active(_run(src))), 1)
+
+    def test_variable_assigned_dml_is_not_flagged(self):
+        """Control: a resolvable SELECT stays quiet even when named like DDL."""
+        src = (
+            "import frappe\n"
+            "def f(t):\n"
+            "    create_sql = f'SELECT name FROM `{t}`'\n"
+            "    frappe.db.sql(create_sql)\n"
+        )
+        self.assertEqual(self._active(_run(src)), [])
+
+    def test_fstring_dml_is_not_flagged(self):
+        src = "import frappe\ndef f(t):\n    frappe.db.sql(f'SELECT name FROM `{t}`')\n"
+        self.assertEqual(self._active(_run(src)), [])
+
+    def test_fstring_starting_with_placeholder_is_not_guessed_at(self):
+        src = "import frappe\ndef f(stmt):\n    frappe.db.sql(f'{stmt} FROM x')\n"
+        self.assertEqual(self._active(_run(src)), [])
+
+    def test_unresolvable_neutral_name_is_not_flagged(self):
+        src = "import frappe\ndef f(query):\n    frappe.db.sql(query)\n"
+        self.assertEqual(self._active(_run(src)), [])
+
+    def test_sql_ddl_with_variable_is_the_fix(self):
+        src = "import frappe\ndef f(create_sql):\n    frappe.db.sql_ddl(create_sql)\n"
+        self.assertEqual(self._active(_run(src)), [])
+
+    def test_variable_ddl_suppression_is_honoured(self):
+        src = (
+            "import frappe\n"
+            "def f(create_sql):\n"
+            "    frappe.db.sql(create_sql)  # db-begin-ok: idempotent-bootstrap\n"
+        )
         self.assertEqual(self._active(_run(src)), [])
 
     # ---- suppression -----------------------------------------------------

@@ -439,7 +439,7 @@ def create_recommended_indexes():
             if not existing_indexes:
                 # Create the index
                 columns_str = ", ".join(f"`{col}`" for col in index_info["columns"])
-                frappe.db.sql(
+                frappe.db.sql_ddl(
                     f"""
                     CREATE INDEX `{index_info['index']}`
                     ON `{index_info['table']}` ({columns_str})
