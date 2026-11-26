@@ -10,10 +10,12 @@ Each handler processes a specific event type and returns a result dict.
 Split from webhook.py as part of HIGH-4 (PSP Integration Consolidation Plan).
 """
 
+from functools import partial
 from typing import Any, Dict
 
 import frappe
 
+from verenigingen.events.event_emitter import enqueue_deduplicated
 from verenigingen.utils.transaction_errors import (
     NON_RESUMABLE_DB_ERRORS,
     rollback_to_savepoint,
@@ -446,7 +448,10 @@ def _update_payment_link_status(
                 # protection against a double post is the reference_no check inside
                 # _process_executed_payment.
                 if mapped_status == "Executed" and not doc.payment_entry:
-                    frappe.enqueue(
+                    # A dedupe race that survives the helper's one retry means the job was NOT
+                    # queued (#3186): raise so the except below rolls this link back to its
+                    # savepoint and lists it in failed_links, so a redelivery can succeed.
+                    enqueue_deduplicated(
                         "verenigingen.verenigingen_payments.ponto.api.webhook_handlers."
                         "process_executed_payment_job",
                         payment_link_name=pl.name,
@@ -454,7 +459,7 @@ def _update_payment_link_status(
                         timeout=300,
                         enqueue_after_commit=True,
                         job_id=f"ponto_executed_{pl.name}",
-                        deduplicate=True,
+                        on_not_queued=partial(_raise_executed_payment_not_queued, pl.name),
                     )
                     payment_entries_queued.append(pl.name)
 
@@ -488,6 +493,12 @@ def _update_payment_link_status(
         }
 
     return {"handled": True, "action": "logged", "reason": "unknown_status"}
+
+
+def _raise_executed_payment_not_queued(link_name: str):
+    raise RuntimeError(
+        f"Executed-payment job for Ponto Payment Link {link_name} was not queued (dedupe race)"
+    )
 
 
 def process_executed_payment_job(payment_link_name: str) -> Dict[str, Any]:
