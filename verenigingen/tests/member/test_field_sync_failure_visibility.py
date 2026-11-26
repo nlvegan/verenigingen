@@ -114,11 +114,6 @@ class TestMemberSelfRenameSyncsCustomer(EnhancedTestCase):
             frappe.db.get_value("Customer", customer, "customer_primary_contact"),
             "precondition: the Customer has a primary contact",
         )
-        self.assertFalse(
-            frappe.has_permission("Contact", "write", user=self.rn_email),
-            "precondition: the member role cannot write Contact",
-        )
-
         member = frappe.get_doc("Member", self.rn_member.name)
         member.load_doc_before_save()
         member.full_name = "Renamed Byself"
@@ -126,6 +121,10 @@ class TestMemberSelfRenameSyncsCustomer(EnhancedTestCase):
         # Customer row is written before on_update raises, so a swallowed failure would
         # still show the new name. Here a raise fails the test.
         with self.as_user(self.rn_email):
+            self.assertFalse(
+                frappe.has_permission("Contact", "write"),
+                "precondition: the member session cannot write Contact",
+            )
             _sync_to_target(member, "Customer", FIELD_SYNC_CONFIG["Member"]["Customer"])
 
         self.assertEqual(frappe.db.get_value("Customer", customer, "customer_name"), "Renamed Byself")
