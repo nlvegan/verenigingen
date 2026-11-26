@@ -23,10 +23,11 @@ Run:
 """
 
 import frappe
-from frappe.utils import flt, getdate, nowdate, today
+from frappe.utils import flt, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.support.system_timezone import system_timezone
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator import (
     DonationRefundJournalEntryCreator,
 )
@@ -233,7 +234,7 @@ class TestDonationRefundJournalEntryCreator(_RefundFixtureMixin, EnhancedTestCas
         )
         self.assertTrue(je_name)
         je = frappe.get_doc("Journal Entry", je_name)
-        self.assertEqual(getdate(je.posting_date), getdate(nowdate()))
+        assert_written_today(self, je.posting_date)
 
     def test_refund_date_unparseable_falls_back_to_today(self):
         """A garbage date string must not crash; it falls back to today."""
@@ -251,7 +252,7 @@ class TestDonationRefundJournalEntryCreator(_RefundFixtureMixin, EnhancedTestCas
         )
         self.assertTrue(je_name)
         je = frappe.get_doc("Journal Entry", je_name)
-        self.assertEqual(getdate(je.posting_date), getdate(nowdate()))
+        assert_written_today(self, je.posting_date)
 
     # ------------------------------------------------------- reconciliation
     def test_refund_reconciles_withdrawal_bank_transaction(self):

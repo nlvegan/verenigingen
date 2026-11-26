@@ -98,7 +98,7 @@ class AuthorizationEngine:
             is_authenticated=is_authenticated,
         )
 
-    def get_user_role_profiles(self, user: str = None) -> List[str]:
+    def get_user_role_profiles(self, user: str = None, raise_on_error: bool = False) -> List[str]:
         """
         Get user's role profiles from Frappe's Role Profile system with caching.
 
@@ -106,6 +106,9 @@ class AuthorizationEngine:
 
         Args:
             user: User to get profiles for (defaults to current session user)
+            raise_on_error: re-raise an ordinary lookup failure instead of returning [].
+                A caller that falls back to role names when there are no profiles must pass
+                True: otherwise a failed lookup is indistinguishable from "no profile" (#3024).
 
         Returns:
             List of role profile names assigned to the user
@@ -188,6 +191,8 @@ class AuthorizationEngine:
         except NON_RESUMABLE_DB_ERRORS:
             raise
         except Exception:
+            if raise_on_error:
+                raise
             # Fail CLOSED (no profiles, so no profile-based access). Recorded via
             # log_error (#2283): frappe.logger() output is not captured anywhere readable.
             frappe.log_error(

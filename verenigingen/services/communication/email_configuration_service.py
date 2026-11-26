@@ -53,6 +53,8 @@ class EmailConfigurationService:
                 return None
 
             return frappe.get_single("Verenigingen Email Configuration")
+        except frappe.QueryDeadlockError:
+            raise
         except Exception:
             return None
 
@@ -263,6 +265,8 @@ class EmailConfigurationService:
         # Defensive: only delegate if the linked Notification still exists and is enabled
         try:
             enabled = frappe.db.get_value("Notification", notification_name, "enabled")
+        except frappe.QueryDeadlockError:
+            raise
         except Exception:
             return None
 

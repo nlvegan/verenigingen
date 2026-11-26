@@ -140,12 +140,16 @@ class TestBatchChunkingFunctionality(EnhancedTestCase):
         self.assertEqual(len(result), 1)
         invoice_data = result[0]
 
-        # Verify all fields present
-        self.assertTrue(hasattr(invoice_data, "name"))
-        self.assertTrue(hasattr(invoice_data, "grand_total"))
-        self.assertTrue(hasattr(invoice_data, "outstanding_amount"))
-        self.assertTrue(hasattr(invoice_data, "posting_date"))
-        self.assertTrue(hasattr(invoice_data, "status"))
+        # Verify all requested fields are present with the invoice's own values.
+        # (hasattr is True for any name on the frappe._dict a row comes back as.)
+        stored = frappe.db.get_value(
+            "Sales Invoice", inv.name,
+            ["name", "grand_total", "outstanding_amount", "posting_date", "status"],
+            as_dict=True,
+        )
+        for fieldname in ("name", "grand_total", "outstanding_amount", "posting_date", "status"):
+            self.assertIn(fieldname, invoice_data, f"{fieldname} missing from the fetched row")
+            self.assertEqual(invoice_data[fieldname], stored[fieldname], fieldname)
 
 
 class TestPaymentHistoryBatchedOptimization(EnhancedTestCase):

@@ -200,43 +200,22 @@ class TestMediumScalePaymentHistory(VereningingenTestCase):
         print(f"✅ Queued {len(job_ids)} background jobs in {queue_time:.2f}s")
         print(f"📊 Queue rate: {len(job_ids) / queue_time:.1f} jobs/second")
         
-        # Allow processing time
-        print("⏳ Waiting for background job processing...")
-        time.sleep(15)
-        
-        # Check job completion
-        completed_jobs = 0
-        failed_jobs = 0
-        
+        # QUEUEING only. The sleep-then-count-"Completed" wait that used to sit here
+        # asserted nothing about completion (the rate was only printed) and can never
+        # see one in CI, which has no RQ worker. Job execution is covered by
+        # tests/utils/test_background_jobs.py (test_rebuild_populates_payment_history_
+        # from_real_invoice). Queueing guarantees one tracked status record per job.
+        self.assertEqual(len(job_ids), len(batch_result["members"]), "Should queue one job per member")
+        self.assertEqual(len(set(job_ids)), len(job_ids), "Job names should be unique")
         for job_id in job_ids:
-            cache_key = f"job_status_{job_id}"
-            job_status = frappe.cache().get_value(cache_key)
-            
-            if job_status:
-                status = job_status.get("status", "unknown")
-                if status == "Completed":
-                    completed_jobs += 1
-                elif status == "Failed":
-                    failed_jobs += 1
-        
-        completion_rate = completed_jobs / len(job_ids) if job_ids else 0
-        
-        print(f"✅ Background job results:")
-        print(f"   Completed: {completed_jobs}/{len(job_ids)}")
-        print(f"   Failed: {failed_jobs}/{len(job_ids)}")
-        print(f"   Completion rate: {completion_rate:.1%}")
-        
-        # Assertions for background job performance
-        self.assertGreater(len(job_ids), 0, "Should successfully queue jobs")
+            job_status = frappe.cache().get_value(f"job_status_{job_id}")
+            self.assertIsNotNone(job_status, f"{job_id} has no tracked status record")
+            self.assertEqual(job_status.get("job_type"), "member_payment_history_update")
         self.assertLess(queue_time, 30, "Job queueing should be fast")
-        # Note: Background job completion depends on worker availability
-        
+
         return {
             "jobs_queued": len(job_ids),
-            "jobs_completed": completed_jobs, 
-            "jobs_failed": failed_jobs,
             "queue_time": queue_time,
-            "completion_rate": completion_rate,
             "queue_rate": len(job_ids) / queue_time if queue_time > 0 else 0,
             "scale": "medium"
         }

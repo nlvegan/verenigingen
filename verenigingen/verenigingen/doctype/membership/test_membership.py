@@ -129,26 +129,74 @@ class TestMembership(EnhancedTestCase):
         self.assertEqual(dues_schedule.member, self.member.name)
         self.assertEqual(dues_schedule.status, "Active")
 
-    def test_cancel_membership(self):
-        """Test cancelling a membership"""
+    def _submitted_membership_with_dues_schedule(self):
         membership = frappe.new_doc("Membership")
         membership.member = self.member.name
         membership.membership_type = self.membership_type_name
-        membership.start_date = add_months(today(), -13)  # More than 1 year ago
+        membership.start_date = today()
         membership.insert()
         membership.submit()
+        schedule_name = membership.get_dues_schedule()
+        self.assertTrue(schedule_name, "The member should have a live dues schedule before the cancel")
+        self.assertNotEqual(
+            frappe.db.get_value("Membership Dues Schedule", schedule_name, "status"),
+            "Cancelled",
+            "Control: the schedule must be live before the cancel, or the assertion below proves nothing",
+        )
+        return membership, schedule_name
 
-        # No try/skip: `except Exception: skipTest` swallowed the AssertionError below
-        # and turned a failed cancellation into a skip.
-        membership.flags.ignore_validate_update_after_submit = True
-        membership.docstatus = 2
-        membership.cancellation_date = today()
-        membership.cancellation_reason = "Test cancellation"
-        membership.cancellation_type = "Immediate"
-        membership.db_update()
+    def test_cancel_membership(self):
+        """cancel_membership (Immediate) marks the membership Cancelled and cancels its dues schedule.
 
+        Drives the real whitelisted entry point as the harness's default Administrator (a System
+        Manager: may cancel inside the 1-year minimum period, which a fresh membership is, and
+        clears the critical-API gate). The earlier version wrote docstatus=2 with db_update() and
+        read it back (#3078).
+        """
+        from verenigingen.verenigingen.doctype.membership.membership import cancel_membership
+
+        membership, schedule_name = self._submitted_membership_with_dues_schedule()
+        # PROBE SHORTCUT: this fixture's schedule is member-wide, not linked to the membership
+        # (the template-driven link is covered by test_cancelled_membership_dues_schedule_2134);
+        # cancel_membership's Immediate branch only cancels schedules linked to the membership.
+        frappe.db.set_value("Membership Dues Schedule", schedule_name, "membership", membership.name)
+
+        self.assertEqual(frappe.session.user, "Administrator", "the harness session user")
+        cancel_membership(
+            membership.name,
+            cancellation_date=today(),
+            cancellation_reason="Test cancellation",
+            cancellation_type="Immediate",
+        )
+
+        values = frappe.db.get_value(
+            "Membership",
+            membership.name,
+            ["status", "cancellation_type", "cancellation_reason", "docstatus"],
+            as_dict=True,
+        )
+        self.assertEqual(values.status, "Cancelled")
+        self.assertEqual(values.cancellation_type, "Immediate")
+        self.assertEqual(values.cancellation_reason, "Test cancellation")
+        self.assertEqual(
+            values.docstatus, 1, "cancel_membership is a status cancel, not a docstatus-2 cancel"
+        )
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", schedule_name, "status"), "Cancelled"
+        )
+
+    def test_docstatus_cancel_cancels_the_dues_schedule(self):
+        """Membership.cancel() (docstatus 2) cancels the linked dues schedule, never pauses it (#2134)."""
+        membership, schedule_name = self._submitted_membership_with_dues_schedule()
+
+        self.assertEqual(frappe.session.user, "Administrator", "the harness session user")
         membership.reload()
-        self.assertEqual(membership.docstatus, 2)
+        membership.cancel()
+
+        self.assertEqual(frappe.db.get_value("Membership", membership.name, "docstatus"), 2)
+        self.assertEqual(
+            frappe.db.get_value("Membership Dues Schedule", schedule_name, "status"), "Cancelled"
+        )
 
     def test_validate_dates(self):
         """Test validation of membership dates"""

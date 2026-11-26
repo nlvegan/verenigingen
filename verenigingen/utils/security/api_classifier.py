@@ -216,9 +216,12 @@ class APIClassifier:
             List of classified API endpoints
         """
         self.audit_logger.log_event(
-            "api_classification_started",
+            "other",  # #3128: "api_classification_started" is not an API Audit Log event type option
             AuditSeverity.INFO,
-            details={"classification_patterns": len(self.OPERATION_PATTERNS)},
+            details={
+                "event": "api_classification_started",
+                "classification_patterns": len(self.OPERATION_PATTERNS),
+            },
         )
 
         endpoints = []
@@ -233,9 +236,10 @@ class APIClassifier:
         self.classified_endpoints = endpoints
 
         self.audit_logger.log_event(
-            "api_classification_completed",
+            "other",  # #3128: "api_classification_completed" is not an API Audit Log event type option
             AuditSeverity.INFO,
             details={
+                "event": "api_classification_completed",
                 "total_endpoints": len(endpoints),
                 "high_confidence": len(
                     [e for e in endpoints if e.classification_confidence == ClassificationConfidence.HIGH]
@@ -872,9 +876,10 @@ def setup_api_classifier():
     # Log setup completion
     audit_logger = get_audit_logger()
     audit_logger.log_event(
-        "api_classifier_initialized",
+        "security_system_initialized",  # #3128: "api_classifier_initialized" is not an option
         AuditSeverity.INFO,
         details={
+            "event": "api_classifier_initialized",
             "operation_patterns": len(_api_classifier.OPERATION_PATTERNS),
             "security_patterns": len(_api_classifier.SECURITY_PATTERNS),
             "risk_patterns": len(_api_classifier.RISK_PATTERNS),
