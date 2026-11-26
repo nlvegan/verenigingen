@@ -1151,7 +1151,7 @@ function create_donor_from_member(frm) {
 						}
 					} else {
 						frappe.msgprint({
-							message: r.message.error || r.message.message,
+							message: (r.message && (r.message.error || r.message.message)) || __('Unknown error'),
 							indicator: 'red'
 						});
 					}

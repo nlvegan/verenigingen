@@ -74,7 +74,9 @@ function retry_account_creation_request(frm) {
 					frappe.msgprint(__('Account creation request has been queued for retry'));
 					frm.reload_doc();
 				} else {
-					frappe.msgprint(__('Failed to retry request: ') + (r.message.error || 'Unknown error'));
+					frappe.msgprint(
+						__('Failed to retry request: ') + ((r.message && r.message.error) || 'Unknown error')
+					);
 				}
 			}
 		});
@@ -95,7 +97,7 @@ function queue_account_creation_request(frm) {
 				frappe.msgprint(__('Account creation request has been queued for processing'));
 				frm.reload_doc();
 			} else {
-				frappe.msgprint(__('Failed to queue request: ') + (r.message.error || 'Unknown error'));
+				frappe.msgprint(__('Failed to queue request: ') + ((r.message && r.message.error) || 'Unknown error'));
 			}
 		}
 	});

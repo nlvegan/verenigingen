@@ -97,7 +97,8 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 							} else {
 								frappe.msgprint({
 									title: 'Preview Failed',
-									message: r.message.error || 'Failed to preview account re-classification',
+									message:
+										(r.message && r.message.error) || 'Failed to preview account re-classification',
 									indicator: 'red'
 								});
 							}
@@ -124,7 +125,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 									} else {
 										frappe.msgprint({
 											title: 'Re-classification Failed',
-											message: r.message.error || 'Failed to re-classify accounts',
+											message: (r.message && r.message.error) || 'Failed to re-classify accounts',
 											indicator: 'red'
 										});
 									}
@@ -149,7 +150,8 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 							} else {
 								frappe.msgprint({
 									title: 'Preview Failed',
-									message: r.message.error || 'Failed to preview hierarchy reorganization',
+									message:
+										(r.message && r.message.error) || 'Failed to preview hierarchy reorganization',
 									indicator: 'red'
 								});
 							}
@@ -176,7 +178,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 									} else {
 										frappe.msgprint({
 											title: 'Reorganization Failed',
-											message: r.message.error || 'Failed to reorganize account hierarchy',
+											message:
+												(r.message && r.message.error) ||
+												'Failed to reorganize account hierarchy',
 											indicator: 'red'
 										});
 									}
@@ -201,7 +205,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 						} else {
 							frappe.msgprint({
 								title: 'Preview Failed',
-								message: r.message.error || 'Failed to preview cost center creation',
+								message: (r.message && r.message.error) || 'Failed to preview cost center creation',
 								indicator: 'red'
 							});
 						}
@@ -224,7 +228,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 								} else {
 									frappe.msgprint({
 										title: 'Creation Failed',
-										message: r.message.error || 'Failed to create cost centers',
+										message: (r.message && r.message.error) || 'Failed to create cost centers',
 										indicator: 'red'
 									});
 								}
@@ -256,7 +260,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 			} else {
 				frappe.msgprint({
 					title: `${type} Migration Test Failed`,
-					message: r.message.error || 'Unknown error occurred',
+					message: (r.message && r.message.error) || 'Unknown error occurred',
 					indicator: 'red'
 				});
 			}
@@ -1059,7 +1063,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 						} else {
 							frappe.msgprint({
 								title: __('Rebuild Failed'),
-								message: r.message.error || __('Failed to rebuild account tree'),
+								message: (r.message && r.message.error) || __('Failed to rebuild account tree'),
 								indicator: 'red'
 							});
 						}
@@ -1125,7 +1129,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 				} else {
 					frappe.msgprint({
 						title: 'Parse Failed',
-						message: r.message.error || 'Failed to parse account groups',
+						message: (r.message && r.message.error) || 'Failed to parse account groups',
 						indicator: 'red'
 					});
 				}
@@ -1201,7 +1205,8 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 					} else {
 						frappe.msgprint({
 							title: 'Parse Failed',
-							message: r.message.error || 'Failed to parse account groups for type mappings',
+							message:
+								(r.message && r.message.error) || 'Failed to parse account groups for type mappings',
 							indicator: 'red'
 						});
 					}

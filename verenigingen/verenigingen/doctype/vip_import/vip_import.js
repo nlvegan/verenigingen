@@ -144,7 +144,7 @@ function validate_csv(frm) {
 			} else {
 				frappe.msgprint({
 					title: __('Validation Failed'),
-					message: r.message.error || __('Unknown error occurred'),
+					message: (r.message && r.message.error) || __('Unknown error occurred'),
 					indicator: 'red'
 				});
 				frm.reload_doc();

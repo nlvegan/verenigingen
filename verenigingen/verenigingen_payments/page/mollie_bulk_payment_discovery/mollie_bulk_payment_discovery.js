@@ -112,7 +112,7 @@ function run_discovery(page) {
 			} else {
 				frappe.msgprint({
 					title: __('Discovery Failed'),
-					message: r.message.error || 'Unknown error occurred',
+					message: (r.message && r.message.error) || 'Unknown error occurred',
 					indicator: 'red'
 				});
 			}
@@ -449,7 +449,9 @@ function process_single_payment(payment_id, page) {
 				} else {
 					frappe.msgprint({
 						title: __('Processing Failed'),
-						message: r.message.error || r.message.data.error || 'Unknown error',
+						message:
+							(r.message && (r.message.error || (r.message.data && r.message.data.error))) ||
+							'Unknown error',
 						indicator: 'red'
 					});
 				}
@@ -495,7 +497,7 @@ function process_bulk_payments(page) {
 					} else {
 						frappe.msgprint({
 							title: __('Bulk Processing Failed'),
-							message: r.message.error || 'Unknown error occurred',
+							message: (r.message && r.message.error) || 'Unknown error occurred',
 							indicator: 'red'
 						});
 					}
