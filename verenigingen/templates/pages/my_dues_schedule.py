@@ -109,7 +109,6 @@ def get_payment_data(member):
                 "amount": flt(invoice.grand_total, 2),
                 "status": status,
                 "description": _("Invoice {0}").format(invoice.name),
-                "invoice_link": f"/app/sales-invoice/{invoice.name}",
             }
         )
 
@@ -145,7 +144,6 @@ def get_payment_timeline(member):
                 "amount": flt(payment.paid_amount, 2),
                 "status": "Paid",
                 "description": _("Payment {0}").format(payment.name),
-                "invoice_link": f"/app/payment-entry/{payment.name}",
             }
         )
 
@@ -170,7 +168,6 @@ def get_payment_timeline(member):
                 "amount": flt(invoice.outstanding_amount, 2),
                 "status": "Due",
                 "description": _("Invoice {0}").format(invoice.name),
-                "invoice_link": f"/app/sales-invoice/{invoice.name}",
             }
         )
 
