@@ -6,12 +6,32 @@ performance monitoring, and security considerations.
 """
 
 import json
+import logging
 import time
 from datetime import datetime
 from functools import wraps
 from typing import Any, Dict, Optional, Union
 
 import frappe
+
+# Attributes Logger.makeRecord refuses to overwrite from ``extra=`` (it raises KeyError).
+# Derived from a real LogRecord so it cannot drift from the stdlib; "message"/"asctime" are
+# rejected by makeRecord too but are set only on formatting, so they are not in __dict__.
+_LOG_RECORD_RESERVED_KEYS = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {
+    "message",
+    "asctime",
+}
+
+
+def _merge_caller_context(context: Dict[str, Any], caller_kwargs: Dict[str, Any]) -> None:
+    """Merge caller kwargs into ``extra=``; a reserved LogRecord key is kept as ``ctx_<key>``.
+
+    Only the ``ctx_`` prefix string is shared with verenigingen.utils.error_handling.log_error,
+    which differs: it prefixes EVERY non-reserved key and drops reserved ones, using its own
+    inline list (#2954).
+    """
+    for key, value in caller_kwargs.items():
+        context[f"ctx_{key}" if key in _LOG_RECORD_RESERVED_KEYS else key] = value
 
 
 class MollieLogger:
@@ -71,7 +91,7 @@ class MollieLogger:
         context = self._get_base_context()
         if data:
             context["data"] = self._sanitize_data(data)
-        context.update(kwargs)
+        _merge_caller_context(context, kwargs)
 
         frappe.logger("mollie").info(f"🔵 [{self.operation_type}] {message}", extra=context)
 
@@ -84,7 +104,7 @@ class MollieLogger:
             context["data"] = self._sanitize_data(data)
         if duration:
             context["duration_ms"] = round(duration * 1000, 2)
-        context.update(kwargs)
+        _merge_caller_context(context, kwargs)
 
         frappe.logger("mollie").info(f"✅ [{self.operation_type}] {message}", extra=context)
 
@@ -93,7 +113,7 @@ class MollieLogger:
         context = self._get_base_context()
         if data:
             context["data"] = self._sanitize_data(data)
-        context.update(kwargs)
+        _merge_caller_context(context, kwargs)
 
         frappe.logger("mollie").warning(f"⚠️ [{self.operation_type}] {message}", extra=context)
 
@@ -107,7 +127,7 @@ class MollieLogger:
         if error:
             context["error_type"] = type(error).__name__
             context["error_message"] = str(error)
-        context.update(kwargs)
+        _merge_caller_context(context, kwargs)
 
         frappe.logger("mollie").error(f"❌ [{self.operation_type}] {message}", extra=context)
 
@@ -125,7 +145,7 @@ class MollieLogger:
         )
         if data:
             context["data"] = self._sanitize_data(data)
-        context.update(kwargs)
+        _merge_caller_context(context, kwargs)
 
         # Log as warning if operation is slow (>2 seconds)
         level = "warning" if duration > 2.0 else "info"
