@@ -1784,7 +1784,13 @@ class PaymentReconciliationManager:
         Raises:
             frappe.ValidationError: if the batch has no invoices to reconcile
         """
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
         from verenigingen.verenigingen_payments.services.payment import payment_entry_service
+
+        # #3074: money that arrived for a rolled-back batch is reconciled by hand
+        batch_processing_service.refuse_if_rolled_back(batch_name, _("reconciled"))
 
         batch = frappe.get_doc("Direct Debit Batch", batch_name)
 

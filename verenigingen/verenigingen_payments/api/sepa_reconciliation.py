@@ -326,11 +326,18 @@ def find_matching_sepa_batches(bank_transaction):
 def process_sepa_transaction_conservative(bank_transaction_name: str, sepa_batch_name: str):
     """Process SEPA transaction with conservative approach and duplicate prevention"""
 
+    from verenigingen.verenigingen_payments.services.batch_processing_service import (
+        batch_processing_service,
+    )
+
     # Acquire processing lock to prevent concurrent processing
     if not acquire_processing_lock("sepa_batch", sepa_batch_name):
         return {"success": False, "error": "Another process is currently working on this SEPA batch"}
 
     try:
+        # #3074: a Rolled Back batch is never reconciled again (re-collect via a NEW batch)
+        batch_processing_service.refuse_if_rolled_back(sepa_batch_name, _("reconciled"))
+
         # Check if batch has already been processed
         check_batch_processing_status(sepa_batch_name, bank_transaction_name)
 

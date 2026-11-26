@@ -665,14 +665,20 @@ class SEPABatchProcessor:
                     failed_count += 1
 
             # Update batch status
+            # #3074: a return file is bank information, so the rows and schedules above are still
+            # recorded, but it must not overwrite the Rolled Back status (read from the DB: the
+            # rollback writes it with set_value, so `batch` may predate it).
             if failed_count > 0:
-                batch.status = "Partially Failed"
+                rolled_back = frappe.db.get_value("Direct Debit Batch", batch_name, "status") == "Rolled Back"
+                if not rolled_back:
+                    batch.status = "Partially Failed"
                 batch.add_to_batch_log(f"Processed {failed_count} returned payments")
                 # batch_log is not allow_on_submit (status is), so both are persisted with
                 # db_set rather than batch.save() (#1230, #1235). A Draft batch therefore no
                 # longer re-runs validate() (the totals recalculation) here, intentionally:
                 # a return file only applies to a collected, i.e. submitted, batch.
-                batch.db_set("status", batch.status, update_modified=False)
+                if not rolled_back:
+                    batch.db_set("status", batch.status, update_modified=False)
                 batch.db_set("batch_log", batch.batch_log, update_modified=False)
 
             return failed_count

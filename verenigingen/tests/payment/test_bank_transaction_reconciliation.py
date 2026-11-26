@@ -1555,6 +1555,22 @@ class TestBatchReconciliationGuards(BTRBase):
         failed_inv = frappe.get_doc("Sales Invoice", failed_it["invoice"].name)
         self.assertIn(failed_inv.status, ["Unpaid", "Overdue"])
 
+    def test_rolled_back_batch_is_not_booked(self):
+        """#3074: money matched to a Rolled Back batch is reconciled by hand. Rows are
+        Successful (collectable) and the Bank Transaction is real, so a missing guard
+        books a Payment Entry."""
+        it = self._make_member_with_invoice(first_name="GuardRolled", grand_total=25.0)
+        batch = self._make_batch([it], status="Rolled Back", row_status="Successful")
+        bt = self._make_bank_transaction(deposit=25.0, date=today())
+        before = frappe.db.count("Payment Entry")
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self.mgr.create_payment_entries_from_batch(bt, batch.name)
+
+        self.assertIn("rolled back", str(ctx.exception))
+        self.assertEqual(frappe.db.count("Payment Entry"), before)
+        self.assertEqual(self._submitted_pe_count_for(it["invoice"].name), 0)
+
     def test_pending_row_is_not_booked(self):
         """F2: a not-yet-collected (status='Pending') row is also skipped."""
         it = self._make_member_with_invoice(first_name="GuardPend", grand_total=15.0)
