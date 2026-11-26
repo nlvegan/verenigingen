@@ -190,9 +190,12 @@ class EBoekhoudenImportManager:
         for doctype, field in doctypes:
             filters = {field: ["!=", ""]}
 
-            if from_date:
+            # One key holds one condition: assigning it per bound lets to_date drop from_date (#3131)
+            if from_date and to_date:
+                filters["posting_date"] = ["between", [from_date, to_date]]
+            elif from_date:
                 filters["posting_date"] = [">=", from_date]
-            if to_date:
+            elif to_date:
                 filters["posting_date"] = ["<=", to_date]
 
             docs = frappe.get_all(

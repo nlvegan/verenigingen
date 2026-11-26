@@ -351,13 +351,19 @@ class TestQueryOptimizationSuite(EnhancedTestCase):
         self.assertTrue(valid, f"Validation should pass for existing fields: {valid_fields}")
             
         # Test consistency between validation functions
-        try:
-            test_fields = ["name", "status"]
-            result1 = validate_doctype_fields("Customer", test_fields) 
+        # No try/print: `except Exception: print` also swallowed the AssertionError (#3078).
+        # ["name", "status"] was used here, but Customer has no `status` field, so both
+        # functions returned False and the comparison could not discriminate. Use one set
+        # Customer really has (incl. the implicit `name`) and one it does not. The False case
+        # can also be met by a validator's own `except Exception: return False`; the True case discriminates.
+        for test_fields, expected in (
+            (["name", "customer_name"], True),
+            (["name", "no_such_customer_field"], False),
+        ):
+            result1 = validate_doctype_fields("Customer", test_fields)
             result2 = payment_validate("Customer", test_fields)
             self.assertEqual(result1, result2, "Validation functions should be consistent")
-        except Exception as e:
-            print(f"  Note: Consistency test limited: {e}")
+            self.assertIs(result1, expected, f"Unexpected verdict for {test_fields}")
             
         print("  ✓ Field validation system tested")
     

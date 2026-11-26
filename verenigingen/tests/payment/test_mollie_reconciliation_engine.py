@@ -845,6 +845,59 @@ class TestBulkImportValidation(ReconciliationEngineTestBase):
         self.assertIn("Mollie API returned 401", issues[0]["message"])
         self.assertEqual([i for i in result["validation_issues"] if i["import"] == completed.name], [])
 
+    def test_partial_runs_get_their_own_bucket_3106(self):
+        """#3106 (maintainer ruling): "Completed With Errors" / "Completed With
+        Warnings" are PARTIAL - neither successful nor failed. A real Completed and
+        a real Failed row are in the same window as controls, so a fix that lumps
+        partial into either bucket (or drops the controls) still fails."""
+        self.make_import(status="Completed", created=10)
+        self.make_import(status="Failed", created=0, summary="boom")
+        with_errors = self.make_import(status="Completed With Errors", created=4)
+        with_warnings = self.make_import(status="Completed With Warnings", created=6)
+
+        result = self.engine._validate_bulk_imports()
+
+        stats = result["statistics"]
+        self.assertEqual(stats["total_imports"], 4)
+        self.assertEqual(stats["successful_imports"], 1)
+        self.assertEqual(stats["failed_imports"], 1)
+        self.assertEqual(stats["partial_imports"], 2)
+        # Partial runs did create Bank Transactions; the failed run's writes stay excluded.
+        self.assertEqual(stats["total_transactions_imported"], 10 + 4 + 6)
+        names = {i["name"]: i["status"] for i in result["recent_imports"]}
+        self.assertEqual(names[with_errors.name], "Completed With Errors")
+        self.assertEqual(names[with_warnings.name], "Completed With Warnings")
+        # The partial rows are not flagged as failed imports.
+        failed_issues = [i for i in result["validation_issues"] if i["type"] == "failed_import"]
+        self.assertEqual(len(failed_issues), 1)
+
+    def test_partial_runs_do_not_trigger_the_low_success_rate_warning_3106(self):
+        """4 imports, 1 Completed + 3 partial: counting partial as not-successful gave
+        25% and a false "success rate is low" warning. Partial runs are outside the
+        rate, so the rate is 1 of 1 decided."""
+        self.make_import(status="Completed", created=5)
+        for status in ("Completed With Errors", "Completed With Warnings", "Completed With Errors"):
+            self.make_import(status=status, created=2)
+
+        self.engine._validate_bulk_imports()
+
+        self.assertEqual([w for w in self.engine.warnings if "success rate is low" in w], [])
+
+    def test_low_success_rate_warning_still_fires_with_partial_runs_present_3106(self):
+        """Control: partial runs must not mask real failures. 1 Completed + 3 Failed
+        + 1 partial is 25% of the decided runs."""
+        self.make_import(status="Completed", created=5)
+        for _ in range(3):
+            self.make_import(status="Failed")
+        self.make_import(status="Completed With Errors", created=2)
+
+        self.engine._validate_bulk_imports()
+
+        rate_warnings = [w for w in self.engine.warnings if "success rate is low" in w]
+        self.assertEqual(len(rate_warnings), 1)
+        self.assertIn("25.0%", rate_warnings[0])
+        self.assertIn("1 of 4 completed-or-failed imports successful, 1 partial", rate_warnings[0])
+
     def test_success_rate_below_eighty_percent_raises_a_run_warning(self):
         for _ in range(3):
             self.make_import(status="Completed", created=5)

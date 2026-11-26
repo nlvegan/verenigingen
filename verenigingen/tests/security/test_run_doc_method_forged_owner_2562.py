@@ -113,7 +113,9 @@ try:
                 "noname_v1":call(attacker,dt,name,m,attacker["email"],extra={"name":None}),
                 "noname_islocal_v1":call(attacker,dt,name,m,attacker["email"],extra={"name":None,"__islocal":1}),
                 "honest_foreign_v1":call(attacker,dt,name,m,"Administrator"),
+                "noname_v2":call(attacker,dt,name,m,attacker["email"],v2=True,extra={"name":None}),
                 "unknown_forged_v1":call(attacker,dt,name+"-nope",m,attacker["email"]),
+                "unknown_forged_v2":call(attacker,dt,name+"-nope",m,attacker["email"],v2=True),
                 "staff_v1":call(staff,dt,name,m,"Administrator")}
     # F1: a desk form on a NOT-YET-SAVED doc posts owner=<self> with a new-<doctype>-xxx name or none
     for who_label,who in (("vstaff",vstaff),("sysmgr",sysmgr),("staff",staff),("attacker",attacker)):
@@ -136,6 +138,7 @@ try:
         n=camp.name; m="get_recent_donations"
         out[f"custom.{label}.v1"]=call(who,"Donation Campaign",n,m,who["email"])
         out[f"custom.{label}.v2"]=call(who,"Donation Campaign",n,m,who["email"],v2=True)
+        out[f"custom.{label}.unknown_v2"]=call(who,"Donation Campaign",n+"-nope",m,who["email"],v2=True)
 finally:
     frappe.init(site=SITE); frappe.connect(); frappe.set_user("Administrator")
     for dt,n in reversed(made):
@@ -190,7 +193,14 @@ class TestRunDocMethodForgedOwner2562(EnhancedTestCase):
         """The posted dict controls __islocal, so the guard must not honour it (review of 1c27dd655)."""
         for key in ("Donation Campaign.get_recent_donations", "Member.get_current_membership_fee"):
             row = self.out[key]
-            for variant in ("islocal_1_v1", "islocal_str_v1", "islocal_1_v2", "noname_v1", "noname_islocal_v1"):
+            for variant in (
+                "islocal_1_v1",
+                "islocal_str_v1",
+                "islocal_1_v2",
+                "noname_v1",
+                "noname_islocal_v1",
+                "noname_v2",
+            ):
                 with self.subTest(method=key, variant=variant):
                     self.assertEqual(row[variant], 403)
 
@@ -204,6 +214,7 @@ class TestRunDocMethodForgedOwner2562(EnhancedTestCase):
         for row in self.out.values():
             if isinstance(row, dict) and "unknown_forged_v1" in row:
                 self.assertEqual(row["unknown_forged_v1"], row["honest_foreign_v1"])
+                self.assertEqual(row["unknown_forged_v2"], row["forged_v2"])
 
     def test_staff_can_still_run_the_methods(self):
         """Control: a real row exists and a blanket-access caller still gets a 200."""
@@ -235,6 +246,13 @@ class TestRunDocMethodForgedOwner2562(EnhancedTestCase):
         self.assertEqual(self.out["custom.ifowner_write.v2"], 403)
         self.assertEqual(self.out["custom.unrestricted.v1"], 200)
         self.assertEqual(self.out["custom.unrestricted.v2"], 200)
+
+    def test_an_unknown_name_is_refused_like_a_forbidden_write_for_a_reader_without_write(self):
+        """Frappe >= 16.61 loads an unposted-__islocal v2 target by name and asks for `write` (POST). A caller
+        with full read but only if_owner write gets 403 on a real row, so an unknown name must be 403 too, not
+        the 404 that would tell them which ids exist. Discriminates a preflight that asks `read` instead."""
+        self.assertEqual(self.out["custom.ifowner_write.unknown_v2"], self.out["custom.ifowner_write.v2"])
+        self.assertEqual(self.out["custom.ifowner_write.unknown_v2"], 403)
 
     def test_a_plain_caller_forging_owner_on_an_unsaved_form_is_still_refused(self):
         """Control with a real attacker (Volunteer + Member roles, if_owner grants only)."""

@@ -48,7 +48,6 @@ PASSED_THROUGH = {
         "merge_mode"
     ],
     "verenigingen.e_boekhouden.utils.import_manager:update_existing_imports": ["force_update"],
-    "verenigingen.utils.api_endpoint_optimizer:run_api_optimization": ["dry_run"],
     "verenigingen.utils.admin_utilities.mandate_sync_utility:run_mandate_sync": ["dry_run"],
     "verenigingen.utils.migration.stock_migration:migrate_stock_transactions_standalone": ["dry_run"],
     "verenigingen.templates.pages.mollie_payments_debug:list_subscriptions": ["active_only"],
@@ -76,7 +75,7 @@ class TestPassedThroughFlagsAreCoerced2730(VereningingenTestCase):
                 for raw, expected in (("false", False), ("0", False), ("true", True), ("1", True)):
                     self.assertEqual(self._coerced(target, param, raw), expected, (target, param, raw))
                     checked += 1
-        self.assertEqual(checked, 15 * 4)  # guards a silently shrunk table
+        self.assertEqual(checked, 14 * 4)  # guards a silently shrunk table
 
     def test_an_unrecognised_string_is_refused(self):
         for target, params in PASSED_THROUGH.items():

@@ -19,14 +19,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-# Two sites owned by PR #2865 (#2641), which removes them. Cleanup tracked in #2918. Listed so this test is green
-# on develop whichever of the two PRs merges first; delete these entries after #2865 lands.
-PENDING_IN_PR_2865 = {
-    ("scripts/api_maintenance/sepa_integration_setup.py", "verenigingen.setup.sepa_custom_fields"),
-    ("scripts/api_maintenance/sepa_integration_setup.py", "verenigingen.api.sepa_test_data"),
-}
-
-
 def _module_exists(root: Path, dotted: str) -> bool:
     base = root / dotted.replace(".", "/")
     return base.with_suffix(".py").is_file() or base.is_dir()
@@ -63,9 +55,7 @@ def find_unresolved(root: Path):
 
 class ScriptsVerenigingenImportsResolveTest(unittest.TestCase):
     def test_every_literal_verenigingen_import_in_scripts_resolves(self):
-        unresolved = [
-            (p, line, m) for p, line, m in find_unresolved(REPO_ROOT) if (p, m) not in PENDING_IN_PR_2865
-        ]
+        unresolved = find_unresolved(REPO_ROOT)
         self.assertEqual(unresolved, [], "scripts/ imports modules that do not exist")
 
     def test_control_scanner_flags_a_missing_module_and_passes_a_present_one(self):

@@ -21,6 +21,7 @@ from frappe.utils import add_days, add_months, getdate, today
 
 from verenigingen.repositories.dues_schedule_repository import DuesScheduleRepository
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.tests.utils.schedule_frequency_fixture import ScheduleFrequencyFixtureMixin
 
 
@@ -343,7 +344,7 @@ class TestAmendmentKeepsBillingFrequency(ScheduleFrequencyFixtureMixin, Verening
         self.assertEqual(replacement.membership_type, self.old_type)
         self.assertEqual(replacement.membership, self.membership.name)
         self.assertEqual(replacement.status, "Active")
-        self.assertEqual(getdate(replacement.next_invoice_date), getdate(today()))
+        assert_written_today(self, replacement.next_invoice_date)
 
         # Next invoice discharges ONE full running period from the anchor (not calendar-bound).
         invoice = replacement.generate_invoice(force=True)
@@ -351,5 +352,5 @@ class TestAmendmentKeepsBillingFrequency(ScheduleFrequencyFixtureMixin, Verening
         self.track_doc("Sales Invoice", invoice.name)
         start = getdate(invoice.custom_coverage_start_date)
         end = getdate(invoice.custom_coverage_end_date)
-        self.assertEqual(start, getdate(today()))
+        assert_written_today(self, start)
         self.assertEqual(end, add_days(add_months(start, 1), -1), "Monthly running period from the anchor")

@@ -122,7 +122,11 @@ on_logout = "verenigingen.auth_hooks.on_logout"
 # password / social / OTP logins, `auth_hooks` covers every request (cookie session, API key,
 # bearer token).
 on_login = ["verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication"]
-auth_hooks = ["verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication"]
+auth_hooks = [
+    "verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication",
+    # runs after the user is known; Frappe 16.61 run_doc_method 404s an unknown name (#2562 oracle)
+    "verenigingen.permissions.refuse_unknown_run_doc_method_target",
+]
 
 # Run at the start of every background job (after frappe.local.job is set). Keeps a job whose
 # user was deleted from recursing in _() (#1970).
