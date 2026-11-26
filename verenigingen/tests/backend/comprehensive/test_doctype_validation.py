@@ -193,9 +193,10 @@ class TestDoctypeValidationComprehensive(EnhancedTestCase):
         @shared_fixture (#1026): site-wide master data, no company/test scope.
         """
         if not frappe.db.exists("Membership Type", name):
-            role_profile = frappe.db.get_value(
-                "Role Profile", "Verenigingen Member", "name"
-            ) or frappe.db.get_value("Role Profile", {}, "name")
+            # Own the shipped profile or skip; never adopt whichever Role Profile exists (#3318).
+            role_profile = frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
+            if not role_profile:
+                raise unittest.SkipTest("Role Profile 'Verenigingen Member' (shipped fixture) is missing")
             frappe.get_doc(
                 {
                     "doctype": "Membership Type",

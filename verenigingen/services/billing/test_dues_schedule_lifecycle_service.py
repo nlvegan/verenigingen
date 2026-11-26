@@ -12,6 +12,8 @@ factory). Saves commit (after_insert hooks touch the member), so fixtures are
 uniquely named, tracked, and force-deleted in tearDown.
 """
 
+import unittest
+
 import frappe
 from frappe.utils import add_days, today
 
@@ -49,9 +51,10 @@ class TestDuesScheduleLifecycleService(EnhancedTestCase):
     # Fixtures: a real Active schedule for a member with active membership
     # ------------------------------------------------------------------
     def _make_membership_type(self, minimum_amount=10.0):
-        role_profile = frappe.db.get_value(
-            "Role Profile", {"name": "Verenigingen Member"}
-        ) or frappe.db.get_value("Role Profile", {}, "name")
+        # Own the shipped profile or skip; never adopt whichever Role Profile exists (#3318).
+        role_profile = frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
+        if not role_profile:
+            raise unittest.SkipTest("Role Profile 'Verenigingen Member' (shipped fixture) is missing")
         mt = frappe.new_doc("Membership Type")
         mt.membership_type_name = f"DSLS-Type-{frappe.generate_hash(length=8)}"
         mt.description = "Lifecycle service test type"

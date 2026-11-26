@@ -7,6 +7,8 @@ and membership approval flow for each mode - including the case where
 suggested_amount is not configured on the template (the bug fixed in 2026-02-08).
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today
 
@@ -33,10 +35,10 @@ class TestContributionModeTemplateIntegration(VereningingenTestCase):
         ts = str(int(time.time() * 1000))[-6:]
         unique_name = f"ContribTest-{name_suffix}-{ts}"
 
-        role_profile = frappe.db.get_value(
-            "Role Profile", "Verenigingen Member", "name"
-        ) or frappe.db.get_value("Role Profile", {}, "name")
-
+        # Own the shipped profile or skip; never adopt whichever Role Profile exists (#3318).
+        role_profile = frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
+        if not role_profile:
+            raise unittest.SkipTest("Role Profile 'Verenigingen Member' (shipped fixture) is missing")
         minimum_amount = fields.pop("minimum_amount", 0)
         suggested_amount = fields.pop("suggested_amount", None)
         dues_rate = fields.pop("dues_rate", None)

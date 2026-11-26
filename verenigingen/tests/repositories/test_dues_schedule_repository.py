@@ -39,9 +39,10 @@ def _ensure_named_membership_type(type_name):
     """
     if frappe.db.exists("Membership Type", type_name):
         return type_name
-    role_profile = frappe.db.get_value(
-        "Role Profile", "Verenigingen Member", "name"
-    ) or frappe.db.get_value("Role Profile", {}, "name")
+    # Own the shipped profile or skip; never adopt whichever Role Profile exists (#3318).
+    role_profile = frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
+    if not role_profile:
+        raise unittest.SkipTest("Role Profile 'Verenigingen Member' (shipped fixture) is missing")
     doc = frappe.get_doc(
         {
             "doctype": "Membership Type",

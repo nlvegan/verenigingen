@@ -4,6 +4,8 @@ Comprehensive edge case tests for the membership dues system
 Tests real-world scenarios, boundary conditions, and error cases
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today, add_months, add_days, flt, getdate
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -432,9 +434,10 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         Dues Schedule Template). A low minimum_amount keeps the auto-created
         template (dues_rate €15) above the minimum.
         """
-        role_profile = frappe.db.get_value(
-            "Role Profile", "Verenigingen Member", "name"
-        ) or frappe.db.get_value("Role Profile", {}, "name")
+        # Own the shipped profile or skip; never adopt whichever Role Profile exists (#3318).
+        role_profile = frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
+        if not role_profile:
+            raise unittest.SkipTest("Role Profile 'Verenigingen Member' (shipped fixture) is missing")
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Edge Case Type {frappe.generate_hash(length=6)}"
         membership_type.description = "Membership type for edge case testing"
