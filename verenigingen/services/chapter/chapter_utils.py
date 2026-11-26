@@ -398,6 +398,30 @@ def is_chapter_board_member(
     return any(pos.get("permissions_level") in required_permission_levels for pos in positions)
 
 
+def get_active_seat_chapters(member_name: Optional[str]) -> List[str]:
+    """Chapters where `member_name` holds a LIVE board seat: the seat is active AND so is its
+    Chapter Role. A seat on a deactivated Chapter Role confers nothing (#2958, #3183)."""
+    if not member_name:
+        return []
+    rows = frappe.db.sql(
+        """
+        SELECT DISTINCT cbm.parent AS chapter_name
+        FROM `tabChapter Board Member` cbm
+        JOIN `tabChapter Role` cr ON cbm.chapter_role = cr.name
+        JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+        WHERE v.member = %s AND cbm.is_active = 1 AND cr.is_active = 1
+        """,
+        member_name,
+        as_dict=True,
+    )
+    return [r.chapter_name for r in rows]
+
+
+def has_active_board_seat(member_name: Optional[str], chapter_name: Optional[str]) -> bool:
+    """Whether `member_name` holds a live board seat (see get_active_seat_chapters) on `chapter_name`."""
+    return bool(chapter_name) and chapter_name in get_active_seat_chapters(member_name)
+
+
 def get_chapters_with_permission(permission_level: str, user_email: Optional[str] = None) -> List[str]:
     """
     Get chapters where user has a specific permission level.
