@@ -58,7 +58,7 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
         cls.test_records.insert(0, region)  # reversed on teardown: removed after the chapter
 
         # Membership Type reqd fields: membership_type_name (autoname=field:),
-        # minimum_amount, role_profile. Look up any Role Profile for the link.
+        # minimum_amount, role_profile. Use the shipped "Verenigingen Staff" fixture profile.
         role_profile = "Verenigingen Staff"
         cls.membership_type = frappe.get_doc(
             {

@@ -55,7 +55,7 @@ class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
         self.chapter.insert(ignore_permissions=True)
 
         # Membership Type reqd fields: membership_type_name (autoname=field:),
-        # minimum_amount, role_profile. Look up any Role Profile for the link.
+        # minimum_amount, role_profile. Use the shipped "Verenigingen Staff" fixture profile.
         role_profile = "Verenigingen Staff"
         self.membership_type = frappe.get_doc(
             {
