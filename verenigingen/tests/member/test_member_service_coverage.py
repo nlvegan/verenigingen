@@ -528,14 +528,32 @@ class TestMemberRoleService(EnhancedTestCase):
         return get_member_role_service()
 
     # --- add_member_roles_to_user ---
+    def _throwaway_user(self):
+        # #3217: never hand "Administrator" to a role-replacing service call; a committed
+        # flip strips its 65 roles and later desk/web renders fail in the same shard.
+        email = f"rolesvc.{frappe.generate_hash(length=8)}@test.invalid"
+        user = self.create_test_user(email)
+        self.track_doc("User", user.name)
+        return user
+
     def test_add_roles_no_permission(self):
-        """Returns None when user lacks write permission on User."""
+        """Returns None and leaves the user's roles untouched when the caller lacks write on User."""
         svc = self._get_service()
-        # Administrator always has permission, so this test checks the method runs
-        result = svc.add_member_roles_to_user("Administrator")
-        # Administrator may succeed or fail depending on profile existence
-        # The important thing is it doesn't crash
-        self.assertIsNotNone(result) if result else None
+        user = self._throwaway_user()
+        roles_before = sorted(frappe.get_all("Has Role", filters={"parent": user.name}, pluck="role"))
+        self.assertTrue(roles_before, "fixture: throwaway user needs roles for the control")
+        with self.as_user("Guest"):
+            self.expectErrorLog("Insufficient permissions")
+            log_start = len(frappe.local.message_log)
+            self.assertIsNone(svc.add_member_roles_to_user(user.name))
+            # Discriminates the explicit check: without it the later user.save() also fails
+            # (roles stay untouched either way), but not with this message.
+            refusals = [str(m) for m in frappe.local.message_log[log_start:]]
+            self.assertTrue(
+                any("Insufficient permissions to modify user roles" in m for m in refusals), refusals
+            )
+        self.assertEqual(sorted(frappe.get_all("Has Role", filters={"parent": user.name}, pluck="role")), roles_before)
+        self.assertEqual(frappe.db.get_value("User", user.name, "role_profile_name"), None)
 
     # --- create_verenigingen_member_role ---
     def test_create_role_idempotent(self):
@@ -549,10 +567,10 @@ class TestMemberRoleService(EnhancedTestCase):
 
     # --- set_member_user_modules ---
     def test_set_member_user_modules(self):
-        """set_member_user_modules doesn't crash for Administrator."""
+        """set_member_user_modules doesn't crash for an ordinary user."""
         svc = self._get_service()
         # Should not throw
-        svc.set_member_user_modules("Administrator")
+        svc.set_member_user_modules(self._throwaway_user().name)
 
 
 # ---------------------------------------------------------------------------

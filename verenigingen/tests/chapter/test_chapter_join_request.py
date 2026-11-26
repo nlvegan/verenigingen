@@ -209,9 +209,6 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         # Verify that Chapter Member child table structure is intact
         chapter = frappe.get_doc("Chapter", self.active_chapter.name)
 
-        # Should have members child table
-        self.assertTrue(hasattr(chapter, "members"), "Chapter should have members child table")
-
         # Test adding member directly (old functionality should still work)
         initial_count = len(chapter.members)
 

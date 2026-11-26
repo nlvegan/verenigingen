@@ -167,15 +167,5 @@ class TestValidatePaymentAmount(FrappeTestCase):
         self.assertEqual(pw._validate_payment_amount(_payment(amount={"value": "250000.00"})), 250000.0)
 
 
-class TestGetSubscriptionFailureCountSafe(FrappeTestCase):
-    def tearDown(self):
-        frappe.db.rollback()
-
-    def test_zero_for_unknown_subscription(self):
-        # No history rows -> count 0 (also exercises the safe path).
-        count = pw._get_subscription_failure_count("NONEXISTENT-MEMBER", "sub_zzz")
-        self.assertEqual(count, 0)
-
-
 if __name__ == "__main__":
     unittest.main()

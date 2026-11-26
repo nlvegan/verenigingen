@@ -66,6 +66,11 @@ def create_membership_invoice_with_amount(member, membership, amount, period_sta
     else:
         description += f" - {billing_period} period: {period_start} to {period_end}"
 
+    # Same cost center the dues generator picks (chapter first, then company fallbacks); items only, as there (#2944)
+    from verenigingen.services.billing.invoice_generator import resolve_member_cost_center
+
+    cost_center = resolve_member_cost_center(settings.company, member)
+
     # Create invoice with dues schedule system
     invoice_data = {
         "doctype": "Sales Invoice",
@@ -96,6 +101,7 @@ def create_membership_invoice_with_amount(member, membership, amount, period_sta
                 "qty": 1,
                 "rate": amount,
                 "description": description,
+                "cost_center": cost_center,
             }
         ],
         "remarks": f"Membership application invoice for {member.full_name}\nFirst billing period: {period_start} to {period_end}",

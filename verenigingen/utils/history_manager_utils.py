@@ -201,67 +201,54 @@ def safe_child_table_update(
     except (frappe.LinkValidationError, frappe.ValidationError) as e:
         error_msg = str(e)
 
-        # Check if this looks like a broken link error and auto_cleanup is enabled
-        is_link_error = (
-            "Could not find" in error_msg
-            or "does not exist" in error_msg.lower()
-            or "must be set first" in error_msg.lower()
-        )
+        # #2931: decide from the exception TYPE and the data, never from the message. Frappe
+        # translates a LinkValidationError per user language and lists the parent's dead links
+        # before the rows', so any substring test silently stops firing under nl or on message
+        # order. EXACT types: subclasses (MandatoryError, DocumentLockedError, ...) are not
+        # dead-link failures. cleanup_child_table_broken_links() itself compares every Link value
+        # in THIS table with the database and removes only rows whose target is actually gone, so
+        # an error caused elsewhere finds nothing here and deletes nothing.
+        if auto_cleanup and type(e) in (frappe.LinkValidationError, frappe.ValidationError):
+            frappe.logger().warning(
+                f"Link validation error in {child_table_name}, attempting cleanup: {error_msg}"
+            )
 
-        if auto_cleanup and is_link_error:
-            # Verify the error relates to our child table before cleanup
-            child_doctype = get_child_table_doctype(doc, child_table_name)
-            error_is_ours = error_relates_to_child_table(error_msg, child_doctype)
+            # Attempt to clean up broken links in the specific child table
+            cleanup_result = cleanup_child_table_broken_links(doc, child_table_name, remove_broken_rows=True)
 
-            if not error_is_ours:
-                frappe.logger().warning(
-                    f"Validation error does not appear to relate to {child_table_name} "
-                    f"(child doctype: {child_doctype}), skipping cleanup: {error_msg}"
-                )
-                # Fall through to error return below
-            else:
-                frappe.logger().warning(
-                    f"Link validation error in {child_table_name}, attempting cleanup: {error_msg}"
-                )
+            if cleanup_result.success and "No broken links found" not in cleanup_result.message:
+                # Cleanup did something, retry the update
+                frappe.logger().info(f"Cleanup performed: {cleanup_result.message}. Retrying update...")
 
-                # Attempt to clean up broken links in the specific child table
-                cleanup_result = cleanup_child_table_broken_links(
-                    doc, child_table_name, remove_broken_rows=True
-                )
-
-                if cleanup_result.success and "No broken links found" not in cleanup_result.message:
-                    # Cleanup did something, retry the update
-                    frappe.logger().info(f"Cleanup performed: {cleanup_result.message}. Retrying update...")
-
-                    try:
-                        doc.update_child_table(child_table_name)
-                        frappe.logger().info(
-                            f"Successfully updated {child_table_name} after cleanup for {doc.doctype} {doc.name}"
-                        )
-                        return HistoryOperationResult(
-                            success=True,
-                            message=f"Child table updated after cleanup: {cleanup_result.message}",
-                        )
-                    # Defence in depth, NOT tested depth: mutation shows no test binds this
-                    # one. Reaching it needs the first update_child_table to raise a
-                    # link-shaped ValidationError, auto_cleanup on, cleanup to find
-                    # something, and the retry to then deadlock. Said plainly so the guard
-                    # above is not read as covering it.
-                    except NON_RESUMABLE_DB_ERRORS:
+                try:
+                    doc.update_child_table(child_table_name)
+                    frappe.logger().info(
+                        f"Successfully updated {child_table_name} after cleanup for {doc.doctype} {doc.name}"
+                    )
+                    return HistoryOperationResult(
+                        success=True,
+                        message=f"Child table updated after cleanup: {cleanup_result.message}",
+                    )
+                # Defence in depth, NOT tested depth: mutation shows no test binds this
+                # one. Reaching it needs the first update_child_table to raise a
+                # link-shaped ValidationError, auto_cleanup on, cleanup to find
+                # something, and the retry to then deadlock. Said plainly so the guard
+                # above is not read as covering it.
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
+                except Exception as retry_error:
+                    # Same gap as the guard above, on the retry's own write: a
+                    # 1969 here is not NON_RESUMABLE_DB_ERRORS (see
+                    # transaction_errors.is_statement_timeout) and would
+                    # otherwise be folded into the ordinary failure below. #1352.
+                    if is_statement_timeout(retry_error):
                         raise
-                    except Exception as retry_error:
-                        # Same gap as the guard above, on the retry's own write: a
-                        # 1969 here is not NON_RESUMABLE_DB_ERRORS (see
-                        # transaction_errors.is_statement_timeout) and would
-                        # otherwise be folded into the ordinary failure below. #1352.
-                        if is_statement_timeout(retry_error):
-                            raise
-                        frappe.logger().error(f"Retry after cleanup still failed: {str(retry_error)}")
-                        return HistoryOperationResult(
-                            success=False,
-                            message="Update failed even after cleanup",
-                            errors=[f"Original: {error_msg}", f"After cleanup: {str(retry_error)}"],
-                        )
+                    frappe.logger().error(f"Retry after cleanup still failed: {str(retry_error)}")
+                    return HistoryOperationResult(
+                        success=False,
+                        message="Update failed even after cleanup",
+                        errors=[f"Original: {error_msg}", f"After cleanup: {str(retry_error)}"],
+                    )
 
         # No cleanup attempted or cleanup didn't help
         frappe.logger().error(
@@ -358,61 +345,6 @@ def get_child_table_doctype(doc: Any, child_table_name: str) -> Optional[str]:
         pass
 
     return None
-
-
-def error_relates_to_child_table(error_msg: str, child_doctype: str) -> bool:
-    """
-    Check if a validation error message relates to a specific child table.
-
-    This prevents cleanup of the wrong table when an error from a different
-    child table is raised.
-
-    Args:
-        error_msg: The error message string
-        child_doctype: The child DocType name to check against
-
-    Returns:
-        True if the error appears to relate to the child table, False otherwise
-    """
-    if not error_msg or not child_doctype:
-        return False
-
-    error_lower = error_msg.lower()
-    doctype_lower = child_doctype.lower()
-
-    # Check if the child doctype name appears in the error
-    # This handles errors like "Could not find Row #11 in Chapter Membership History"
-    if doctype_lower in error_lower:
-        return True
-
-    # Check for common error patterns with table reference
-    # E.g., "in row 5 of chapter_membership_history"
-    child_table_pattern = child_doctype.lower().replace(" ", "_")
-    if child_table_pattern in error_lower:
-        return True
-
-    # Try to get field names from the child doctype and check if any appear in error
-    try:
-        child_meta = frappe.get_meta(child_doctype)
-        link_fields = []
-
-        for df in child_meta.fields:
-            if df.fieldtype in ("Link", "Dynamic Link"):
-                link_fields.append(df.fieldname)
-                if df.options:
-                    link_fields.append(df.options)
-
-        # Check if any link field or its target doctype appears in error
-        for field in link_fields:
-            if field and field.lower() in error_lower:
-                return True
-    except Exception:
-        pass
-
-    # If we can't determine, be conservative and DENY cleanup
-    # This prevents cleaning up the wrong table when uncertain
-    # Only allow cleanup when we positively identify the error relates to our table
-    return False
 
 
 def cleanup_child_table_broken_links(

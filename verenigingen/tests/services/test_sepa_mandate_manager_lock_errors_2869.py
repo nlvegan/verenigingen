@@ -294,7 +294,7 @@ class TestSEPAMandateManagerLockErrors2869(EnhancedTestCase):
         mandate, service = self._saved_mandate(), self._lifecycle()
         with self._driver_raising_on(1064, "`tabMember`"):
             self.assertFalse(integration.update_member_mandate_relationship(mandate)["success"])
-            self.assertIsNone(service._update_member_mandate_status(mandate, "Active"))
+            self.assertTrue(service._update_member_mandate_status(mandate, "Active"))  # errors returned (#3101)
             mandate.status = "Active"
             self.assertIn("success", service.handle_status_transition(mandate, "Pending"))
 

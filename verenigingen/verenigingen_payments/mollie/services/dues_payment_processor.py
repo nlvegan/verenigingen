@@ -23,7 +23,7 @@ from verenigingen.services.billing.coverage_calculator import calculate_coverage
 from verenigingen.services.billing.coverage_overlap_detector import check_coverage_overlap
 from verenigingen.services.billing.invoice_matcher import find_matching_invoice
 from verenigingen.utils.bank_utils import get_or_create_unknown_bank
-from verenigingen.utils.retry_utilities import execute_with_deadlock_retry, is_deadlock_error
+from verenigingen.utils.retry_utilities import execute_with_deadlock_retry
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, insert_and_submit_atomically
 from verenigingen.verenigingen_payments.mollie.core.client import MollieClient
 from verenigingen.verenigingen_payments.mollie.domain.payment_classification import PaymentClassifier
@@ -461,6 +461,11 @@ class DuesPaymentProcessor:
 
             return invoice_name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # A None here reads as "no invoice", and _create_payment_entry_for_dues then books the
+            # payment UNALLOCATED. A lock error means the server discarded the work: the caller must
+            # see it (#3001, #2983).
+            raise
         except Exception as e:
             frappe.log_error(
                 title="Historical Invoice Creation Error",
@@ -568,7 +573,8 @@ class DuesPaymentProcessor:
             Sales Invoice name if successful, None if creation fails
 
         Raises:
-            Does not raise exceptions - logs errors and returns None for graceful degradation
+            QueryDeadlockError / QueryTimeoutError (1213 / 1205): never swallowed, never retried here.
+            Any other exception is logged and None is returned for graceful degradation.
 
         Side Effects:
             - Creates and submits Sales Invoice
@@ -581,6 +587,7 @@ class DuesPaymentProcessor:
         """
         # Setup phase: gather configuration (not retryable - these are config errors)
         settings = frappe.get_single("Verenigingen Settings")
+        from verenigingen.utils.invoice_price_list import get_selling_price_list_for_currency
         from verenigingen.utils.settings_utils import get_payments_settings
 
         payments_settings = get_payments_settings()
@@ -598,11 +605,22 @@ class DuesPaymentProcessor:
             frappe.logger().error("No income account configured")
             return None
 
-        # Invoice creation function - wrapped with deadlock retry
+        # No retry here: after a 1213 the server has rolled the whole transaction back, so re-running
+        # only this closure would write the invoice into a transaction that has lost the caller's
+        # earlier work (#3001, as #2983 for bank_transaction_creator). The layer that owns the whole
+        # unit decides whether to retry.
         def create_invoice():
             invoice = frappe.new_doc("Sales Invoice")
             invoice.customer = member_doc.customer
             invoice.company = settings.company
+            # #3034/#2810: pin the company currency (as invoice_generator does) and a selling price list in
+            # it. Left unset, the site-default currency can mismatch the company's receivable account, and
+            # a default list in another currency makes erpnext fetch a live rate, refused for a non-System user.
+            invoice.currency = frappe.get_cached_value("Company", settings.company, "default_currency")
+            invoice.conversion_rate = 1.0
+            invoice.selling_price_list = get_selling_price_list_for_currency(
+                invoice.currency, member_doc.customer
+            )
 
             # Set posting date explicitly (must be done before insert to prevent auto-setting)
             invoice.posting_date = payment_date
@@ -651,21 +669,16 @@ class DuesPaymentProcessor:
             invoice.submit()
             return invoice.name
 
-        # Execute with deadlock retry - only retries on MySQL deadlock errors
         try:
-            return execute_with_deadlock_retry(
-                create_invoice,
-                operation_name=f"create Sales Invoice for {member_doc.name}",
-                log_errors=True,
-            )
+            return create_invoice()
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception as e:
-            # Non-deadlock errors or deadlock retries exhausted
-            if not is_deadlock_error(e):
-                frappe.logger().error(f"Failed to create simple invoice: {str(e)}")
-                frappe.log_error(
-                    title="Sales Invoice Creation Error",
-                    message=f"Sales Invoice creation failed for member {member_doc.name}: {e}",
-                )
+            frappe.logger().error(f"Failed to create simple invoice: {str(e)}")
+            frappe.log_error(
+                title="Sales Invoice Creation Error",
+                message=f"Sales Invoice creation failed for member {member_doc.name}: {e}",
+            )
             return None
 
     def _get_or_create_dues_item(self, item_name: str, company: str, income_account: str) -> str:
@@ -682,6 +695,9 @@ class DuesPaymentProcessor:
             item.is_stock_item = 0
             item.insert(ignore_if_duplicate=True)
             return item_name
+        except NON_RESUMABLE_DB_ERRORS:
+            # Not an item problem: the generic name below would put a wrong item on the invoice (#3001).
+            raise
         except Exception:
             # If creation fails, try to find any membership dues item
             existing_item = frappe.get_all(

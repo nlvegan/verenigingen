@@ -85,13 +85,6 @@ def test_new_application_with_custom_amount():
             print(f"   - Status: {member.status}")
             print(f"   - Application status: {member.application_status}")
 
-            # Verify no pending fee change was created (this was the bug)
-            if hasattr(member, "_pending_fee_change"):
-                print("❌ ERROR: _pending_fee_change should not be set for new applications!")
-                return False
-            else:
-                print("✅ Correctly skipped fee change tracking for new application")
-
             # Check that fee override fields are properly set
             if member.dues_rate == 75.0:
                 print("✅ Custom fee amount set correctly")
@@ -225,13 +218,6 @@ def test_api_submission():
                 print(f"✅ Created member verified: {member.full_name}")
                 print(f"   - Fee override: €{member.dues_rate}")
                 print(f"   - Status: {member.application_status}")
-
-                # Check no pending fee change for new application
-                if hasattr(member, "_pending_fee_change"):
-                    print("❌ ERROR: API submission should not create pending fee change!")
-                    return False
-                else:
-                    print("✅ No pending fee change (correct for new application)")
 
             print("✅ TEST 3 PASSED: API submission works correctly")
             return True

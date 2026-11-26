@@ -189,7 +189,9 @@ class Member(
 
     def has_permission(self, permtype="read", *, debug=False, user=None):
         """
-        Override permission check to bypass User Permission restrictions for VBCM users.
+        Member permission gate: ``has_member_permission`` (admin roles, chapter board, own record).
+
+        Also bypasses User Permission restrictions for VBCM users.
 
         This method is called by Frappe's permission system BEFORE User Permission checks.
         It allows Chapter Board Members to access Member records in their chapters even if
@@ -197,6 +199,14 @@ class Member(
 
         The signature mirrors ``frappe.model.document.Document.has_permission``: callers such
         as ``File.has_permission`` pass ``debug=`` (#3040). ``debug`` is accepted and unused.
+
+        INTENTIONALLY STRICT (#3047, maintainer ruling 2026-11-24): unlike the base
+        ``Document.has_permission``, this override does NOT honour
+        ``doc.flags.ignore_permissions``. A caller without admin, chapter-board or own-record access (the
+        ``has_member_permission`` gate) is refused even with the flag set. Document.insert/save reach this method through check_permission, so the flag
+        does not help them either. A flow that needs elevation must be fixed explicitly (run it
+        as a privileged or service user), not by teaching this method to honour the flag. Do
+        not "fix" the divergence from the base class; ``test_member_permission_strict_3047`` pins it.
 
         Args:
             permtype: Permission type (read, write, etc.)

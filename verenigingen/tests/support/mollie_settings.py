@@ -57,6 +57,18 @@ def pin_payments_settings(test_case, **fields) -> None:
     _pin_single(test_case, "Verenigingen Payments Settings", **fields)
 
 
+def pin_mollie_settings_bank_account(test_case, account: str) -> None:
+    """Point ``Mollie Settings.mollie_bank_account`` (the GL account Mollie writers book to) at ``account``.
+
+    Writers read it before any fallback, so a value leaked by another test (an account of a
+    different company) stops every Payment Entry being booked. The cache is dropped on both ends;
+    ``addCleanup`` is LIFO, so the cache clear registered first runs AFTER the Single is restored.
+    """
+    test_case.addCleanup(clear_mollie_config_cache)
+    _pin_single(test_case, "Mollie Settings", mollie_bank_account=account)
+    clear_mollie_config_cache()
+
+
 def pin_mollie_clearing_account(test_case, clearing_account: str) -> None:
     """Point ``Mollie Settings.mollie_clearing_account`` at this test's account.
 
