@@ -421,6 +421,14 @@ class MemberCleanupService(StatelessService):
         schedule with none is omitted entirely.
         """
         from frappe.model.delete_doc import get_dynamic_linked_docs, get_linked_docs
+        from frappe.model.dynamic_links import get_dynamic_links, invalidate_distinct_link_doctypes
+
+        # Frappe caches (12h, Redis) which doctypes each Dynamic Link field names and evicts it only
+        # on a validated save, so a row written without validation (update_child_table) leaves an
+        # entry that omits this doctype and the check below skips that table (#3120, as #3116).
+        # Frappe's eviction drops an entry only when it lacks the doctype, i.e. the stale case.
+        for df in get_dynamic_links():
+            invalidate_distinct_link_doctypes(df.parent, df.options, "Membership Dues Schedule")
 
         blocked: Dict[str, list] = {}
         for schedule_name in schedule_names:

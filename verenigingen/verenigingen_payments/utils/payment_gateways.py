@@ -25,7 +25,6 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     create_error_response,
     format_mollie_amount,
     format_mollie_amount_string,
-    get_member_by_customer_id,
     get_member_by_subscription_id,
     get_members_by_customer,
     is_valid_mollie_interval,
@@ -2510,10 +2509,13 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
                 },
             )
 
-            # Add notes about subscription payment
+            # Add notes about subscription payment. custom_remarks=1 is required:
+            # ERPNext's PaymentEntry.set_remarks regenerates remarks on validate
+            # unless it is set, which dropped the subscription/payment ids (#3088).
             payment_entry.remarks = (
                 f"Automatic payment via Mollie subscription {subscription_id}. Payment ID: {payment_id}"
             )
+            payment_entry.custom_remarks = 1
 
             # Set accounts manually (avoid EmployeePaymentEntry issues)
             # Use the same receivable account as the invoice to avoid validation errors

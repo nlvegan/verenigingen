@@ -22,7 +22,6 @@ cas = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cas)
 
 PINNED = {
-    "verenigingen/tests/backend/workflows/test_volunteer_journey.py",  # only test @unittest.skip'd (archived doctype)
     "verenigingen/tests/e2e/test_workflow_validation.py",  # class @unittest.skip'd, not credentials
     "verenigingen/tests/payment/test_payment_gateways_live.py",
     "verenigingen/verenigingen_payments/ing_checkout/tests/test_client_live.py",

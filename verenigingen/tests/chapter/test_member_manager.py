@@ -23,6 +23,7 @@ from frappe.utils import today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.utils.reminder_mail_state import ensure_outgoing_email_account
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestMemberManager(VereningingenTestCase):
@@ -82,7 +83,7 @@ class TestMemberManager(VereningingenTestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row.status, "Active")
         self.assertTrue(row.enabled)
-        self.assertEqual(str(row.chapter_join_date), today())
+        assert_written_today(self, row.chapter_join_date)
 
     def test_add_member_requires_member_id(self):
         with self.assertRaises(frappe.ValidationError):
@@ -680,7 +681,7 @@ class TestMemberManager(VereningingenTestCase):
         self._reload_chapter()
         row = self.manager._find_chapter_member(self.member.name)
         self.assertEqual(row.status, "Active")
-        self.assertEqual(str(row.chapter_join_date), today())
+        assert_written_today(self, row.chapter_join_date)
 
     def test_approve_member_request_no_request(self):
         result = self.manager.approve_member_request(self.member.name)

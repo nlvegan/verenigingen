@@ -32,6 +32,7 @@ from verenigingen.tests.utils.notification_state import (
     snapshot_notification_rows,
 )
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.operation_result import OperationResult
 
 CONFIG = "Verenigingen Email Configuration"
 KEY = "auth_monitoring_alert"
@@ -43,7 +44,7 @@ MODULE = "verenigingen.utils.auth_monitoring"
 class _Mail:
     def __init__(self):
         self.service = MagicMock(name="EmailService")
-        self.service.send_simple_email.return_value = MagicMock(success=True, error_message=None)
+        self.service.send_simple_email.return_value = OperationResult.ok({})
 
     @property
     def recipients(self):

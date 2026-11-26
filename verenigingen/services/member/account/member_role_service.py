@@ -69,6 +69,22 @@ class MemberRoleService(StatelessService):
             if not frappe.has_permission("User", "write"):
                 frappe.throw(_("Insufficient permissions to modify user roles"))
 
+            # #3217: this method REPLACES every role, so it must never touch a staff
+            # account. Refused here (None return, like every other failure) instead of
+            # relying on callers to only pass NEW member accounts.
+            if self._is_staff_account(user_name):
+                # Error Log row (self.logger writes only a site log file): without it a
+                # refused member link is silent for the operator.
+                frappe.log_error(
+                    title="Member roles NOT applied: staff account",
+                    message=(
+                        f"User {user_name} is a staff account (Administrator or System Manager), so "
+                        "the member roles/role profile were NOT applied and its existing roles were "
+                        "left untouched."
+                    ),
+                )
+                frappe.throw(_("Refusing to replace the roles of staff account {0}").format(user_name))
+
             # Use provided role profile or default to Verenigingen Member
             if not role_profile_name:
                 role_profile_name = "Verenigingen Member"
@@ -91,15 +107,10 @@ class MemberRoleService(StatelessService):
             # - If this user account already has roles (e.g., Roles.SYSTEM_MANAGER), those roles
             #   were assigned incorrectly or the account is being re-purposed as a member account
             #
-            # SAFETY NOTES:
-            # - This is called from create_user_for_member() which only runs for NEW user accounts
-            # - Existing users are linked but NOT passed through this role assignment
-            # - Role Profile "Verenigingen Member" provides all necessary permissions
-            #
-            # RISK MITIGATION:
-            # - If re-assigning an existing user with important roles, those roles are preserved
-            #   in the User audit trail and can be manually restored if needed
-            # - Consider adding a confirmation dialog in UI for re-purposing existing accounts
+            # GUARD (#3217): callers include the "linked_existing" paths in
+            # member_user_account_service, so existing users DO reach this method.
+            # Staff accounts (Administrator, System Manager) are refused above, before
+            # anything is cleared; every other account is reduced to the member profile.
             user.roles = []
 
             # Assign the role profile. Frappe v16 moved role-profile assignment to
@@ -132,6 +143,17 @@ class MemberRoleService(StatelessService):
                 f"Error adding roles to user {user_name}: {str(e)}\n\nTraceback: {frappe.get_traceback()}"
             )
             return None
+
+    @staticmethod
+    def _is_staff_account(user_name: str) -> bool:
+        """Administrator, or any user holding System Manager (Has Role rows, not just cached roles)."""
+        if user_name == "Administrator":
+            return True
+        return bool(
+            frappe.db.exists(
+                "Has Role", {"parent": user_name, "parenttype": "User", "role": "System Manager"}
+            )
+        )
 
     def _assign_individual_member_roles(self, user_name: str) -> str:
         """
@@ -170,8 +192,8 @@ class MemberRoleService(StatelessService):
             #
             # SAFETY NOTES:
             # - Same safety considerations as add_member_roles_to_user()
-            # - Called from same code path (create_user_for_member() for NEW accounts)
-            # - Existing users are linked but NOT passed through this role assignment
+            # - Reached only via add_member_roles_to_user(), which refuses staff accounts
+            #   (Administrator, System Manager) before calling this (#3217)
             #
             # ALTERNATIVE APPROACH (if needed in future):
             # - Could use selective removal: only remove conflicting roles, preserve others

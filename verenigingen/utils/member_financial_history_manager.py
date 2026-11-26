@@ -392,6 +392,17 @@ class MemberFinancialHistoryManager:
             for entry in trimmed_history:
                 self.doc.append(self.history_field, entry)
 
+    def _has_invalid_chapter_references(self) -> bool:
+        """True when the owning doc has a chapter history row whose Chapter no longer exists.
+
+        Donor (and any other owner without that table) has no chapter history.
+        """
+        if getattr(self.doc, "chapter_membership_history", None) is None:
+            return False
+        from verenigingen.services.chapter.chapter_reference_manager import ChapterReferenceManager
+
+        return ChapterReferenceManager(self.doc).has_invalid_chapter_references()
+
     def _save_with_retry(self, max_retries: int = 3) -> bool:
         """
         Save the owning document with retry logic and proper flags.
@@ -441,9 +452,13 @@ class MemberFinancialHistoryManager:
 
             except Exception as e:
                 reraise_if_job_timeout(e)  # #2235: never turn an RQ job timeout into a result
-                # Check for chapter validation errors specifically
+                # #2931: a chapter-reference failure is recognised by the exception TYPE
+                # plus the data (a history row whose Chapter no longer exists), never by the
+                # message: Frappe translates it per user language and orders the parent's dead
+                # links before the rows', so the old "Could not find Row"/"Chapter:" substring
+                # test silently never fired under nl.
                 error_str = str(e)
-                if "Could not find Row" in error_str and "Chapter:" in error_str:
+                if type(e) is frappe.LinkValidationError and self._has_invalid_chapter_references():
                     # This is a chapter reference validation error
                     # Log it specifically and delegate cleanup to dedicated manager
                     frappe.log_error(

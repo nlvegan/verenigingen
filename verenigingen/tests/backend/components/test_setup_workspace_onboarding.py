@@ -275,7 +275,7 @@ class TestInstallAndLinkOnboarding(FrappeTestCase):
 
 
 class TestSetupWorkspace(FrappeTestCase):
-    """cleanup_workspace_links / update_workspace_links / setup_workspace."""
+    """cleanup_workspace_links / setup_workspace."""
 
     def test_workspace_survives_setup(self):
         # Guard against the functions accidentally deleting the workspace.
@@ -299,10 +299,9 @@ class TestSetupWorkspace(FrappeTestCase):
             self.assertFalse(frappe.db.exists("Custom HTML Block", name), "precondition: block removed")
         self.addCleanup(setup_mod.ensure_workspace_custom_blocks)
 
-        # A workspace link to be added only by update_workspace_links proves the later
-        # steps, which the failing save used to skip, completed.
-        label = "Termination & Appeals"
-        frappe.db.delete("Workspace Link", {"parent": "Verenigingen", "label": label})
+        # The onboarding link is written by the LAST step of setup_workspace, which the failing
+        # save used to skip, so it proves the later steps completed.
+        frappe.db.set_value("Workspace", "Verenigingen", "module_onboarding", None)
 
         setup_mod.setup_workspace()
 
@@ -317,9 +316,10 @@ class TestSetupWorkspace(FrappeTestCase):
                     shipped[name].get(field) or "",
                     f"{name}.{field} differs from fixtures/custom_html_block.json",
                 )
-        self.assertTrue(
-            frappe.db.exists("Workspace Link", {"parent": "Verenigingen", "label": label}),
-            "update_workspace_links did not complete",
+        self.assertEqual(
+            frappe.db.get_value("Workspace", "Verenigingen", "module_onboarding"),
+            "Verenigingen",
+            "the steps after the custom-block repair did not complete",
         )
 
     @staticmethod
@@ -440,42 +440,6 @@ class TestSetupWorkspace(FrappeTestCase):
         count_after = len(workspace.links)
         self.assertEqual(count_before, count_after)
 
-    def test_update_workspace_links_adds_termination_section(self):
-        # The Termination & Appeals card-break + SEPA Mandate link are
-        # unconditionally addable (the referenced doctypes exist on the site).
-        setup_mod.update_workspace_links()
-        workspace = frappe.get_doc("Workspace", "Verenigingen")
-        labels = {link.get("label") for link in workspace.links}
-        self.assertIn("Termination & Appeals", labels)
-        self.assertIn("SEPA Mandate", labels)
-        # Shortcuts for the same doctypes get added too.
-        shortcut_labels = {sc.get("label") for sc in workspace.shortcuts}
-        self.assertIn("Termination Requests", shortcut_labels)
-        self.assertIn("SEPA Mandates", shortcut_labels)
-
-    def test_update_workspace_links_idempotent(self):
-        # Links/shortcuts are matched by label and not re-appended.
-        setup_mod.update_workspace_links()
-        workspace = frappe.get_doc("Workspace", "Verenigingen")
-        links_before = len(workspace.links)
-        shortcuts_before = len(workspace.shortcuts)
-
-        setup_mod.update_workspace_links()
-        workspace = frappe.get_doc("Workspace", "Verenigingen")
-        links_after = len(workspace.links)
-        shortcuts_after = len(workspace.shortcuts)
-
-        self.assertEqual(links_before, links_after, "links must not be duplicated by label")
-        self.assertEqual(shortcuts_before, shortcuts_after, "shortcuts must not be duplicated by label")
-
-    def test_no_duplicate_link_labels_after_update(self):
-        setup_mod.update_workspace_links()
-        workspace = frappe.get_doc("Workspace", "Verenigingen")
-        # The two unconditional additions must appear exactly once.
-        for target in ("Termination & Appeals", "SEPA Mandate"):
-            occurrences = [link for link in workspace.links if link.get("label") == target]
-            self.assertEqual(len(occurrences), 1, f"label '{target}' should appear exactly once")
-
     def test_setup_workspace_manual_wrapper(self):
         result = setup_mod.setup_workspace_manual()
         self.assertTrue(result["success"])
@@ -499,3 +463,130 @@ class TestRunCompleteSetupWrapper(FrappeTestCase):
         self.assertTrue(result["success"], result.get("message"))
         self.assertTrue(frappe.db.exists("Workspace", "Verenigingen"))
         self.assertTrue(frappe.db.exists("Module Onboarding", "Verenigingen"))
+
+
+class TestWorkspaceSetupSurvivesTheFixturesSync(FrappeTestCase):
+    """#2349: sync_fixtures re-imports the Workspace fixture on `install-app` (after
+    after_install) and on EVERY migrate, so the onboarding link setup_workspace() writes was
+    reverted unless the fixture itself ships it.
+
+    Maintainer ruling (2026-11-19): ONBOARDING ONLY. The empty 'Termination & Appeals' card
+    break and the 'Termination Requests' / 'SEPA Mandates' shortcuts that setup_workspace()
+    used to add (they rendered nothing: the card had no children and no content block
+    referenced the shortcuts) are removed from the setup and are NOT shipped in the fixture.
+    """
+
+    CARD = "Termination & Appeals"
+    SHORTCUTS = {"Termination Requests", "SEPA Mandates"}
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Start from what a migrate leaves, not from whatever an earlier test or an old
+        # setup_workspace() left on the site (one sync: it takes over a minute).
+        cls._quietly(cls._sync_once)
+        workspace = frappe.get_doc("Workspace", "Verenigingen")
+        # Workspace is shared site state and setup_workspace() commits, so a rollback is not
+        # enough: put the migrate-state rows back by hand.
+        cls._saved = {
+            "module_onboarding": workspace.module_onboarding,
+            "links": [row.as_dict(no_nulls=False) for row in workspace.links],
+            "shortcuts": [row.as_dict(no_nulls=False) for row in workspace.shortcuts],
+        }
+        cls.addClassCleanup(cls._cleanup_restore_the_workspace)
+
+    @staticmethod
+    def _sync_once():
+        from frappe.utils.fixtures import sync_fixtures
+
+        sync_fixtures("verenigingen")
+
+    def setUp(self):
+        super().setUp()
+        self._cleanup_restore_the_workspace()
+
+    @classmethod
+    def _cleanup_restore_the_workspace(cls):
+        workspace = frappe.get_doc("Workspace", "Verenigingen")
+        workspace.module_onboarding = cls._saved["module_onboarding"]
+        for table in ("links", "shortcuts"):
+            workspace.set(table, [])
+            for row in cls._saved[table]:
+                workspace.append(table, {k: v for k, v in row.items() if k not in ("name", "idx")})
+        workspace.save(ignore_permissions=True)
+        frappe.db.commit()
+
+    @staticmethod
+    def _state():
+        workspace = frappe.get_doc("Workspace", "Verenigingen")
+        return {
+            "module_onboarding": workspace.module_onboarding,
+            "labels": {row.label for row in workspace.links},
+            "shortcuts": {row.label for row in workspace.shortcuts},
+        }
+
+    @staticmethod
+    def _quietly(fn, *args):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return fn(*args)
+
+    def _sync_fixtures_as_migrate_does(self):
+        from frappe.utils.fixtures import sync_fixtures
+
+        self._quietly(sync_fixtures, "verenigingen")
+
+    def _put_the_retired_card_and_shortcuts_back(self):
+        """The state an existing site is in if the old setup_workspace() ran on it."""
+        workspace = frappe.get_doc("Workspace", "Verenigingen")
+        # Start clean: an earlier test in the module may already have left some of them.
+        workspace.set("links", [row for row in workspace.links if row.label != self.CARD])
+        workspace.set("shortcuts", [row for row in workspace.shortcuts if row.label not in self.SHORTCUTS])
+        workspace.append("links", {"type": "Card Break", "label": self.CARD, "link_type": "DocType"})
+        workspace.append(
+            "shortcuts",
+            {"type": "DocType", "label": "Termination Requests", "link_to": "Membership Termination Request"},
+        )
+        workspace.append("shortcuts", {"type": "DocType", "label": "SEPA Mandates", "link_to": "SEPA Mandate"})
+        workspace.save()  # the test user is Administrator
+        state = self._state()
+        self.assertIn(self.CARD, state["labels"], "precondition: card present")
+        self.assertTrue(self.SHORTCUTS <= state["shortcuts"], "precondition: shortcuts present")
+
+    def test_onboarding_written_by_setup_workspace_survives_the_next_fixtures_sync(self):
+        self._quietly(setup_mod.setup_workspace)
+        written = self._state()
+        # Control: the step really wrote the onboarding, or the comparison below is empty.
+        self.assertEqual(written["module_onboarding"], "Verenigingen")
+
+        self._sync_fixtures_as_migrate_does()
+
+        self.assertEqual(self._state(), written, "the fixtures sync reverted setup_workspace()")
+
+    def test_setup_workspace_does_not_add_the_retired_card_or_shortcuts(self):
+        # Control for the ruling: red if setup_workspace() ever adds them again.
+        self._quietly(setup_mod.setup_workspace)
+        state = self._state()
+        self.assertNotIn(self.CARD, state["labels"])
+        self.assertFalse(self.SHORTCUTS & state["shortcuts"])
+
+    def test_a_workspace_without_onboarding_converges_through_the_fixtures_sync_alone(self):
+        # Fresh install: after_install's setup_workspace runs BEFORE the fixtures sync, so the
+        # sync is the last writer and must itself carry the onboarding link.
+        frappe.db.set_value("Workspace", "Verenigingen", "module_onboarding", None)
+        self.assertIsNone(self._state()["module_onboarding"], "precondition: stripped")
+
+        self._sync_fixtures_as_migrate_does()
+
+        after = self._state()
+        self.assertEqual(after["module_onboarding"], "Verenigingen")
+        self.assertNotIn(self.CARD, after["labels"])
+        self.assertFalse(self.SHORTCUTS & after["shortcuts"])
+
+    def test_an_existing_site_loses_the_retired_card_and_shortcuts_on_the_next_fixtures_sync(self):
+        self._put_the_retired_card_and_shortcuts_back()
+
+        self._sync_fixtures_as_migrate_does()
+
+        after = self._state()
+        self.assertNotIn(self.CARD, after["labels"])
+        self.assertFalse(self.SHORTCUTS & after["shortcuts"])

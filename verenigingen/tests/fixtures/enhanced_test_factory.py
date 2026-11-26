@@ -197,7 +197,12 @@ from frappe.utils import getdate
 from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.company_orphans import purge_company_orphans
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
-from verenigingen.tests.utils.force_delete import delete_role_and_grants
+from verenigingen.tests.utils.force_delete import (
+    delete_chapter_member_row,
+    delete_role_and_grants,
+    release_single_links_to_chapter,
+    vacate_board_seats_of_chapters,
+)
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.tests.utils.form_dict_guard import guard_form_dict
 from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
@@ -291,14 +296,21 @@ def shared_fixture(method):
 
 
 # Currencies the test companies and the default price lists use (measured on a test site:
-# company default_currency EUR/INR/USD; Price Lists EUR/INR/USD). Every pair names EUR
-# because that is the currency of the harness companies; the plain erpnext USD<->INR
-# records are deliberately left alone, since erpnext's own tests assert on them.
+# company default_currency EUR/INR/USD; Price Lists EUR/INR/USD), so all three pairs of
+# the three currencies, both directions (#2867: INR<->USD was missing, and an invoice for
+# the INR `_Test Company` on a USD price list only matched erpnext's 2016 rows, and only
+# with `allow_stale` on). A fixed list rather than one derived from the site's companies
+# and price lists: a derived set depends on what other suites created first, which is
+# the order-dependence this seed exists to remove. erpnext's own 2016 USD<->INR rows
+# stay; ours are dated 2000-01-01 and today, so they only answer postings those rows
+# do not cover.
 _TEST_RATE_PAIRS = (
     ("INR", "EUR", 0.011),
     ("EUR", "INR", 90.0),
     ("USD", "EUR", 0.92),
     ("EUR", "USD", 1.09),
+    ("INR", "USD", 0.012),
+    ("USD", "INR", 83.0),
 )
 # Dated far in the past so a stored row precedes ANY posting date a test uses when
 # `Accounts Settings.allow_stale` is on (erpnext only requires date <= posting date).
@@ -2429,7 +2441,12 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
             if doctype == "Role":
                 # #1856: a bare delete strands `Has Role` rows on surviving users.
                 delete_role_and_grants(name)
+            elif doctype == "Chapter Member":
+                # #2745: a teardown removal, not a member leaving; skip its mailing on_trash.
+                delete_chapter_member_row(name)
             else:
+                if doctype == "Chapter":
+                    release_single_links_to_chapter(name)
                 frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
         except Exception:
             # Fail CLOSED. frappe removes the row in `delete_from_table` and then keeps
@@ -2903,17 +2920,36 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
         frappe.set_user("Administrator")
 
         delete_failures = 0
+        refused_chapters = []
         for doctype, name in ordered:
             try:
                 self._remove_drained_record(doctype, name)
             except frappe.DoesNotExistError:
                 pass
+            except frappe.LinkExistsError as delete_error:
+                if doctype != "Chapter":
+                    delete_failures += 1
+                    self._record_leak(doctype, name, delete_error)
+                    continue
+                # #2745: a Chapter delete is refused while a Member still links to it. The
+                # Chapter is usually created AFTER that Member, so reverse creation order
+                # reaches it first. Retry it once everything else has had its turn.
+                refused_chapters.append((doctype, name))
             except Exception as delete_error:
                 # Don't let one failure abort the rest or break tearDown -- but record
                 # WHICH record survived, not just how many. The count alone was
                 # unusable: the row stays in the database, a later test in the shard
                 # collides with it, and that test names neither the record nor this
                 # test (#328).
+                delete_failures += 1
+                self._record_leak(doctype, name, delete_error)
+
+        for doctype, name in refused_chapters:
+            try:
+                self._remove_drained_record(doctype, name)
+            except frappe.DoesNotExistError:
+                pass
+            except Exception as delete_error:
                 delete_failures += 1
                 self._record_leak(doctype, name, delete_error)
 
@@ -3280,6 +3316,10 @@ class EnhancedTestCase(ErrorLogGuardMixin, FrappeTestCase):
 
         # Same reason as the captured-insert drain: do not inherit the test's user.
         frappe.set_user("Administrator")
+
+        drained_chapters = {name for doctype, name, _prio in unique if doctype == "Chapter"}
+        drained_chapters |= {name for doctype, name in captured_keys if doctype == "Chapter"}
+        vacate_board_seats_of_chapters(sorted(drained_chapters))
 
         delete_failures = 0
         for doctype, name, _prio in unique:

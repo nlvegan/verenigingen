@@ -65,6 +65,21 @@ class _RecordingService:
 
 
 class _Base(MemberOwnershipProbeMixin, EnhancedTestCase):
+    def _create_committed_login(self, user):
+        """Set a password for `user` and COMMIT everything this test has built.
+
+        Load-bearing: the subprocess has its own DB connection and must see the
+        User, Member and mandate rows. The committed rows are not left behind: the
+        User, Member and mandate are tracked/captured, so EnhancedTestCase's
+        teardown drains delete them (verified against test_site_4 after a run).
+        """
+        from frappe.utils.password import update_password
+
+        password = f"Probe-{frappe.generate_hash()[:12]}!"
+        update_password(user, password)
+        frappe.db.commit()
+        return password
+
     def _make_mandate_for(self, member_name):
         mandate = frappe.get_doc(
             {
@@ -323,21 +338,6 @@ class TestExecuteDebitOwnership(_Base):
 class TestMandateEndpointsOverRealRequest(_Base):
     """A real WSGI request (subprocess: frappe.app.application destroys
     frappe.local per request, which would tear down this test's own)."""
-
-    def _create_committed_login(self, user):
-        """Set a password for `user` and COMMIT everything this test has built.
-
-        Load-bearing: the subprocess has its own DB connection and must see the
-        User, Member and mandate rows. The committed rows are not left behind: the
-        User, Member and mandate are tracked/captured, so EnhancedTestCase's
-        teardown drains delete them (verified against test_site_4 after a run).
-        """
-        from frappe.utils.password import update_password
-
-        password = f"Probe-{frappe.generate_hash()[:12]}!"
-        update_password(user, password)
-        frappe.db.commit()
-        return password
 
     def test_unknown_matches_forbidden_over_wsgi(self):
         from frappe.utils import get_bench_path

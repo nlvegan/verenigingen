@@ -434,6 +434,83 @@ class TestVolunteerApplication(VereningingenTestCase):
         self.assertEqual(frappe.db.count("Volunteer", {"email": email}), 1)
         self.assertEqual(frappe.db.get_value("Volunteer", existing.name, "status"), "New")
 
+    # --- #3026: a dormant Volunteer linked to ANOTHER member is not ours to take over ---
+    def _dormant_volunteer_of_other_member(self, email, status="Inactive"):
+        """Volunteer(email, status) linked to a Member whose own email differs (Volunteer.email
+        is the organization email, so the two legitimately differ)."""
+        owner = self.create_test_member(
+            first_name="Own", last_name="Er", email=f"owner.{self._uniq}@example.com"
+        )
+        vol = self.create_test_volunteer(member_name=owner.name)
+        frappe.db.set_value("Volunteer", vol.name, {"email": email, "status": status})
+        return owner, frappe.get_doc("Volunteer", vol.name)
+
+    def test_guest_cannot_repoint_a_dormant_volunteer_linked_to_another_member(self):
+        """Real submission path: Guest + become_member resolves the applicant's Member by
+        Member.email (member B), while the dormant Volunteer carrying that email is linked to
+        member A. Before the fix A's Volunteer was repointed to B under the system user."""
+        email = f"shared.{self._uniq}@example.com"
+        owner, existing = self._dormant_volunteer_of_other_member(email)
+        applicant = self.create_test_member(first_name="App", last_name="Licant", email=email)
+        self.assertNotEqual(applicant.name, owner.name)
+
+        result = self._submit_as_guest(self._valid_payload(email=email, become_member=1))
+
+        self.assertFalse(self._ok(result), "must refuse, not take over")
+        self.assertEqual(self._error_code(result), "VOLUNTEER_EMAIL_IN_USE")
+        row = frappe.db.get_value("Volunteer", existing.name, ["member", "status"], as_dict=True)
+        self.assertEqual(row.member, owner.name)
+        self.assertEqual(row.status, "Inactive")
+
+    def test_logged_in_applicant_cannot_take_over_another_members_dormant_volunteer(self):
+        """Logged-in path: the applicant's Member comes from Member.user only (#1936/#2206);
+        the email is free text, so B can name A's dormant Volunteer's email."""
+        email = f"victim.{self._uniq}@example.com"
+        owner, existing = self._dormant_volunteer_of_other_member(email)
+        user_email = f"applicant.{self._uniq}@example.com"
+        self.create_test_user(user_email, roles=["Verenigingen Member"])
+        applicant = self.create_test_member(
+            first_name="Log", last_name="Ged", email=f"logged.{self._uniq}@example.com", user=user_email
+        )
+        self.assertEqual(frappe.db.get_value("Member", applicant.name, "user"), user_email)
+
+        with self.as_user(user_email):
+            result = submit_volunteer_application(**self._valid_payload(email=email))
+
+        self.assertFalse(self._ok(result))
+        self.assertEqual(self._error_code(result), "VOLUNTEER_EMAIL_IN_USE")
+        self.assertEqual(frappe.db.get_value("Volunteer", existing.name, "member"), owner.name)
+
+    def test_an_orphan_dormant_volunteer_is_still_adopted_by_the_applicants_member(self):
+        email = f"orphan.{self._uniq}@example.com"
+        owner, existing = self._dormant_volunteer_of_other_member(email)
+        frappe.db.set_value("Volunteer", existing.name, "member", None)
+        applicant = self.create_test_member(first_name="Or", last_name="Phan", email=email)
+
+        result = self._track_created_volunteer(
+            self._submit_as_guest(self._valid_payload(email=email, become_member=1))
+        )
+
+        self.assertTrue(self._ok(result), self._error_message(result))
+        self.assertEqual(self._data(result)["volunteer_name"], existing.name)
+        self.assertEqual(frappe.db.get_value("Volunteer", existing.name, "member"), applicant.name)
+        self.assertEqual(frappe.db.get_value("Volunteer", existing.name, "status"), "New")
+
+    def test_the_applicants_own_dormant_volunteer_is_still_reactivated(self):
+        email = f"own.{self._uniq}@example.com"
+        applicant = self.create_test_member(first_name="My", last_name="Own", email=email)
+        vol = self.create_test_volunteer(member_name=applicant.name)
+        frappe.db.set_value("Volunteer", vol.name, {"email": email, "status": "Inactive"})
+
+        result = self._track_created_volunteer(
+            self._submit_as_guest(self._valid_payload(email=email, become_member=1))
+        )
+
+        self.assertTrue(self._ok(result), self._error_message(result))
+        self.assertEqual(self._data(result)["volunteer_name"], vol.name)
+        self.assertEqual(frappe.db.get_value("Volunteer", vol.name, "member"), applicant.name)
+        self.assertEqual(frappe.db.get_value("Volunteer", vol.name, "status"), "New")
+
     def test_reactivation_does_not_duplicate_interest_rows(self):
         # A returning volunteer who had interests on file, and re-selects an
         # interest, must end up with that interest linked exactly once (the

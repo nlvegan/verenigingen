@@ -1095,13 +1095,21 @@ def main():
     
     # Extract file paths (non-option arguments)
     file_paths = []
+    passed_files = [a for a in sys.argv[1:] if not a.startswith('--')]
     for arg in sys.argv[1:]:
         if not arg.startswith('--') and arg.endswith('.py'):
             # Absolute, because a finding's path is taken relative to the app root.
             file_paths.append(Path(arg).resolve())
     if update_baseline:
         file_paths = []
-    
+        passed_files = []
+
+    # #3115: the pre-push hook also passes .html/.js. With files given but none a .py there is
+    # nothing for this validator to check; falling through would run the un-ratcheted whole-tree scan.
+    if passed_files and not file_paths:
+        print("Field reference validator: no .py files passed, nothing to check.")
+        return 0
+
     single_file = file_paths[0] if len(file_paths) == 1 else None
     
     validator = ContextAwareFieldValidator(app_path, verbose=verbose)

@@ -333,36 +333,37 @@ class TestQueryOptimizationSuite(EnhancedTestCase):
         self.assertFalse(valid)  # Should fail validation
         
         # Test with valid Member fields - read actual DocType to verify
-        try:
-            meta = frappe.get_meta("Member")
-            actual_fields = [f.fieldname for f in meta.fields if f.fieldname]
-            
-            # Use actual fields that exist
-            valid_fields = []
-            test_field_candidates = ["full_name", "email", "status", "first_name", "last_name"]
-            
-            for field in test_field_candidates:
-                if field in actual_fields:
-                    valid_fields.append(field)
-                    
-            if valid_fields:
-                valid = validate_doctype_fields("Member", valid_fields)
-                self.assertTrue(valid, f"Validation should pass for existing fields: {valid_fields}")
-            else:
-                # Skip test if we can't find valid fields
-                self.skipTest("No valid test fields found in Member DocType")
-                
-        except Exception as e:
-            self.skipTest(f"Cannot access Member DocType: {e}")
+        # No try/skip: `except Exception: skipTest` also swallowed the AssertionError
+        # from the validation assertion below.
+        meta = frappe.get_meta("Member")
+        actual_fields = [f.fieldname for f in meta.fields if f.fieldname]
+
+        # Use actual fields that exist
+        valid_fields = []
+        test_field_candidates = ["full_name", "email", "status", "first_name", "last_name"]
+
+        for field in test_field_candidates:
+            if field in actual_fields:
+                valid_fields.append(field)
+
+        self.assertTrue(valid_fields, "Member DocType should expose at least one candidate field")
+        valid = validate_doctype_fields("Member", valid_fields)
+        self.assertTrue(valid, f"Validation should pass for existing fields: {valid_fields}")
             
         # Test consistency between validation functions
-        try:
-            test_fields = ["name", "status"]
-            result1 = validate_doctype_fields("Customer", test_fields) 
+        # No try/print: `except Exception: print` also swallowed the AssertionError (#3078).
+        # ["name", "status"] was used here, but Customer has no `status` field, so both
+        # functions returned False and the comparison could not discriminate. Use one set
+        # Customer really has (incl. the implicit `name`) and one it does not. The False case
+        # can also be met by a validator's own `except Exception: return False`; the True case discriminates.
+        for test_fields, expected in (
+            (["name", "customer_name"], True),
+            (["name", "no_such_customer_field"], False),
+        ):
+            result1 = validate_doctype_fields("Customer", test_fields)
             result2 = payment_validate("Customer", test_fields)
             self.assertEqual(result1, result2, "Validation functions should be consistent")
-        except Exception as e:
-            print(f"  Note: Consistency test limited: {e}")
+            self.assertIs(result1, expected, f"Unexpected verdict for {test_fields}")
             
         print("  ✓ Field validation system tested")
     

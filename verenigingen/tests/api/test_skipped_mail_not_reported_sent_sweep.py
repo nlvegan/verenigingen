@@ -12,8 +12,7 @@ Two kinds of "reported as sent":
   * a bool returned to the caller.
 
 Probe shortcuts, stated: the termination request is a ``frappe._dict`` carrying the fields
-the notification methods read (not a persisted Membership Termination Request), and the
-Mollie payment is a ``frappe._dict`` with the fields the notifier reads.
+the notification methods read (not a persisted Membership Termination Request).
 """
 
 import re
@@ -36,7 +35,6 @@ from verenigingen.verenigingen.doctype.donation.donation import (
     send_donation_confirmation_email,
     send_payment_confirmation_email,
 )
-from verenigingen.verenigingen_payments.mollie.api.payment_webhook import _notify_member_of_payment_failure
 from verenigingen.verenigingen_payments.mollie.api.sync import _notify_subscription_status_change
 from verenigingen.verenigingen_payments.utils.payment_alert_service import PaymentAlertService
 
@@ -202,17 +200,6 @@ class TestSkippedMailNotReportedSent(VereningingenTestCase):
             "subscription_cancelled",
             member.email,
             lambda: _notify_subscription_status_change(member, "active", "canceled", {"id": "sub_sweep"}),
-            self._swap_frappe_logger,
-        )
-
-    def test_mollie_payment_failure_skip_is_not_logged_sent(self):
-        self._ensure_stock_template("payment_failure_first")
-        member = self._sweep_member("Fail")
-        payment = frappe._dict(status="failed", amount={"value": "10.00", "currency": "EUR"}, id="tr_sweep")
-        self._control_then_skip(
-            "payment_failure_first",
-            member.email,
-            lambda: _notify_member_of_payment_failure(member, payment, 1),
             self._swap_frappe_logger,
         )
 

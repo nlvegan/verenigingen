@@ -6,6 +6,7 @@ Tests designed to catch the issues that occurred with member Assoc-Member-2025-0
 import frappe
 from frappe import _
 from frappe.utils import today, add_days, getdate
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.fixtures.test_data_factory import (
     PAYMENT_TEST_DAILY_TYPE,
@@ -220,7 +221,7 @@ class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
 
         # Verify invoice properties
         self.assertEqual(invoice.customer, self.member.customer, "Invoice should be for the correct customer")
-        self.assertEqual(invoice.posting_date, getdate(today()), "Invoice should have today's posting date")
+        assert_written_today(self, invoice.posting_date, "Invoice should have today's posting date")
         self.assertGreaterEqual(
             getdate(invoice.due_date), getdate(today()), "Invoice due date should not be in the past"
         )

@@ -140,7 +140,7 @@ frappe.ui.form.on('MT940 Import', {
 		}
 
 		// Show import results if completed
-		if (frm.doc.import_status === 'Completed') {
+		if (['Completed', 'Completed With Errors', 'Completed With Warnings'].includes(frm.doc.import_status)) {
 			frm.add_custom_button(__('View Bank Transactions'), () => {
 				// Use statement date range if available, otherwise fall back to creation date
 				const filters = {

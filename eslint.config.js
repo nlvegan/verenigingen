@@ -75,6 +75,7 @@ const frappeGlobals = {
 	// public/js/utils/operation-result-helpers.js, consumed bare app-wide)
 	unwrapOperationResult: 'readonly',
 	getErrorMessage: 'readonly',
+	getSuccessMessage: 'readonly',
 	// Membership application classes
 	MembershipApplication: 'readonly',
 	PersonalInfoStep: 'readonly',

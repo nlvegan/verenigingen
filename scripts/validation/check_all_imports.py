@@ -32,7 +32,6 @@ Exit codes:
 import importlib
 import json
 import os
-import pkgutil
 import sys
 import time
 
@@ -81,6 +80,29 @@ def get_site(bench_dir):
     sys.exit(1)
 
 
+def discover_module_names(package_path, prefix):
+    """Dotted names of every .py module under ``package_path``, found on the filesystem.
+
+    Not ``pkgutil.walk_packages``: that never descends into a directory without
+    ``__init__.py`` (e.g. ``verenigingen_payments/templates/pages/``, home of the
+    allow_guest ``mollie_checkout.make_payment``), so those modules were silently never
+    imported (#1067). Python imports them fine as namespace packages.
+    """
+    names = []
+    for root in package_path:
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = sorted(d for d in dirnames if d not in ("__pycache__", "node_modules"))
+            for filename in sorted(filenames):
+                if not filename.endswith(".py"):
+                    continue
+                parts = os.path.relpath(os.path.join(dirpath, filename), root)[:-3].split(os.sep)
+                if parts[-1] == "__init__":
+                    parts = parts[:-1]
+                if parts:
+                    names.append(prefix + ".".join(parts))
+    return names
+
+
 def main():
     """Run the runtime import validator."""
     import frappe
@@ -107,9 +129,7 @@ def main():
     count = 0
     skipped = 0
 
-    for _importer, modname, _ispkg in pkgutil.walk_packages(
-        verenigingen.__path__, "verenigingen."
-    ):
+    for modname in discover_module_names(verenigingen.__path__, "verenigingen."):
         # Skip test modules and node_modules
         if ".tests." in modname or ".node_modules." in modname:
             skipped += 1

@@ -95,6 +95,7 @@ from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
 )
+from verenigingen.verenigingen_payments.utils.sepa_constants import row_left_out_of_file
 
 # ========================
 # PHASE 1: CONSERVATIVE APPROACH
@@ -230,6 +231,40 @@ def identify_sepa_transactions():
         return {"success": False, "error": str(e)}
 
 
+def get_invoices_booked_by_mark_as_processed(batch_name: str, invoices: List[str]) -> List[str]:
+    """Invoices of this batch that "Mark as Processed" already paid (#2937).
+
+    mark_batch_invoices_as_paid books each Payment Entry with reference_no = the batch name
+    (reconciliation books its own with the bank transaction's reference number, so the two
+    never collide), and nothing links such a Payment Entry to a Bank Transaction. A cancelled
+    Payment Entry (e.g. a rolled-back batch, #3021) no longer counts.
+    """
+    if not invoices:
+        return []
+    marked_entries = frappe.get_all(
+        "Payment Entry",
+        filters={"reference_no": batch_name, "docstatus": 1, "payment_type": "Receive"},
+        pluck="name",
+    )
+    if not marked_entries:
+        return []
+    return frappe.get_all(
+        "Payment Entry Reference",
+        filters={
+            "parent": ["in", marked_entries],
+            "parenttype": "Payment Entry",
+            "reference_doctype": "Sales Invoice",
+            "reference_name": ["in", invoices],
+        },
+        pluck="reference_name",
+    )
+
+
+def _batch_booked_by_mark_as_processed(batch_name: str) -> List[str]:
+    invoices = frappe.get_all("Direct Debit Batch Invoice", filters={"parent": batch_name}, pluck="invoice")
+    return get_invoices_booked_by_mark_as_processed(batch_name, invoices)
+
+
 def find_matching_sepa_batches(bank_transaction):
     """Find SEPA Direct Debit Batches that might match this bank transaction"""
 
@@ -249,6 +284,11 @@ def find_matching_sepa_batches(bank_transaction):
 
     matches = []
     for batch in potential_batches:
+        # #2937: reconciliation refuses a batch Mark as Processed already booked, so do not
+        # offer it (staff link that Bank Transaction by hand).
+        if _batch_booked_by_mark_as_processed(batch.name):
+            continue
+
         # Check for amount match (exact or close)
         amount_difference = abs(flt(bank_transaction.deposit) - flt(batch.total_amount))
 
@@ -326,6 +366,9 @@ def _process_sepa_transaction_conservative_internal(bank_transaction_name, sepa_
         if received_amount == expected_amount:
             # Full success - reconcile all items
             result = reconcile_full_sepa_batch(bank_transaction, sepa_batch)
+            if result.get("reason") == "already_booked_by_mark_as_processed":
+                # #2937: nothing was written; leave the Bank Transaction as it was (unsaved).
+                return {"success": False, "error": result["error"], "processing_result": result}
             # "Fully Reconciled" is a terminal pool outcome (#2082): write it only when the
             # batch really reconciled. On a failure the row keeps "SEPA Identified" and
             # stays in the auto-reconciliation pool.
@@ -489,6 +532,25 @@ def _create_payment_entry_atomic(
     }
 
 
+def _refuse_batch_booked_by_mark_as_processed(batch_name, batch_items, booked_invoices) -> Dict[str, Any]:
+    message = _(
+        "SEPA batch {0} was already booked with Mark as Processed ({1} of {2} invoices have a Payment "
+        "Entry). It cannot be bank-reconciled automatically: link the Bank Transaction to the "
+        "existing Payment Entries by hand."
+    ).format(batch_name, len(booked_invoices), len(batch_items))
+    errors = [{"invoice": invoice, "error": message} for invoice in booked_invoices]
+    return {
+        "type": "validation_failed",
+        "reason": "already_booked_by_mark_as_processed",
+        "total_items": len(batch_items),
+        "reconciled_count": 0,
+        "failed_count": len(errors),
+        "error": message,
+        "validation_errors": errors,
+        "details": errors,
+    }
+
+
 def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
     """
     Reconcile all items in SEPA batch atomically with transaction boundaries.
@@ -511,12 +573,19 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
     """
     from erpnext.accounts.doctype.journal_entry.journal_entry import get_default_bank_cash_account
 
+    from verenigingen.verenigingen_payments.services.batch_processing_service import (
+        batch_processing_service,
+    )
+
     # Get all batch items
     batch_items = frappe.get_all(
         "Direct Debit Batch Invoice",
         filters={"parent": sepa_batch.name},
-        fields=["name", "invoice", "amount", "member", "member_name", "idx"],
+        fields=["name", "invoice", "amount", "member", "member_name", "idx", "status", "result_code"],
     )
+    # #2839: a row the generated file does not contain was never collected; the bank
+    # transaction covers only the rows that were in the file.
+    batch_items = [i for i in batch_items if not row_left_out_of_file(i.status, i.result_code)]
 
     if not batch_items:
         return {
@@ -530,6 +599,12 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
     # =========================================================================
     # PHASE 1: Validate all items (read-only, no writes)
     # =========================================================================
+    # #2937: refuse, before any write, a batch whose rows Mark as Processed already booked.
+    # Phase 2 would only fail on the first row ("already fully paid") and roll back.
+    booked = get_invoices_booked_by_mark_as_processed(sepa_batch.name, [i.invoice for i in batch_items])
+    if booked:
+        return _refuse_batch_booked_by_mark_as_processed(sepa_batch.name, batch_items, booked)
+
     validation_errors = _validate_batch_reconciliation(batch_items, bank_transaction)
 
     if validation_errors:
@@ -588,6 +663,11 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
                     item, bank_transaction, sepa_batch, company, customer, receivable_account, bank_account
                 )
                 reconciled_items.append(result)
+                # #2798: the bank settled this row; record it like Mark as Processed does,
+                # inside the same transaction as the Payment Entry (a rollback undoes both).
+                batch_processing_service.record_collected_by_bank_reconciliation(
+                    frappe.get_doc("Direct Debit Batch Invoice", item.name), result["payment_entry"]
+                )
 
             except ConcurrentOperationError as e:
                 # Concurrent operation - rollback and inform caller
@@ -638,6 +718,9 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch) -> Dict[str, Any]:
                         }
                     ],
                 }
+
+        # #2798: batch status follows the rows just recorded (Processed when all collected).
+        batch_processing_service.refresh_batch_status_from_rows(sepa_batch)
 
         # All items processed successfully - commit the transaction
         frappe.db.commit()

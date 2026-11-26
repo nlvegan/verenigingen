@@ -33,6 +33,7 @@ PRODUCT BUGS exposed (xfailed / documented below and in the orchestrator report)
 
 import json
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import frappe
@@ -47,6 +48,7 @@ from verenigingen.tests.support.invoice_payments import receive_against_invoice
 from verenigingen.tests.support.non_resumable_errors import deadlock as _deadlock
 from verenigingen.tests.support.non_resumable_errors import lock_wait_timeout as _timeout
 from verenigingen.tests.support.sepa_test_company import get_eur_bank_account, get_eur_test_company
+from verenigingen.utils.select_options import get_select_options
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.api import sepa_reconciliation as recon
 
@@ -701,6 +703,429 @@ class TestReconcileFullSepaBatch(ReconBase):
         # so validation appends a "cancelled" error.
         self.assertEqual(result["type"], "validation_failed", msg=result)
         self.assertEqual(result["reconciled_count"], 0)
+
+
+class TestReconciledBatchThenMarkProcessed2798(ReconBase):
+    """#2798: a batch settled by bank reconciliation must be recorded as collected, so a
+    later "Mark as Processed" (`mark_batch_invoices_as_paid`) skips its rows instead of
+    re-booking invoices whose outstanding is already 0 and flipping rows and batch to Failed.
+
+    Drives the REAL flows end to end (real batch, invoices, Payment Entries): reconcile,
+    then mark paid. No row status is pinned by hand. Row count and amounts come from the
+    fixture."""
+
+    def _reconciled_batch(self, count=2):
+        # Marking paid logs a benign Fiscal Year auto-create row when it submits dated docs.
+        self.expectErrorLog("Fiscal Year")
+        items = [
+            self._make_member_with_invoice(first_name=f"R2798N{i}", grand_total=25.0 + i)
+            for i in range(count)
+        ]
+        batch = self._make_batch(items)
+        bt = self._make_bank_transaction(
+            deposit=batch.total_amount, date=today(), description="SEPA DD batch"
+        )
+        return items, batch, bt
+
+    def _row_states(self, batch):
+        return {
+            r.name: frappe.db.get_value(
+                "Direct Debit Batch Invoice", r.name, ["status", "result_code"], as_dict=True
+            )
+            for r in batch.invoices
+        }
+
+    def _pe_counts(self, items):
+        return [
+            frappe.db.count(
+                "Payment Entry Reference",
+                {"reference_name": it["invoice"].name, "reference_doctype": "Sales Invoice"},
+            )
+            for it in items
+        ]
+
+    def test_reconciliation_records_the_rows_as_collected_and_the_batch_processed(self):
+        items, batch, bt = self._reconciled_batch()
+        result = recon.reconcile_full_sepa_batch(bt, batch)
+        self.assertEqual(result["type"], "full_reconciliation", msg=result)
+
+        for state in self._row_states(batch).values():
+            self.assertEqual(state.status, "Successful")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Processed")
+
+    def test_mark_processed_after_reconciliation_leaves_rows_batch_and_error_log_alone(self):
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        items, batch, bt = self._reconciled_batch()
+        recon.reconcile_full_sepa_batch(bt, batch)
+        pe_after_reconcile = self._pe_counts(items)
+        self.assertEqual(pe_after_reconcile, [1] * len(items))
+        errors_before = frappe.db.count("Error Log", {"method": "SEPA Direct Debit Payment Error"})
+        batch.reload()
+
+        collected_now = batch_processing_service.mark_batch_invoices_as_paid(batch)
+
+        self.assertEqual(collected_now, 0, "reconciliation already collected every row")
+        for state in self._row_states(batch).values():
+            self.assertEqual(state.status, "Successful")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Processed")
+        self.assertEqual(self._pe_counts(items), pe_after_reconcile, "no duplicate Payment Entry")
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "SEPA Direct Debit Payment Error"}), errors_before
+        )
+
+    def test_reconciliation_advances_the_mandate_sequence_like_mark_paid_does(self):
+        """A collected FRST must not stay FRST: the next batch would be rejected by the bank.
+        The usage row is created through the real helper the batch builder uses."""
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            create_mandate_usage_record,
+        )
+
+        items, batch, bt = self._reconciled_batch(count=1)
+        invoice = items[0]["invoice"]
+        create_mandate_usage_record(
+            items[0]["mandate"].name, "Sales Invoice", invoice.name, invoice.grand_total, "FRST"
+        )
+        usage = frappe.db.get_value(
+            "SEPA Mandate Usage", {"reference_name": invoice.name, "status": "Pending"}, "name"
+        )
+        self.assertTrue(usage, "fixture must hold a Pending usage row, or this test proves nothing")
+
+        recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(frappe.db.get_value("SEPA Mandate Usage", usage, "status"), "Collected")
+
+    def test_control_a_batch_never_reconciled_is_still_marked_paid(self):
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        items, batch, _ = self._reconciled_batch()
+        collected_now = batch_processing_service.mark_batch_invoices_as_paid(batch)
+
+        self.assertEqual(collected_now, len(items))
+        for state in self._row_states(batch).values():
+            self.assertEqual(state.status, "Successful")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Processed")
+        self.assertEqual(self._pe_counts(items), [1] * len(items))
+
+    def _usage_row(self, item):
+        """A Pending SEPA Mandate Usage row for the item's invoice, via the real helper."""
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            create_mandate_usage_record,
+        )
+
+        invoice = item["invoice"]
+        create_mandate_usage_record(
+            item["mandate"].name, "Sales Invoice", invoice.name, invoice.grand_total, "FRST"
+        )
+        return frappe.db.get_value("SEPA Mandate Usage", {"reference_name": invoice.name}, "name")
+
+    def test_a_row_already_failed_keeps_its_status_code_message_and_mandate_usage(self):
+        """Ruling on #2798: a returned (Failed, AC04) row must not become Successful/PDNG.
+
+        Probe shortcut: the Failed/AC04 state is hand-set (status, result_code, result_message,
+        the three fields `SEPABatchProcessor.process_batch_returns` writes) because the real
+        return writer cannot persist on a Submitted batch (#1235). Whether reconcile books a
+        Payment Entry for that row is pre-existing and out of scope, so it is not asserted.
+        The batch-level status is NOT asserted here: a Submitted batch holding a Failed row is
+        a synthetic state no real writer produces; the refresh is covered by
+        test_refresh_writes_partially_processed_or_failed_from_the_rows."""
+        items, batch, bt = self._reconciled_batch()
+        failed_row, ok_row = batch.invoices[0], batch.invoices[1]
+        message = "Closed Account Number (return file)"
+        for field, value in (("status", "Failed"), ("result_code", "AC04"), ("result_message", message)):
+            failed_row.db_set(field, value, update_modified=False)
+        usage = self._usage_row(items[0])
+        self.assertEqual(frappe.db.get_value("SEPA Mandate Usage", usage, "status"), "Pending")
+
+        result = recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(result["type"], "full_reconciliation", msg=result)
+        state = frappe.db.get_value(
+            "Direct Debit Batch Invoice", failed_row.name, ["status", "result_code", "result_message"],
+            as_dict=True,
+        )
+        self.assertEqual((state.status, state.result_code, state.result_message), ("Failed", "AC04", message))
+        self.assertEqual(frappe.db.get_value("SEPA Mandate Usage", usage, "status"), "Pending")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch Invoice", ok_row.name, "status"), "Successful")
+
+    def test_refresh_writes_partially_processed_or_failed_from_the_rows(self):
+        """The not-all-Successful branches of refresh_batch_status_from_rows."""
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        items, batch, _ = self._reconciled_batch()
+        first = batch.invoices[0]
+
+        batch_processing_service.refresh_batch_status_from_rows(batch)
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Failed")
+
+        first.db_set("status", "Successful", update_modified=False)
+        batch.db_set("status", "Submitted", update_modified=False)
+        batch_processing_service.refresh_batch_status_from_rows(batch)
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Partially Processed")
+
+    def test_the_partial_outcome_is_a_status_the_batch_doctype_declares_1237(self):
+        """#1237: a Select value outside the doctype's options is accepted by db_set but
+        rejected by the next save(). The options are read from the meta, not hardcoded."""
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        items, batch, _ = self._reconciled_batch()
+        batch.invoices[0].db_set("status", "Successful", update_modified=False)
+
+        batch_processing_service.refresh_batch_status_from_rows(batch)
+
+        declared = (frappe.get_meta("Direct Debit Batch").get_field("status").options or "").split("\n")
+        written = frappe.db.get_value("Direct Debit Batch", batch.name, "status")
+        self.assertIn(written, declared)
+        self.assertNotEqual(written, "Processed", "one of two rows collected is not a full success")
+
+    def test_a_batch_in_another_status_keeps_it_through_reconciliation(self):
+        """Ruling on #2798: only Submitted/Processed are refreshed. Every other status records
+        a decision the recompute must not overwrite. The set is read from the doctype meta
+        (all options minus the two refreshable ones), so a new option is covered."""
+        refreshable = {"Submitted", "Processed"}
+        options = get_select_options("Direct Debit Batch", "status")
+        frozen = [o for o in options if o not in refreshable]
+        self.assertGreaterEqual(len(frozen), 8, msg=options)
+        for status in frozen:
+            with self.subTest(status=status):
+                items, batch, bt = self._reconciled_batch()
+                frappe.db.set_value("Direct Debit Batch", batch.name, "status", status, update_modified=False)
+                batch.reload()
+
+                result = recon.reconcile_full_sepa_batch(bt, batch)
+
+                self.assertEqual(result["type"], "full_reconciliation", msg=result)
+                self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), status)
+
+    def test_a_failed_row_is_read_from_the_database_not_from_a_stale_row_object(self):
+        """record_collected_by_bank_reconciliation reads the PERSISTED row status: a row
+        object loaded while Pending, whose row was Failed in the database since, must keep
+        Failed. The stale object is built first, then the row is written (db_set on a fresh
+        document; the stale one keeps in-memory Pending)."""
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        items, batch, _ = self._reconciled_batch(count=1)
+        stale_row = frappe.get_doc("Direct Debit Batch Invoice", batch.invoices[0].name)
+        self.assertEqual(stale_row.status, "Pending", "fixture: the in-memory row is Pending")
+        frappe.get_doc("Direct Debit Batch Invoice", stale_row.name).db_set(
+            {"status": "Failed", "result_code": "AC04"}, update_modified=False
+        )
+        self.assertEqual(stale_row.status, "Pending", "fixture: the object stays stale")
+
+        batch_processing_service.record_collected_by_bank_reconciliation(stale_row, "ACC-PAY-FAKE")
+
+        state = frappe.db.get_value(
+            "Direct Debit Batch Invoice", stale_row.name, ["status", "result_code"], as_dict=True
+        )
+        self.assertEqual((state.status, state.result_code), ("Failed", "AC04"))
+
+    def test_a_failure_on_the_second_row_rolls_back_the_first_rows_recording(self):
+        """Atomicity: row 1's Successful status and mandate-usage write sit in the same
+        transaction as its Payment Entry, so a row-2 failure undoes them. The rollback is
+        real, to a savepoint (a full rollback would also drop this test's own fixtures)."""
+        self.expectErrorLog("SEPA Batch Reconciliation")
+        items, batch, bt = self._reconciled_batch()
+        usage = self._usage_row(items[0])
+        first_row, second_row = batch.invoices[0], batch.invoices[1]
+        real_create, real_rollback = recon._create_payment_entry_atomic, frappe.db.rollback
+        calls = []
+
+        def _fail_second(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 2:
+                raise ValueError("second row fails")
+            return real_create(*args, **kwargs)
+
+        frappe.db.savepoint("recon2798")
+        # Mock justified: fault injection on the second row; the first row runs the real code
+        with patch.object(recon, "_create_payment_entry_atomic", side_effect=_fail_second):
+            with patch.object(frappe.db, "rollback", lambda *a, **k: real_rollback(save_point="recon2798")):
+                result = recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(result["type"], "atomic_failure", msg=result)
+        self.assertEqual(len(calls), 2, "row 1 must have been recorded before row 2 failed")
+        for row in (first_row, second_row):
+            self.assertEqual(frappe.db.get_value("Direct Debit Batch Invoice", row.name, "status"), "Pending")
+        self.assertEqual(frappe.db.get_value("SEPA Mandate Usage", usage, "status"), "Pending")
+
+    def test_control_a_refused_reconciliation_leaves_rows_pending_and_batch_status(self):
+        items, batch, bt = self._reconciled_batch()
+        status_before = frappe.db.get_value("Direct Debit Batch", batch.name, "status")
+        # Break the member->customer link so phase-1 validation refuses the whole batch.
+        frappe.db.set_value("Member", items[0]["member"].name, "customer", None)
+
+        result = recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(result["type"], "validation_failed", msg=result)
+        for state in self._row_states(batch).values():
+            self.assertEqual(state.status, "Pending")
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), status_before)
+
+
+class TestBatchBookedByMarkAsProcessedIsRefused2937(ReconBase):
+    """#2937 (maintainer ruling: refuse clearly, no auto-link): a batch whose rows "Mark as
+    Processed" already paid cannot be bank-reconciled. Before, Phase 2 failed on the first row
+    ("already fully paid"), rolled back and answered atomic_failure (and the outer call said
+    success True). Now it is refused up front, writes nothing, and is no longer offered.
+
+    Real flows: a real batch, then the real `mark_batch_invoices_as_paid`. The partial case
+    books ONE row through `payment_entry_service.create_payment_entry_from_invoice` (the exact
+    call Mark as Processed makes per row) because the real flow books every row."""
+
+    def _batch(self, count=2, prefix="R2937"):
+        self.expectErrorLog("Fiscal Year")
+        items = [
+            self._make_member_with_invoice(first_name=f"{prefix}{i}", grand_total=25.0 + i)
+            for i in range(count)
+        ]
+        batch = self._make_batch(items)
+        bt = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="SEPA DD")
+        return items, batch, bt
+
+    def _mark_processed(self, batch):
+        from verenigingen.verenigingen_payments.services.batch_processing_service import (
+            batch_processing_service,
+        )
+
+        batch.reload()
+        batch_processing_service.mark_batch_invoices_as_paid(batch)
+        self.assertEqual(frappe.db.get_value("Direct Debit Batch", batch.name, "status"), "Processed")
+
+    def _pe_count(self, items):
+        return sum(
+            frappe.db.count(
+                "Payment Entry Reference",
+                {"reference_name": it["invoice"].name, "reference_doctype": "Sales Invoice"},
+            )
+            for it in items
+        )
+
+    def _recon_errors(self):
+        return frappe.db.count("Error Log", {"method": "SEPA Batch Reconciliation"})
+
+    def test_reconciling_a_processed_batch_is_refused_early_and_writes_nothing(self):
+        items, batch, bt = self._batch()
+        self._mark_processed(batch)
+        pe_before, errors_before = self._pe_count(items), self._recon_errors()
+        self.assertEqual(pe_before, len(items), "premise: Mark as Processed booked one PE per row")
+
+        result = recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(result["type"], "validation_failed", msg=result)
+        self.assertEqual(result["reason"], "already_booked_by_mark_as_processed")
+        self.assertIn("Mark as Processed", result["error"])
+        self.assertIn(batch.name, result["error"])
+        self.assertEqual(
+            sorted(e["invoice"] for e in result["validation_errors"]),
+            sorted(it["invoice"].name for it in items),
+        )
+        self.assertEqual(self._pe_count(items), pe_before, "no Payment Entry written")
+        self.assertEqual(self._recon_errors(), errors_before, "refused up front, not a rolled-back failure")
+
+    def test_the_outer_call_reports_failure_and_leaves_the_bank_transaction_alone(self):
+        items, batch, _ = self._batch(count=1)
+        self._mark_processed(batch)
+        bt = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="SEPA DD")
+        before = frappe.db.get_value(
+            "Bank Transaction", bt.name, ["custom_sepa_batch", "custom_processing_status"], as_dict=True
+        )
+
+        result = recon._process_sepa_transaction_conservative_internal(bt.name, batch.name)
+
+        self.assertFalse(result["success"], msg=result)
+        self.assertIn("Mark as Processed", result["error"])
+        after = frappe.db.get_value(
+            "Bank Transaction", bt.name, ["custom_sepa_batch", "custom_processing_status"], as_dict=True
+        )
+        self.assertEqual(after, before, "the Bank Transaction must not be tagged SEPA Identified")
+
+    def test_a_partly_booked_batch_is_refused_whole(self):
+        """Decision: ONE booked row refuses the whole batch. The bank credit is the batch's
+        control sum, so a mixed batch cannot be settled by booking the rest alone, and linking
+        the booked rows is the manual step the ruling leaves to staff."""
+        from decimal import Decimal
+
+        from verenigingen.verenigingen_payments.services.payment import payment_entry_service
+
+        items, batch, bt = self._batch()
+        booked, unbooked = items
+        payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=booked["invoice"].name,
+            amount=Decimal(str(booked["invoice"].outstanding_amount)),
+            posting_date=batch.batch_date,
+            reference_no=batch.name,
+            reference_date=batch.batch_date,
+            mode_of_payment="SEPA Direct Debit",
+            payment_type="Receive",
+        )
+        pe_before = self._pe_count(items)
+
+        result = recon.reconcile_full_sepa_batch(bt, batch)
+
+        self.assertEqual(result["reason"], "already_booked_by_mark_as_processed", msg=result)
+        self.assertEqual([e["invoice"] for e in result["validation_errors"]], [booked["invoice"].name])
+        self.assertEqual(self._pe_count([unbooked]), 0, "the unbooked row was not reconciled either")
+        self.assertEqual(self._pe_count(items), pe_before)
+
+    def test_a_batch_marked_as_processed_is_not_offered_but_an_unprocessed_one_is(self):
+        items, batch, bt = self._batch(prefix="R2937M")
+        other_items = [self._make_member_with_invoice(first_name="R2937U", grand_total=25.0)]
+        other = self._make_batch(other_items)
+        self._mark_processed(batch)
+        # Same amount and date for both, so only the booked-by-Mark state can tell them apart.
+        offer = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="x")
+        other.db_set("total_amount", batch.total_amount, update_modified=False)
+
+        offered = [m["batch_name"] for m in recon.find_matching_sepa_batches(offer)]
+
+        self.assertNotIn(batch.name, offered)
+        self.assertIn(other.name, offered, "control: an unprocessed batch is still offered")
+
+    def test_an_unprocessed_batch_still_reconciles_next_to_a_processed_one(self):
+        items, batch, bt = self._batch(prefix="R2937P")
+        self._mark_processed(batch)
+        fresh_items, fresh, fresh_bt = self._batch(prefix="R2937F")
+
+        result = recon.reconcile_full_sepa_batch(fresh_bt, fresh)
+
+        self.assertEqual(result["type"], "full_reconciliation", msg=result)
+        self.assertEqual(result["reconciled_count"], len(fresh_items))
+
+    def test_a_rolled_back_booking_no_longer_refuses_the_batch(self):
+        """A cancelled Mark-as-Processed Payment Entry is not a booking (#3021 rollback)."""
+        items, batch, bt = self._batch(count=1, prefix="R2937C")
+        self._mark_processed(batch)
+        for pe in frappe.get_all("Payment Entry", filters={"reference_no": batch.name}, pluck="name"):
+            frappe.get_doc("Payment Entry", pe).cancel()
+
+        self.assertEqual(recon.get_invoices_booked_by_mark_as_processed(batch.name, [items[0]["invoice"].name]), [])
+
+    def test_a_payment_entry_with_an_unrelated_reference_does_not_refuse_the_batch(self):
+        """Control for the discriminator (reference_no == batch): a submitted Receive Payment
+        Entry against a batch invoice that Mark as Processed did NOT book (a partial payment
+        with its own reference) must neither refuse nor hide the batch."""
+        items, batch, _ = self._batch(count=1, prefix="R2937X")
+        _invoice, pe = receive_against_invoice(
+            self, items[0]["invoice"].name, 5.0, mode_of_payment="SEPA Direct Debit"
+        )
+        self.assertNotEqual(pe.reference_no, batch.name, "premise: the reference is unrelated")
+        self.assertEqual(pe.docstatus, 1)
+
+        self.assertEqual(
+            recon.get_invoices_booked_by_mark_as_processed(batch.name, [items[0]["invoice"].name]), []
+        )
+        offer = self._make_bank_transaction(deposit=batch.total_amount, date=today(), description="x")
+        self.assertIn(batch.name, [m["batch_name"] for m in recon.find_matching_sepa_batches(offer)])
 
 
 # =============================================================================
@@ -2085,6 +2510,67 @@ class TestNonResumableErrorsEscapeThePublicEntryPoints681(ReconBase):
                     # the decorators are not what is under test.
                     inspect.unwrap(setup.test_sepa_workflow_step_by_step)()
 
+
+class TestSepaIntegrationSetupReferencesOnlyRealModules2641(unittest.TestCase):
+    """#2641: complete_sepa_integration_setup used to import two modules that do not exist
+    (verenigingen.setup.sepa_custom_fields, verenigingen.api.sepa_test_data), so two of its
+    four steps always reported an ImportError string while the call still said success."""
+
+    SETUP_FILE = Path(recon.__file__).parents[3] / "scripts" / "api_maintenance" / "sepa_integration_setup.py"
+
+    def test_every_verenigingen_import_in_the_file_resolves_to_a_real_module(self):
+        """Static, so it also catches a swallowed ImportError (a handler that turns the failure
+        into `pass` leaves the runtime test below green)."""
+        import ast
+
+        root = self.SETUP_FILE.parents[2]
+        tree = ast.parse(self.SETUP_FILE.read_text())
+        modules = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules += [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                modules.append(node.module)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "import_module"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                modules.append(node.args[0].value)
+        ours = [m for m in modules if m == "verenigingen" or m.startswith("verenigingen.")]
+        self.assertTrue(ours, "control: the scan found no verenigingen import at all")
+
+        def resolves(dotted):
+            base = root.joinpath(*dotted.split("."))
+            return base.with_suffix(".py").is_file() or (base / "__init__.py").is_file()
+
+        self.assertEqual([m for m in ours if not resolves(m)], [])
+
+    def test_no_setup_step_reports_a_failure(self):
+        import importlib.util
+        import inspect
+
+        spec = importlib.util.spec_from_file_location("_2641_sepa_integration_setup", self.SETUP_FILE)
+        setup = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(setup)
+
+        previous_user = frappe.session.user
+        frappe.set_user("Administrator")
+        self.addCleanup(frappe.set_user, previous_user)
+
+        # Unwrapped: the security decorators are not what is under test.
+        result = inspect.unwrap(setup.complete_sepa_integration_setup)()
+
+        self.assertTrue(result["success"], result)
+        lines = result["setup_results"]
+        self.assertIn("SEPA reconciliation API functions working", lines)
+        self.assertTrue(
+            any(line.startswith("Transaction identification working") for line in lines), lines
+        )
+        self.assertEqual([line for line in lines if "error" in line.lower()], [])
 
 if __name__ == "__main__":
     unittest.main()
