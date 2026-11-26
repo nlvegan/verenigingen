@@ -98,6 +98,15 @@ FIELD_SYNC_CONFIG = {
             "field_mappings": {
                 "full_name": "customer_name",
             },
+            # Write the column, not Customer.save(): ERPNext's Customer.on_update ->
+            # create_primary_contact() re-saves the primary Contact through a
+            # permission-checked frappe.set_value, which a member editing their own
+            # record (portal session) cannot pass, so every portal rename failed (#3182).
+            # A name-only update needs none of that cascade.
+            # direct_write gives up the target's validate, on_update hooks (here also
+            # this app's Customer cache invalidation) and its Version row; required
+            # fields are still enforced by _write_target_columns.
+            "direct_write": True,
             "sync_flag": "syncing_member_customer_fields",
         },
         "Donor": {
@@ -172,8 +181,14 @@ def sync_fields(doc, method=None):
         try:
             _sync_to_target(doc, target_doctype, config)
         except Exception as e:
-            # Log error but don't block the source document save
-            logger.error(f"Failed to sync {source_doctype} -> {target_doctype}: {str(e)}")
+            # Don't block the source document save, but leave an Error Log row: the
+            # stdlib logger reaches neither the Error Log nor CI output (#3172).
+            # Keyword args: a positional (message, title) call lands the traceback in
+            # the title column. Safe here: this runs from Member/User doc_events, not "*".
+            frappe.log_error(
+                title=f"Field sync failed: {source_doctype} {doc.name} -> {target_doctype}",
+                message=f"{str(e)}\n\n{frappe.get_traceback()}",
+            )
 
 
 def _sync_to_target(source_doc, target_doctype: str, config: Dict):
@@ -211,6 +226,10 @@ def _sync_to_target(source_doc, target_doctype: str, config: Dict):
         if sync_flag:
             frappe.flags[sync_flag] = True
 
+        if config.get("direct_write"):
+            _write_target_columns(source_doc, target_doctype, target_name, changed_fields)
+            return
+
         # Get target document
         target_doc = frappe.get_doc(target_doctype, target_name)
 
@@ -244,6 +263,25 @@ def _sync_to_target(source_doc, target_doctype: str, config: Dict):
         # Always clear sync flag
         if sync_flag:
             frappe.flags[sync_flag] = False
+
+
+def _write_target_columns(source_doc, target_doctype: str, target_name: str, changed_fields: Dict):
+    """Write the changed values straight to the target row, without its save hooks."""
+    values = {
+        target_field: getattr(source_doc, source_field, None)
+        for source_field, target_field in changed_fields.get("mappings", {}).items()
+    }
+    for source_field, target_fields in changed_fields.get("transforms", {}).items():
+        for target_field in target_fields:
+            values[target_field] = getattr(source_doc, source_field, None)
+    # The save this replaces refused an empty required field; refuse it here too, so
+    # sync_fields logs it instead of blanking the target. Raised, not frappe.throw():
+    # sync_fields swallows it, and throw would leave a message in a portal response.
+    meta = frappe.get_meta(target_doctype)
+    empty_required = [f for f, v in values.items() if not v and meta.get_field(f) and meta.get_field(f).reqd]
+    if empty_required:
+        raise frappe.MandatoryError(f"{target_doctype} {target_name}: empty required {empty_required}")
+    frappe.db.set_value(target_doctype, target_name, values)
 
 
 def _find_target_document(source_doc, target_doctype: str, config: Dict) -> Optional[str]:
