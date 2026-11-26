@@ -82,6 +82,7 @@ class DirectDebitBatch(Document):
         # All document-modifying logic runs here during save
         self.validate_no_duplicate_invoices()
         self.validate_invoices()
+        self.validate_row_mandates_belong_to_row_members()
         self.validate_sequence_types()
         self.calculate_totals()
 
@@ -232,6 +233,51 @@ class DirectDebitBatch(Document):
                     "Remove or fix them before saving: {1}"
                 ).format(validation_result["invalid_invoice_count"], detail)
             )
+
+    def validate_row_mandates_belong_to_row_members(self):
+        """Each row's Active mandate must be its own member's (#3048).
+
+        `validate_sequence_types` only asks that SOME Active mandate carries the row's
+        `mandate_reference`; the row's IBAN and mandate id end up verbatim in the SEPA
+        XML, so a row naming member A with member B's mandate debits B for A's invoice.
+        Always throws, including under `_automated_processing`: that flag downgrades
+        sequence-type criticals to a recorded status nothing reads, and a debit of the
+        wrong person must never take that route. Runs on every save and so on submit
+        (Frappe runs `validate` inside `submit`).
+
+        Ownership only -- the row's IBAN is deliberately NOT compared to the mandate's
+        (an operator correcting a row's IBAN is #615's remedy; see #3048 item 1). The
+        refusal names the row and invoice and echoes no other member's data.
+        """
+        for idx, row in enumerate(self.invoices or [], start=1):
+            if not row.mandate_reference:
+                continue  # reported by validate_sequence_types
+            owner = frappe.db.get_value(
+                "SEPA Mandate", {"mandate_id": row.mandate_reference, "status": "Active"}, "member"
+            )
+            invoice_member = self._invoice_member(row.invoice)
+            if (owner and owner != row.member) or (invoice_member and invoice_member != row.member):
+                frappe.throw(
+                    _(
+                        "Row {0} (invoice {1}): the SEPA mandate on this row does not belong "
+                        "to the row's member. Use the member's own active mandate."
+                    ).format(idx, row.invoice)
+                )
+
+    @staticmethod
+    def _invoice_member(invoice):
+        """The member an invoice was raised for, or None when it cannot be told.
+
+        `row.member` is a writable field, so the mandate-owner comparison alone passes a
+        row naming member B (with B's mandate) on member A's invoice. The dues schedule
+        is authoritative (the processor writes rows from it); `Sales Invoice.member` is
+        only fetched from the customer, which several members can share, so it is the
+        fallback. Unknown (many invoices have neither) must SKIP, never refuse.
+        """
+        schedule = frappe.db.get_value("Sales Invoice", invoice, "membership_dues_schedule_display")
+        if schedule:
+            return frappe.db.get_value("Membership Dues Schedule", schedule, "member")
+        return frappe.db.get_value("Sales Invoice", invoice, "member")
 
     def validate_sequence_types(self):
         """Validate SEPA sequence types for automated batch processing"""
