@@ -29,6 +29,10 @@ def _link_volunteer_to_user(volunteer_doc, user_id):
     """
     if not user_id or volunteer_doc.user:
         return user_id
+    # Volunteer.user is not unique and the portal readers take ONE row by user, so a second
+    # link would shadow the User's real owner.
+    if frappe.db.exists("Volunteer", {"user": user_id, "name": ["!=", volunteer_doc.name]}):
+        return user_id
     frappe.db.set_value("Volunteer", volunteer_doc.name, "user", user_id, update_modified=False)
     volunteer_doc.user = user_id
     return user_id
@@ -320,6 +324,9 @@ def fix_existing_employee_user_links():
                     # Link existing user
                     if update_employee_with_user(record.employee_id, existing_user):
                         fixed_count += 1
+                        _link_volunteer_to_user(
+                            frappe.get_doc("Volunteer", record.volunteer_id), existing_user
+                        )
                 else:
                     # Create new user
                     volunteer_doc = frappe.get_doc("Volunteer", record.volunteer_id)

@@ -17,6 +17,7 @@ from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.employee_user_link import (
     create_employee_for_approved_volunteer,
     enhanced_create_minimal_employee,
+    fix_existing_employee_user_links,
 )
 
 
@@ -90,3 +91,47 @@ class TestVolunteerUserBackref2791(EnhancedTestCase):
         employee_id = create_employee_for_approved_volunteer(self.volunteer)
         self._track_2791(employee_id)
         self.assertFalse(self._volunteer_user_2791())
+
+    def _other_volunteer_holding_user_2791(self, user_name):
+        other_member = self.create_test_member(first_name="Holder2791", last_name="Vol")
+        other = self.create_test_volunteer(member_name=other_member.name)
+        frappe.db.set_value("Volunteer", other.name, "user", user_name, update_modified=False)
+        return other
+
+    def test_a_user_held_by_another_volunteer_is_not_linked_again(self):
+        # Volunteer.user is not unique and the portal readers take ONE row by user: a second
+        # link would shadow the real owner.
+        user = frappe.get_doc(
+            {"doctype": "User", "email": self.email_2791, "first_name": "Backref2791", "send_welcome_email": 0}
+        ).insert()
+        self.factory.track_document("User", user.name, priority=0)
+        other = self._other_volunteer_holding_user_2791(user.name)
+        employee_id = create_employee_for_approved_volunteer(self.volunteer)
+        self._track_2791(employee_id, user.name)
+        self.assertFalse(self._volunteer_user_2791())
+        self.assertEqual(frappe.db.get_value("Volunteer", other.name, "user"), user.name)
+
+    def test_fix_existing_links_link_the_volunteer_of_an_existing_user(self):
+        user = frappe.get_doc(
+            {"doctype": "User", "email": self.email_2791, "first_name": "Backref2791", "send_welcome_email": 0}
+        ).insert()
+        self.factory.track_document("User", user.name, priority=0)
+        employee = frappe.get_doc(
+            {
+                "doctype": "Employee",
+                "first_name": "Backref2791",
+                "last_name": "Emp",
+                "personal_email": self.email_2791,
+                "company": frappe.get_single("Verenigingen Settings").company,
+                "status": "Active",
+                "gender": "Prefer not to say" if frappe.db.exists("Gender", "Prefer not to say") else None,
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": frappe.utils.today(),
+            }
+        ).insert()
+        self.factory.track_document("Employee", employee.name, priority=0)
+        frappe.db.set_value("Volunteer", self.volunteer.name, "employee_id", employee.name, update_modified=False)
+        result = fix_existing_employee_user_links()
+        self.assertTrue(result["success"], result)
+        self.assertEqual(frappe.db.get_value("Employee", employee.name, "user_id"), user.name)
+        self.assertEqual(self._volunteer_user_2791(), user.name)
