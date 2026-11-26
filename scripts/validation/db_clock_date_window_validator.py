@@ -34,6 +34,20 @@ boundary:
 * a direct comparison against a column: ``col > NOW()``, ``NOW() <= col``, etc.
 * ``YEAR(CURDATE())`` / ``YEAR(NOW())`` equality (e.g. "same fiscal year as now")
 
+QUERY-BUILDER WINDOWS (#946)
+----------------------------
+The line regex cannot see ``frappe.qb``/pypika, whose spelling is mixed-case
+(``DateDiff(CurDate(), Member.member_since)``). A second, AST-based pass flags a
+database-clock call -- ``Now``/``CurDate``/``CurrentDate``/``CurrentTimestamp``/
+``CurTimestamp``/``SysDate`` (also behind ``fn.``/``functions.``), or a name bound
+in the same file by ``CustomFunction("CURDATE", ...)`` -- when it is an argument of a
+date function (``DateDiff``, ``TimestampDiff``, ``DateAdd``, ``DateSub``, ``Year``,
+``Date``, ``Interval``...), an operand of a comparison or ``+``/``-``, or the argument
+of a ``gt/gte/lt/lte/eq/ne/between`` method. Findings from both passes are merged by
+line, so one line counts once. The pass is exact-case: Python's ``now()`` is the site
+clock and is never matched. Known gap: a clock call first stored in a variable and
+compared later is not followed.
+
 WHAT IS DELIBERATELY NOT FLAGGED
 ---------------------------------
 * lowercase ``now()`` -- that is Python's ``frappe.utils.now``, the SITE clock,
@@ -41,13 +55,9 @@ WHAT IS DELIBERATELY NOT FLAGGED
 * a bare ``NOW()``/``CURDATE()`` used only as an instant with no comparison or
   arithmetic around it (e.g. ``SELECT NOW()`` as a health-check probe) -- not a
   date WINDOW, nothing to get wrong.
-* a mixed-case query-builder spelling (``CurDate()`` via ``frappe.qb`` /
-  pypika) -- a real instance of this bug class exists this way
-  (``membership_analytics.py`` builds ``DateDiff(CurDate(), ...)``), but this
-  validator's case-sensitive, string-oriented matching cannot see it without a
-  real risk of matching unrelated PascalCase identifiers. Known gap, not an
-  oversight -- like the ``__import__("datetime").datetime.now()`` gap named in
-  ``tests/test_site_timezone_naive_now.py``.
+* a bare clock call used as an instant with no comparison/arithmetic around it
+  (``.set(Member.modified, Now())``, the WRITE side) -- see the next section for
+  what the query-builder pass DOES flag.
 * a raw ``INSERT ... VALUES (..., NOW(), NOW(), ...)`` writing ``creation``/
   ``modified`` directly -- that is #453's WRITE-side bug (a different clock
   fix: ``NOW(6)`` or, better, stop hand-writing the columns at all), not this
@@ -116,6 +126,67 @@ _PATTERNS = [
 ]
 
 
+_QB_CLOCK_NAMES = {"Now", "CurDate", "CurrentDate", "CurrentTimestamp", "CurTimestamp", "SysDate"}
+_QB_CLOCK_SQL = {"NOW", "CURDATE", "CURRENT_DATE", "CURRENT_TIMESTAMP", "SYSDATE", "LOCALTIME"}
+_QB_WINDOW_FUNCS = {
+    "DateDiff", "TimestampDiff", "DateAdd", "DateSub", "Year", "Date", "Interval", "Extract",
+    "DATEDIFF", "TIMESTAMPDIFF", "DATE_ADD", "DATE_SUB", "YEAR", "DATE", "ADDDATE", "SUBDATE",
+}
+_QB_COMPARE_METHODS = {"gt", "gte", "lt", "lte", "eq", "ne", "between", "ge", "le"}
+
+
+def _callee_name(call: ast.Call) -> str | None:
+    f = call.func
+    return f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+
+
+def _custom_function_aliases(tree: ast.AST) -> tuple[set[str], set[str]]:
+    """Names bound by ``X = CustomFunction("SQLNAME", ...)``: (clock aliases, window aliases)."""
+    clocks: set[str] = set()
+    windows: set[str] = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)):
+            continue
+        if _callee_name(node.value) != "CustomFunction" or not node.value.args:
+            continue
+        arg = node.value.args[0]
+        if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
+            continue
+        sql = arg.value.upper()
+        for t in node.targets:
+            if isinstance(t, ast.Name):
+                if sql in _QB_CLOCK_SQL:
+                    clocks.add(t.id)
+                if sql in _QB_WINDOW_FUNCS:
+                    windows.add(t.id)
+    return clocks, windows
+
+
+def qb_findings(source: str) -> list[int]:
+    """Line numbers of query-builder date windows built from the DATABASE clock (#946)."""
+    if not re.search(r"Now|CurDate|CurrentDate|CurrentTimestamp|CurTimestamp|SysDate|CustomFunction", source):
+        return []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    clock_alias, window_alias = _custom_function_aliases(tree)
+    clock_names = _QB_CLOCK_NAMES | clock_alias
+    window_names = _QB_WINDOW_FUNCS | window_alias
+    parent = {c: p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
+    found = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and _callee_name(node) in clock_names):
+            continue
+        up = parent.get(node)
+        if isinstance(up, (ast.Compare, ast.BinOp)):
+            found.add(node.lineno)
+        elif isinstance(up, ast.Call) and node is not up.func:
+            if _callee_name(up) in window_names | _QB_COMPARE_METHODS:
+                found.add(node.lineno)
+    return sorted(found)
+
+
 def _matches_line(line: str) -> bool:
     """True if `line` contains a date-window predicate built on NOW()/CURDATE()."""
     return any(p.search(line) for p in _PATTERNS)
@@ -143,7 +214,11 @@ def line_findings(path: Path) -> list[int]:
             continue
         if _matches_line(line):
             found.append(lineno)
-    return found
+    # #946: the query-builder pass; merged by line so a line matching both counts once.
+    for lineno in qb_findings("\n".join(lines)):
+        if lineno not in found and not lines[lineno - 1].strip().startswith("#"):
+            found.append(lineno)
+    return sorted(found)
 
 
 def _suppressed(lineno: int, lines: list[str]) -> tuple[bool, str | None]:
@@ -450,8 +525,8 @@ def _db_clock_extract(path: Path, rel: str) -> list[tuple[str, int, str, bool]]:
         source = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return []
-    if not re.search(_CLOCK, source):
-        return []  # cheap prefilter: every pattern needs NOW or CURDATE
+    if not re.search(_CLOCK + r"|Now|CurDate|CurrentDate|CurrentTimestamp|CurTimestamp|SysDate", source):
+        return []  # cheap prefilter: every pattern needs a database-clock spelling
     lines = source.splitlines()
     by_path = _db_clock_counted_by_path(rel)
     return [

@@ -540,5 +540,59 @@ class RelocatedPredicateTest(unittest.TestCase):
         self.assertIn("was NOT checked", " ".join(out.getvalue().split()))
 
 
+class QueryBuilderDateWindowTest(unittest.TestCase):
+    """#946: a frappe.qb / pypika date window is invisible to the line regex.
+
+    The CONTROL is the verbatim shape from membership_analytics.py. Without it, a
+    clean scan is equally consistent with "no qb windows exist" and "the pass sees
+    none".
+    """
+
+    QB_HEAD = (
+        "def seg():\n"
+        "    from pypika import CustomFunction\n"
+        "    DateDiff = CustomFunction('DATEDIFF', ['end_date', 'start_date'])\n"
+        "    CurDate = CustomFunction('CURDATE', [])\n"
+    )
+
+    def test_the_known_membership_analytics_shape_is_flagged(self):
+        findings = _flagged(
+            self.QB_HEAD + "    q = frappe.qb.from_(M).select(Avg(DateDiff(CurDate(), M.member_since)))\n"
+        )
+        self.assertEqual([f[0] for f in findings], ["seg"])
+
+    def test_functions_module_spellings_are_flagged(self):
+        for expr in (
+            "fn.DateDiff(fn.Now(), M.creation)",
+            "M.creation > fn.Now()",
+            "M.creation.lt(Now())",
+            "M.creation >= Now() - Interval(hours=1)",
+            "Year(CurrentDate()) == Year(M.creation)",
+        ):
+            with self.subTest(expr=expr):
+                self.assertEqual(len(_flagged(f"def f():\n    q = {expr}\n")), 1)
+
+    def test_python_side_date_math_is_not_flagged(self):
+        for expr in (
+            "frappe.qb.from_(M).where(M.creation > add_days(today(), -7))",
+            "DateDiff(today(), M.member_since)",
+            "M.creation > now_datetime()",
+            "datetime.now() - timedelta(days=1)",
+        ):
+            with self.subTest(expr=expr):
+                self.assertEqual(_flagged(f"def f():\n    q = {expr}\n"), [])
+
+    def test_a_bare_write_side_now_is_not_a_window(self):
+        self.assertEqual(_flagged("def f():\n    q = frappe.qb.update(M).set(M.modified, Now())\n"), [])
+
+    def test_the_pragma_suppresses_a_qb_finding(self):
+        src = "def f():\n    q = M.creation > Now()  # db-clock-window-ok: intentional\n"
+        self.assertEqual(_flagged(src), [])
+
+    def test_a_line_matched_by_both_passes_counts_once(self):
+        src = "def f():\n    q = M.creation > Now() and frappe.db.sql('WHERE x > NOW()')\n"
+        self.assertEqual(len(_flagged(src)), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
