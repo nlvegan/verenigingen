@@ -6,7 +6,7 @@ blocking the source document's own save.
 
 import frappe
 
-from verenigingen.services.field_sync_service import sync_fields
+from verenigingen.services.field_sync_service import FIELD_SYNC_CONFIG, _sync_to_target, sync_fields
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
@@ -73,3 +73,65 @@ class TestFieldSyncFailureVisibility(EnhancedTestCase):
 
         self.assertEqual(frappe.db.get_value("User", self.fs_email, "first_name"), "Renamed")
         self.assertEqual(self._fs_error_rows(), [])
+
+
+class TestMemberSelfRenameSyncsCustomer(EnhancedTestCase):
+    """#3182: a member saving their OWN record (portal session, member role only) must
+    still sync full_name to the linked Customer.
+
+    Customer.save() runs ERPNext's on_update -> create_primary_contact(), which calls
+    frappe.set_value("Contact", ..., "is_primary_contact", 1): a permission-checked save
+    the member's session cannot pass, so the sync failed for every portal rename.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.rn_start = frappe.utils.now_datetime()
+        self.rn_email = f"selfrename3182.{frappe.generate_hash(length=6)}@test.local"
+        self.rn_member = self.create_test_member(
+            first_name="Selfrename",
+            last_name="Portal",
+            email=self.rn_email,
+            birth_date="1990-01-01",
+        )
+        frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": self.rn_email,
+                "first_name": "Selfrename",
+                "send_welcome_email": 0,
+                "roles": [{"role": "Verenigingen Member"}],
+            }
+        ).insert(ignore_permissions=True)
+        self.rn_member.db_set("user", self.rn_email)
+
+    def test_member_session_rename_updates_customer_name(self):
+        customer = self.rn_member.customer
+        self.assertTrue(customer, "precondition: the test member has a Customer")
+        # Precondition for the failing path: with a primary contact, Customer.on_update
+        # takes the frappe.set_value("Contact", ...) branch.
+        self.assertTrue(
+            frappe.db.get_value("Customer", customer, "customer_primary_contact"),
+            "precondition: the Customer has a primary contact",
+        )
+        self.assertFalse(
+            frappe.has_permission("Contact", "write", user=self.rn_email),
+            "precondition: the member role cannot write Contact",
+        )
+
+        member = frappe.get_doc("Member", self.rn_member.name)
+        member.load_doc_before_save()
+        member.full_name = "Renamed Byself"
+        # _sync_to_target, not sync_fields: sync_fields swallows any exception, and the
+        # Customer row is written before on_update raises, so a swallowed failure would
+        # still show the new name. Here a raise fails the test.
+        with self.as_user(self.rn_email):
+            _sync_to_target(member, "Customer", FIELD_SYNC_CONFIG["Member"]["Customer"])
+
+        self.assertEqual(frappe.db.get_value("Customer", customer, "customer_name"), "Renamed Byself")
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"creation": [">=", self.rn_start], "method": ["like", "%Field sync%"]},
+            fields=["method", "error"],
+        )
+        self.assertEqual(rows, [])

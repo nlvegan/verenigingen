@@ -98,6 +98,12 @@ FIELD_SYNC_CONFIG = {
             "field_mappings": {
                 "full_name": "customer_name",
             },
+            # Write the column, not Customer.save(): ERPNext's Customer.on_update ->
+            # create_primary_contact() re-saves the primary Contact through a
+            # permission-checked frappe.set_value, which a member editing their own
+            # record (portal session) cannot pass, so every portal rename failed (#3182).
+            # A name-only update needs none of that cascade.
+            "direct_write": True,
             "sync_flag": "syncing_member_customer_fields",
         },
         "Donor": {
@@ -217,6 +223,10 @@ def _sync_to_target(source_doc, target_doctype: str, config: Dict):
         if sync_flag:
             frappe.flags[sync_flag] = True
 
+        if config.get("direct_write"):
+            _write_target_columns(source_doc, target_doctype, target_name, changed_fields)
+            return
+
         # Get target document
         target_doc = frappe.get_doc(target_doctype, target_name)
 
@@ -250,6 +260,18 @@ def _sync_to_target(source_doc, target_doctype: str, config: Dict):
         # Always clear sync flag
         if sync_flag:
             frappe.flags[sync_flag] = False
+
+
+def _write_target_columns(source_doc, target_doctype: str, target_name: str, changed_fields: Dict):
+    """Write the changed values straight to the target row, without its save hooks."""
+    values = {
+        target_field: getattr(source_doc, source_field, None)
+        for source_field, target_field in changed_fields.get("mappings", {}).items()
+    }
+    for source_field, target_fields in changed_fields.get("transforms", {}).items():
+        for target_field in target_fields:
+            values[target_field] = getattr(source_doc, source_field, None)
+    frappe.db.set_value(target_doctype, target_name, values)
 
 
 def _find_target_document(source_doc, target_doctype: str, config: Dict) -> Optional[str]:
