@@ -172,6 +172,107 @@ class TestSepaMandateConsentPermlevel2480(PortalSelfServiceTestMixin, EnhancedTe
                     msg=f"{role} via {label}",
                 )
 
+    # ---- the desk form round trip: getdoc -> edit a permlevel-0 field -> savedocs ----
+
+    def _form_payload_2480(self, user):
+        """The doc as the desk form holds it after getdoc, as the plain dict savedocs receives."""
+        doc = self._via_getdoc_2480(user)
+        self.assertEqual(doc.get("name"), self.mandate_name, msg="control: getdoc returned the mandate")
+        return doc.as_dict(convert_dates_to_str=True)
+
+    def _form_round_trip_2480(self, user, note):
+        """What the desk form does: load as ``user``, change ``notes``, save it back."""
+        from frappe.desk.form.save import savedocs
+
+        payload = self._form_payload_2480(user)
+        payload["notes"] = note
+        with self._as_user(user):
+            frappe.response["docs"] = []  # the request layer provides this list; savedocs appends to it
+            savedocs(json.dumps(payload, default=str), "Save")
+            frappe.response.pop("docs", None)
+            frappe.response.pop("docinfo", None)
+            frappe.response.pop("message", None)
+
+    def _assert_round_trip_keeps_consent_2480(self, user, label):
+        note = f"round trip by {label}"
+        self._form_round_trip_2480(user, note)
+        stored = frappe.db.get_value(
+            "SEPA Mandate", self.mandate_name, ["notes", *SECRET_FIELDS], as_dict=True
+        )
+        self.assertEqual(stored.notes, note, msg=f"{label}: the edit was not saved (control)")
+        self.assertEqual(stored.consent_ip, SIGNING_IP, msg=label)
+        self.assertEqual(stored.consent_text, consent_module.get_mandate_consent_text(), msg=label)
+
+    def test_board_user_with_write_can_save_the_form_and_the_consent_record_is_untouched(self):
+        board = self.board.user
+        self.assertTrue(frappe.has_permission("SEPA Mandate", "write", doc=self.mandate_name, user=board))
+        self._assert_round_trip_keeps_consent_2480(board, "board user")
+
+    def test_the_signing_member_can_save_the_form_and_the_consent_record_is_untouched(self):
+        self._assert_round_trip_keeps_consent_2480(self.member_user.name, "signing member")
+
+    def test_a_staff_reader_round_trip_also_succeeds(self):
+        """Control: a caller who RECEIVES the fields and sends them back unchanged."""
+        self._assert_round_trip_keeps_consent_2480(
+            self._staff_user_2480("Verenigingen Staff"), "staff reader"  # Administrator holds no write row
+        )
+
+    def test_a_forged_consent_edit_by_a_staff_reader_leaves_the_stored_value_unchanged(self):
+        """A reader holds permlevel-1 READ only, so Frappe drops a forged value on save (no-op)."""
+        from frappe.desk.form.save import savedocs
+
+        staff = self._staff_user_2480("Verenigingen Staff")  # a reader WITH permlevel-0 write
+        self.assertTrue(frappe.has_permission("SEPA Mandate", "write", doc=self.mandate_name, user=staff))
+        payload = self._form_payload_2480(staff)
+        self.assertEqual(payload["consent_text"], consent_module.get_mandate_consent_text())  # control
+        payload["consent_text"] = "forged"
+        payload["consent_ip"] = "192.0.2.1"
+        payload["notes"] = "forgery attempt by staff"
+        with self._as_user(staff):
+            frappe.response["docs"] = []
+            try:
+                savedocs(json.dumps(payload, default=str), "Save")
+            except frappe.PermissionError:
+                pass  # refusing is equally acceptable; the stored value is what matters
+        stored = frappe.db.get_value("SEPA Mandate", self.mandate_name, list(SECRET_FIELDS), as_dict=True)
+        self.assertEqual(stored.consent_ip, SIGNING_IP)
+        self.assertEqual(stored.consent_text, consent_module.get_mandate_consent_text())
+
+    def test_a_forged_permlevel_0_consent_field_is_still_refused_for_a_non_reader(self):
+        """consent_source / consent_timestamp stay permlevel 0: the provenance guard still refuses."""
+        from frappe.desk.form.save import savedocs
+
+        board = self.board.user
+        payload = self._form_payload_2480(board)
+        payload["consent_source"] = "Staff entered"
+        with self._as_user(board):
+            frappe.response["docs"] = []
+            with self.assertRaises(frappe.PermissionError) as raised:
+                savedocs(json.dumps(payload, default=str), "Save")
+        self.assertIn("consent record", str(raised.exception))
+        self.assertEqual(
+            frappe.db.get_value("SEPA Mandate", self.mandate_name, "consent_source"), "Member consent"
+        )
+
+    def test_a_forged_consent_edit_by_a_non_reader_leaves_the_stored_value_unchanged(self):
+        """A non-reader's forged value is dropped by Frappe's permlevel reset (a quiet no-op)."""
+        from frappe.desk.form.save import savedocs
+
+        board = self.board.user
+        payload = self._form_payload_2480(board)
+        payload["consent_text"] = "forged"
+        payload["consent_ip"] = "192.0.2.1"
+        payload["notes"] = "forgery attempt"
+        with self._as_user(board):
+            frappe.response["docs"] = []
+            try:
+                savedocs(json.dumps(payload, default=str), "Save")
+            except frappe.PermissionError:
+                pass  # refusing is equally acceptable; the stored value is what matters
+        stored = frappe.db.get_value("SEPA Mandate", self.mandate_name, list(SECRET_FIELDS), as_dict=True)
+        self.assertEqual(stored.consent_ip, SIGNING_IP)
+        self.assertEqual(stored.consent_text, consent_module.get_mandate_consent_text())
+
     # ---- the declaration itself ----
 
     def test_both_fields_declare_permlevel_1_and_all_staff_roles_have_a_permlevel_1_read_row(self):

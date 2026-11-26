@@ -93,6 +93,11 @@ def record_member_consent(mandate, text: str) -> None:
     mandate.consent_text = str(text)
     mandate.consent_ip = get_client_ip_or_none()
     mandate.flags.member_consent_verified = True
+    # consent_ip / consent_text sit at permlevel 1 (#2480): a member holds permlevel 0 only, and
+    # Frappe resets such a field to its default on insert, which would wipe the values just
+    # stamped. The flag lives on this one not-yet-inserted instance, so it cannot reach an
+    # UPDATE, where the standard reset must restore the stored values for non-readers.
+    mandate.flags.ignore_permlevel_for_fields = ["consent_ip", "consent_text"]
 
 
 def user_is_staff() -> bool:
