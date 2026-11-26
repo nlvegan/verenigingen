@@ -19,6 +19,7 @@ import frappe
 from frappe.utils import add_days, add_months, flt, getdate, today
 from freezegun import freeze_time
 
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.services.member.application.application_materialiser import materialise_member
 from verenigingen.tests.integration.test_application_record_approval import SUBMISSION, ApprovalCase
 
@@ -266,7 +267,7 @@ class TestReapplicationDuesTemplate(ApprovalCase):
 
         schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
         rejoin_start = getdate(frappe.db.get_value("Member", member, "member_since"))
-        self.assertEqual(rejoin_start, getdate(today()))
+        assert_written_today(self, rejoin_start)
         self.assertGreater((rejoin_start - old_coverage_end).days, 150, "precondition: a real gap")
         self.assertEqual(str(schedule.coverage_anchor_date), str(rejoin_start))
         self.assertEqual(getdate(schedule.next_invoice_date), getdate(add_months(rejoin_start, 1)))

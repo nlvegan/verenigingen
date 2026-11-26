@@ -301,12 +301,14 @@ class PaymentHistoryService(StatelessService):
 
         invoice_names = [inv.name for inv in invoices]
 
-        # Fetch all payment references at once
+        # Fetch all payment references at once. Only SUBMITTED Payment Entries are money
+        # received; a child row carries its parent's docstatus (#3155).
         all_payment_refs = frappe.get_all(
             "Payment Entry Reference",
             filters={
                 "reference_doctype": "Sales Invoice",
                 "reference_name": ["in", invoice_names],
+                "docstatus": 1,
             },
             fields=["parent", "allocated_amount", "reference_name"],
         )
@@ -323,7 +325,7 @@ class PaymentHistoryService(StatelessService):
                 doctype="Payment Entry",
                 name_list=list(all_payment_entry_names),
                 fields=["name", "posting_date", "mode_of_payment", "paid_amount"],
-                filters={"docstatus": ["!=", 2]},
+                filters={"docstatus": 1},
             )
             cache.payments_by_name = {pe.name: pe for pe in all_payment_entries}
 

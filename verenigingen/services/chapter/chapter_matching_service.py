@@ -94,7 +94,7 @@ class ChapterMatchingService(StatelessService):
 
         # #846: this used to frappe.get_doc() every published chapter just to
         # call matches_postal_code() -- an N+1 Document load per row, two
-        # hops from the guest-whitelisted suggest_chapters_for_member().
+        # hops from suggest_chapters_for_member() (guest access was dropped, #3046).
         # matches_postal_code() only ever reads the postal_codes text already
         # fetched above, so match against that directly. One shared validator
         # avoids re-reading the max-patterns setting per chapter.
