@@ -20,6 +20,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestBoardManager(VereningingenTestCase):
@@ -93,7 +94,7 @@ class TestBoardManager(VereningingenTestCase):
         seated = [b for b in self.chapter.board_members if b.volunteer == volunteer.name and b.is_active]
         self.assertEqual(len(seated), 1)
         self.assertEqual(seated[0].chapter_role, role_name)
-        self.assertEqual(str(seated[0].from_date), today())
+        assert_written_today(self, seated[0].from_date)
         # board member added => member auto-added to chapter members
         self.assertTrue(any(m.member == member.name for m in self.chapter.members))
 
@@ -367,7 +368,7 @@ class TestBoardManager(VereningingenTestCase):
         self._reload_chapter()
         row = next(b for b in self.chapter.board_members if b.volunteer == volunteer.name)
         self.assertFalse(row.is_active)
-        self.assertEqual(str(row.to_date), today())
+        assert_written_today(self, row.to_date)
         self.assertIn("stepped down", row.notes or "")
 
     def test_remove_board_member_not_active_throws(self):
@@ -449,7 +450,7 @@ class TestBoardManager(VereningingenTestCase):
         # Deactivation keeps the row but marks it inactive.
         row = next(b for b in self.chapter.board_members if b.volunteer == volunteer.name)
         self.assertFalse(row.is_active)
-        self.assertEqual(str(row.to_date), today())
+        assert_written_today(self, row.to_date)
         self.assertIn("deactivated in bulk", row.notes or "")
 
     def test_bulk_deactivate_board_members_empty_list(self):

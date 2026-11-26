@@ -28,9 +28,6 @@ boundary or mocking business logic, which the test-quality-enforcer forbids):
   payment "SEPA Direct Debit", bank GL setup). The submit/commit path would leak
   committed rows across the shared shards; the guard branch (un-submitted batch
   throws) IS covered.
-- ``process_batch_submission`` success path: it only flips status + saves and is
-  a documented bank-integration placeholder; the guard (no SEPA file -> throw) is
-  covered.
 - ``generate_sepa_xml`` / SEPA XML content: covered by
   test_direct_debit_batch_refactoring.py.
 - ``handle_failed_payment`` schedule mutation: covered end-to-end by
@@ -53,6 +50,7 @@ from verenigingen.verenigingen_payments.services.batch_processing_service import
     batch_processing_service,
 )
 from verenigingen.verenigingen_payments.services.sepa_batch_processor import SEPABatchProcessor
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class _BatchPipelineBase(EnhancedTestCase):
@@ -410,14 +408,6 @@ class TestBatchProcessingServiceGuards(_BatchPipelineBase):
         with self.assertRaises(frappe.ValidationError):
             self.service.mark_batch_invoices_as_paid(batch)
 
-    def test_process_batch_submission_requires_sepa_file(self):
-        # The guard logs the failure before re-raising; assert both.
-        self.expectErrorLog("SEPA file must be generated")
-        batch, _m, _mn = self._one_invoice_batch()
-        self.assertFalse(batch.sepa_file_generated)
-        with self.assertRaises(frappe.ValidationError):
-            self.service.process_batch_submission(batch)
-
     def test_singleton_and_class_share_config(self):
         fresh = BatchProcessingService()
         self.assertIs(fresh.config_service, batch_processing_service.config_service)
@@ -694,7 +684,7 @@ class TestSEPAProcessorAPIEntrypoints(_BatchPipelineBase):
 
         result = get_sepa_batch_preview(today())
         self.assertTrue(result["success"])
-        self.assertEqual(result["collection_date"], today())
+        assert_written_today(self, result["collection_date"])
         # sample is a prefix of the found invoices.
         self.assertLessEqual(len(result["sample_invoices"]), 5)
         self.assertLessEqual(len(result["sample_invoices"]), result["unpaid_invoices_found"])

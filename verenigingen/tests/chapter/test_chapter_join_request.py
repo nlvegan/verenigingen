@@ -13,6 +13,7 @@ from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 import unittest
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestChapterJoinRequestComprehensive(EnhancedTestCase):
@@ -208,9 +209,6 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         # Verify that Chapter Member child table structure is intact
         chapter = frappe.get_doc("Chapter", self.active_chapter.name)
 
-        # Should have members child table
-        self.assertTrue(hasattr(chapter, "members"), "Chapter should have members child table")
-
         # Test adding member directly (old functionality should still work)
         initial_count = len(chapter.members)
 
@@ -365,7 +363,7 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         self.assertEqual(request.member_email, self.active_member.email)
 
         # Test that request_date is set
-        self.assertEqual(request.request_date, today())
+        assert_written_today(self, request.request_date)
 
         # Test DocType relationships
         member_doc = frappe.get_doc("Member", request.member)

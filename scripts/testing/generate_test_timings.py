@@ -56,8 +56,12 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # silently falls back to its count-based weight - a table that looks generated but
 # carries no measurements at all.
 GHA_TS = re.compile(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z ", re.M)
-HEADER = re.compile(rf"^({APP}[\w.]+)\s*$")  # e.g. verenigingen.tests.payment.test_x.TestClass
-DURATION = re.compile(r"\((\d+\.\d+)s\)")
+# e.g. verenigingen.tests.payment.test_x.TestClass. The last component must be a class (capitalised):
+# a logger or traceback line naming a module must not start a span.
+HEADER = re.compile(rf"^({APP}(?:\.\w+)+\.[A-Z]\w*)\s*$")
+# frappe prints >=100s in scientific notation, e.g. "(3.26e+02s)"; the old \d+\.\d+ form missed
+# every one of them (24 lines in 24 shard logs, run 42372760702).
+DURATION = re.compile(r"\((\d+(?:\.\d+)?(?:e[+-]?\d+)?)s\)")
 
 
 def dotted_to_relfile(dotted):
@@ -92,6 +96,54 @@ def measured_slow_seconds(log_paths):
     return best, bestcnt
 
 
+TS_LINE = re.compile(r"^\ufeff?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)Z (.*)$")
+END_OF_RUN = re.compile(r"^Tests:\s*\d+")
+
+
+def _parse_ts(stamp):
+    from datetime import datetime
+
+    return datetime.fromisoformat(stamp[:26])
+
+
+def measured_elapsed_seconds(log_paths):
+    """Per dotted module: real wall-clock seconds, max across logs (#2184 follow-up).
+
+    GitHub prefixes every job-log line with a timestamp, so a module's cost is the time from
+    its first class header to the next module's header (or the "Tests: N" summary). Unlike the
+    printed "(N.NNs)" durations this counts every second, including sub-2s tests and the >=100s
+    tests the old DURATION regex could not read - measured on run 42372760702,
+    test_payment_history_scalability took ~800s and weighed 59. Classes of one module are
+    summed; a log without timestamps contributes nothing.
+
+    Known limitation: frappe prints a class header from startTest, i.e. AFTER that class's
+    setUpClass, so setup time is charged to the PREVIOUS class (possibly another module).
+    Per-shard totals stay right; a module's weight can be off by tens of seconds (largest seen:
+    ~87s unprinted in one gap across 24 logs). Exact attribution needs a per-class timing hook.
+    """
+    best = {}
+    for path in log_paths:
+        marks = []
+        with open(path, errors="ignore", encoding="utf-8-sig") as f:
+            for raw in f:
+                m = TS_LINE.match(raw.rstrip("\n"))
+                if not m:
+                    continue
+                body = ANSI.sub("", m.group(2)).strip()
+                h = HEADER.match(body)
+                if h and ".test" in h.group(1).lower():
+                    marks.append((_parse_ts(m.group(1)), h.group(1).rsplit(".", 1)[0]))
+                elif END_OF_RUN.match(body) and marks:
+                    marks.append((_parse_ts(m.group(1)), None))
+                    break
+        per_run = {}
+        for (t, mod), (t2, _) in zip(marks, marks[1:]):
+            per_run[mod] = per_run.get(mod, 0.0) + (t2 - t).total_seconds()
+        for mod, secs in per_run.items():
+            best[mod] = max(best.get(mod, 0.0), secs)
+    return best
+
+
 def count_test_methods(relfile):
     try:
         with open(relfile, errors="ignore") as f:
@@ -108,6 +160,7 @@ def main(log_globs):
         print("No log files matched; pass shard log paths/globs as args.", file=sys.stderr)
         return 1
     slow, slowcnt = measured_slow_seconds(log_paths)
+    elapsed = measured_elapsed_seconds(log_paths)
 
     # Walk every test file so the table is complete (files with no slow tests
     # still get a count-based weight; new files fall back in the runner patch).
@@ -122,6 +175,10 @@ def main(log_globs):
             relfile = os.path.join(root, fn)
             # dotted module path relative to the package dir's parent
             dotted = os.path.relpath(relfile, f"apps/{APP}").replace("/", ".")[: -len(".py")]
+            if dotted in elapsed:
+                # Real wall-clock time from the timestamped log: includes setUpClass.
+                weights[dotted] = max(1, round(elapsed[dotted]))
+                continue
             count = count_test_methods(relfile)
             secs = slow.get(dotted, 0.0)
             # measured slow-test seconds + a flat allowance for the remaining
@@ -135,8 +192,12 @@ def main(log_globs):
 
     total = sum(weights.values())
     top = sorted(weights.items(), key=lambda x: -x[1])[:10]
-    measured = sum(1 for m in weights if m in slow)
-    print(f"Wrote {OUT}: {len(weights)} files, {measured} with measured slow-test data, total weight {total}")
+    timed = sum(1 for m in weights if m in elapsed)
+    measured = sum(1 for m in weights if m in slow and m not in elapsed)
+    print(
+        f"Wrote {OUT}: {len(weights)} files, {timed} timed from log timestamps, "
+        f"{measured} more from slow-test durations, total weight {total}"
+    )
     print("Heaviest files:")
     for mod, w in top:
         print(f"  {w:6d}  {mod}")

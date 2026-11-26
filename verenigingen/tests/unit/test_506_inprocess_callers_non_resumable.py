@@ -151,11 +151,17 @@ class TestVolunteerMembershipApplicationNonResumable(VereningingenTestCase):
         self.assertFalse(result["success"], f"reported success after a 1205: {result}")
         self._assert_volunteer_rolled_back()
 
-    def test_an_ordinary_membership_failure_still_keeps_the_volunteer_application(self):
-        """CONTROL: today's handling -- the membership error is surfaced and the call still answers."""
+    def test_an_ordinary_membership_failure_that_rolls_back_is_reported_as_a_failure(self):
+        """#2653: submit_application's own rollback discards the Volunteer, so "received" was a lie.
+
+        This test used to assert ``success`` here, i.e. it encoded the defect: the Volunteer row is
+        gone (``_assert_volunteer_rolled_back``) while the old answer said the application was saved.
+        The no-rollback control (a membership validation error keeps the row and still answers
+        success) lives in test_2653_volunteer_form_failure_signal.
+        """
         result = self._submit(RuntimeError("ordinary failure"))
-        self.assertTrue(result["success"], result)
-        self.assertTrue((result["data"] or {}).get("membership_application_error"))
+        self.assertFalse(result["success"], result)
+        self._assert_volunteer_rolled_back()
 
     def test_the_helper_lets_the_class_escape(self):
         from verenigingen.api import membership_application

@@ -4,6 +4,8 @@
 import frappe
 from frappe.model.document import Document
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
 
 class ChapterMember(Document):
     def after_insert(self):
@@ -13,9 +15,28 @@ class ChapterMember(Document):
         # never runs for a row saved through its parent and ignored enabled/status.
 
     def on_trash(self):
-        """Handle chapter member removal"""
-        self._send_chapter_farewell_notification()
-        self._notify_board_of_member_left()
+        """Handle chapter member removal.
+
+        Fail-soft (#2868 ruling): a mail failure must never block the delete, on any delete
+        path (cleanup service, Desk, API). Each leg is guarded on its own so a farewell failure
+        does not skip the board mail.
+        """
+        self._run_trash_notification("farewell", self._send_chapter_farewell_notification)
+        self._run_trash_notification("board", self._notify_board_of_member_left)
+
+    def _run_trash_notification(self, leg, send):
+        try:
+            send()
+        except NON_RESUMABLE_DB_ERRORS:
+            raise  # a deadlock/lock-wait leaves the transaction unusable: never swallow it
+        except Exception:
+            frappe.log_error(
+                title=f"Chapter Member {leg} mail failed on removal",
+                message=(
+                    f"Member {self.member} leaving chapter {self.parent}: the {leg} notification "
+                    f"raised and the Chapter Member row was deleted anyway.\n\n{frappe.get_traceback()}"
+                ),
+            )
 
     # #596: this class used to define validate() (default status to "Active", and
     # a call-stack-introspection warning -- never a throw -- nudging toward using

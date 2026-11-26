@@ -16,6 +16,7 @@ from frappe.utils import add_days, cstr, flt, getdate, today
 
 from verenigingen.services.communication.email_service import get_email_service
 from verenigingen.utils.settings_utils import get_payments_settings
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import (
     get_batch_performance_optimizer,
 )
@@ -647,10 +648,17 @@ class SEPABatchProcessor:
                 # Find the invoice in the batch
                 invoice_item = self.find_invoice_in_batch(batch, return_item)
                 if invoice_item:
-                    # Update invoice status
-                    invoice_item.status = "Failed"
-                    invoice_item.result_code = return_item.get("reason_code")
-                    invoice_item.result_message = return_item.get("reason_description")
+                    # A return file only exists for a collected, i.e. SUBMITTED, batch,
+                    # and these child fields are not allow_on_submit: persist them
+                    # directly, a batch.save() below would raise UpdateAfterSubmitError (#1235).
+                    invoice_item.db_set(
+                        {
+                            "status": "Failed",
+                            "result_code": return_item.get("reason_code"),
+                            "result_message": return_item.get("reason_description"),
+                        },
+                        update_modified=False,
+                    )
 
                     # Handle the failed payment
                     self.handle_failed_payment(invoice_item, return_item)
@@ -660,8 +668,13 @@ class SEPABatchProcessor:
             if failed_count > 0:
                 batch.status = "Partially Failed"
                 batch.add_to_batch_log(f"Processed {failed_count} returned payments")
+                # batch_log is not allow_on_submit (status is), so both are persisted with
+                # db_set rather than batch.save() (#1230, #1235). A Draft batch therefore no
+                # longer re-runs validate() (the totals recalculation) here, intentionally:
+                # a return file only applies to a collected, i.e. submitted, batch.
+                batch.db_set("status", batch.status, update_modified=False)
+                batch.db_set("batch_log", batch.batch_log, update_modified=False)
 
-            batch.save()
             return failed_count
 
         except Exception:
@@ -783,10 +796,13 @@ class SEPABatchProcessor:
                 schedule_updated = True
 
             except Exception:
-                # Rollback schedule changes on any error
-                frappe.db.rollback_savepoint("handle_failed_payment")
+                # Rollback schedule changes on any error (#3094: frappe.db has no
+                # rollback_savepoint, and the AttributeError replaced the real error)
+                rollback_to_savepoint("handle_failed_payment")
                 raise
 
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
         except Exception:
             frappe.log_error(
                 title="Failed Payment Handler Error",
@@ -1207,6 +1223,12 @@ class SEPABatchProcessor:
             # a Company").
             if self.company:
                 invoice.company = self.company.name
+                # #2810: price list in the company currency (no live rate fetch).
+                from verenigingen.utils.invoice_price_list import get_selling_price_list_for_company
+
+                invoice.selling_price_list = get_selling_price_list_for_company(
+                    self.company.name, invoice.customer
+                )
             invoice.posting_date = today()
             invoice.due_date = schedule.next_invoice_date
 

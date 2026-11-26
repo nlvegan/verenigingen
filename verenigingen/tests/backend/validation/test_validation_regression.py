@@ -7,6 +7,7 @@ import os
 
 import frappe
 from frappe.utils import today
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.integration.test_application_record_approval import ApprovalCase
 from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
@@ -174,7 +175,7 @@ class TestValidationRegression(EnhancedTestCase):
                 ["New", "Onboarding", "Active", "Inactive", "Retired"],
                 "create_volunteer_record should use valid status values",
             )
-            self.assertEqual(str(volunteer.start_date), today(), "start_date should be today")
+            assert_written_today(self, volunteer.start_date, "start_date should be today")
 
     def test_api_error_handling(self):
         """Test that API functions handle validation errors gracefully"""

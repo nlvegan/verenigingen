@@ -39,6 +39,13 @@ class CriticalOperationRule(Document):
     This DocType enables administrators to configure security rules for critical
     operations without code deployments. It supports business logic validation,
     rate limiting, audit requirements, and monitoring thresholds.
+
+    NOT an authorization source: ``required_roles``, ``required_permissions`` and the
+    row's ``security_level`` text are informational and are not enforced. Access is
+    decided by the API security decorators (``critical_api``, ``high_security_api``,
+    ...) and the user's Role Profiles (``AuthorizationPolicy``). Measured (#3058): at
+    critical, the Treasurer, National Board Member and Administrator profiles pass,
+    while a plain System Manager or Staff user is refused, whatever a row lists.
     """
 
     def validate(self):

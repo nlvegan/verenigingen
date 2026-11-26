@@ -7,6 +7,7 @@ import re
 
 import frappe
 
+from verenigingen.utils.bank_account_creation import create_bank_account, ensure_bank_record
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
@@ -453,160 +454,75 @@ def generate_dutch_iban(account_number, bank_code):
         return None
 
 
+# Swift code and website for the banks the CoA names mention, first substring match wins.
+_KNOWN_BANK_DETAILS = (
+    ("triodos", "TRIONL2U", "https://www.triodos.nl"),
+    ("ing", "INGBNL2A", "https://www.ing.nl"),
+    ("rabo", "RABONL2U", "https://www.rabobank.nl"),
+    ("abn", "ABNANL2A", "https://www.abnamro.nl"),
+)
+
+
 def get_or_create_bank(bank_info):
     """
-    Get existing Bank record or create new one
+    Get existing Bank record or create new one.
+
+    Raises BankAccountCreationError on failure (shared creator, #2126); the loop callers
+    below and AccountMigrationService already catch per account.
     """
-    bank_name = bank_info.get("bank_name")
-
-    if not bank_name:
-        bank_name = "Unknown Bank"
-
-    # Check if Bank already exists
-    existing_bank = frappe.db.exists("Bank", {"bank_name": bank_name})
-
-    if existing_bank:
-        return existing_bank
-
-    # Create new Bank record
-    try:
-        bank = frappe.new_doc("Bank")
-        bank.bank_name = bank_name
-
-        # Set additional fields if available
-        if "triodos" in bank_name.lower():
-            bank.swift_number = "TRIONL2U"
-            bank.website = "https://www.triodos.nl"
-        elif "ing" in bank_name.lower():
-            bank.swift_number = "INGBNL2A"
-            bank.website = "https://www.ing.nl"
-        elif "rabo" in bank_name.lower():
-            bank.swift_number = "RABONL2U"
-            bank.website = "https://www.rabobank.nl"
-        elif "abn" in bank_name.lower():
-            bank.swift_number = "ABNANL2A"
-            bank.website = "https://www.abnamro.nl"
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        result = secure_document_operation(
-            operation="insert",
-            doc=bank,
-            justification=f"Create Bank record {bank.bank_name} for E-Boekhouden integration - Dutch banking setup",
-            required_permissions=["Bank:create"],
-        )
-
-        if not result.success:
-            frappe.log_error(f"Failed to create Bank record {bank.bank_name}: {'; '.join(result.errors)}")
-            return None
-
-        bank = result.document
-        frappe.logger().info(f"Created Bank: {bank.name}")
-        return bank.name
-
-    except Exception as e:
-        frappe.logger().error(f"Error creating Bank {bank_name}: {str(e)}")
-        return "Unknown Bank"
+    bank_name = bank_info.get("bank_name") or "Unknown Bank"
+    swift_number = website = None
+    for keyword, swift, site in _KNOWN_BANK_DETAILS:
+        if keyword in bank_name.lower():
+            swift_number, website = swift, site
+            break
+    return ensure_bank_record(
+        bank_name, swift_number=swift_number, website=website, source="E-Boekhouden integration"
+    )
 
 
 def create_bank_account_record(account, bank_name, bank_info, company):
     """
-    Enhanced Bank Account creation with proper CoA mapping validation
+    Create the Bank Account for a Chart of Accounts account.
+
+    Raises BankAccountCreationError on failure (shared creator, #2126). The Bank Account
+    takes the currency of its CoA account.
     """
-    try:
-        # Validate that the Chart of Accounts account exists
-        account_name = account.get("name") if isinstance(account, dict) else account.name
-        if not frappe.db.exists("Account", account_name):
-            frappe.logger().error(f"Chart of Accounts account {account_name} not found")
-            return None
+    account_name = account.get("name") if isinstance(account, dict) else account.name
+    if isinstance(account, dict):
+        display_name = frappe.db.get_value("Account", account_name, "account_name") or account_name
+    else:
+        display_name = account.account_name if hasattr(account, "account_name") else account.name
 
-        # Get account details
-        account_doc = frappe.get_doc("Account", account_name) if isinstance(account, dict) else account
+    bank_account = create_bank_account(
+        gl_account=account_name,
+        bank=bank_name,
+        account_name=_coa_bank_account_name(bank_info, display_name),
+        company=company,
+        currency=frappe.db.get_value("Account", account_name, "account_currency"),
+        source="E-Boekhouden integration",
+        iban=bank_info.get("iban"),
+        bank_account_no=bank_info.get("account_number"),
+        party_is_company=bool(bank_info.get("account_holder")),
+    )
 
-        bank_account = frappe.new_doc("Bank Account")
-
-        # Enhanced account name generation - ensure uniqueness
-        account_display_name = (
-            account_doc.account_name if hasattr(account_doc, "account_name") else account_doc.name
+    coa_account_type = frappe.db.get_value("Account", account_name, "account_type")
+    if coa_account_type != "Bank":
+        frappe.logger().warning(
+            f"Chart of Accounts account {account_name} should be type 'Bank', got '{coa_account_type}'"
         )
+    return bank_account
 
-        if bank_info.get("description") and bank_info.get("account_number"):
-            bank_account.account_name = (
-                f"{bank_info['bank_name']} - {bank_info['account_number']} - {bank_info['description']}"
-            )
-        elif bank_info.get("account_number"):
-            bank_account.account_name = f"{bank_info['bank_name']} - {bank_info['account_number']}"
-        elif bank_info.get("description"):
-            bank_account.account_name = f"{bank_info['bank_name']} - {bank_info['description']}"
-        else:
-            # Use Chart of Accounts account name to ensure uniqueness
-            bank_account.account_name = f"{bank_info['bank_name']} - {account_display_name}"
 
-        # Critical: Ensure proper Chart of Accounts mapping
-        bank_account.account = account_name
-        bank_account.bank = bank_name
-        bank_account.company = company
-        bank_account.is_company_account = 1
-        bank_account.is_default = 0
-
-        # Set account details
-        if bank_info.get("account_number"):
-            bank_account.bank_account_no = bank_info["account_number"]
-
-        # Add IBAN if available
-        if bank_info.get("iban"):
-            bank_account.iban = bank_info["iban"]
-
-        # Set currency to match company's default currency
-        company_currency = frappe.db.get_value("Company", company, "default_currency") or "EUR"
-        bank_account.currency = company_currency
-
-        # Account holder (use company name if not specified)
-        if bank_info.get("account_holder"):
-            # For non-IBAN accounts like PayPal
-            bank_account.party_type = "Company"
-            bank_account.party = company
-
-        # Save and validate
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        result = secure_document_operation(
-            operation="insert",
-            doc=bank_account,
-            justification=f"Create Bank Account {bank_account.account_name} for E-Boekhouden integration - Dutch banking setup",
-            required_permissions=["Bank Account:create"],
-        )
-
-        if not result.success:
-            frappe.log_error(
-                f"Failed to create Bank Account {bank_account.account_name}: {'; '.join(result.errors)}"
-            )
-            return None
-
-        bank_account = result.document
-
-        # Validate the mapping was successful
-        if not bank_account.account:
-            frappe.logger().error(f"Bank Account {bank_account.name} created but not mapped to CoA account")
-            return None
-
-        # Verify the Chart of Accounts account has proper type
-        coa_account_type = frappe.db.get_value("Account", bank_account.account, "account_type")
-        if coa_account_type != "Bank":
-            frappe.logger().warning(
-                f"Chart of Accounts account {bank_account.account} should be type 'Bank', got '{coa_account_type}'"
-            )
-
-        frappe.logger().info(f"Created Bank Account: {bank_account.name} mapped to {account_name}")
-        return bank_account.name
-
-    except Exception as e:
-        # Log detailed error information
-        error_msg = f"Error creating Bank Account for {account.get('name', 'Unknown')}: {str(e)}"
-        frappe.logger().error(error_msg)
-
-        # Also log to error log for debugging
-        frappe.log_error(title="Bank Account Creation", message=error_msg)
-
-        return None
+def _coa_bank_account_name(bank_info, account_display_name):
+    """Unique Bank Account name from the extracted bank info, else from the CoA account name."""
+    if bank_info.get("description") and bank_info.get("account_number"):
+        return f"{bank_info['bank_name']} - {bank_info['account_number']} - {bank_info['description']}"
+    if bank_info.get("account_number"):
+        return f"{bank_info['bank_name']} - {bank_info['account_number']}"
+    if bank_info.get("description"):
+        return f"{bank_info['bank_name']} - {bank_info['description']}"
+    return f"{bank_info['bank_name']} - {account_display_name}"
 
 
 @frappe.whitelist()
@@ -887,12 +803,9 @@ def create_missing_bank_accounts(company=None):
                     account=account_doc, bank_name=bank_name, bank_info=bank_info, company=company
                 )
 
-                if bank_account:
-                    created_accounts.append(
-                        {"account": account_name, "bank_account": bank_account, "bank_name": bank_name}
-                    )
-                else:
-                    errors.append(f"Failed to create Bank Account for {account_name}")
+                created_accounts.append(
+                    {"account": account_name, "bank_account": bank_account, "bank_name": bank_name}
+                )
 
             except Exception as e:
                 error_msg = f"Error creating Bank Account for {missing_account['account']}: {str(e)}"

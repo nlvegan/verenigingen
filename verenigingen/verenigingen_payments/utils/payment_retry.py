@@ -37,6 +37,11 @@ class PaymentRetryManager:
     @critical_api(operation_type=OperationType.FINANCIAL)
     def schedule_retry(self, failed_invoice, reason_code=None, reason_message=None):
         """Schedule a retry for a failed payment"""
+        return self._schedule_retry(failed_invoice, reason_code, reason_message)
+
+    def _schedule_retry(self, failed_invoice, reason_code=None, reason_message=None):
+        # Undecorated body: api.payment_dashboard.retry_failed_payment (itself @critical_api)
+        # calls this so one manual retry is one audit row and one rate-limit bucket (#2280).
 
         # Get or create retry record
         retry_record = self.get_or_create_retry_record(failed_invoice)

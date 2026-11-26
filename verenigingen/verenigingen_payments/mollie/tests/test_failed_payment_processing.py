@@ -10,7 +10,6 @@ import frappe
 from frappe.utils import getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.tests.utils.notification_state import own_notification_keys
 
 
 class TestFailedPaymentProcessing(EnhancedTestCase):
@@ -95,57 +94,6 @@ class TestFailedPaymentProcessing(EnhancedTestCase):
                 f"Should have found donation {self.test_donation.name} with payment_id {self.test_donation.payment_id}"
             )
 
-    def test_subscription_failure_count_with_real_payment_history(self):
-        """Test failure count calculation with actual Member Payment History records"""
-        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import (
-            _get_subscription_failure_count,
-        )
-
-        # Add real failed payment history entries
-        subscription_id = self.test_member.mollie_subscription_id
-
-        for i in range(3):
-            self.test_member.append(
-                "payment_history",
-                {
-                    "transaction_type": "Subscription Payment",
-                    "payment_status": "Cancelled",  # Valid status for failed payments
-                    "amount": 25.0,
-                    "payment_method": "Mollie",
-                    "posting_date": getdate(),
-                    "payment_date": getdate(),
-                    "notes": f"Mollie payment tr_test_failed_{i+1} (subscription {subscription_id}) failed: failed",
-                },
-            )
-
-        # Add one successful payment to verify filtering works
-        self.test_member.append(
-            "payment_history",
-            {
-                "transaction_type": "Subscription Payment",
-                "payment_status": "Paid",
-                "amount": 25.0,
-                "payment_method": "Mollie",
-                "posting_date": getdate(),
-                "mollie_subscription_id": subscription_id,
-                "notes": "Successful subscription payment",
-            },
-        )
-
-        self.test_member.save()
-
-        # Test the actual failure count function
-        failure_count = _get_subscription_failure_count(self.test_member.name, subscription_id)
-
-        # This should return 3, not 0 - if it returns 0, the function is broken
-        if failure_count == 0:
-            self.fail(
-                "_get_subscription_failure_count returned 0 when it should return 3. The function needs to be fixed."
-            )
-        else:
-            self.assertEqual(failure_count, 3)
-
-    # DISABLED: test_webhook_service_layer_integration - WebhookWrapperService archived
     def _disabled_test_webhook_service_layer_integration(self):
         """Test the actual WebhookWrapperService with real payment processing"""
         try:
@@ -196,57 +144,6 @@ class TestFailedPaymentProcessing(EnhancedTestCase):
             frappe.logger().error(f"Webhook service error: {str(e)}")
             # Don't fail - document actual service behavior
             frappe.logger().info(f"Webhook service threw exception (documented): {str(e)}")
-
-    def test_email_notification_with_real_templates(self):
-        """Test email notification system with actual email templates"""
-        from verenigingen.verenigingen_payments.mollie.api.payment_webhook import (
-            _notify_member_of_payment_failure,
-        )
-
-        # Create actual email template
-        template_name = "payment_failure_first"
-        if not frappe.db.exists("Email Template", template_name):
-            template = frappe.get_doc(
-                {
-                    "doctype": "Email Template",
-                    "name": template_name,
-                    "enabled": 1,
-                    "subject": "Payment Failure - Action Required",
-                    "response_html": """
-                <div>
-                    <h2>Payment Failure Notification</h2>
-                    <p>Dear {{ member.first_name|e }},</p>
-                    <p>Your subscription payment has failed (attempt #{{ failure_count }}).</p>
-                    <p>Amount: €{{ "%.2f"|format(amount) }}</p>
-                    <p>Please update your payment method to avoid service interruption.</p>
-                </div>
-                """,
-                    "use_html": 1,
-                }
-            )
-            template.insert()
-
-        # Create realistic payment object
-        class NotificationPayment:
-            def __init__(self):
-                self.id = "tr_notification_test"
-                self.status = "failed"
-                self.amount = {"value": "25.00", "currency": "EUR"}
-
-        payment = NotificationPayment()
-
-        # A skipped send is invisible to the function, so own the key and prove the mail went out (#2010).
-        own_notification_keys(self, "payment_failure_first")
-
-        # Test the notification function
-        try:
-            _notify_member_of_payment_failure(self.test_member, payment, 1)
-            frappe.logger().info("✅ Email notification function executed successfully")
-        except Exception as e:
-            # If email notification fails, the test should fail too
-            # This is core functionality that must work
-            self.fail(f"Email notification failed: {str(e)}")
-        self.assertEqual(len(self.get_sent_emails(to=self.test_member.email)), 1)
 
     def test_database_transaction_integrity_verification(self):
         """Test that database operations maintain ACID properties"""

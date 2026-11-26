@@ -8,6 +8,7 @@ import unittest
 import frappe
 from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestTerminationSystem(EnhancedTestCase):
@@ -306,7 +307,7 @@ class TestTerminationRequestWorkflow(TestTerminationSystem):
 
         # Test that defaults were properly set
         self.assertEqual(termination.requested_by, frappe.session.user)
-        self.assertEqual(termination.request_date, today())
+        assert_written_today(self, termination.request_date)
         self.assertEqual(termination.status, "Draft")
 
 

@@ -42,7 +42,11 @@ from werkzeug.wrappers import Request
 
 from verenigingen.tests.utils import ledger_rows
 from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
-from verenigingen.tests.utils.force_delete import delete_role_and_grants
+from verenigingen.tests.utils.force_delete import (
+    chapters_last,
+    delete_role_and_grants,
+    release_single_links_to_chapter,
+)
 from verenigingen.tests.utils.form_dict_guard import guard_form_dict
 from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
 from verenigingen.tests.utils.response_guard import guard_local_response
@@ -66,6 +70,33 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
     #: explanatory error from `_owned_company_and_income_account()` rather than a
     #: bare AttributeError.
     settings_company = None
+
+    @property
+    def factory(self):
+        """The test's data factory. ``setUp`` installs a ``CoreTestDataFactory``.
+
+        Note: ``hasattr(cls, "factory")`` is now always True on VereningingenTestCase subclasses
+        (it finds this property object). A teardown that guards with it
+        (test_member_lifecycle_complete.py:133, payment/test_payment_history_scalability.py:427)
+        is safe today only because those classes always set ``cls.factory`` in ``setUpClass``.
+        """
+        try:
+            return self.__dict__["_factory"]
+        except KeyError:
+            raise AttributeError("factory") from None
+
+    @factory.setter
+    def factory(self, value):
+        """#3020: a subclass that REPLACES the factory after ``super().setUp()`` must not drop the
+        ``on_track`` wiring, or ``_test_docs`` stays empty, ``_rollback_once_before_draining`` returns
+        early and the rows the factory builds outlive a test whose body committed. Wiring lives here so
+        no subclass has to remember it. Only the core factory family speaks ``on_track`` (SEPA/Mollie
+        factories do not), so anything else is stored untouched."""
+        from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
+
+        if isinstance(value, CoreTestDataFactory):
+            value.on_track = self.track_doc
+        self.__dict__["_factory"] = value
 
     @classmethod
     def setUpClass(cls):
@@ -303,7 +334,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         self._cleanup_member_customers()
 
         # Clean up test docs with retry logic for lock timeouts
-        for doc_info in reversed(self._test_docs):
+        for doc_info in chapters_last(reversed(self._test_docs)):
             self._cleanup_document_with_retry(doc_info)
 
         # Report cleanup summary if there were failures
@@ -516,6 +547,8 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                         # #1856: a bare delete strands `Has Role` rows on surviving users.
                         delete_role_and_grants(doc_info["name"])
                     else:
+                        if doc_info["doctype"] == "Chapter":
+                            release_single_links_to_chapter(doc_info["name"])
                         frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
                     # Commit the deletion to release locks
                     frappe.db.commit()
@@ -991,7 +1024,7 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         the cancel when it says yes, and let the delete fail/report exactly
         as it did before this fix.
         """
-        for doc_info in reversed(cls._track_created_docs):
+        for doc_info in chapters_last(reversed(cls._track_created_docs)):
             try:
                 doctype, name = doc_info["doctype"], doc_info["name"]
                 if frappe.db.exists(doctype, name):
@@ -1011,6 +1044,8 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                         # #1856: a bare delete strands `Has Role` rows on surviving users.
                         delete_role_and_grants(name)
                     else:
+                        if doctype == "Chapter":
+                            release_single_links_to_chapter(name)
                         frappe.delete_doc(doctype, name, force=True)
             except (frappe.DoesNotExistError, frappe.ValidationError, frappe.LinkExistsError) as e:
                 print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")

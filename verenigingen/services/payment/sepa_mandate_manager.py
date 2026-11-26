@@ -52,7 +52,11 @@ from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
-from verenigingen.utils.transaction_errors import DATABASE_ERROR, NON_RESUMABLE_DB_ERRORS
+from verenigingen.utils.transaction_errors import (
+    DATABASE_ERROR,
+    NON_RESUMABLE_DB_ERRORS,
+    rollback_to_savepoint,
+)
 
 if TYPE_CHECKING:
     # Quoted in annotations only; imported at call time to avoid a module-load cycle.
@@ -635,6 +639,9 @@ class SEPAMandateManager(StatelessService):
                 validated_holder = member_doc.full_name
 
             # Step 5: Create the SEPA Mandate document
+            # Savepoint so a Step 6 failure takes the inserted Draft with it (#3102).
+            mandate_savepoint = f"sepa_create_{frappe.generate_hash(length=8)}"
+            frappe.db.savepoint(mandate_savepoint)
             mandate = frappe.new_doc("SEPA Mandate")
             mandate.member = member
             mandate.member_name = member_doc.full_name
@@ -664,19 +671,48 @@ class SEPAMandateManager(StatelessService):
                 )
 
             # Step 6: Link mandate to member's sepa_mandates child table
-            self._link_mandate_to_member(member_doc, mandate)
+            try:
+                self._link_mandate_to_member(member_doc, mandate)
+            except NON_RESUMABLE_DB_ERRORS:
+                # 1213 already destroyed the savepoint; the outer handler re-raises.
+                raise
+            except Exception:
+                # Do not leave the Draft behind: a retry would meet the duplicate-IBAN check (#3102).
+                rollback_to_savepoint(mandate_savepoint)
+                raise
+
+            data = {
+                "mandate_name": mandate.name,
+                "mandate_id": mandate_id,
+                "iban": validated_iban,
+                "bic": validated_bic,
+                "status": mandate.status,
+            }
+
+            # The after_insert/on_update hooks contain a failed member-integration step (they
+            # only msgprint it). The mandate row and its member link are persisted by now
+            # (Step 6 raises if the link is missing), so this stays a success, but a caller
+            # must not be told "created successfully" with the failure invisible (#2992).
+            warnings = list(mandate.flags.get("lifecycle_errors") or [])
+            if warnings:
+                data["warnings"] = warnings
+                return ValidationResult.success(
+                    # Fixed text: this reaches member-callable endpoints, so the raw driver
+                    # error stays in data["warnings"] and the Error Log row the failing step wrote.
+                    _(
+                        "SEPA mandate {0} created, but some follow-up steps failed; staff have been notified"
+                    ).format(mandate_id),
+                    data=data,
+                )
 
             return ValidationResult.success(
-                _("SEPA mandate {0} created successfully").format(mandate_id),
-                data={
-                    "mandate_name": mandate.name,
-                    "mandate_id": mandate_id,
-                    "iban": validated_iban,
-                    "bic": validated_bic,
-                    "status": mandate.status,
-                },
+                _("SEPA mandate {0} created successfully").format(mandate_id), data=data
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 already rolled the transaction back, 1205 left it half-applied: a failure
+            # RESULT would let the caller carry on against that (#2869, rule from #2700).
+            raise
         except Exception as e:
             self.logger.error(f"Error creating SEPA mandate for member {member}: {e}")
             return ValidationResult.failure(_("Error creating SEPA mandate: {0}").format(str(e)))
@@ -846,6 +882,10 @@ class SEPAMandateManager(StatelessService):
                 data={"mandates_count": len(mandates), "member": member},
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 already rolled the transaction back, 1205 left it half-applied: a failure
+            # RESULT would let the caller carry on against that (#2869, rule from #2700).
+            raise
         except Exception as e:
             self.logger.error(f"Error syncing SEPA mandates for member {member}: {e}")
             return ValidationResult.failure(_("Error syncing SEPA mandates: {0}").format(str(e)))
@@ -931,6 +971,10 @@ class SEPAMandateManager(StatelessService):
                 data={"deactivated_count": deactivated_count, "deactivated_mandates": deactivated_mandates},
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # 1213 already rolled the transaction back, 1205 left it half-applied: a failure
+            # RESULT would let the caller carry on against that (#2869, rule from #2700).
+            raise
         except Exception as e:
             self.logger.error(f"Error deactivating mandates for member {member}: {e}")
             return ValidationResult.failure(_("Error deactivating mandates: {0}").format(str(e)))

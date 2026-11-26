@@ -17,6 +17,7 @@ from verenigingen.mijnrood_sync.services.event_application.related_records_orche
 )
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.harness_logger import get_harness_logger
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 def _cleanup_member_and_customer(test, member_name):
@@ -470,7 +471,7 @@ class TestAssignChapterFromDivision(EnhancedTestCase):
             {"parent": chapter.name, "member": member.name, "enabled": 1},
             "chapter_join_date",
         )
-        self.assertEqual(str(cm_join), today())
+        assert_written_today(self, cm_join)
 
     def test_falls_back_to_today_when_join_date_in_future(self):
         """A future join_date is rejected (coerced to None) → today() used."""
@@ -496,7 +497,7 @@ class TestAssignChapterFromDivision(EnhancedTestCase):
             {"parent": chapter.name, "member": member.name, "enabled": 1},
             "chapter_join_date",
         )
-        self.assertEqual(str(cm_join), today())
+        assert_written_today(self, cm_join)
 
 
 class TestHandleDivisionFieldChange(EnhancedTestCase):

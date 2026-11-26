@@ -185,6 +185,7 @@ class PaymentEntryFactory:
                     "cost_center": cost_center,
                     "title": title,
                     "remarks": remarks,
+                    "custom_remarks": 1,  # else ERPNext's set_remarks regenerates it on validate (#3088)
                 }
             )
 

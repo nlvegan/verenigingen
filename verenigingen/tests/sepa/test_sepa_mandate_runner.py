@@ -448,48 +448,52 @@ class SEPAMandateIntegrationTests(EnhancedTestCase, SEPAMandateTestMixin):
         
     def test_payment_processing_integration(self):
         """
-        Test integration with payment processing workflows.
-        
-        Validates:
-        - Sales Invoice linking
-        - Payment Entry creation
-        - SEPA mandate usage tracking
-        - Payment status updates
+        A payment is recorded against an Active mandate through the production
+        `create_mandate_usage_record`, and one above the mandate's maximum is refused.
+
+        The earlier version asserted `status == "Active"` and `50 <= 100`, both set by its own
+        fixture, around an unsaved invoice that was never used (#3078). The usage record needs
+        no real Sales Invoice (the reference is a plain dynamic link), so none is built.
         """
-        member = self.create_test_member(birth_date="1990-01-01")
-        mandate = self.create_test_sepa_mandate(
-            member=member,
-            status="Active",
-            maximum_amount=100.00
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            create_mandate_usage_record,
         )
-        
-        # Create a sales invoice for testing payment integration
-        invoice_data = {
-            "doctype": "Sales Invoice",
-            "customer": member.customer if hasattr(member, 'customer') else f"Customer-{member.name}",
-            "posting_date": frappe.utils.today(),
-            "items": [{
-                "item_code": "Membership Fee",
-                "qty": 1,
-                "rate": 50.00
-            }]
-        }
-        
-        try:
-            # Try to create invoice (may fail if Customer doesn't exist)
-            invoice = frappe.get_doc(invoice_data)
-            # Don't submit, just test structure
-            
-            # Test mandate usage tracking would happen here
-            # This is a placeholder for actual payment processing integration
-            self.assertEqual(mandate.status, "Active")
-            self.assertLessEqual(50.00, mandate.maximum_amount, 
-                               "Invoice amount should not exceed mandate maximum")
-                               
-        except Exception:
-            # Skip if customer/invoice creation fails in test environment
-            self.skipTest("Sales Invoice creation skipped - customer setup required")
-            
+
+        member = self.create_test_member(birth_date="1990-01-01")
+        mandate = self.create_test_sepa_mandate(member=member, status="Active", maximum_amount=100.00)
+        within_maximum = mandate.maximum_amount / 2
+        above_maximum = mandate.maximum_amount + 50
+
+        usage_name = create_mandate_usage_record(
+            mandate_name=mandate.name,
+            reference_doctype="Sales Invoice",
+            reference_name="TEST-INV-3078-OK",
+            amount=within_maximum,
+        )
+
+        row = frappe.db.get_value(
+            "SEPA Mandate Usage",
+            usage_name,
+            ["parent", "amount", "status", "sequence_type", "reference_name"],
+            as_dict=True,
+        )
+        self.assertEqual(row.parent, mandate.name)
+        self.assertEqual(row.amount, within_maximum)
+        self.assertEqual(row.status, "Pending")
+        self.assertEqual(row.sequence_type, "FRST", "first use of a mandate is FRST")
+
+        with self.assertRaises(frappe.ValidationError):
+            create_mandate_usage_record(
+                mandate_name=mandate.name,
+                reference_doctype="Sales Invoice",
+                reference_name="TEST-INV-3078-OVER",
+                amount=above_maximum,
+            )
+        self.assertFalse(
+            frappe.db.exists("SEPA Mandate Usage", {"parent": mandate.name, "reference_name": "TEST-INV-3078-OVER"}),
+            "A usage above the mandate maximum must not be recorded",
+        )
+
     def test_performance_with_multiple_mandates(self):
         """
         Test performance with realistic data volumes.

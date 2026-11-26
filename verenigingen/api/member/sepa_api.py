@@ -27,6 +27,7 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
     self_service_api,
 )
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     cancel_active_mandates,
     carry_forward_purposes,
@@ -42,6 +43,9 @@ def refresh_sepa_mandates(member: str):
         result = member_doc.refresh_sepa_mandates_table()
         return result
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # sync_member_mandates re-raises 1213/1205 (#2869); do not turn them back into a result.
+        raise
     except Exception as e:
         frappe.log_error(f"Error refreshing SEPA mandates for member {member}: {str(e)}")
         return {"success": False, "error": str(e)}
