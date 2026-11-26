@@ -259,14 +259,20 @@ class TestSepaMandateExplicitConsent(PortalSelfServiceTestMixin, EnhancedTestCas
 
         before = self._member_signed_mandate()
         with self._as_user(self.user.name):
-            with self.assertRaises(frappe.PermissionError):
+            # consent_text / consent_ip are permlevel 1 (#2480): a member holds no access to them,
+            # so Frappe's permlevel reset drops the forged value (a quiet no-op, not a refusal).
+            # The stored row is what matters, and is asserted below.
+            try:
                 set_value("SEPA Mandate", before.name, "consent_text", "FORGED")
+            except frappe.PermissionError:
+                pass
+            # consent_source stays permlevel 0, so the provenance guard still refuses it.
             with self.assertRaises(frappe.PermissionError):
-                set_value(
-                    "SEPA Mandate",
-                    before.name,
-                    {"consent_source": "Member consent", "consent_ip": "1.2.3.4"},
-                )
+                set_value("SEPA Mandate", before.name, {"consent_source": "Staff entered"})
+            try:
+                set_value("SEPA Mandate", before.name, "consent_ip", "1.2.3.4")
+            except frappe.PermissionError:
+                pass
         self._assert_consent_row_unchanged(before)
 
     def test_member_cannot_edit_consent_fields_via_whole_doc_save(self):
@@ -283,6 +289,13 @@ class TestSepaMandateExplicitConsent(PortalSelfServiceTestMixin, EnhancedTestCas
             doc = frappe.get_doc("SEPA Mandate", before.name).as_dict()
             doc[field] = value
             with self._as_user(self.user.name):
+                if field in ("consent_text", "consent_ip"):
+                    # permlevel 1 (#2480): dropped by Frappe's permlevel reset, not refused.
+                    try:
+                        save(frappe.as_json(doc))
+                    except frappe.PermissionError:
+                        pass
+                    continue
                 with self.assertRaises(frappe.PermissionError, msg=field):
                     save(frappe.as_json(doc))
         self._assert_consent_row_unchanged(before)

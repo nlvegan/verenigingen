@@ -267,6 +267,7 @@
       "fieldname": "consent_ip",
       "fieldtype": "Data",
       "label": "Consent IP Address",
+      "permlevel": 1,
       "read_only": 1
     },
     {
@@ -274,6 +275,7 @@
       "fieldname": "consent_text",
       "fieldtype": "Long Text",
       "label": "Mandate Text Agreed To",
+      "permlevel": 1,
       "read_only": 1
     },
     {
@@ -334,6 +336,21 @@
       "role": "Verenigingen Member",
       "share": 1,
       "write": 1
+    },
+    {
+      "permlevel": 1,
+      "read": 1,
+      "role": "System Manager"
+    },
+    {
+      "permlevel": 1,
+      "read": 1,
+      "role": "Verenigingen Staff"
+    },
+    {
+      "permlevel": 1,
+      "read": 1,
+      "role": "Verenigingen Administrator"
     }
   ],
   "sort_field": "modified",
