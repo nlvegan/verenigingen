@@ -41,6 +41,7 @@ import frappe
 from frappe import _
 
 from verenigingen.services.infrastructure.base_service import StatelessService
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 if TYPE_CHECKING:
     from frappe.model.document import Document
@@ -274,6 +275,9 @@ class MemberCleanupService(StatelessService):
                 # not the primary detection path.
                 delete_dues_schedule_with_backlink_cleanup(schedule_name, member_doc.name)
                 self.logger.info(f"Deleted orphaned Membership Dues Schedule {schedule_name}")
+            except NON_RESUMABLE_DB_ERRORS:
+                # #3201: 1213/1205 are not resumable; let the transaction owner abandon the delete
+                raise
             except Exception as e:
                 self.logger.error(f"Error deleting Membership Dues Schedule {schedule_name}: {str(e)}")
                 frappe.log_error(
@@ -297,6 +301,9 @@ class MemberCleanupService(StatelessService):
                 if membership.docstatus == 1:  # Submitted
                     membership.cancel()
                 frappe.delete_doc("Membership", membership_name, force=True)
+            except NON_RESUMABLE_DB_ERRORS:
+                # #3201: 1213/1205 are not resumable; let the transaction owner abandon the delete
+                raise
             except Exception as e:
                 self.logger.error(f"Error deleting Membership {membership_name}: {str(e)}")
 
@@ -312,6 +319,9 @@ class MemberCleanupService(StatelessService):
             try:
                 frappe.delete_doc("SEPA Mandate", mandate_name, force=True)
                 self.logger.info(f"Deleted SEPA Mandate {mandate_name}")
+            except NON_RESUMABLE_DB_ERRORS:
+                # #3201: 1213/1205 are not resumable; let the transaction owner abandon the delete
+                raise
             except Exception as e:
                 self.logger.error(f"Error deleting SEPA Mandate {mandate_name}: {str(e)}")
 
@@ -327,6 +337,9 @@ class MemberCleanupService(StatelessService):
                 member_doc.name,
             )
             self.logger.info(f"Cleared Member references from Sales Invoices for {member_doc.name}")
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3201: 1213/1205 are not resumable; let the transaction owner abandon the delete
+            raise
         except Exception as e:
             self.logger.error(f"Error clearing Sales Invoice references: {str(e)}")
 
@@ -336,6 +349,9 @@ class MemberCleanupService(StatelessService):
         for chapter_member_name in chapter_members:
             try:
                 frappe.delete_doc("Chapter Member", chapter_member_name, force=True)
+            except NON_RESUMABLE_DB_ERRORS:
+                # #3201: 1213/1205 are not resumable; let the transaction owner abandon the delete
+                raise
             except Exception as e:
                 self.logger.error(f"Error deleting Chapter Member {chapter_member_name}: {str(e)}")
                 # self.logger leaves no Error Log row; a stranded enrolment must be visible (#2868)
@@ -366,6 +382,9 @@ class MemberCleanupService(StatelessService):
                     frappe.delete_doc("Customer", member_doc.customer, force=True)
                     self.logger.info(f"Deleted Customer {member_doc.customer}")
 
+            except NON_RESUMABLE_DB_ERRORS:
+                # #3201: 1213/1205 are not resumable; let the transaction owner abandon the delete
+                raise
             except Exception as e:
                 self.logger.error(f"Error handling Customer {member_doc.customer}: {str(e)}")
 
@@ -373,6 +392,9 @@ class MemberCleanupService(StatelessService):
         if member_doc.primary_address:
             try:
                 self._unlink_member_from_address(member_doc, member_doc.primary_address)
+            except NON_RESUMABLE_DB_ERRORS:
+                # #3201: 1213/1205 are not resumable; let the transaction owner abandon the delete
+                raise
             except Exception as e:
                 self.logger.error(f"Error unlinking Address {member_doc.primary_address}: {str(e)}")
 
@@ -392,6 +414,9 @@ class MemberCleanupService(StatelessService):
                     member_doc.name,
                 )
                 self.logger.info(f"Cleaned up {table_name} records for {member_doc.name}")
+            except NON_RESUMABLE_DB_ERRORS:
+                # #3201: 1213/1205 are not resumable; let the transaction owner abandon the delete
+                raise
             except Exception as e:
                 # Some tables might not exist in all installations, so just log and continue
                 self.logger.debug(f"Could not clean up {table_name}: {str(e)}")
