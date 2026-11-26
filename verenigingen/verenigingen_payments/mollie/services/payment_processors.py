@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 import frappe
 
-from verenigingen.utils.bank_utils import get_or_create_unknown_bank
+from verenigingen.utils.bank_account_creation import create_party_bank_account
 from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
@@ -574,18 +574,7 @@ class DonationPaymentProcessor(AbstractPaymentProcessor):
                 return
 
             # Create Bank Account linking IBAN to Customer
-            # Use migration context for proper permission handling
-            from verenigingen.e_boekhouden.utils.security_helper import migration_context
-
-            with migration_context("party_creation"):
-                bank_account = frappe.new_doc("Bank Account")
-                bank_account.account_name = f"{customer} - {iban[-4:]}"
-                bank_account.bank = get_or_create_unknown_bank()
-                bank_account.iban = iban
-                bank_account.party_type = "Customer"
-                bank_account.party = customer
-                bank_account.is_default = 0
-                bank_account.insert()
+            create_party_bank_account("Customer", customer, iban, source="Mollie")
 
             self.logger.info(
                 f"[Mollie] Created Bank Account link from donation: IBAN {iban} -> Customer {customer}"

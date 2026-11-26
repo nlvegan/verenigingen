@@ -16,7 +16,6 @@ from verenigingen.utils.transaction_errors import (
     release_savepoint_if_present,
     rollback_to_savepoint,
 )
-from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
 
 # =============================================================================
 # Constants
@@ -502,22 +501,9 @@ def _ensure_bank_account_link(iban: str, party: str, party_type: str) -> None:
         if existing:
             return
 
-        # Ensure the Unknown bank exists (Bank Account requires a Bank link)
-        bank_name = get_or_create_unknown_bank()
+        from verenigingen.utils.bank_account_creation import create_party_bank_account
 
-        # Create Bank Account linking IBAN to party
-        # Use migration context for proper permission handling
-        from verenigingen.e_boekhouden.utils.security_helper import migration_context
-
-        with migration_context("party_creation"):
-            bank_account = frappe.new_doc("Bank Account")
-            bank_account.account_name = f"{party} - {iban[-4:]}"
-            bank_account.bank = bank_name
-            bank_account.iban = iban
-            bank_account.party_type = party_type
-            bank_account.party = party
-            bank_account.is_default = 0  # Don't override existing defaults
-            bank_account.insert()
+        create_party_bank_account(party_type, party, iban, source="MT940")
 
         frappe.logger().info(f"[MT940] Created Bank Account link: IBAN {iban} -> {party_type} {party}")
 

@@ -17,6 +17,7 @@ from typing import Optional
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class BankAccountCreationError(frappe.ValidationError):
@@ -106,6 +107,46 @@ def create_bank_account(
         title=f"{source} Bank Account creation failed",
         details={"gl_account": gl_account, "iban": iban},
     )
+
+
+def create_party_bank_account(
+    party_type: str,
+    party: str,
+    iban: str,
+    source: str = "integration",
+) -> str:
+    """Create the Bank Account that links ``iban`` to a Customer/Supplier. Raises on failure (#2923).
+
+    Unlike ``create_bank_account`` this is NOT one of the company's own accounts: it has no GL
+    account (``is_company_account`` stays 0), sits on the "Unknown" Bank and is never the default.
+    It inserts under ``migration_context("party_creation")``, as the MT940 and Mollie writers did
+    before; the caller keeps its own "already exists" check, since what counts as a duplicate
+    differs per caller. Callers that must keep going catch ``BankAccountCreationError``.
+    """
+    from verenigingen.e_boekhouden.utils.security_helper import migration_context
+    from verenigingen.verenigingen_payments.utils.bank_utils import get_or_create_unknown_bank
+
+    details = {"party_type": party_type, "party": party, "iban": iban}
+    try:
+        with migration_context("party_creation"):
+            bank_account = frappe.new_doc("Bank Account")
+            bank_account.account_name = f"{party} - {iban[-4:]}"
+            bank_account.bank = get_or_create_unknown_bank()
+            bank_account.iban = iban
+            bank_account.party_type = party_type
+            bank_account.party = party
+            bank_account.is_default = 0
+            bank_account.insert()
+    except (*NON_RESUMABLE_DB_ERRORS, frappe.DuplicateEntryError):
+        # Deadlock/timeout must reach execute_with_deadlock_retry as themselves, and the writers
+        # always let a duplicate through as itself. No Error Log row here: the caller that wants
+        # one (MT940, dues) writes its own, so a failure leaves exactly one.
+        raise
+    except Exception as e:
+        raise BankAccountCreationError(
+            f"Error creating party Bank Account for {party_type} {party} (IBAN {iban}): {e}", details
+        ) from e
+    return bank_account.name
 
 
 def _insert(doc, label: str, justification: str, permission: str, title: str, details: dict) -> str:
