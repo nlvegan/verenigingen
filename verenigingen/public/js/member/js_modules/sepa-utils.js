@@ -342,7 +342,17 @@ function create_mandate_with_values(frm, values, dialog) {
 					// Handle OperationResult format
 					const data = unwrapOperationResult(r.message);
 					if (data) {
-						let alertMessage = __('SEPA Mandate {0} created successfully', [values.mandate_id]);
+						// The mandate exists, but the server reports follow-up steps that failed
+						// (data.warnings, #2992): do not call that a clean success (#3100).
+						const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
+						let alertMessage;
+						if (warnings.length) {
+							alertMessage = `${__('SEPA Mandate {0} created with warnings:', [values.mandate_id])} ${warnings
+								.map((w) => verenigingen.utils.escapeHtml(w))
+								.join('; ')}`;
+						} else {
+							alertMessage = __('SEPA Mandate {0} created successfully', [values.mandate_id]);
+						}
 						if (serverData && serverData.existing_mandate) {
 							alertMessage += `. ${__('Previous mandate has been marked as replaced.')}`;
 						}
@@ -350,9 +360,9 @@ function create_mandate_with_values(frm, values, dialog) {
 						frappe.show_alert(
 							{
 								message: alertMessage,
-								indicator: 'green'
+								indicator: warnings.length ? 'orange' : 'green'
 							},
-							7
+							warnings.length ? 15 : 7
 						);
 
 						// Update payment method if requested
