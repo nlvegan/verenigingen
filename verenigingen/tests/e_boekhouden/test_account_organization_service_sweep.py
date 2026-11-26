@@ -326,9 +326,11 @@ class TestEnsureAccountGroup(_AcctOrgBase):
 
 
 class TestNameFilter(_AcctOrgBase):
-    def test_name_filter_strips_suffix_and_builds_like(self):
+    def test_name_filter_carries_no_name_pattern(self):
+        # #1398: the name match moved to find_account_by_label (exact, else unique escaped substring);
+        # a raw LIKE here would reintroduce the silent first-match.
         flt = self._service()._name_filter("Vorderingen - Receivables", "Asset")
-        self.assertEqual(flt["account_name"], ["like", "%Vorderingen%"])
+        self.assertNotIn("account_name", flt)
         self.assertEqual(flt["root_type"], "Asset")
         self.assertEqual(flt["is_group"], 1)
         self.assertEqual(flt["company"], self.company)
