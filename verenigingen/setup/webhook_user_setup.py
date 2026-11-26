@@ -2,14 +2,24 @@
 # Creates and configures a secure webhook user during app installation
 
 import re
-import secrets
-import string
 
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 WEBHOOK_PROFILE = "Verenigingen Webhook User"
+
+# The address _canonical_webhook_email() mints: webhook-user@<domain>, or the webhook-user-N@<domain>
+# that the old counter bug produced.
+#
+# SECURITY (#1680): the account holds the Verenigingen Webhook User role (read/write/create on
+# Customer, Contact, Address, Payment Entry, Journal Entry, Bank Transaction...), so it is only as
+# safe as it is unreachable. Measured over HTTP on test_site_5: with the password setup stored,
+# POST /api/method/login succeeded and the session read Contact, Customer and User through
+# /api/resource. Every gateway webhook (Mollie, ING Checkout, Ponto) only does
+# frappe.set_user(webhook_user) in-process, so the account holds NO password or API key and
+# refuse_webhook_user_authentication() refuses it on every login and every request.
+_WEBHOOK_ADDRESS = re.compile(r"^webhook-user(-\d+)?@", re.IGNORECASE)
 
 
 def setup_webhook_user():
@@ -35,15 +45,7 @@ def setup_webhook_user():
 
         webhook_user_email = generate_webhook_user_email()
 
-        # Only mint a password when we are actually going to set one. This used to be
-        # generated unconditionally and PRINTED on every successful run -- including
-        # runs where the user already existed and the password was never applied, so
-        # migrate logs filled with secret-shaped strings that did not open the account.
-        webhook_password = None
-        if not frappe.db.exists("User", webhook_user_email):
-            webhook_password = generate_secure_password()
-
-        user_result = create_webhook_user_account(webhook_user_email, webhook_password)
+        user_result = create_webhook_user_account(webhook_user_email)
         if not user_result["success"]:
             return user_result
 
@@ -61,31 +63,66 @@ def setup_webhook_user():
         print(f"   📧 User: {webhook_user_email}")
         print("   🛡️ Role: Verenigingen Webhook User")
         print("   ⚙️ Configured in Verenigingen Payments Settings")
-        if webhook_password:
-            # The password is deliberately NOT printed. This runs on every migrate,
-            # so it would land in migrate/CI/supervisor logs -- CodeQL flags it as
-            # py/clear-text-logging-sensitive-data, correctly. Nothing needs it to
-            # operate: the gateways assume this identity via frappe.set_user, never
-            # by logging in. Retrieve it deliberately if a human ever needs it.
-            print("   🔐 Password set; retrieve via get_webhook_credentials_manual()")
-
-        result = {
+        return {
             "success": True,
             "webhook_user_email": webhook_user_email,
             "message": "Webhook user created and configured successfully",
         }
-        # Absent, not None, when no password was set -- callers (including the
-        # whitelisted setup_webhook_user_manual) must not present a fiction as
-        # the account's credential.
-        if webhook_password:
-            result["webhook_password"] = webhook_password
-        return result
 
     except Exception as e:
         error_msg = f"Failed to setup webhook user: {str(e)}"
         frappe.logger().error(error_msg)
         print(f"❌ {error_msg}")
         return {"success": False, "message": error_msg}
+
+
+def is_webhook_user(user):
+    """True for the account setup creates: it holds the webhook role AND has the address
+    `_canonical_webhook_email()` mints (`webhook-user[-N]@<domain>`).
+
+    Both are required, so a staff user who was granted the role, or who merely has a similar
+    address, is never locked out. Other roles are irrelevant on purpose: a webhook user that
+    gained a role (role-profile sync adds some) must still never log in. (Not keyed on
+    `Verenigingen Payments Settings.webhook_user`: that can name any real account.)
+    """
+    if not user or not _WEBHOOK_ADDRESS.match(user):
+        return False
+    return WEBHOOK_PROFILE in frappe.get_roles(user)
+
+
+def harden_webhook_user():
+    """after_migrate: strip every credential from a webhook user that predates #1680.
+
+    Sites set up before then hold an account with a password, and setup keeps the account.
+    Reuses the creator's lock: it only deletes the stored password/API secret, the API key, a
+    pending reset key and every live session, and leaves the account enabled with its roles.
+    """
+    from verenigingen.setup.public_document_creator_setup import lock_public_creator_credentials
+
+    holders = frappe.get_all(
+        "Has Role", filters={"role": WEBHOOK_PROFILE, "parenttype": "User"}, pluck="parent"
+    )
+    for user in sorted(set(holders)):
+        if is_webhook_user(user):
+            lock_public_creator_credentials(user)
+
+
+def refuse_webhook_user_authentication(login_manager=None):
+    """auth_hooks / on_login hook: the webhook user can never hold a session (#1680).
+
+    Refuses exactly as Frappe refuses a wrong password (see #1670's twin of this hook), so a
+    refusal is not distinguishable from one. The gateways are unaffected: they switch user
+    in-process and never come through here.
+    """
+    if login_manager is not None:
+        if is_webhook_user(login_manager.user):
+            # A password set later (reset, admin) must not linger: fail() commits this too.
+            from verenigingen.setup.public_document_creator_setup import lock_public_creator_credentials
+
+            lock_public_creator_credentials(login_manager.user)
+            login_manager.fail("Invalid login credentials", user=login_manager.user)
+    elif is_webhook_user(frappe.session.user):
+        raise frappe.AuthenticationError
 
 
 def ensure_webhook_user():
@@ -181,16 +218,12 @@ def _canonical_webhook_email():
         return "webhook-user@verenigingen-app.local"
 
 
-def generate_secure_password(length=16):
-    """Generate a cryptographically secure password"""
-    # Use a mix of letters, numbers, and safe special characters
-    alphabet = string.ascii_letters + string.digits + "!@#$%&*+-=?"
-    password = "".join(secrets.choice(alphabet) for _ in range(length))
-    return password
+def create_webhook_user_account(webhook_email):
+    """Create the webhook user account with proper security settings.
 
-
-def create_webhook_user_account(webhook_email, webhook_password):
-    """Create the webhook user account with proper security settings"""
+    The account is created WITHOUT a password (#1680): the gateways only impersonate it
+    in-process via frappe.set_user, so nothing ever logs in as it.
+    """
     try:
         if frappe.db.exists("User", webhook_email):
             # Converge rather than no-op: get_service_user() treats a DISABLED user
@@ -232,7 +265,6 @@ def create_webhook_user_account(webhook_email, webhook_password):
                 "full_name": "Webhook User",
                 "enabled": 1,
                 "user_type": "System User",
-                "new_password": webhook_password,
                 "send_welcome_email": 0,  # Don't send welcome email
                 "roles": [{"role": "Verenigingen Webhook User"}],
             }
