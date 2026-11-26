@@ -161,6 +161,81 @@ class TestProcessBatchReturns(_ReturnsBase):
                 self.processor.process_batch_returns("DD-BATCH-DOES-NOT-EXIST", "/ignored.xml")
 
 
+class TestHandleFailedPaymentSavepointRollback(_ReturnsBase):
+    """#3094: the except handler called ``frappe.db.rollback_savepoint``, which does not
+    exist, so an AttributeError replaced the real error and the partial write stayed."""
+
+    def _failing_save(self):
+        """Stand-in for ``schedule.save()`` that WRITES then fails (a partial write)."""
+
+        def failing_save(doc, *args, **kwargs):
+            frappe.db.set_value(
+                "Membership Dues Schedule", doc.name, "consecutive_failures", 77, update_modified=False
+            )
+            raise RuntimeError("boom-3094-original")
+
+        return failing_save
+
+    def test_failed_save_is_rolled_back_and_original_error_is_logged(self):
+        from unittest.mock import patch
+
+        member = self._member_with_membership("1991-07-07")
+        mandate = self.factory.create_test_sepa_mandate(member=member.name, status="Active")
+        schedule = frappe.db.get_value(
+            "Membership Dues Schedule", {"member": member.name, "is_template": 0}, "name"
+        )
+        batch, _invoice = self._batch_with_invoice(member, mandate, link_schedule=schedule)
+        before = frappe.db.get_value("Membership Dues Schedule", schedule, "consecutive_failures") or 0
+        self.assertNotEqual(before, 77)
+        self.expectErrorLog("Failed Payment Handler Error")
+
+        # Mock justified: forces the schedule write to fail after a partial DB write; no real
+        # input makes Membership Dues Schedule.save raise mid-write.
+        with patch(
+            "verenigingen.verenigingen.doctype.membership_dues_schedule."
+            "membership_dues_schedule.MembershipDuesSchedule.save",
+            self._failing_save(),
+        ):
+            self.processor.handle_failed_payment(batch.invoices[0], {"reason_code": "MS03"})
+
+        after = frappe.db.get_value("Membership Dues Schedule", schedule, "consecutive_failures") or 0
+        self.assertEqual(after, before, "the partial write must be rolled back to the savepoint")
+        error = frappe.get_all(
+            "Error Log",
+            filters={"method": "Failed Payment Handler Error"},
+            fields=["error"],
+            order_by="creation desc",
+            limit=1,
+        )
+        self.assertTrue(error)
+        self.assertIn("boom-3094-original", error[0].error)
+        self.assertNotIn("rollback_savepoint", error[0].error)
+
+    def test_deadlock_in_save_propagates_instead_of_being_swallowed(self):
+        """A 1213 destroys the transaction; the handler must not log-and-return as if the
+        schedule update were merely refused."""
+        from unittest.mock import patch
+
+        member = self._member_with_membership("1992-08-08")
+        mandate = self.factory.create_test_sepa_mandate(member=member.name, status="Active")
+        schedule = frappe.db.get_value(
+            "Membership Dues Schedule", {"member": member.name, "is_template": 0}, "name"
+        )
+        batch, _invoice = self._batch_with_invoice(member, mandate, link_schedule=schedule)
+
+        def deadlocked_save(doc, *args, **kwargs):
+            raise frappe.QueryDeadlockError("deadlock-3094")
+
+        # Mock justified: a real 1213 needs two contending connections.
+        with patch(
+            "verenigingen.verenigingen.doctype.membership_dues_schedule."
+            "membership_dues_schedule.MembershipDuesSchedule.save",
+            deadlocked_save,
+        ):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                self.processor.handle_failed_payment(batch.invoices[0], {"reason_code": "MS03"})
+
+
 class TestAddProcessedInvoiceToBatch(_ReturnsBase):
     def _processed(self, invoice, member, mandate):
         """The optimized 'processed_invoice' shape add_processed_invoice_to_batch reads."""

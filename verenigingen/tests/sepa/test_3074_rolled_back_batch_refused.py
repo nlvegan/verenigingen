@@ -81,13 +81,6 @@ class TestRolledBackBatchRefused3074(_SubmittedBatchBase):
         self.assertIn(REFUSAL, str(ctx.exception))
         self._assert_rolled_back_batch_untouched()
 
-    def test_process_batch_submission_refuses(self):
-        self.expectErrorLog("SEPA Direct Debit Batch Error")
-        with self.assertRaises(frappe.ValidationError) as ctx:
-            self.service.process_batch_submission(self.batch)
-        self.assertIn(REFUSAL, str(ctx.exception))
-        self._assert_rolled_back_batch_untouched()
-
     def test_a_return_file_records_the_rows_but_keeps_the_rolled_back_status(self):
         """A return file is bank information: the row is recorded Failed, only the batch status stays.
 

@@ -51,7 +51,7 @@ class APIDocGenerator:
             },
             "servers": [
                 {
-                    "url": "{frappe.utils.get_url()}/api/method/verenigingen.api",
+                    "url": f"{frappe.utils.get_url()}/api/method/verenigingen.api",
                     "description": "Production server",
                 }
             ],
@@ -168,7 +168,7 @@ class APIDocGenerator:
                 "function_name": function.__name__,
                 "module": module_name,
                 "file": file_name,
-                "path": "/{module_name.replace('.', '/')}.{function.__name__}",
+                "path": f"/{module_name.replace('.', '/')}.{function.__name__}",
                 "method": "POST",  # Frappe APIs are typically POST
                 "description": description,
                 "parameters": [],
@@ -369,7 +369,7 @@ class APIDocGenerator:
             operation = {
                 "summary": endpoint["function_name"].replace("_", " ").title(),
                 "description": endpoint["description"],
-                "operationId": "{endpoint['module']}.{endpoint['function_name']}",
+                "operationId": f"{endpoint['module']}.{endpoint['function_name']}",
                 "tags": [endpoint["file"]],
                 "requestBody": {
                     "required": True,
@@ -483,7 +483,7 @@ class APIDocGenerator:
             tag_name = endpoint["file"]
 
             if tag_name not in seen_tags:
-                tags.append({"name": tag_name, "description": "Operations from {tag_name}.py"})
+                tags.append({"name": tag_name, "description": f"Operations from {tag_name}.py"})
                 seen_tags.add(tag_name)
 
         return sorted(tags, key=lambda x: x["name"])
@@ -577,7 +577,7 @@ class APIDocGenerator:
         """Generate markdown documentation from endpoints"""
 
         lines = ["# Verenigingen API Documentation\n"]
-        lines.append("Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        lines.append(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         lines.append("## Table of Contents\n")
 
         # Group endpoints by file
@@ -590,18 +590,18 @@ class APIDocGenerator:
 
         # Generate TOC
         for file_name in sorted(file_groups.keys()):
-            lines.append("- [{file_name}](#{file_name.replace('_', '-')})")
+            lines.append(f"- [{file_name}](#{file_name.replace('_', '-')})")
 
         lines.append("\n---\n")
 
         # Generate documentation for each group
         for file_name in sorted(file_groups.keys()):
-            lines.append("## {file_name}\n")
+            lines.append(f"## {file_name}\n")
 
             for endpoint in file_groups[file_name]:
-                lines.append("### {endpoint['function_name']}\n")
-                lines.append("**Description:** {endpoint['description']}\n")
-                lines.append("**Endpoint:** `POST {endpoint['path']}`\n")
+                lines.append(f"### {endpoint['function_name']}\n")
+                lines.append(f"**Description:** {endpoint['description']}\n")
+                lines.append(f"**Endpoint:** `POST {endpoint['path']}`\n")
 
                 if not endpoint["allow_guest"]:
                     lines.append("**Authentication:** Required\n")
@@ -609,10 +609,10 @@ class APIDocGenerator:
                     lines.append("**Authentication:** Not required (guest access allowed)\n")
 
                 if endpoint["roles"]:
-                    lines.append("**Required Roles:** {', '.join(endpoint['roles'])}\n")
+                    lines.append(f"**Required Roles:** {', '.join(endpoint['roles'])}\n")
 
                 if endpoint["rate_limit"]:
-                    lines.append("**Rate Limit:** {endpoint['rate_limit']}\n")
+                    lines.append(f"**Rate Limit:** {endpoint['rate_limit']}\n")
 
                 # Parameters
                 if endpoint["parameters"]:

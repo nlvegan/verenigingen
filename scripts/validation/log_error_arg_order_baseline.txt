@@ -412,8 +412,6 @@ verenigingen/utils/security/csrf_protection.py::get_csrf_token::1
 verenigingen/utils/security/csrf_protection.py::validate_csrf_token::1
 verenigingen/utils/security/rate_limit_engine.py::RateLimitEngine.get_rate_limit_headers::1
 verenigingen/utils/team_role_profile_hooks.py::_sync_team_lead_role::1
-verenigingen/utils/user_member_image_sync.py::sync_member_image_to_user::1
-verenigingen/utils/user_member_image_sync.py::sync_user_image_to_member::1
 verenigingen/utils/version_cleanup.py::nuclear_truncate_version_and_deleted_tables::2
 verenigingen/verenigingen/doctype/account_creation_request/account_creation_request.py::AccountCreationRequest.mark_failed::1
 verenigingen/verenigingen/doctype/api_audit_log/api_audit_log.py::APIAuditLog.cleanup_old_entries::2

@@ -10,8 +10,8 @@ for a site where the request never wrote one.
 """
 
 import frappe
-from frappe.utils import getdate, today
 
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.api.chapter_dashboard_api import quick_approve_join_request
 from verenigingen.setup.role_profile_setup import assign_role_profile_to_user
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -83,7 +83,7 @@ class TestJoinApprovalHistory2430(EnhancedTestCase):
         self.assertEqual([(r.status, r.enabled) for r in self._row()], [("Active", 1)])
         history = self._history()
         self.assertEqual([h.status for h in history], ["Active"], history)
-        self.assertEqual(history[0].start_date, getdate(today()))
+        assert_written_today(self, history[0].start_date)
         self.assertIsNone(history[0].end_date)
 
     def test_rejoin_approval_activates_the_new_entry_and_keeps_the_earlier_period(self):

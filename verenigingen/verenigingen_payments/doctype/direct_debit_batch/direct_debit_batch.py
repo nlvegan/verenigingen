@@ -588,6 +588,10 @@ class DirectDebitBatch(Document):
         meant to reflect (no single db_set() line is "the" edit; the log
         accumulates across the document's whole post-submit lifecycle).
         """
+        # Outside the try: a refusal is not a processing error, so it must not
+        # append to the in-memory batch_log or write the batch-error Error Log row.
+        self._refuse_if_fully_collected()
+
         # This would typically involve sending the SEPA file to the bank
         try:
             batch_processing_service.refuse_if_rolled_back(self.name, _("submitted again"))
@@ -624,6 +628,24 @@ class DirectDebitBatch(Document):
             self.add_to_batch_log(error_msg)
             frappe.log_error(f"Error processing batch {self.name}: {str(e)}", "SEPA Direct Debit Batch Error")
             frappe.throw(error_msg)
+
+    def _refuse_if_fully_collected(self):
+        """#2799: resetting to Submitted would downgrade a batch with nothing left to collect.
+
+        A Processed batch, or one whose rows are all Successful (the state an earlier
+        downgrade left behind), has nothing to retry. Partially Processed and Failed
+        batches have rows that are not Successful, so they pass: for them this reset
+        is the route back to "Mark as Processed", which skips the Successful rows
+        (#2573) and retries only the rest.
+        """
+        rows = self.get("invoices") or []
+        all_collected = bool(rows) and all(row.status == "Successful" for row in rows)
+        if self.status == "Processed" or all_collected:
+            frappe.throw(
+                _(
+                    "Batch {0} is already collected (every invoice is Successful); nothing is left to process"
+                ).format(self.name)
+            )
 
     def update_invoice_status(self, invoice_index, status, result_code=None, result_message=None):
         """Update status of a specific invoice in the batch"""

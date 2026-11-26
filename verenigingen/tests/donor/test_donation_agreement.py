@@ -239,10 +239,6 @@ class TestDonationAgreement(EnhancedTestCase):
 
         agreement.save()
 
-        # Verify tracking fields exist (may be None if not initialized)
-        # Check that fields are accessible
-        self.assertTrue(hasattr(agreement, 'total_donated'))
-        self.assertTrue(hasattr(agreement, 'donations_count'))
         # Initially these should be zero/empty or None
         self.assertEqual(flt(agreement.total_donated or 0), 0.0)
         self.assertEqual(agreement.donations_count or 0, 0)

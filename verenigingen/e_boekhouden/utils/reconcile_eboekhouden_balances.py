@@ -44,7 +44,7 @@ def reconcile_account_05000():
         reconciliation.append(
             {
                 "date": entry.posting_date,
-                "voucher": "{entry.voucher_type} {entry.voucher_no}",
+                "voucher": f"{entry.voucher_type} {entry.voucher_no}",
                 "debit": flt(entry.debit, 2),
                 "credit": flt(entry.credit, 2),
                 "net": flt(entry.net_amount, 2),
