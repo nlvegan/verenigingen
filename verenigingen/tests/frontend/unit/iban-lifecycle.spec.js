@@ -291,7 +291,7 @@ describe('IBAN Lifecycle Management', () => {
 				const mandate = this.mandates.find((m) => m.mandate_id === mandateId);
 				if (mandate) {
 					mandate.status = 'Cancelled';
-					mandate.cancellation_date = frappe.datetime.nowdate();
+					mandate.cancelled_date = frappe.datetime.nowdate();
 					mandate.cancellation_reason = reason;
 					return true;
 				}

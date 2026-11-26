@@ -813,6 +813,7 @@ class PaymentEntryHandler:
 
         # Add detailed remarks
         pe.remarks = self._generate_remarks(mutation, bank_account, party)
+        pe.custom_remarks = 1  # else ERPNext's set_remarks regenerates it on validate (#3088)
 
         # CRITICAL: Manually set received_amount = paid_amount for same-currency transactions
         # We CANNOT call set_amounts() here because validate() will call it again (causing doubling)

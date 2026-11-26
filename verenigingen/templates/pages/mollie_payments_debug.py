@@ -454,7 +454,7 @@ def create_scheduled_subscription(
 
 @frappe.whitelist(allow_guest=False)
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def list_subscriptions(customer_id, limit=50, active_only=True):
+def list_subscriptions(customer_id, limit=50, active_only: bool = True):
     """List subscriptions for a specific customer with optional filtering"""
     try:
         if not has_mollie_debug_access():
@@ -470,10 +470,6 @@ def list_subscriptions(customer_id, limit=50, active_only=True):
                 limit = 50
         except (ValueError, TypeError):
             limit = 50
-
-        # Convert string boolean from form data
-        if isinstance(active_only, str):
-            active_only = active_only.lower() in ("true", "1", "yes")
 
         service = MollieDebugService()
         return service.list_subscriptions(customer_id, limit, active_only)
@@ -627,7 +623,7 @@ def process_balance_historical_data(months_back, batch_size=250):
 
 @frappe.whitelist(allow_guest=False)
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def check_balance_transaction_status(transaction_id, include_mollie_data=False):
+def check_balance_transaction_status(transaction_id, include_mollie_data: bool = False):
     """Check if a balance transaction has been processed"""
     try:
         if not has_mollie_debug_access():
@@ -636,10 +632,6 @@ def check_balance_transaction_status(transaction_id, include_mollie_data=False):
         from verenigingen.verenigingen_payments.api.balance_transaction_processing import (
             check_transaction_status,
         )
-
-        # Convert string boolean from form data
-        if isinstance(include_mollie_data, str):
-            include_mollie_data = include_mollie_data.lower() in ("true", "1", "yes")
 
         return check_transaction_status(
             transaction_id=transaction_id, include_mollie_data=include_mollie_data
@@ -837,7 +829,7 @@ def process_payment_batch_job(batch_num, payment_ids, docstatus, payment_modes, 
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def check_all_customers_for_new_payments(days_back=7, all_history=False, limit_per_customer=250):
+def check_all_customers_for_new_payments(days_back=7, all_history: bool = False, limit_per_customer=250):
     """
     Stage 1: Discovery - Check all Member Mollie customers for new payments.
 
@@ -886,10 +878,6 @@ def check_all_customers_for_new_payments(days_back=7, all_history=False, limit_p
                 days_back = 7
         except (ValueError, TypeError):
             days_back = 7
-
-        # Convert string boolean from form data
-        if isinstance(all_history, str):
-            all_history = all_history.lower() in ("true", "1", "yes")
 
         try:
             limit_per_customer = int(limit_per_customer)

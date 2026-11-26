@@ -124,7 +124,8 @@ repos:
         pass_filenames: true
         files: '\.(py|html|js)$'
         stages: [pre-push]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|archived_.*|archived_unused/|archived_deleted/)'
+        # #2861: test/debug parts match at any depth (tree mode, CI and the baseline skip them too).
+        exclude: '(^|/)(tests/|test_|debug_)|_test\.py$|_debug\.py$|^scripts/(testing|debug)/|^(test_field_validation_gaps\.py|archived_.*|archived_unused/|archived_deleted/)'
 
       - id: template-field-validator
         name: HTML/JavaScript template field validation

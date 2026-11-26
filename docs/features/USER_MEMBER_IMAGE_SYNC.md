@@ -2,156 +2,48 @@
 
 ## Overview
 
-Bidirectional synchronization system that keeps profile pictures in sync between User and Member records.
+A photo change on a Member or on its linked User is copied to the other record. This is done by the
+generic field sync service, `verenigingen/services/field_sync_service.py`, which also syncs names
+and email. There is no image-specific module (an earlier `utils/user_member_image_sync.py` was never
+registered in `doc_events` and was deleted, #3161).
 
-## Implementation Date
-2025-11-10
+## Mechanism
 
-## Features
+`field_sync_service.sync_fields` is registered as an `on_update` handler for both doctypes in
+`verenigingen/hooks/doc_events.py` (`"Member"` and `"User"`). Check with
+`frappe.get_hooks("doc_events")`.
 
-### Automatic Bidirectional Sync
-- When a Member's `image` field is updated, the linked User's `user_image` field is automatically synchronized
-- When a User's `user_image` field is updated, the linked Member's `image` field is automatically synchronized
+`FIELD_SYNC_CONFIG` in that service holds the mappings:
+
+- `Member` -> `User`: `image` -> `user_image` (the User is found through `Member.user`)
+- `User` -> `Member`: `user_image` -> `image` (the Member is found with `Member.user == User.name`)
 
 ### Safeguards
-- **Infinite Loop Prevention**: Uses `frappe.flags.syncing_user_member_image` flag to prevent circular updates
-- **Change Detection**: Only syncs when the image field actually changes (not on every save)
-- **Error Handling**: Gracefully handles edge cases (missing records, null values) without blocking saves
-- **Audit Trail**: Logs all sync operations for troubleshooting
 
-## Architecture
-
-### Hook Configuration
-Located in `hooks.py`:
-
-**Member DocType**:
-```python
-"Member": {
-    "on_update": [
-        "verenigingen.utils.user_member_image_sync.sync_member_image_to_user",
-    ],
-}
-```
-
-**User DocType**:
-```python
-"User": {
-    "on_update": [
-        "verenigingen.utils.user_member_image_sync.sync_user_image_to_member",
-    ],
-}
-```
-
-### Sync Module
-File: `verenigingen/utils/user_member_image_sync.py`
-
-Contains two main functions:
-1. `sync_member_image_to_user(doc, method=None)` - Syncs Member.image → User.user_image
-2. `sync_user_image_to_member(doc, method=None)` - Syncs User.user_image → Member.image
-
-## Usage
-
-The synchronization happens automatically. No manual intervention required.
-
-### Example Workflow
-
-1. **Member Portal**: User updates their profile picture in the Member portal
-   - Member.image is updated
-   - Hook triggers `sync_member_image_to_user`
-   - User.user_image is automatically synchronized
-
-2. **User Profile**: User updates their profile picture in User settings
-   - User.user_image is updated
-   - Hook triggers `sync_user_image_to_member`
-   - Member.image is automatically synchronized
-
-## Edge Cases Handled
-
-1. **Member without User**: Sync gracefully skips if no user is linked
-2. **User without Member**: Sync gracefully skips if no member record exists
-3. **No Change**: Sync only triggers when image actually changes
-4. **Null Values**: Handles null/empty image values correctly
-5. **Permission Issues**: Uses `ignore_permissions=True` to avoid permission errors during sync
+- **Recursion flag**: both directions share `frappe.flags.syncing_member_user_fields`. While one
+  direction is saving the other record, the echo `on_update` sees the flag and returns. The flag is
+  cleared in a `finally`.
+- **Change detection**: a field is synced only when its value changed on the source document in this save (`has_value_changed`).
+- **Missing records**: a Member without a User, or a User without a Member, is skipped silently.
+- **Permissions**: the target is saved with `ignore_permissions=True`.
+- **Failures** are caught so the source save is never blocked, and are logged with
+  `logging.getLogger(__name__).error`, which is not visible in CI or Error Log (#3172).
 
 ## Testing
 
-Comprehensive test suite in `verenigingen/tests/test_user_member_image_sync.py`
+`verenigingen/tests/member/test_user_member_image_sync.py`:
 
-Run tests with:
 ```bash
-bench --site dev.veganisme.net run-tests --module verenigingen.tests.test_user_member_image_sync
+bench --site test_site_1 run-tests --app verenigingen --module verenigingen.tests.member.test_user_member_image_sync
 ```
 
-Test coverage includes:
-- ✅ Member image syncs to User
-- ✅ User image syncs to Member
-- ✅ Infinite loop prevention
-- ✅ Missing user handling
-- ✅ Missing member handling
-- ✅ Change detection (only sync on actual changes)
-
-## Performance Considerations
-
-- **Minimal Overhead**: Only executes on actual image field changes
-- **Single Database Operation**: Each sync is one `save()` operation
-- **No Queue Jobs**: Synchronous operation ensures immediate consistency
-- **Flag-based Prevention**: Prevents cascading updates efficiently
-
-## Security
-
-- Operations use `ignore_permissions=True` to ensure sync works regardless of user permissions
-- Sync is internal-only, triggered by document save events
-- Comprehensive logging for audit trail
-- No direct user input in sync operations
+Covers Member -> User, User -> Member, the loop guard (the `syncing_member_user_fields` flag),
+missing user, missing member, and no sync without a change.
 
 ## Troubleshooting
 
-### Check Sync Logs
 ```python
-# In Frappe Console
-frappe.get_all("Error Log",
-    filters={"error": ["like", "%Image Sync%"]},
-    order_by="modified desc",
-    limit=10
-)
-```
-
-### Manual Sync
-If sync fails, you can manually sync:
-```python
-# Sync Member image to User
-from verenigingen.utils.user_member_image_sync import sync_member_image_to_user
 member = frappe.get_doc("Member", "MEMBER-001")
-sync_member_image_to_user(member)
-
-# Sync User image to Member
-from verenigingen.utils.user_member_image_sync import sync_user_image_to_member
-user = frappe.get_doc("User", "user@example.com")
-sync_user_image_to_member(user)
+print(member.user, member.image)
+print(frappe.db.get_value("User", member.user, "user_image"))
 ```
-
-### Verify Link
-```python
-# Check if Member has linked User
-member = frappe.get_doc("Member", "MEMBER-001")
-print(f"Linked User: {member.user}")
-
-# Check if User has linked Member
-member_name = frappe.db.get_value("Member", {"user": "user@example.com"}, "name")
-print(f"Linked Member: {member_name}")
-```
-
-## Future Enhancements
-
-Potential improvements for future consideration:
-- Webhook notifications for external systems
-- Image transformation/resizing during sync
-- Configurable sync enable/disable per member
-- Sync history tracking in dedicated table
-
-## Related Documentation
-
-- Member DocType: `verenigingen/doctype/member/`
-- User DocType: Frappe Framework core
-- Hook System: `verenigingen/hooks.py`
-- Test Suite: `verenigingen/tests/test_user_member_image_sync.py`

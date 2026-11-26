@@ -114,18 +114,25 @@ def update_employee_with_user(employee_name, user_id):
         return False
 
 
-def _find_employee_of_members_user(volunteer_doc):
-    """The reusable Employee whose user_id is the volunteer's member's user, if any.
+def find_reusable_employee_of_user(user):
+    """The Employee of ``user`` that automatic flows may reuse, if any (#2802, #2850).
 
-    A Left/Inactive/Suspended Employee is not reusable: it is not someone who can file
-    expenses (#2802), so the volunteer falls through to the HR-gated create path.
+    Only an Active Employee is reusable: a Left, Inactive or Suspended one is not someone who
+    can file expenses, and re-linking it is a rehire, which is an explicit staff action. The
+    caller falls through to its own create path instead. This is the ONE rule every
+    "reuse the user's Employee" lookup shares.
     """
+    if not user:
+        return None
+    return frappe.db.get_value("Employee", {"user_id": user, "status": "Active"}, "name")
+
+
+def _find_employee_of_members_user(volunteer_doc):
+    """The reusable Employee whose user_id is the volunteer's member's user, if any."""
     member_user = (
         frappe.db.get_value("Member", volunteer_doc.member, "user") if volunteer_doc.member else None
     )
-    if not member_user:
-        return None
-    return frappe.db.get_value("Employee", {"user_id": member_user, "status": "Active"}, "name")
+    return find_reusable_employee_of_user(member_user)
 
 
 def _find_own_employee_of_session_user(volunteer_doc):

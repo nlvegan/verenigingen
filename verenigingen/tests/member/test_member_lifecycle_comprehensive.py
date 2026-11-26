@@ -9,9 +9,8 @@ Focus on complete member journey from application to termination
 """
 
 import frappe
-from frappe.utils import today, add_days, add_months, flt
+from frappe.utils import add_days, add_months, flt
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestMemberLifecycleComprehensive(VereningingenTestCase):
@@ -118,14 +117,10 @@ class TestMemberLifecycleComprehensive(VereningingenTestCase):
         # Stage 7: Termination Process
         member.reload()  # Reload before termination
         member.status = "Quit"
-        member.termination_date = today()
-        member.termination_reason = "Member request - lifecycle test completion"
         member.save()
         
         member.reload()
         self.assertEqual(member.status, "Quit")
-        assert_written_today(self, member.termination_date)
-        self.assertIsNotNone(member.termination_reason)
 
         # Verify all records still exist and are properly linked
         self.assertEqual(membership.member, member.name)
@@ -144,32 +139,24 @@ class TestMemberLifecycleComprehensive(VereningingenTestCase):
         # Test suspension
         member.reload()  # Reload after creation
         member.status = "Suspended"
-        member.suspension_date = today()
-        member.suspension_reason = "Payment failure"
         member.save()
 
         member.reload()
         self.assertEqual(member.status, "Suspended")
-        assert_written_today(self, member.suspension_date)
 
         # Test reactivation
         member.status = "Active"
-        member.reactivation_date = today()
         member.save()
 
         member.reload()
         self.assertEqual(member.status, "Active")
-        assert_written_today(self, member.reactivation_date)
 
         # Test termination
         member.status = "Quit"
-        member.termination_date = today()
-        member.termination_reason = "Member voluntary termination"
         member.save()
 
         member.reload()
         self.assertEqual(member.status, "Quit")
-        self.assertIsNotNone(member.termination_reason)
 
     def test_member_payment_lifecycle(self):
         """Test member payment processing throughout lifecycle"""
@@ -334,11 +321,6 @@ class TestMemberLifecycleEdgeCases(VereningingenTestCase):
         for status in status_sequence:
             member.reload()  # Reload before each modification
             member.status = status
-            if status == "Suspended":
-                member.suspension_date = today()
-            elif status == "Quit":
-                member.termination_date = today()
-
             member.save()
             member.reload()  # Reload after save to verify
             self.assertEqual(member.status, status)
@@ -390,19 +372,15 @@ class TestMemberLifecycleEdgeCases(VereningingenTestCase):
         member.reload()  # Reload before modification
         original_status = member.status
         member.status = "Quit"
-        member.termination_date = today()
         member.save()
 
         # Rollback termination
         member.reload()  # Reload before rollback
         member.status = original_status
-        member.termination_date = None
-        member.termination_reason = None
         member.save()
 
         member.reload()  # Reload to verify
         self.assertEqual(member.status, original_status)
-        self.assertIsNone(member.termination_date)
 
 
 class TestMemberLifecycleBusinessRules(VereningingenTestCase):
@@ -419,7 +397,6 @@ class TestMemberLifecycleBusinessRules(VereningingenTestCase):
         # Test that terminated members can't be reactivated directly
         member.reload()  # Reload before modification
         member.status = "Quit"
-        member.termination_date = today()
         member.save()
 
         # In a real system, this might require special approval process

@@ -21,6 +21,7 @@ from frappe import _
 from frappe.utils import add_days, today
 
 from verenigingen.utils.settings_utils import get_mollie_days_back_limit
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.mollie.utils.common_helpers import validate_mollie_payment_ids
 from verenigingen.verenigingen_payments.utils.timezone_utils import mollie_timestamp_to_local_date
 
@@ -483,6 +484,9 @@ def bulk_process_member_payments(
         service = MollieDebugService()
         return service.bulk_process_member_payments(payment_ids, docstatus, payment_modes)
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # #3059: reach the request/job boundary, which owns the rollback
+        raise
     except Exception as e:
         frappe.log_error(
             message=f"Bulk process member payments error: {str(e)}",

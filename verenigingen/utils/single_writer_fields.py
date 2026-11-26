@@ -29,3 +29,21 @@ def keep_stored_single_fields(doc, fields, coerce=None):
     )
     for field, value in rows:
         doc.set(field, coerce[field](value) if field in coerce else value)
+
+
+def stored_child_rows(doc, table_field, fields):
+    """Stored values of ``fields`` for each saved row of ``doc``'s ``table_field``, by row name (#2792).
+
+    A background job that writes child rows with ``update_modified=False`` or a raw UPDATE leaves the
+    parent's ``modified`` alone, so a stale form passes the timestamp check and its save rewrites
+    every row from the in-memory values. A row with no stored copy (a new row) is simply absent.
+    """
+    import frappe
+
+    child_doctype = doc.meta.get_field(table_field).options
+    rows = frappe.get_all(
+        child_doctype,
+        filters={"parent": doc.name, "parenttype": doc.doctype, "parentfield": table_field},
+        fields=["name", *fields],
+    )
+    return {row.pop("name"): row for row in rows}

@@ -470,8 +470,9 @@ class TestMembershipApplicationLoad(ApplicationFlowCase):
         self.assertEqual(member.application_status, "Pending")
 
         # KEY TEST: Verify no fee change tracking was triggered
-        self.assertFalse(
-            hasattr(member, "_pending_fee_change"),
+        self.assertEqual(
+            len(member.fee_change_history),
+            0,
             "Application with custom fee should not trigger fee change tracking",
         )
 

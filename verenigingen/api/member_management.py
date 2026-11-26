@@ -111,6 +111,7 @@ def can_assign_member_to_chapter(member_name, chapter_name):
             WHERE v.member = %s
             AND cbm.parent = %s
             AND cbm.is_active = 1
+            AND cr.is_active = 1
             AND cr.permissions_level = 'Admin'
         """,
             [user_member, chapter_name],
@@ -132,6 +133,7 @@ def can_assign_member_to_chapter(member_name, chapter_name):
                 WHERE v.member = %s
                 AND cbm.parent = %s
                 AND cbm.is_active = 1
+                AND cr.is_active = 1
                 AND cr.permissions_level = 'Admin'
             """,
                 [user_member, settings.national_board_chapter],

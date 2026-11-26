@@ -269,6 +269,7 @@ def add_manual_payment_record(
     )
 
     payment.remarks = notes or "Manual donation entry"
+    payment.custom_remarks = 1  # else ERPNext's set_remarks replaces the staff notes on validate (#3088)
 
     # Audit log before financial transaction.
     # NOTE: frappe.log_error's first positional arg is the *title* (capped at

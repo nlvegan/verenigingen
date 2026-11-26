@@ -124,10 +124,11 @@ class TestMemberContactRequestIntegration(EnhancedTestCase):
 
         # Test completion
         contact_request.status = "Resolved"
-        contact_request.resolution_notes = "Request handled successfully"
+        contact_request.resolution = "Request handled successfully"
         contact_request.save()
+        contact_request.reload()
         self.assertEqual(contact_request.status, "Resolved")
-        self.assertIsNotNone(contact_request.resolution_notes)
+        self.assertEqual(contact_request.resolution, "Request handled successfully")
 
     def test_contact_request_status_transitions(self):
         """Test contact request status transitions and automation"""

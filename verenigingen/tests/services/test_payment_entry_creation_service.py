@@ -1110,6 +1110,47 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
     FX_CURRENCY = "USD"
     FX_RATE = 1.25  # EUR -> USD, chosen so 30.00 EUR is exactly 37.50 USD
 
+    def _pin_exchange_rate_for_today(self, from_currency, to_currency, rate):
+        """Make today's stored rate for this pair exactly `rate` for the rest of the test (#2867).
+
+        The harness seeds a shared row for this very pair (INR<->USD for the INR
+        `_Test Company`), and Currency Exchange autonames from date + currencies +
+        purpose, so an insert of a second row is a duplicate-key error. A get-or-create
+        that skipped the existing row would silently run on the SEEDED rate and the
+        37.50 assertions would redden for an unrelated reason. So: update the existing
+        row and put its rate back afterwards (the shared seed must survive), or
+        insert one and track it.
+
+        Latent: this service does not commit. If it ever did, the pinned rate would be
+        committed into the shared row and the restore below (uncommitted) would not
+        undo it.
+        """
+        today = frappe.utils.today()
+        existing = frappe.db.get_value(
+            "Currency Exchange",
+            {"from_currency": from_currency, "to_currency": to_currency, "date": today},
+            ["name", "exchange_rate"],
+            as_dict=True,
+        )
+        if existing:
+            frappe.db.set_value("Currency Exchange", existing.name, "exchange_rate", rate)
+            self.addCleanup(
+                frappe.db.set_value, "Currency Exchange", existing.name, "exchange_rate", existing.exchange_rate
+            )
+        else:
+            rate_doc = frappe.get_doc(
+                {
+                    "doctype": "Currency Exchange",
+                    "from_currency": from_currency,
+                    "to_currency": to_currency,
+                    "date": today,
+                    "exchange_rate": rate,
+                    "for_buying": 1,
+                    "for_selling": 1,
+                }
+            ).insert()
+            self.track_doc("Currency Exchange", rate_doc.name)
+
     def _ensure_foreign_currency_clearing_account(self, company):
         """A Bank-type GL account in a currency the company does NOT use.
 
@@ -1138,30 +1179,7 @@ class TestPaymentEntryCreationService(EnhancedTestCase):
             (company_currency, self.FX_CURRENCY, self.FX_RATE),
             (self.FX_CURRENCY, company_currency, 1 / self.FX_RATE),
         ):
-            # Currency Exchange autonames from date + currencies + purpose, so an
-            # insert of a row that already exists is a duplicate-key error rather than
-            # a second row. Get-or-create, and only track what we actually created -
-            # tracking a pre-existing row would schedule someone else's fixture for
-            # deletion.
-            existing = frappe.db.get_value(
-                "Currency Exchange",
-                {"from_currency": from_currency, "to_currency": to_currency, "date": frappe.utils.today()},
-                "name",
-            )
-            if existing:
-                continue
-            rate_doc = frappe.get_doc(
-                {
-                    "doctype": "Currency Exchange",
-                    "from_currency": from_currency,
-                    "to_currency": to_currency,
-                    "date": frappe.utils.today(),
-                    "exchange_rate": rate,
-                    "for_buying": 1,
-                    "for_selling": 1,
-                }
-            ).insert()
-            self.track_doc("Currency Exchange", rate_doc.name)
+            self._pin_exchange_rate_for_today(from_currency, to_currency, rate)
 
         account_name = f"Test FX Clearing {self.FX_CURRENCY}"
         name = frappe.db.get_value("Account", {"company": company, "account_name": account_name}, "name")

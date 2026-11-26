@@ -174,7 +174,7 @@ class TestMemberRoleServiceSweep(VereningingenTestCase):
         # username. Verify the v16 canonical store (role_profiles child table) is
         # written — setting only the legacy role_profile_name Link would be a no-op.
         profile = self._make_role_profile("Sweep Member")
-        user = self._make_user(roles=["System Manager"])
+        user = self._make_user(roles=["Accounts User"])  # non-staff (#3217 refuses System Manager)
         # Disable the user first so the "enable on assign" branch also runs.
         frappe.db.set_value("User", user.name, "enabled", 0)
 
@@ -184,8 +184,8 @@ class TestMemberRoleServiceSweep(VereningingenTestCase):
         # The role profile landed in the canonical store.
         self.assertIn(profile, self._profile_names(user.name))
         refreshed = frappe.get_doc("User", user.name)
-        # Prior System Manager role was cleared (role profile replaces individual roles).
-        self.assertNotIn("System Manager", {r.role for r in refreshed.roles})
+        # Prior role was cleared (role profile replaces individual roles).
+        self.assertNotIn("Accounts User", {r.role for r in refreshed.roles})
         # User was re-enabled by the assignment.
         self.assertTrue(refreshed.enabled)
 

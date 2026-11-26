@@ -24,8 +24,9 @@ class TestFeeFunctionality(VereningingenTestCase):
         )
 
         # Check that new member doesn't trigger change tracking
-        self.assertFalse(hasattr(member, "_pending_fee_change"),
-                        "New member should not have _pending_fee_change")
+        member.reload()
+        self.assertEqual(len(member.fee_change_history), 0,
+                        "Creating a member with a custom fee must not record fee change history")
         self.assertEqual(member.application_custom_fee, 75.0)
 
     def test_existing_member_fee_change(self):
