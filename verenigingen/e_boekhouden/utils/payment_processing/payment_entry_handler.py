@@ -12,12 +12,12 @@ from typing import Dict, List, Optional, Tuple
 
 import frappe
 from frappe import _
+from frappe.exceptions import QueryDeadlockError
 from frappe.utils import flt, getdate, nowdate
 
 from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
 from verenigingen.e_boekhouden.utils.security_helper import atomic_migration_operation, validate_and_insert
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 from verenigingen.verenigingen_payments.utils.bank_transaction_status import RECONCILED, record_pool_outcome
@@ -1545,9 +1545,10 @@ class PaymentEntryHandler:
 
             return bank_transaction_name
 
-        except NON_RESUMABLE_DB_ERRORS:
+        except QueryDeadlockError:
             # #3195: a 1213 rolled the whole transaction back; returning None would let the caller
             # submit the Payment Entry without its Bank Transaction against discarded state.
+            # 1213 only: the creator never emits a 1205 (#2983), so none can arrive here.
             raise
         except Exception as e:
             self._log(f"ERROR creating Bank Transaction: {str(e)}")
@@ -1655,9 +1656,12 @@ class PaymentEntryHandler:
             # Re-raise known errors without modification
             raise
 
-        except NON_RESUMABLE_DB_ERRORS:
-            # #3195: converting to ValidationError would hide the class from every caller's
-            # `except NON_RESUMABLE_DB_ERRORS` and read as an ordinary, resumable failure.
+        except QueryDeadlockError:
+            # #3195: converting a 1213 to ValidationError would hide the class from every caller's
+            # `except NON_RESUMABLE_DB_ERRORS`. 1213 ONLY: a 1205 rolls back just its statement, and
+            # atomic_migration_operation re-raises it WITHOUT rolling back its savepoint, which would
+            # strand the draft Payment Entry (#3354). A 1205 keeps the ValidationError path, whose
+            # savepoint rollback makes the retry clean.
             raise
 
         except Exception as e:

@@ -18,6 +18,7 @@ import frappe
 from frappe.utils import nowdate
 
 from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler import PaymentEntryHandler
+from verenigingen.e_boekhouden.utils.security_helper import atomic_migration_operation
 from verenigingen.tests.e_boekhouden.test_party_creation_lock_errors_3029 import _lock_error_at_driver_3029
 from verenigingen.tests.e_boekhouden.test_payment_processor_sweep import _PayProcBase
 
@@ -98,20 +99,19 @@ class TestPaymentEntryHandlerLockErrors3195(_PayProcBase):
         self.expectErrorLog("E-Boekhouden Bank Transaction Creation")
         self._reaches_caller_3195("`tabBank Transaction`", ("INSERT",), self._create_call_3195, codes=(1213,))
 
-    def test_a_lock_timeout_raised_by_the_creator_is_not_returned_as_none(self):
-        """The creator swallows a driver-level 1205 itself (#2983), so no injected 1205 can reach
-        this handler. If the creator ever lets one out, the handler must not absorb it. This one
-        is NOT driver-injected: the creator's raise is stood in for."""
+    def test_a_lock_timeout_from_the_creator_still_returns_none(self):
+        """Control: 1213 only is re-raised. A 1205 rolls back just its statement and the creator
+        never emits one today (#2983), so the handler keeps its old contract for it. NOT
+        driver-injected: the creator's raise is stood in for."""
         self.expectErrorLog("E-Boekhouden Bank Transaction Creation")
         n = next(self._seq_3195)
-        # Mock justified: the creator cannot emit a 1205 today; this pins the handler's own re-raise
+        # Mock justified: the creator cannot emit a 1205 today; pins that the re-raise is 1213-only
         with patch(
             "verenigingen.verenigingen_payments.services.bank_transaction_creator."
             "BankTransactionCreator.create_from_dict",
             side_effect=frappe.QueryTimeoutError("injected"),
         ):
-            with self.assertRaises(frappe.QueryTimeoutError):
-                self._create_call_3195(n)()
+            self.assertIsNone(self._create_call_3195(n)())
 
     def test_an_ordinary_error_creating_the_bank_transaction_still_returns_none(self):
         """Control: the re-raise is narrow; an ordinary failure keeps the log-and-None contract."""
@@ -126,9 +126,30 @@ class TestPaymentEntryHandlerLockErrors3195(_PayProcBase):
             self.assertIsNone(self._create_call_3195(n)())
 
     # --- _link_bank_transaction_to_payment ---------------------------------------------------
-    def test_a_lock_error_linking_the_bank_transaction_keeps_its_class(self):
+    def test_a_deadlock_linking_the_bank_transaction_keeps_its_class(self):
         self.expectErrorLog("E-Boekhouden Bank Transaction Linking")
-        self._reaches_caller_3195("`tabBank Transaction`", ("UPDATE",), self._link_call_3195)
+        self._reaches_caller_3195("`tabBank Transaction`", ("UPDATE",), self._link_call_3195, codes=(1213,))
+
+    def test_a_lock_timeout_linking_inside_the_atomic_operation_rolls_the_draft_payment_entry_back(self):
+        """1205 keeps the ValidationError path so atomic_migration_operation rolls its savepoint
+        back. Re-raising the 1205 class would skip that rollback and strand the draft Payment
+        Entry that `_allocate_and_insert_payment` wrote (#3354)."""
+        self.expectErrorLog("E-Boekhouden Bank Transaction Linking")
+        n = next(self._seq_3195)
+        bt = self._draft_bank_transaction_3195(n)
+        inject = hits = None
+        with self.assertRaises(frappe.ValidationError):
+            with atomic_migration_operation("payment_processing"):
+                pe = self._draft_payment_entry_3195(n)
+                frappe.db.set_value("Payment Entry", pe.name, "eboekhouden_mutation_nr", str(n))
+                inject, hits = _lock_error_at_driver_3029("`tabBank Transaction`", ("UPDATE",), 1205)
+                with inject:
+                    self._handler_3195()._link_bank_transaction_to_payment(bt.name, pe.name)
+        self.assertTrue(hits, "the injection must have fired")
+        self.assertFalse(
+            frappe.db.exists("Payment Entry", {"eboekhouden_mutation_nr": str(n)}),
+            "the draft Payment Entry must be rolled back with the savepoint",
+        )
 
     def test_an_ordinary_error_linking_the_bank_transaction_is_still_a_validation_error(self):
         """Control: a non-lock error is still converted to ValidationError."""
