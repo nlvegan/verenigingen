@@ -285,7 +285,7 @@ def create_sales_invoice_impl(migration_doc, invoice_data):
             # Resolve ledger ID to account code for proper mapping
             raw_tegenrekening = line.get("TegenrekeningCode", "")
             debug_info = []
-            account_code = _get_ledger_code_from_id(raw_tegenrekening, debug_info)
+            account_code = _get_ledger_code_from_id(raw_tegenrekening, migration_doc.company, debug_info)
 
             item_code = get_or_create_item_improved(
                 account_code=account_code,
@@ -404,7 +404,7 @@ def create_purchase_invoice_impl(migration_doc, invoice_data):
             # Resolve ledger ID to account code for proper mapping
             raw_tegenrekening = line.get("TegenrekeningCode", "")
             debug_info = []
-            account_code = _get_ledger_code_from_id(raw_tegenrekening, debug_info)
+            account_code = _get_ledger_code_from_id(raw_tegenrekening, migration_doc.company, debug_info)
 
             item_code = get_or_create_item_improved(
                 account_code=account_code,

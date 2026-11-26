@@ -1909,6 +1909,10 @@ def _get_ledger_code_from_id(ledger_id, company, debug_info):
                     f"Created missing mapping and resolved ledger_id {ledger_id} to ledger_code {ledger_code}"
                 )
                 return ledger_code
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3199: a 1213/1205 is not "mapping missing"; the throw below would raise a
+            # ValidationError on a transaction the server may already have rolled back.
+            raise
         except Exception as e:
             debug_info.append(f"Failed to create missing ledger mapping: {str(e)}")
 
