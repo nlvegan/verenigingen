@@ -265,7 +265,7 @@
                                             <ul class="list-none p-0 m-0 space-y-1">
                                                 {% for doc in documents %}
                                                 <li>
-                                                    <a href="{{ doc.document_file|e }}" target="_blank" class="text-sm text-gray-700 hover:text-primary-600 no-underline flex items-center gap-1">
+                                                    <a href="{{ doc.document_file|safe_url|e }}" target="_blank" class="text-sm text-gray-700 hover:text-primary-600 no-underline flex items-center gap-1">
                                                         <i class="fa fa-file-pdf-o text-danger-500 text-xs"></i>
                                                         {{ doc.document_name|e }}
                                                     </a>
