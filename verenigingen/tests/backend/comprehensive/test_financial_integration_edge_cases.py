@@ -23,6 +23,10 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
     def setUpClass(cls):
         """Set up test data"""
         super().setUpClass()
+        # Own the specific Role Profile or skip; never adopt whichever one exists (#1332). Checked
+        # before any row is created so a skip leaves nothing behind.
+        if not frappe.db.exists("Role Profile", "Verenigingen Staff"):
+            raise unittest.SkipTest("Role Profile 'Verenigingen Staff' (shipped fixture) is missing")
         cls.test_records = []
 
         # Chapter has reqd fields (status/region/introduction) and autoname=prompt;
@@ -54,11 +58,8 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
         cls.test_records.insert(0, region)  # reversed on teardown: removed after the chapter
 
         # Membership Type reqd fields: membership_type_name (autoname=field:),
-        # minimum_amount, role_profile. Look up any Role Profile for the link.
-        role_profile = (
-            frappe.db.get_value("Role Profile", {"name": "Verenigingen Staff"}, "name")
-            or frappe.db.get_value("Role Profile", {}, "name")
-        )
+        # minimum_amount, role_profile. Use the shipped "Verenigingen Staff" fixture profile.
+        role_profile = "Verenigingen Staff"
         cls.membership_type = frappe.get_doc(
             {
                 "doctype": "Membership Type",
