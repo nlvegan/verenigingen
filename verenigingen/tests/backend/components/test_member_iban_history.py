@@ -1,9 +1,10 @@
 import unittest
 
 import frappe
-from frappe.utils import getdate, today
+from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestMemberIBANHistory(EnhancedTestCase):
@@ -53,8 +54,7 @@ class TestMemberIBANHistory(EnhancedTestCase):
         self.assertEqual(history.bic, member.bic)  # Should match auto-derived BIC
         self.assertEqual(history.bank_account_name, "Test IBAN")
         # Convert to date object for comparison
-        from frappe.utils import getdate
-        self.assertEqual(getdate(history.from_date), getdate(today()))
+        assert_written_today(self, history.from_date)
         self.assertIsNone(history.to_date)
         self.assertTrue(history.is_active)
         self.assertEqual(history.change_reason, "Other")
@@ -380,7 +380,7 @@ class TestMemberIBANHistoryParentValidation(EnhancedTestCase):
 
         reloaded_row = next(r for r in member.iban_history if r.name == active_row.name)
         self.assertFalse(reloaded_row.is_active)
-        self.assertEqual(getdate(reloaded_row.to_date), getdate(today()))
+        assert_written_today(self, reloaded_row.to_date)
 
     # ------------------------------------------------------------------ #2022
     def _member_with_iban_and_blank_holder(self):

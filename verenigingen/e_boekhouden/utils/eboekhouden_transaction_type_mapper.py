@@ -153,8 +153,8 @@ def simplify_migration_process(mutation_data: Dict[str, Any]) -> Dict[str, Any]:
 
     if not transaction_type and transaction_type != 0:  # 0 is valid for opening balance
         frappe.log_error(
-            "No transaction type found in mutation {mutation_data.get('MutatieNr') or mutation_data.get('id', 'Unknown')}",
-            "E-Boekhouden Migration",
+            title="E-Boekhouden Migration",
+            message=f"No transaction type found in mutation {mutation_data.get('MutatieNr') or mutation_data.get('id', 'Unknown')}",
         )
         return {
             "document_type": "Journal Entry",
@@ -168,7 +168,7 @@ def simplify_migration_process(mutation_data: Dict[str, Any]) -> Dict[str, Any]:
         "document_type": doc_type,
         "transaction_type": transaction_type,
         "confidence": "high",
-        "reason": "Direct mapping from E-boekhouden type: {transaction_type}",
+        "reason": f"Direct mapping from E-boekhouden type: {transaction_type}",
     }
 
     # Add payment reference info if it's a payment entry

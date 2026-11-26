@@ -154,10 +154,13 @@ def on_chapter_role_on_update(doc, method):
                 fields=["volunteer"],
             )
 
+            # Reactivation (#2958): the role comes back with the Has Role row, but the profile that
+            # keeps it across the next User.save only returns through the sync.
+            restore_profile = bool(doc.is_active and doc.has_value_changed("is_active"))
             failed = []
             for board_member in board_members:
                 if board_member.volunteer:
-                    _reevaluate_holder(board_member.volunteer, failed)
+                    _reevaluate_holder(board_member.volunteer, failed, restore_profile)
             _alert_failed_holders(doc.name, failed)
 
     except NON_RESUMABLE_DB_ERRORS:
@@ -168,7 +171,7 @@ def on_chapter_role_on_update(doc, method):
     _refresh_expense_approvers_for_role(doc)
 
 
-def _reevaluate_holder(volunteer, failed):
+def _reevaluate_holder(volunteer, failed, restore_profile=False):
     """Re-evaluate one holder's board role under a savepoint; a failure is collected in ``failed``.
 
     The savepoint undoes the failing user's half-done writes (the strip may already have removed
@@ -186,6 +189,8 @@ def _reevaluate_holder(volunteer, failed):
 
             if user_email:
                 assign_chapter_board_role(user_email)
+                if restore_profile and member_doc.user:
+                    _restore_board_profile(member_doc.user)
                 frappe.logger().info(f"Re-evaluated board role for {user_email} due to chapter role changes")
         release_savepoint_if_present(savepoint)
     except NON_RESUMABLE_DB_ERRORS:
@@ -207,6 +212,15 @@ def _reevaluate_holder(volunteer, failed):
             f"{e.__class__.__name__}: {e}\n\n{frappe.get_traceback()}",
         )
         failed.append((who, f"{e.__class__.__name__}: {e}"))
+
+
+def _restore_board_profile(user):
+    from verenigingen.services.member.account.user_role_profile_calculator import sync_user_role_profile
+
+    result = sync_user_role_profile(user)
+    if not result.get("success"):
+        # raised so the per-holder savepoint collects it: loud, like a failed withdrawal
+        raise RuntimeError(f"role profile sync failed: {result.get('error')}")
 
 
 def _alert_failed_holders(role_name, failed):

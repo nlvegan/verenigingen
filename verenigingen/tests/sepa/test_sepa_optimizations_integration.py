@@ -118,50 +118,32 @@ class TestSEPAOptimizations(EnhancedTestCase):
         self.assertIn("total_checked", coverage_result)
         self.assertIn("complete", coverage_result)
     
-    @unittest.skip(
-        "verenigingen.fixtures.add_sepa_database_indexes module was removed; "
-        "verify_sepa_indexes() no longer exists. Index creation is now part of "
-        "the regular migration path. Re-enable when a replacement verifier ships."
-    )
-    def test_database_indexes_presence(self):
-        """Test that database indexes were created successfully"""
-        from verenigingen.fixtures.add_sepa_database_indexes import verify_sepa_indexes  # pyright: ignore[reportMissingImports]  # module removed; test skipped above
-
-        verification_results = verify_sepa_indexes()
-        self.assertIsInstance(verification_results, list)
-
-        found_indexes = [r for r in verification_results if r['status'] == 'found']
-        missing_indexes = [r for r in verification_results if r['status'] == 'missing']
-
-        # Should have most indexes (allow for some environment differences)
-        self.assertGreaterEqual(len(found_indexes), 8,
-                              f"Expected at least 8 indexes, found {len(found_indexes)}")
-
-        if missing_indexes:
-            print(f"Warning: {len(missing_indexes)} indexes missing: {[idx['index'] for idx in missing_indexes]}")
-    
     def test_batch_sequence_type_determination(self):
-        """Test batch sequence type processing"""
-        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
-        
-        service = get_sepa_mandate_service()
-        
-        # Test batch sequence type determination with sample data
-        test_pairs = [("TEST-MANDATE-1", "TEST-INV-1"), ("TEST-MANDATE-2", "TEST-INV-2")]
-        
-        try:
-            sequence_types = service.get_sequence_types_batch(test_pairs)
-            self.assertIsInstance(sequence_types, dict)
-            
-            # Should return results for all pairs (even if mandates don't exist)
-            for mandate, invoice in test_pairs:
-                cache_key = f"{mandate}:{invoice}"
-                self.assertIn(cache_key, sequence_types)
-                
-        except Exception as e:
-            # This might fail in test environments without proper SEPA setup
-            self.skipTest(f"Sequence type determination requires SEPA setup: {str(e)}")
-    
+        """Batch sequence types: a pair that cannot be determined has NO entry (#2716, #3077)."""
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import SEPAMandateService
+
+        service = SEPAMandateService()  # fresh instance: the singleton's cache is process-wide
+
+        # Non-existent mandates: no entry, not a guessed FRST/RCUR.
+        missing_pairs = [("TEST-MANDATE-1", "TEST-INV-1"), ("TEST-MANDATE-2", "TEST-INV-2")]
+        self.expectErrorLog("Error determining sequence type")
+        self.assertEqual(service.get_sequence_types_batch(missing_pairs), {})
+
+        # Control: a real mandate that was never collected gets its entry. Its type is derived
+        # from the usage history (none Collected -> FRST), and the missing pairs stay out.
+        member = self.create_test_member(
+            first_name="SeqType",
+            last_name="Control",
+            email=f"seqtype.{frappe.generate_hash(length=8)}@example.com",
+            birth_date="1985-01-01",
+        )
+        mandate = self.create_test_sepa_mandate(member_name=member.name)
+        real_pair = (mandate.name, "TEST-INV-REAL")
+        result = service.get_sequence_types_batch(missing_pairs + [real_pair])
+
+        # No Collected usage on a fresh mandate -> FRST (sign_date renewal rule only applies after one).
+        self.assertEqual(result, {f"{mandate.name}:TEST-INV-REAL": "FRST"})
+
     def test_configuration_api_endpoints(self):
         """Test configuration management API endpoints"""
         from verenigingen.verenigingen_payments.utils.sepa_config_manager import (

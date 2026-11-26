@@ -29,6 +29,7 @@ import frappe
 from frappe.utils import add_months, getdate, today
 
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.utils import membership_dues_integration as mdi
 from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
 
@@ -180,7 +181,7 @@ class TestMembershipDuesIntegration(VereningingenTestCase):
         # Payment already made -> no invoice generated, last_invoice_date set
         self.assertIsNone(invoice)
         schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-        self.assertEqual(getdate(schedule.last_invoice_date), getdate(today()))
+        assert_written_today(self, schedule.last_invoice_date)
         self.assertEqual(
             getdate(schedule.next_invoice_date),
             getdate(mdi.calculate_next_invoice_date(today(), "Annual")),

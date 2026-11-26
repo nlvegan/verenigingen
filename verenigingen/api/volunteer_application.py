@@ -188,6 +188,25 @@ def submit_volunteer_application(**data) -> OperationResult[Dict[str, Any]]:
         if data.get("become_member") and not member_link:
             membership_result = _create_membership_application(data, volunteer_name)
 
+            # #2653: submit_application's ordinary-failure path calls frappe.db.rollback(), which
+            # also discards the Volunteer written earlier in THIS request (a new row vanishes; a
+            # reactivation reverts to its prior non-New status). Answering "received" over that would tell
+            # the applicant something the database does not hold, so fail honestly instead.
+            if not membership_result["success"] and not frappe.db.exists(
+                "Volunteer", {"name": volunteer_name, "status": "New"}
+            ):
+                frappe.log_error(
+                    title="Volunteer Application Error",
+                    message=(
+                        f"Volunteer {volunteer_name} was rolled back by the membership step: "
+                        f"{membership_result['error']}"
+                    ),
+                )
+                return OperationResult.fail(
+                    _("We could not save your application. Please try again."),
+                    error_code="VOLUNTEER_APPLICATION_NOT_SAVED",
+                )
+
         frappe.db.commit()
 
         # Log volunteer application for analytics

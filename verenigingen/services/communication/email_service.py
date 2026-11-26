@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, now
+from frappe.utils import get_datetime, get_formatted_email
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.operation_result import OperationResult
@@ -224,6 +224,7 @@ class EmailService(StatelessService):
                     "recipients_count": len(recipients) if isinstance(recipients, list) else 1,
                 },
                 raise_error=False,
+                propagate_non_resumable=False,  # 1205 keeps the failure result (#2996)
             )
             return OperationResult.from_exception(e)
 
@@ -302,6 +303,7 @@ class EmailService(StatelessService):
                 "Send notification",
                 {"notification_type": notification_type},
                 raise_error=False,
+                propagate_non_resumable=False,  # 1205 keeps the failure result (#2996)
             )
             return OperationResult.from_exception(e)
 
@@ -384,7 +386,12 @@ class EmailService(StatelessService):
             raise
         except Exception as e:
             handle_service_error(
-                e, "EmailService", "Send bulk emails", {"batch_size": len(email_batch)}, raise_error=False
+                e,
+                "EmailService",
+                "Send bulk emails",
+                {"batch_size": len(email_batch)},
+                raise_error=False,
+                propagate_non_resumable=False,  # 1205 keeps the failure result (#2996)
             )
             return OperationResult.from_exception(e)
 
@@ -448,6 +455,7 @@ class EmailService(StatelessService):
                     "recipient_count": len(recipients) if isinstance(recipients, list) else 1,
                 },
                 raise_error=False,
+                propagate_non_resumable=False,  # 1205 keeps the failure result (#2996)
             )
             return OperationResult.from_exception(e)
 
@@ -655,14 +663,14 @@ class EmailService(StatelessService):
         try:
             communication_data = {
                 "doctype": "Communication",
-                "communication_type": "Email",
+                "communication_type": "Communication",
                 "communication_medium": "Email",
                 "subject": subject,
                 "content": content,
                 "status": status,  # Use provided status (default "Queued")
                 "recipients": "\n".join(recipients),
                 "sent_or_received": "Sent",
-                "creation": now(),
+                "sender": get_formatted_email(frappe.session.user),
             }
 
             if reference_doctype and reference_name:
@@ -678,7 +686,7 @@ class EmailService(StatelessService):
             )
 
             if result.success:
-                return result.data.name
+                return result.doc_name
             else:
                 self.logger.warning(f"Failed to create communication record: {'; '.join(result.errors)}")
                 return None

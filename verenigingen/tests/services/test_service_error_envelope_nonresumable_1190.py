@@ -120,5 +120,8 @@ class TestServiceErrorEnvelopeNonResumable1190(EnhancedTestCase):
 
     def test_control_raise_error_false_keeps_returning_the_envelope(self):
         self.expectErrorLog("env_nr_1190 Error")
-        result = handle_service_error(_FAULTS["deadlock"](), "env_nr_1190", "op", raise_error=False)
+        # #2817 superseded the deadlock premise: raise_error=False no longer returns the envelope
+        # for 1213/1205 (pinned in test_service_handlers_raise_error_false_lock_errors_2817).
+        # The envelope contract this control guards is for every OTHER error.
+        result = handle_service_error(ValueError("ordinary"), "env_nr_1190", "op", raise_error=False)
         self.assertFalse(result["success"])
