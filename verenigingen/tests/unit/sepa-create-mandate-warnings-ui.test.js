@@ -99,6 +99,9 @@ describe('create_mandate_with_values result alert (#3100)', () => {
 
 	test('control: an empty warnings list is not a warning', () => {
 		const alerts = run({ success: true, valid: true, mandate_id: 'M-3100', warnings: [] });
-		expect(alerts.find((a) => /M-3100/.test(a.message)).indicator).toBe('green');
+		const created = alerts.find((a) => /M-3100/.test(a.message));
+		expect(created.indicator).toBe('green');
+		expect(created.message).toMatch(/created successfully/);
+		expect(created.message).not.toMatch(/with warnings/);
 	});
 });
