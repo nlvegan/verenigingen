@@ -185,7 +185,10 @@ class TestUnlinkedMemberHomePage2207(EnhancedTestCase):
         """The REAL login outcome (no on_session_creation hook exists): Frappe returns
         home_page member_portal, and that page and its portal siblings say 'not linked'."""
         out = self._wsgi([self.no_member], self.PAGES)[self.no_member]
-        self.assertEqual(out["login"]["home_page"], "member_portal")
+        # Frappe prefixes "/" for a Website User ("No App": the role is portal-only, desk_access=0, as
+        # member_role_service creates it) and not for a System User (desk_access=1, which other tests
+        # leave on shared sites). Both land on the same route, so compare the route (#3338).
+        self.assertEqual(out["login"]["home_page"].strip("/"), "member_portal")
         self._assert_readable_not_linked_pages(out)
 
     def test_wsgi_pages_for_an_email_only_user_are_readable(self):
