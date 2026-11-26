@@ -21,6 +21,16 @@ def _load_fixture_rows():
         return {row["name"]: row for row in json.load(f)}
 
 
+def ensure_stock_email_template(name):
+    """Insert the fixture's Email Template ``name`` unless one exists (uncommitted)."""
+    if frappe.db.exists("Email Template", name):
+        return
+    row = {k: v for k, v in _load_fixture_rows()[name].items() if k != "modified"}
+    doc = frappe.get_doc(row)
+    doc.flags.ignore_links = True
+    doc.insert()
+
+
 def _cleanup_stock_email_templates(names):
     """For each name: delete whatever is there; re-create it from the fixture if the
     fixture ships it. Names the fixture does not ship are left deleted, so a

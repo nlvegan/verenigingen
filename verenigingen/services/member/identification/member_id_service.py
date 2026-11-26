@@ -160,6 +160,8 @@ class MemberIDService(StatelessService):
                 - total_checked: Number of members examined
                 - assigned: Number of IDs successfully assigned
                 - errors: List of error messages (if any)
+                - not_assigned: [{member, reason}] for members that qualified but
+                  were not assigned by this run (e.g. numbered concurrently)
 
         Security:
             - Requires admin permissions (@critical_api)
@@ -173,7 +175,8 @@ class MemberIDService(StatelessService):
 
         Performance:
             - Processes members in batches
-            - Commits after each successful assignment
+            - Does NOT commit per member: assignments ride the request's transaction
+            - Stops at the first deadlock/lock timeout (see _abort_after_db_lock_error)
             - Can handle thousands of members
 
         Note:
@@ -214,7 +217,9 @@ class MemberIDService(StatelessService):
 
             total_checked = len(members_without_ids)
             assigned_count = 0
+            assigned_names = []
             errors = []
+            not_assigned = []
 
             self.logger.info(f"MemberIDService: Found {total_checked} members without member IDs")
 
@@ -224,8 +229,17 @@ class MemberIDService(StatelessService):
 
                     # Check if member should have an ID
                     if member.should_have_member_id():
-                        member.ensure_member_id()
+                        outcome = member.ensure_member_id()
+                        # ensure_member_id() answers success=False (it does not raise) when
+                        # the member got an ID, or stopped qualifying, after the listing
+                        # query (#2427); that member was not assigned by this run.
+                        if not self._outcome_succeeded(outcome):
+                            not_assigned.append(
+                                {"member": member.name, "reason": self._outcome_reason(outcome)}
+                            )
+                            continue
                         assigned_count += 1
+                        assigned_names.append(member.name)
 
                         self.logger.info(
                             f"MemberIDService: Assigned ID {member.member_id} to {member.full_name} ({member.name})"
@@ -236,6 +250,10 @@ class MemberIDService(StatelessService):
                             f"(status: {member.status})"
                         )
 
+                except (frappe.QueryDeadlockError, frappe.QueryTimeoutError) as e:
+                    return self._abort_after_db_lock_error(
+                        e, member_data.name, total_checked, assigned_names, errors
+                    )
                 except Exception as e:
                     error_msg = f"Failed to assign ID to {member_data.name}: {str(e)}"
                     self.logger.error(f"MemberIDService: {error_msg}")
@@ -253,6 +271,7 @@ class MemberIDService(StatelessService):
                 "total_checked": total_checked,
                 "assigned": assigned_count,
                 "errors": errors if errors else [],
+                "not_assigned": not_assigned,
             }
 
             # Success if we assigned at least one ID, or if there were no members to process
@@ -262,12 +281,65 @@ class MemberIDService(StatelessService):
                 return OperationResult.fail(
                     "No member IDs were assigned",
                     errors=errors if errors else ["No eligible members found"],
-                    **results,
+                    # not **results: it holds "errors", which fail() takes as a named
+                    # parameter (duplicate keyword -> TypeError, #2424)
+                    total_checked=total_checked,
+                    assigned=assigned_count,
+                    not_assigned=not_assigned,
                 )
 
         except Exception as e:
             self.logger.error(f"Bulk member ID assignment failed: {str(e)}")
             return OperationResult.fail(f"Bulk member ID assignment failed: {str(e)}", errors=[str(e)])
+
+    @staticmethod
+    def _outcome_succeeded(outcome) -> bool:
+        """ensure_member_id() is decorated and yields a dict; a bare OperationResult is also read."""
+        if isinstance(outcome, dict):
+            return bool(outcome.get("success"))
+        return bool(getattr(outcome, "success", False))
+
+    @staticmethod
+    def _outcome_reason(outcome) -> str:
+        if isinstance(outcome, dict):
+            error = outcome.get("error")
+            # the decorator's nested schema: {"success": False, "error": {"message": ...}}
+            message = error.get("message") if isinstance(error, dict) else error
+            return str(message or outcome.get("error_message") or outcome.get("message") or "")
+        return getattr(outcome, "error_message", "") or ""
+
+    def _abort_after_db_lock_error(self, error, failed_member, total_checked, assigned_names, errors):
+        """Stop the batch after a 1213 deadlock / 1205 lock timeout and report what persisted.
+
+        A 1213 rolls back the caller's WHOLE uncommitted transaction (savepoints
+        included), so the members assigned earlier in this loop are gone and carrying
+        on would write on a fresh transaction and count them anyway (#2388). The count
+        is therefore read back from the database rather than inferred, which is also
+        right for a 1205 (that one rolls back only the failing statement).
+        """
+        persisted = (
+            frappe.get_all(
+                "Member",
+                filters={"name": ["in", assigned_names], "member_id": ["is", "set"]},
+                pluck="name",
+            )
+            if assigned_names
+            else []
+        )
+        lost = len(assigned_names) - len(persisted)
+        error_msg = (
+            f"Batch aborted at {failed_member}: {type(error).__name__}. "
+            f"{len(persisted)} assignment(s) persisted, {lost} discarded (a deadlock rolls back "
+            "the whole transaction; a lock timeout keeps earlier rows). "
+            "Run the bulk assignment again; it is idempotent."
+        )
+        self.logger.error(f"MemberIDService: {error_msg}")
+        return OperationResult.fail(
+            "Bulk member ID assignment aborted by a database lock error",
+            errors=[*errors, error_msg],
+            total_checked=total_checked,
+            assigned=len(persisted),
+        )
 
     def debug_member_id_assignment(self, member_name: str) -> OperationResult[Dict[str, Any]]:
         """

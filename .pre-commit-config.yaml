@@ -115,6 +115,8 @@ repos:
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/|archived_.*|archived_unused/|archived_deleted/)'
 
+      # #2323: ratcheted against scripts/validation/field_reference_baseline.txt; fails only on a
+      # finding that is not baselined (regenerate with --update-baseline when one is fixed).
       - id: enhanced-field-validator
         name: Context-aware field reference validator
         entry: python scripts/validation/enhanced_field_reference_validator.py
@@ -122,7 +124,8 @@ repos:
         pass_filenames: true
         files: '\.(py|html|js)$'
         stages: [pre-push]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|archived_.*|archived_unused/|archived_deleted/)'
+        # #2861: test/debug parts match at any depth (tree mode, CI and the baseline skip them too).
+        exclude: '(^|/)(tests/|test_|debug_)|_test\.py$|_debug\.py$|^scripts/(testing|debug)/|^(test_field_validation_gaps\.py|archived_.*|archived_unused/|archived_deleted/)'
 
       - id: template-field-validator
         name: HTML/JavaScript template field validation
@@ -250,13 +253,13 @@ repos:
         description: >-
           Frappe renders page AND email templates with Jinja autoescape OFF, so a bare
           `{{ member.full_name }}` prints user-typed text as markup (stored XSS). Every
-          `{{ }}` under verenigingen/templates must end in |e (or |tojson, a numeric
+          `{{ }}` under verenigingen/templates, www and verenigingen_payments/templates must end in |e (or |tojson, a numeric
           filter), be a literal `_("...")`, or carry a reasoned allowlist entry in the
           validator. Needs jinja2 on the PATH python.
         entry: python scripts/validation/template_escaping_validator.py
         language: system
         pass_filenames: true
-        files: '^verenigingen/templates/.*\.html$'
+        files: '^verenigingen/(templates|www|verenigingen_payments/templates)/.*\.html$'
         stages: [pre-commit]
 
       - id: veg11-destructive-command-validator
@@ -572,7 +575,7 @@ repos:
           or by returning/recording an explicit failure the caller reads; a genuinely
           best-effort write opts out with
           `# failed-write-ok: best-effort|caller-verifies|reported-elsewhere|false-positive`.
-          Ratcheted against scripts/validation/failed_write_baseline.txt (162 known
+          Ratcheted against scripts/validation/failed_write_baseline.txt (132 known
           sites) so existing code does not block commits — the baseline should only
           ever shrink. ADVISORY while that inventory is triaged: it prints and exits
           0; add --strict to the entry below to make a new site fail the commit.
@@ -608,7 +611,7 @@ repos:
         entry: python scripts/validation/public_js_endpoint_resolver.py
         language: system
         pass_filenames: false
-        files: '^verenigingen/public/js/.*\.(js|vue)$'
+        files: '^verenigingen/(public/js|e_boekhouden)/.*\.(js|vue)$'
         stages: [pre-commit]
         verbose: true
 

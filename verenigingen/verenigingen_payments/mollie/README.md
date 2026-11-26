@@ -25,7 +25,7 @@ verenigingen/verenigingen_payments/mollie/
 │   ├── order_payment_processor.py   # Order payment handling
 │   ├── payment_processors.py        # Payment type handlers
 │   ├── payment_type_router.py       # Routes payments by type
-│   ├── payment_context_resolver.py  # Resolves payment context
+│   ├── payment_context_resolver.py  # PaymentContext container
 │   ├── payment_entry_factory.py     # Creates Payment Entry docs
 │   ├── complete_payment_service.py  # Full workflow orchestration
 │   ├── generic_webhook_service.py   # Generic webhook handling
@@ -147,7 +147,6 @@ POST /api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_a
 
 ### Payment Operations
 ```
-POST /api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.create_donation_payment
 POST /api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.create_subscription
 ```
 

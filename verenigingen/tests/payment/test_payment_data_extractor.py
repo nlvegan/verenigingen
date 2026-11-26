@@ -16,7 +16,9 @@ from types import SimpleNamespace
 
 import frappe
 
+from verenigingen.tests.support.system_timezone import system_timezone
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
     MollieObjectType,
     PaymentDataExtractor,
@@ -205,7 +207,9 @@ class TestPaymentDataExtractor(VereningingenTestCase):
     # ------------------------------------------------------------------
     def test_extract_payment_date_iso_string(self):
         data = {"paid_at": "2025-12-01T23:45:30+00:00"}
-        self.assertEqual(self.extractor.extract_payment_date(data), date(2025, 12, 1))
+        # The day is the SITE's day (#2378): pin UTC so 23:45Z stays the 1st on any site.
+        with system_timezone("UTC"):
+            self.assertEqual(self.extractor.extract_payment_date(data), date(2025, 12, 1))
 
     def test_extract_payment_date_fallback_field(self):
         data = {"created_at": "2025-11-15T10:00:00+00:00"}
@@ -221,7 +225,7 @@ class TestPaymentDataExtractor(VereningingenTestCase):
 
     def test_extract_payment_date_missing_falls_back_to_today(self):
         result = self.extractor.extract_payment_date({})
-        self.assertEqual(result, frappe.utils.getdate())
+        assert_written_today(self, result)
 
     def test_extract_payment_date_attr_object(self):
         obj = SimpleNamespace(paid_at="2025-08-08T00:00:00+00:00", created_at=None)
@@ -233,7 +237,7 @@ class TestPaymentDataExtractor(VereningingenTestCase):
 
     def test_extract_date_missing_fallback_today(self):
         obj = SimpleNamespace()
-        self.assertEqual(self.extractor.extract_date(obj), frappe.utils.getdate())
+        assert_written_today(self, self.extractor.extract_date(obj))
 
     def test_extract_date_missing_strict_raises(self):
         obj = SimpleNamespace()

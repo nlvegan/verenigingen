@@ -16,6 +16,7 @@ from verenigingen.api.periodic_donation_operations import send_renewal_reminders
 from verenigingen.setup.notification_registry_setup import ensure_notification_registry_rows
 from verenigingen.tests.fixtures.dutch_validation_helpers import generate_valid_bsn
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.notification_state import own_notification_keys
 from verenigingen.tests.utils.reminder_mail_state import (
     clear_email_cooldowns,
     configure_notification_key,
@@ -55,7 +56,9 @@ class TestSkippedMailNotCountedSent(VereningingenTestCase):
         ensure_outgoing_email_account(self)
         ensure_notification_registry_rows()
         self._ensure_template(CONSENT_KEY)
-        self._configure_master(1)
+        # Restores the rows and the master switch afterwards (#2541). Then the real cooldowns these
+        # tests exercise are set on top of its cooldown-0 seed.
+        own_notification_keys(self, CONSENT_KEY, EXPIRY_KEY)
         configure_notification_key(CONSENT_KEY, 1, 43200)
         configure_notification_key(EXPIRY_KEY, 1, 1440)
         clear_email_cooldowns()
@@ -71,10 +74,17 @@ class TestSkippedMailNotCountedSent(VereningingenTestCase):
         doc.flags.ignore_links = True
         doc.insert()
 
-    def _configure_master(self, master):
-        config = frappe.get_single("Verenigingen Email Configuration")
-        config.master_email_enabled = master
-        config.save()
+    def _send_consent_requests(self):
+        # Mock justified: send_consent_requests commits; a commit here would make the seeded
+        # notification rows and master switch permanent for every later class (#2541). Everything
+        # the tests read back is in the same transaction.
+        with patch.object(frappe.db, "commit"):
+            return send_consent_requests()
+
+    def _send_renewal_reminders(self):
+        # Mock justified: as _send_consent_requests (send_renewal_reminders commits too).
+        with patch.object(frappe.db, "commit"):
+            return send_renewal_reminders(days_before_expiry=90)
 
     def _new_mail(self, email):
         """Mails queued for this address SINCE the fixture was built.
@@ -117,12 +127,12 @@ class TestSkippedMailNotCountedSent(VereningingenTestCase):
     def test_consent_request_inside_cooldown_is_not_logged_or_counted_as_sent(self):
         donor = self._consent_donor()
 
-        first = send_consent_requests()
+        first = self._send_consent_requests()
         self.assertEqual(self._new_mail(donor.donor_email), 1, "the first run must really send")
         self.assertEqual(len(self._comments("Donor", donor.name, CONSENT_LOG)), 1)
         self.assertGreaterEqual(first["data"]["sent_count"], 1)
 
-        second = send_consent_requests()
+        second = self._send_consent_requests()
         self.assertEqual(self._new_mail(donor.donor_email), 1, "the re-run must queue nothing new")
         self.assertEqual(
             len(self._comments("Donor", donor.name, CONSENT_LOG)),
@@ -138,7 +148,7 @@ class TestSkippedMailNotCountedSent(VereningingenTestCase):
         donor = self._consent_donor()
         configure_notification_key(CONSENT_KEY, 0, 0)
 
-        result = send_consent_requests()
+        result = self._send_consent_requests()
 
         self.assertEqual(self._new_mail(donor.donor_email), 0)
         self.assertEqual(self._comments("Donor", donor.name, CONSENT_LOG), [])
@@ -152,7 +162,7 @@ class TestSkippedMailNotCountedSent(VereningingenTestCase):
             "verenigingen.services.communication.email_service.EmailService._has_active_email_account",
             return_value=False,
         ):
-            result = send_consent_requests()
+            result = self._send_consent_requests()
 
         self.assertEqual(self._new_mail(donor.donor_email), 0)
         self.assertEqual(self._comments("Donor", donor.name, CONSENT_LOG), [])
@@ -164,12 +174,12 @@ class TestSkippedMailNotCountedSent(VereningingenTestCase):
     def test_renewal_reminder_inside_cooldown_is_not_logged_or_counted_as_sent(self):
         donor, agreement = self._expiring_agreement()
 
-        first = send_renewal_reminders(days_before_expiry=90)
+        first = self._send_renewal_reminders()
         self.assertEqual(self._new_mail(donor.donor_email), 1, "the first run must really send")
         self.assertEqual(len(self._comments("Periodic Donation Agreement", agreement.name, EXPIRY_LOG)), 1)
         self.assertGreaterEqual(first["data"]["sent_count"], 1)
 
-        second = send_renewal_reminders(days_before_expiry=90)
+        second = self._send_renewal_reminders()
         self.assertEqual(self._new_mail(donor.donor_email), 1, "the re-run must queue nothing new")
         self.assertEqual(
             len(self._comments("Periodic Donation Agreement", agreement.name, EXPIRY_LOG)),
@@ -184,7 +194,7 @@ class TestSkippedMailNotCountedSent(VereningingenTestCase):
         donor, agreement = self._expiring_agreement()
         configure_notification_key(EXPIRY_KEY, 0, 0)
 
-        result = send_renewal_reminders(days_before_expiry=90)
+        result = self._send_renewal_reminders()
 
         self.assertEqual(self._new_mail(donor.donor_email), 0)
         self.assertEqual(self._comments("Periodic Donation Agreement", agreement.name, EXPIRY_LOG), [])
@@ -198,7 +208,7 @@ class TestSkippedMailNotCountedSent(VereningingenTestCase):
             "verenigingen.services.communication.email_service.EmailService._has_active_email_account",
             return_value=False,
         ):
-            result = send_renewal_reminders(days_before_expiry=90)
+            result = self._send_renewal_reminders()
 
         self.assertEqual(self._new_mail(donor.donor_email), 0)
         self.assertEqual(self._comments("Periodic Donation Agreement", agreement.name, EXPIRY_LOG), [])

@@ -9,6 +9,7 @@ Every chapter-scope test seats a real board member in chapter A and puts a REAL 
 (and one with no chapter), so a surface that ignores the permission query has something to leak.
 """
 
+import inspect
 import json
 
 import frappe
@@ -266,6 +267,57 @@ class TestQuickApproveApplication(ApprovalCase):
         self.assertEqual(
             frappe.db.get_value("Chapter Member", {"parent": self.chapter.name, "member": member.name}, "status"),
             "Active",
+        )
+
+    def test_quick_approve_ticks_one_rate_limit_bucket_not_two_2280(self):
+        """#2280: the dashboard button called the decorated approve_application, so one approval ticked
+        its own bucket AND approve_application's (and wrote two audit rows). Real dispatch as the board
+        member, limiter live; the live redis counters of the whole site are read back."""
+        import redis
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        name = self._stage_and_confirm()
+        cache = redis.from_url(frappe.conf.redis_cache)
+        pattern = f"cor_rate_limit:{frappe.local.site}:*"
+        for key in cache.keys(pattern):
+            cache.delete(key)
+        saved = (frappe.flags.in_test, getattr(frappe.local, "request", None), frappe.local.form_dict)
+        self._teardown_rate_limit_mocking()  # drops the harness's validate_rate_limits stub (idempotent)
+        # Mock justified: Infrastructure - the limiter skips itself under in_test and needs a request
+        frappe.flags.in_test = False
+        frappe.local.request = SimpleNamespace(
+            method="POST",
+            environ={"REMOTE_ADDR": "203.0.113.9"},
+            headers={},
+            host="localhost",
+            scheme="http",
+            host_url="http://localhost/",
+            url="http://localhost/",
+            path="/",
+        )
+        try:
+            with self.as_user(self.board.user):
+                frappe.local.form_dict = frappe._dict(application_name=name)
+                # Mock justified: External Service - SMTP delivery, not business logic
+                with patch("frappe.sendmail"):
+                    result = frappe.handler.execute_cmd(
+                        "verenigingen.api.chapter_dashboard_api.quick_approve_application"
+                    )
+            operations = sorted(k.decode().split(":")[3] for k in cache.keys(pattern))
+        finally:
+            frappe.flags.in_test, frappe.local.request, frappe.local.form_dict = saved  # Mock justified
+            for key in cache.keys(pattern):
+                cache.delete(key)
+
+        self.assertTrue(result["success"], result)
+        # Not "only this bucket": the approval core itself reaches other decorated code outside api/
+        # (get_current_membership_fee; the services/ half of the #352 class, tracked separately).
+        self.assertIn("verenigingen.api.chapter_dashboard_api.quick_approve_application", operations)
+        self.assertNotIn(
+            "verenigingen.api.membership_application_review.approve_application",
+            operations,
+            "the dashboard approval ticked approve_application's own bucket as well",
         )
 
     def _probe(self, name):
@@ -562,8 +614,28 @@ class TestDashboardWiring(EnhancedTestCase):
         self.assertIn("<ul>${invoice_failures}</ul>", report, "and shown in the message")
         self.assertIn("escape_html(f.application_name)", report)
         self.assertIn("escape_html(f.error", report, "the server message is escaped before it is shown")
-        self.assertIn("results.failed.length || invoice_failed.length ? 'orange'", report)
+        self.assertIn("results.failed.length || invoice_failed.length || dues_failed.length ? 'orange'", report)
         self.assertEqual(report.count("escape_html(f."), 2, "one escaping helper serves both lists")
+
+    def test_an_approval_without_a_dues_schedule_is_shown_orange_not_as_a_green_success(self):
+        """#1930: the server says `dues_schedule_failed` (the approval stands, the schedule step failed);
+        both approve buttons must show that, not the green success toast. Source check (the callbacks run in
+        the browser; no JS harness here), tied to the payload key the server really sends below."""
+        import re
+
+        from verenigingen.api import membership_application_review as review
+
+        self.assertIn('"dues_schedule_failed": dues_schedule_failed', inspect.getsource(review))
+        dashboard = self._read("public/js/chapter_dashboard.js")
+        page = self._read("verenigingen/page/membership_application_review/membership_application_review.js")
+        for source, green in ((dashboard, "Member approved successfully"), (page, "Application approved for")):
+            self.assertIn("dues_schedule_failed", source)
+            branch = source.index("dues_schedule_failed")
+            self.assertLess(branch, source.index(green), "the orange branch is tested before the green toast")
+            shown = source[branch : source.index(green)]
+            self.assertIn("indicator: 'orange'", shown)
+            self.assertIn("escape_html(", shown)
+            self.assertIsNone(re.search(r"indicator: 'green'", shown))
 
     def test_staff_may_open_the_review_page(self):
         import json

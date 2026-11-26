@@ -1174,6 +1174,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             let statusClass = '';
             if (imp.import_status === 'Completed') statusClass = 'success';
+            else if (imp.import_status === 'Completed With Errors' || imp.import_status === 'Completed With Warnings') statusClass = 'warning';
             else if (imp.import_status === 'Failed') statusClass = 'danger';
             else if (imp.import_status === 'In Progress') statusClass = 'info';
             else statusClass = 'default';

@@ -129,7 +129,7 @@ class TestJournalEntryNoPartyOnIncomeAccount(unittest.TestCase):
             # Also need to skip the idempotency check. It is a module-level
             # function now (shared with the other Journal Entry bookers), so it
             # is patched where the creator looks it up.
-            with patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.find_journal_entry_by_reference", return_value=None):
+            with patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.resolve_journal_entry_by_reference", return_value=None):
                 creator.create_from_mollie_payment(
                     payment_data={"id": "tr_test123", "paid_at": "2025-01-01T12:00:00Z"},
                     donation_doc=mock_donation,
@@ -193,7 +193,7 @@ class TestBankTransactionReconciliationOnExistingJE(unittest.TestCase):
         creator = DonationJournalEntryCreator()
 
         # Mock existing JE found
-        with patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.find_journal_entry_by_reference", return_value="JE-EXISTING-001"):
+        with patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.resolve_journal_entry_by_reference", return_value="JE-EXISTING-001"):
             # Track whether reconciliation is attempted
             with patch("verenigingen.verenigingen_payments.services.donation_journal_entry_creator.reconcile_bank_transaction_with_journal_entry") as mock_reconcile:
                 mock_donation = MagicMock()
@@ -432,7 +432,7 @@ class TestRefundJournalEntryCreator(unittest.TestCase):
         creator = get_donation_refund_journal_entry_creator()
 
         # Mock existing check to return None (no existing JE)
-        with patch("verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator.find_journal_entry_by_reference", return_value=None):
+        with patch("verenigingen.verenigingen_payments.services.donation_refund_journal_entry_creator.resolve_journal_entry_by_reference", return_value=None):
             # Mock config
             creator._config = {
                 "company": "Test Company",

@@ -20,6 +20,8 @@ from frappe.model.document import Document
 from frappe.utils import get_url, now_datetime
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.single_check_defaults import apply_safe_default, ponto_has_live_credentials
+from verenigingen.utils.single_writer_fields import keep_stored_single_fields, stored_child_rows
 from verenigingen.verenigingen_payments.ponto.services.configuration_service import (
     IMPORT_REFUSED,
     PontoConfigurationService,
@@ -30,16 +32,55 @@ from verenigingen.verenigingen_payments.ponto.utils.bank_account_creator import 
     resolve_bank_account_for_ponto_account,
 )
 
+# Written by token refresh / sync with update_modified=False; a stale form must not roll them
+# back (#2739). access_token_expiry decides whether the stored access token is still used.
+BACKGROUND_OWNED_FIELDS = ("access_token_expiry", "last_sync_time")
+
+# Mapping-row fields written with update_modified=False / a raw UPDATE by the sync, the webhook
+# and pause_mapping; a stale form must not roll them back either (#2792). Nothing in this
+# controller sets the first group, so it is always re-read. The second group is what the audit in
+# fetch_ponto_accounts sets on purpose (pause / resume), so that save flags itself as the writer.
+MAPPING_SYNC_FIELDS = ("last_sync_time", "transactions_imported")
+MAPPING_STATUS_FIELDS = ("sync_status", "last_sync_error", "last_sync_failure_time")
+MAPPING_STATUS_WRITER_FLAG = "ponto_mapping_status_writer_save"
+
 
 class PontoSettings(Document):
     """Controller for Ponto Settings singleton DocType."""
 
+    def load_from_db(self):
+        super().load_from_db()
+        # #2565: an unset row reads 0, i.e. PRODUCTION / unsigned webhooks accepted; read the safe value
+        apply_safe_default(self, "sandbox_mode", has_live_credentials=ponto_has_live_credentials)
+        apply_safe_default(self, "require_webhook_signature")
+
     def validate(self):
         """Validate settings before save."""
+        keep_stored_single_fields(self, BACKGROUND_OWNED_FIELDS)
+        self._keep_background_mapping_state()
         self.validate_credentials_configured()
         self.validate_no_test_credentials()
         self.validate_sync_interval()
         self.update_webhook_url()
+
+    def _keep_background_mapping_state(self):
+        """Never write a stale copy of the mapping rows' sync state back (#2792).
+
+        Only background-owned fields come from the database; what staff edit (bank_account,
+        enabled, a new row) comes from the doc. `enabled` is also written by pause_mapping, so
+        it follows the database for a row that is stored as Paused.
+        """
+        status_writer = self.flags.get(MAPPING_STATUS_WRITER_FLAG)
+        owned = MAPPING_SYNC_FIELDS if status_writer else MAPPING_SYNC_FIELDS + MAPPING_STATUS_FIELDS
+        stored = stored_child_rows(self, "bank_account_mappings", owned + ("enabled",))
+        for row in self.bank_account_mappings or []:
+            saved = stored.get(row.name)
+            if not saved:
+                continue
+            for field in owned:
+                row.set(field, saved[field])
+            if not status_writer and saved["sync_status"] == "Paused":
+                row.enabled = saved["enabled"]
 
     def before_save(self):
         """
@@ -186,8 +227,9 @@ class PontoSettings(Document):
         """
         Get the application ID for webhook JWT verification.
 
-        The webhook application ID (from Ibanity developer console) may differ
-        from the OAuth client_id. Falls back to client_id if not set.
+        The webhook JWT's ``aud`` is the client ID of the environment in use, so this
+        must equal it (measured on sandbox, #2172). Leave it blank to fall back to the
+        active client ID.
 
         Returns:
             str: Application ID for webhook verification
@@ -417,6 +459,8 @@ class PontoSettings(Document):
             # Sync modified timestamp with DB to avoid version conflict
             # (token refresh may have saved the doc during validate_credentials)
             settings.modified = frappe.db.get_value("Ponto Settings", "Ponto Settings", "modified")
+            # The pause / resume audit above sets sync_status, error and failure time on purpose (#2792)
+            settings.flags[MAPPING_STATUS_WRITER_FLAG] = True
             settings.save()
 
             # Build message

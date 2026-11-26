@@ -43,6 +43,7 @@ class TestCheckAndHandleTermination(EnhancedTestCase):
             "is_active": 0,  # Not active → terminated
             "verenigingen_membership_type": membership_type.name,
         })
+        settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
         settings.save(ignore_permissions=True)
         frappe.db.commit()
         frappe.cache().delete_value("mijnrood_status_mapping")
@@ -51,6 +52,7 @@ class TestCheckAndHandleTermination(EnhancedTestCase):
     def _cleanup_status_mapping(self):
         s = frappe.get_single("MijnRood Sync Settings")
         s.status_mapping = self._original_status_mapping
+        s.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
         s.save(ignore_permissions=True)
         frappe.db.commit()
         frappe.cache().delete_value("mijnrood_status_mapping")

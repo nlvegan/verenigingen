@@ -25,7 +25,6 @@ from verenigingen.verenigingen_payments.mollie.utils.common_helpers import (
     create_error_response,
     format_mollie_amount,
     format_mollie_amount_string,
-    get_member_by_customer_id,
     get_member_by_subscription_id,
     get_members_by_customer,
     is_valid_mollie_interval,
@@ -47,6 +46,9 @@ from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     cancel_active_mandates,
     carry_forward_purposes,
 )
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    refuse_staff_cancelled_forward_payment,
+)
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 
@@ -66,11 +68,33 @@ class PaymentGateway(ABC):
         """Get payment status from gateway"""
 
 
+def _refuse_sales_invoice(ref_doc):
+    """Refusal for a Sales Invoice reference, or None for anything else (#2238).
+
+    BankTransfer, Ponto and SEPA were written for a Donation: they read ``amount`` /
+    ``donor`` and write ``payment_id`` / ``sepa_mandate``, none of which a Sales Invoice has.
+    They already failed closed, but only by accident and mid-way (Ponto leaked an internal
+    AttributeError text to the caller). Maintainer ruling 2026-11-10: refuse BEFORE any side
+    effect, with the same wording as the Mollie gate (#2225), until #2244 is settled. Lives
+    in the gateways, not the hook, so it covers every caller of ``process_payment``.
+    """
+    if getattr(ref_doc, "doctype", None) == "Sales Invoice":
+        return {
+            "status": "error",
+            "message": _("Paying an invoice through this page is not available yet."),
+        }
+    return None
+
+
 class BankTransferGateway(PaymentGateway):
     """Handler for bank transfer payments"""
 
     def process_payment(self, donation, form_data):
         """Generate bank transfer instructions"""
+        refusal = _refuse_sales_invoice(donation)
+        if refusal:
+            return refusal
+
         settings = frappe.get_single("Verenigingen Settings")
         payments_settings = get_payments_settings()
         company = frappe.get_doc("Company", settings.company)
@@ -177,11 +201,9 @@ class MollieGateway(PaymentGateway):
             # webhook resolver cannot map the payment to the invoice, so the money is never
             # booked. Remove this gate only once #2244 is fixed. Placed here rather than in
             # mollie_checkout so it covers every caller of process_payment.
-            if getattr(donation, "doctype", None) == "Sales Invoice":
-                return {
-                    "status": "error",
-                    "message": _("Paying an invoice through this page is not available yet."),
-                }
+            refusal = _refuse_sales_invoice(donation)
+            if refusal:
+                return refusal
 
             amount = self._amount_to_charge(donation)
             if amount is None:
@@ -834,7 +856,11 @@ class SEPAGateway(PaymentGateway):
 
     def process_payment(self, donation, form_data):
         """Set up SEPA direct debit mandate"""
-        iban = form_data.get("donor_iban", "").replace(" ", "").upper()
+        refusal = _refuse_sales_invoice(donation)
+        if refusal:
+            return refusal
+
+        iban = (form_data.get("donor_iban") or "").replace(" ", "").upper()
 
         if not iban:
             return create_error_response("IBAN is required for SEPA payments")
@@ -981,6 +1007,10 @@ class PontoGateway(PaymentGateway):
         Returns a redirect URL where the customer can authorize the payment
         at their own bank.
         """
+        refusal = _refuse_sales_invoice(donation)
+        if refusal:
+            return refusal
+
         settings = frappe.get_single("Verenigingen Settings")
         payments_settings = get_payments_settings()
 
@@ -1943,7 +1973,7 @@ def mollie_subscription_webhook():
         subscription_id = parsed["subscription_id"]
         payment_id = parsed["payment_id"]
 
-        member_name, customer_name, customer_id = _find_member_for_subscription(subscription_id)
+        member_name, customer_name, customer_id = _find_member_for_subscription(subscription_id, payment_id)
         if not member_name:
             return {"status": "ignored", "reason": "No member found for subscription"}
 
@@ -1967,9 +1997,9 @@ def mollie_subscription_webhook():
                 frappe.logger().info(f"Processed subscription payment {payment_id} for member {member_name}")
             except Exception as e:
                 frappe.log_error(
-                    f"Failed to process subscription payment {payment_id} "
+                    title="Mollie Subscription Payment Processing",
+                    message=f"Failed to process subscription payment {payment_id} "
                     f"for member {member_name}: {str(e)}",
-                    "Mollie Subscription Payment Processing",
                 )
                 result["payment_error"] = str(e)
 
@@ -1978,7 +2008,9 @@ def mollie_subscription_webhook():
         return result
 
     except Exception as e:
-        frappe.log_error(f"Mollie subscription webhook error: {str(e)}", "Mollie Subscription Webhook")
+        frappe.log_error(
+            title="Mollie Subscription Webhook", message=f"Mollie subscription webhook error: {str(e)}"
+        )
         return create_error_response(str(e))
 
 
@@ -2011,7 +2043,8 @@ def _authenticate_and_parse_subscription_payload():
             {
                 "event": "authentication_failed",
                 "error": str(auth_error),
-                "headers": dict(frappe.request.headers),
+                # Not the header dict: it carries Authorization/Cookie (#2252).
+                "has_signature": bool(frappe.request.headers.get("X-Mollie-Signature")),
             },
         )
         return None, create_error_response("Webhook authentication failed", {"details": str(auth_error)})
@@ -2041,10 +2074,10 @@ def _authenticate_and_parse_subscription_payload():
             except Exception as form_error:
                 frappe.logger().error(f"Subscription form-encoded parsing also failed: {str(form_error)}")
                 frappe.log_error(
-                    f"Mollie subscription webhook parsing failed: Neither JSON nor form-encoded\n"
+                    title="Mollie Subscription Webhook Parsing Error",
+                    message=f"Mollie subscription webhook parsing failed: Neither JSON nor form-encoded\n"
                     f"JSON error: {str(json_error)}\nForm error: {str(form_error)}\n"
                     f"Full payload: {repr(payload)}",
-                    "Mollie Subscription Webhook Parsing Error",
                 )
                 return None, create_error_response("Invalid payload format")
         else:
@@ -2063,9 +2096,9 @@ def _authenticate_and_parse_subscription_payload():
                 error_msg = f"Invalid JSON in subscription webhook payload: {str(json_error)}"
 
             frappe.log_error(
-                f"Mollie subscription webhook JSON parsing failed: {error_msg}\n"
+                title="Mollie Subscription Webhook JSON Error",
+                message=f"Mollie subscription webhook JSON parsing failed: {error_msg}\n"
                 f"Full payload: {repr(payload)}",
-                "Mollie Subscription Webhook JSON Error",
             )
             return None, create_error_response("Invalid JSON payload")
 
@@ -2089,13 +2122,16 @@ def _authenticate_and_parse_subscription_payload():
     if payment_id and DocumentExistenceValidator.check_document_exists(
         "Payment Entry", {"reference_no": payment_id}
     ):
+        # A row that is only CANCELLED is not a booking: staff cancelled it, so the redelivery is
+        # refused loudly instead of acknowledged silently (#2406).
+        refuse_staff_cancelled_forward_payment(payment_id, None, "the Mollie subscription webhook")
         frappe.logger().info(f"Payment {payment_id} already processed, skipping webhook")
         return None, {"status": "already_processed", "payment_id": payment_id}
 
     return {"subscription_id": subscription_id, "payment_id": payment_id}, None
 
 
-def _find_member_for_subscription(subscription_id):
+def _find_member_for_subscription(subscription_id, payment_id=None):
     """Find the member and customer linked to a Mollie subscription.
 
     Returns:
@@ -2105,28 +2141,50 @@ def _find_member_for_subscription(subscription_id):
         "Customer",
         filters={"custom_mollie_subscription_id": subscription_id},
         fields=["name", "custom_mollie_customer_id"],
+        order_by="name asc",
     )
 
     if not customers:
         frappe.log_error(
-            f"No customer found for subscription {subscription_id}",
-            "Mollie Subscription Webhook",
+            title="Mollie Subscription Webhook",
+            message=f"No customer found for subscription {subscription_id}",
         )
         return None, None, None
 
-    customer_name = customers[0]["name"]
-    customer_id = customers[0]["custom_mollie_customer_id"]
+    # Neither the Customer field nor the Member link is unique (#2576): several Customers may carry
+    # the id and several Members may hang off one Customer. This is a delivery path that writes the
+    # subscription status, so more than one distinct Member is refused, never first-wins.
+    owners = {}
+    for customer in customers:
+        for member in get_members_by_customer(customer["name"], fields=["name"]):
+            owners.setdefault(member["name"], customer)
 
-    members = get_members_by_customer(customer_name, fields=["name"])
+    if len(owners) > 1:
+        from types import SimpleNamespace
 
-    if not members:
+        from verenigingen.verenigingen_payments.mollie.domain.payment_classification import (
+            refuse_shared_member_id,
+        )
+
+        # The payload's payment id keys the Error Log row and the alert; the subscription id when absent
+        refuse_shared_member_id(
+            SimpleNamespace(id=payment_id or subscription_id),
+            "mollie_subscription_id",
+            subscription_id,
+            sorted(owners)[:3],
+            alert_staff=True,
+        )
+        return None, None, None
+
+    if not owners:
         frappe.log_error(
-            f"No member found for customer {customer_name} with subscription {subscription_id}",
-            "Mollie Subscription Webhook",
+            title="Mollie Subscription Webhook",
+            message=f"No member found for customer {customers[0]['name']} with subscription {subscription_id}",
         )
         return None, None, None
 
-    return members[0]["name"], customer_name, customer_id
+    member_name, customer = next(iter(owners.items()))
+    return member_name, customer["name"], customer["custom_mollie_customer_id"]
 
 
 def _update_subscription_status(gateway, customer_id, subscription_id, member_name, result):
@@ -2156,8 +2214,8 @@ def _update_subscription_status(gateway, customer_id, subscription_id, member_na
         )
     else:
         frappe.log_error(
-            f"Failed to get subscription status: {status_result['message']}",
-            "Mollie Subscription Webhook",
+            title="Mollie Subscription Webhook",
+            message=f"Failed to get subscription status: {status_result['message']}",
         )
         result["subscription_error"] = status_result["message"]
 
@@ -2367,6 +2425,20 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
                     "reason": "Payment already processed for this Mollie payment ID",
                 }
 
+            # Staff cancelled this payment's entry: do not book it again, staff decide (#2406).
+            # The insert below would collide with the cancelled row's key and return "duplicate"
+            # with no entry, leaving the payment unbooked and nobody told.
+            if refuse_staff_cancelled_forward_payment(
+                payment_id, payment_amount, "the Mollie subscription payment writer"
+            ):
+                frappe.db.commit()  # release the lock
+                return {
+                    "status": "refused",
+                    "payment_entry": None,
+                    "payment_id": payment_id,
+                    "reason": "Payment Entry was cancelled by staff; not booked again",
+                }
+
             # Create Payment Entry to mark invoice as paid
             payment_entry = frappe.new_doc("Payment Entry")
             payment_entry.payment_type = "Receive"
@@ -2437,10 +2509,13 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
                 },
             )
 
-            # Add notes about subscription payment
+            # Add notes about subscription payment. custom_remarks=1 is required:
+            # ERPNext's PaymentEntry.set_remarks regenerates remarks on validate
+            # unless it is set, which dropped the subscription/payment ids (#3088).
             payment_entry.remarks = (
                 f"Automatic payment via Mollie subscription {subscription_id}. Payment ID: {payment_id}"
             )
+            payment_entry.custom_remarks = 1
 
             # Set accounts manually (avoid EmployeePaymentEntry issues)
             # Use the same receivable account as the invoice to avoid validation errors
@@ -2551,8 +2626,8 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
                     )
         except Exception as activation_error:
             frappe.log_error(
-                f"Subscription activation failed for payment {payment_id}: {str(activation_error)}",
-                "Mollie Subscription Activation Error",
+                title="Mollie Subscription Activation Error",
+                message=f"Subscription activation failed for payment {payment_id}: {str(activation_error)}",
             )
             subscription_activation_result = {"status": "error", "message": str(activation_error)}
 
@@ -2571,8 +2646,8 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
 
     except Exception as e:
         frappe.log_error(
-            f"Error processing subscription payment {payment_id} for member {member_name}: {str(e)}",
-            "Mollie Subscription Payment Processing",
+            title="Mollie Subscription Payment Processing",
+            message=f"Error processing subscription payment {payment_id} for member {member_name}: {str(e)}",
         )
         raise e
 

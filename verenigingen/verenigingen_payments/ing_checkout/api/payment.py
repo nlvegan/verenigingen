@@ -11,10 +11,12 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import frappe
 from frappe import _
-from frappe.utils import get_url
+from frappe.utils import flt, get_url
 
+from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
+from verenigingen.verenigingen_payments.ing_checkout.api.mandate import _is_staff, _refuse_mandate_access
 from verenigingen.verenigingen_payments.ing_checkout.client import PayNLError, get_client
 
 # Namespace of the return token minted into the ING return URL and checked by
@@ -25,6 +27,69 @@ ING_RETURN_TOKEN_PURPOSE = "ing_checkout_return"
 PAYMENT_METHOD_IDEAL = 10
 PAYMENT_METHOD_BANCONTACT = 436
 PAYMENT_METHOD_CREDITCARD = 706
+
+# Name that no reference document carries, used to run the same lookups for an unknown order id
+# as for a known one (#1328); the result is always discarded.
+_NO_SUCH_REFERENCE = "-"
+
+
+def _caller_owns_reference(reference_doctype, reference_name) -> bool:
+    """Whether the calling member owns the reference document (#2814, ruling #1101).
+
+    Only these reference doctypes have an owner rule; any other is refused to non-staff (fail
+    closed). A missing document and someone else's document both answer False after the same
+    lookups, so a caller cannot tell them apart (#1328).
+    """
+    if not isinstance(reference_doctype, str) or not isinstance(reference_name, str):
+        return False
+    current_member = get_current_user_member_name()
+    # Looked up for every doctype so a Member- or Payment Plan Payment-referenced order costs the
+    # same queries as an invoice-referenced (or unknown) one (#1328).
+    member_customer = frappe.db.get_value("Member", current_member, "customer") if current_member else None
+    if reference_doctype == "Member":
+        owner = frappe.db.get_value("Member", reference_name, "name")
+        mine = current_member
+    elif reference_doctype == "Payment Plan Payment":
+        owner = frappe.db.get_value("Payment Plan Payment", reference_name, "member")
+        mine = current_member
+    elif reference_doctype == "Sales Invoice":
+        # Same customer rule as mandate.py. Two Members linked to one Customer both pass it
+        # (recorded limitation, not settled here: #2493).
+        owner = frappe.db.get_value("Sales Invoice", reference_name, "customer")
+        mine = member_customer
+    else:
+        return False
+    return bool(owner and mine and owner == mine)
+
+
+def _require_reference_access(reference_doctype, reference_name) -> None:
+    """Refuse unless the caller is staff or owns the reference document (#2814)."""
+    if not _is_staff() and not _caller_owns_reference(reference_doctype, reference_name):
+        _refuse_mandate_access()
+
+
+def _require_order_access(transaction_id) -> None:
+    """Refuse unless the caller is staff or owns the document the Pay.nl order was made for.
+
+    An unknown order id runs the same lookups as a known one against a placeholder reference and
+    is refused the same way (#1328).
+    """
+    if _is_staff():
+        return
+    order = None
+    if isinstance(transaction_id, str):
+        order = frappe.db.get_value(
+            "ING Checkout Transaction",
+            {"transaction_id": transaction_id},
+            ["reference_doctype", "reference_name"],
+            as_dict=True,
+        )
+    owns = _caller_owns_reference(
+        order.reference_doctype if order else "Sales Invoice",
+        order.reference_name if order else _NO_SUCH_REFERENCE,
+    )
+    if not (order and owns):
+        _refuse_mandate_access()
 
 
 @frappe.whitelist()
@@ -54,7 +119,6 @@ def create_ideal_payment(
     reference_name: str,
     amount: float,
     description: str,
-    return_url: str = None,
 ) -> dict:
     """
     Create an iDEAL payment for a document.
@@ -64,7 +128,6 @@ def create_ideal_payment(
         reference_name: Document name
         amount: Amount in EUR (e.g., 25.00)
         description: Payment description (shown on bank statement, max 30 chars)
-        return_url: Optional URL to redirect after payment
 
     Returns:
         dict with:
@@ -83,11 +146,16 @@ def create_ideal_payment(
         # Redirect user to result["redirect_url"]
 
     Note:
+        There is deliberately no return_url parameter (#2568): any caller clearing the HIGH
+        tier could otherwise pick where Pay.nl sends the payer back. The return URL is the
+        admin-set `default_return_url` or our own /payment_success page (as #2513 did for Mollie).
+
         This is a thin whitelisted wrapper around `create_ideal_order`, which
         holds the actual order-creation logic and is also called directly by
         trusted internal callers (e.g. other payment gateways) that don't go
         through the whitelist/request layer.
     """
+    _require_reference_access(reference_doctype, reference_name)
     try:
         # Validate inputs
         if not reference_doctype or not reference_name:
@@ -104,7 +172,7 @@ def create_ideal_payment(
             "message": _("An unexpected error occurred"),
         }
 
-    return create_ideal_order(reference_doctype, reference_name, amount, description, return_url)
+    return create_ideal_order(reference_doctype, reference_name, amount, description)
 
 
 def create_ideal_order(
@@ -149,6 +217,14 @@ def create_ideal_order(
         ref_doc = frappe.get_doc(reference_doctype, reference_name)
         ref_doc.check_permission("read")
 
+        # Ownership (#2814) is enforced by create_ideal_payment BEFORE this runs; that gate, not
+        # check_permission("read") above (which a board member passes for a foreign invoice),
+        # is what keeps a forbidden invoice's settled state unobservable. A direct caller of
+        # create_ideal_order is trusted and sees this refusal (measured, #3023).
+        amount = _ing_amount_to_charge(ref_doc, amount)
+        if amount is None:
+            return {"success": False, "message": _("There is nothing left to pay on this document.")}
+
         # Get settings
         from verenigingen.verenigingen_payments.doctype.ing_checkout_settings.ing_checkout_settings import (
             get_ing_checkout_settings,
@@ -159,7 +235,8 @@ def create_ideal_order(
 
         # Build return URL
         # Pay.nl appends the order id to the return URL; the return page accepts `id` and `orderId`
-        # Only OUR default page gets a return token (#2038). A caller-supplied return_url or a
+        # Only OUR default page gets a return token (#2038). An internal caller's return_url (the
+        # whitelisted endpoint passes none, #2568) or a
         # stored default_return_url override points at a page we do not render, so handing it
         # a proof would only leak it to that page; the override wins unchanged (as Mollie's does).
         if not return_url:
@@ -274,6 +351,24 @@ def create_ideal_order(
         }
 
 
+def _ing_amount_to_charge(ref_doc, caller_amount):
+    """What Pay.nl is asked to collect for ``ref_doc``; None means refuse (nothing to collect).
+
+    A Sales Invoice charges its ``outstanding_amount`` (maintainer ruling #2225, as for Mollie):
+    a caller-sent figure is ignored. The paid webhook books the amount stored on the ING
+    Checkout Transaction, so a caller amount below the outstanding left the invoice "Partly
+    Paid" and one above it booked an unallocated credit (#3023). A draft is refused because its
+    outstanding mirrors grand_total (#209/#856); a settled or over-credited invoice has nothing
+    left. Other reference doctypes have no server-side amount source and keep the caller's.
+    """
+    if ref_doc.doctype != "Sales Invoice":
+        return caller_amount
+    if ref_doc.docstatus != 1:
+        return None
+    outstanding = flt(ref_doc.outstanding_amount)
+    return outstanding if outstanding > 0 else None
+
+
 def build_default_return_url(reference_doctype: str, reference_name: str) -> str:
     """Our /payment_success URL carrying the signed return token (#2038).
 
@@ -304,6 +399,7 @@ def get_payment_status(transaction_id: str) -> dict:
             - customer_iban: IBAN of payer (if available)
             - customer_name: Name of payer (if available)
     """
+    _require_order_access(transaction_id)
     return fetch_payment_status(transaction_id)
 
 

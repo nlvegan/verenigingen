@@ -10,6 +10,8 @@ Last Updated: 2025-10-09
 
 import frappe
 
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
+
 
 def invalidate_team_profile_cache(doc, method):
     """
@@ -83,6 +85,8 @@ def _sync_team_lead_role(user):
         elif not is_still_leading and has_role:
             frappe.delete_doc("Has Role", has_role, ignore_permissions=True)
             frappe.logger().info(f"Removed Team Lead role from {user}")
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #2669: a 1213/1205 here leaves the Team save on a dead/half-applied transaction
     except Exception as e:
         frappe.log_error(
             f"Failed to sync Team Lead role for {user}: {e}",
@@ -147,6 +151,8 @@ def on_team_members_change(doc, method):
                     frappe.logger().warning(
                         f"Skipping role profile recalculation for {volunteer_name} - no member record"
                     )
+            except NON_RESUMABLE_DB_ERRORS:
+                raise  # #1888
             except Exception as e:
                 frappe.logger().error(
                     f"Error recalculating role profile for inactive/removed team member {volunteer_name}: {str(e)}"
@@ -175,6 +181,8 @@ def on_team_members_change(doc, method):
                     frappe.logger().warning(
                         f"Skipping role profile recalculation for {volunteer_name} - no member record"
                     )
+            except NON_RESUMABLE_DB_ERRORS:
+                raise  # #1888
             except Exception as e:
                 frappe.logger().error(
                     f"Error recalculating role profile for new/reactivated team member {volunteer_name}: {str(e)}"

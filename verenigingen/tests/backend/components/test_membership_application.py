@@ -2,12 +2,14 @@ import re
 import unittest
 
 import frappe
-from frappe.utils import add_days, now_datetime, today
+from frappe.utils import add_days, today
 
 from verenigingen.api.membership_application import submit_application
 from verenigingen.services.member.application.application_materialiser import materialise_member
+from verenigingen.services.chapter.chapter_utils import get_member_primary_chapter
 from verenigingen.tests.fixtures.region_fixtures import ensure_test_region
 from verenigingen.tests.integration.test_application_record_approval import SUBMISSION, ApprovalCase
+from verenigingen.tests.harness_logger import get_harness_logger
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 from verenigingen.utils.validation.application_validators import (
     validate_birth_date as validate_birth_date_util,
@@ -70,21 +72,6 @@ class ApplicationFlowCase(ApprovalCase):
         return self._approve_as(
             self._confirmed(form), user="Administrator", notes=notes, create_invoice=create_invoice
         )
-
-
-def get_member_primary_chapter(member_name):
-    """Helper function to get member's primary chapter from Chapter Member table"""
-    try:
-        chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-            limit=1,
-        )
-        return chapters[0].parent if chapters else None
-    except Exception:
-        return None
 
 
 class TestMembershipApplication(ApplicationFlowCase):
@@ -318,20 +305,6 @@ class TestMembershipApplication(ApplicationFlowCase):
             # Reapplication scenario - the earlier unconfirmed application is replaced
             self.assertTrue(second_result["success"])
 
-    def test_overdue_detection(self):
-        """Test overdue application detection"""
-        # Create an old application
-        old_data = self.application_data.copy()
-        old_data["email"] = f"old_{self.test_email}"
-        member_name = self._materialised(old_data)
-
-        # Manually set the application date to 3 weeks ago
-        frappe.db.set_value("Member", member_name, "application_date", add_days(now_datetime(), -21))
-
-        # Overdue check function was removed with application_notifications.py
-        # The functionality now lives in api/overdue_application_notifications.py
-        self.assertTrue(True)
-
 
 class TestMembershipApplicationLoad(ApplicationFlowCase):
     """Load testing for membership applications"""
@@ -439,7 +412,10 @@ class TestMembershipApplicationLoad(ApplicationFlowCase):
             try:
                 frappe.delete_doc("Membership Dues Schedule", schedule.name, force=True)
             except Exception:
-                pass
+                # A surviving schedule leaks into later modules (#2271)
+                get_harness_logger("cleanup").error(
+                    "could not delete Membership Dues Schedule %s", schedule.name, exc_info=True
+                )
 
         # 4. Delete Memberships
         memberships = frappe.get_all("Membership", filters={"member": member_name})
@@ -494,8 +470,9 @@ class TestMembershipApplicationLoad(ApplicationFlowCase):
         self.assertEqual(member.application_status, "Pending")
 
         # KEY TEST: Verify no fee change tracking was triggered
-        self.assertFalse(
-            hasattr(member, "_pending_fee_change"),
+        self.assertEqual(
+            len(member.fee_change_history),
+            0,
             "Application with custom fee should not trigger fee change tracking",
         )
 
@@ -1284,6 +1261,26 @@ class TestChapterSelection(ApplicationFlowCase):
         for chapter in chapters:
             print(f"   - {chapter['name']} ({chapter.get('region', 'No region')})")
 
+    def _assert_chapter_pending_1161(self, member_name, chapter_name):
+        """The application flow seats the member on the selected chapter as a PENDING Chapter Member
+        row (create_pending_chapter_membership); approval flips it to Active. Production's
+        get_member_primary_chapter counts only Active rows, so before approval it must NOT name the
+        chapter. (These tests used a test-local shadow that ignored `status` and so saw the Pending
+        row as the primary chapter: #1161.)"""
+        rows = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member_name, "parent": chapter_name},
+            fields=["enabled", "status"],
+        )
+        self.assertEqual(
+            [(r.enabled, r.status) for r in rows],
+            [(1, "Pending")],
+            f"Selected chapter {chapter_name} should be a pending membership",
+        )
+        self.assertIsNone(
+            get_member_primary_chapter(member_name), "A Pending membership is not the primary chapter"
+        )
+
     def test_chapter_selection_in_application(self):
         """Test chapter selection during application submission"""
         # Submit application with specific chapter selection
@@ -1295,12 +1292,9 @@ class TestChapterSelection(ApplicationFlowCase):
 
         # Verify chapter was assigned to member
         member = frappe.get_doc("Member", member_name)
-        primary_chapter = get_member_primary_chapter(member.name)
-        self.assertEqual(
-            primary_chapter, "Test Chapter Utrecht", "Selected chapter should be assigned to member"
-        )
+        self._assert_chapter_pending_1161(member.name, "Test Chapter Utrecht")
 
-        print(f"✅ Chapter selection works: {primary_chapter}")
+        print("✅ Chapter selection works: Test Chapter Utrecht")
 
     def test_application_without_chapter_selection(self):
         """Test application submission without chapter selection (optional field)"""
@@ -1404,8 +1398,7 @@ class TestChapterSelection(ApplicationFlowCase):
         member = frappe.get_doc("Member", self._materialised(application_data))
 
         # Verify both chapter and custom amount were processed
-        primary_chapter = get_member_primary_chapter(member.name)
-        self.assertEqual(primary_chapter, "Test Chapter Rotterdam", "Chapter should be assigned")
+        self._assert_chapter_pending_1161(member.name, "Test Chapter Rotterdam")
         self.assertEqual(member.dues_rate, 75.0, "Custom amount should be set")
 
         print("✅ Chapter selection works with custom amounts")
@@ -1421,8 +1414,7 @@ class TestChapterSelection(ApplicationFlowCase):
 
         # Verify initial assignment
         member = frappe.get_doc("Member", member_name)
-        primary_chapter = get_member_primary_chapter(member.name)
-        self.assertEqual(primary_chapter, "Test Chapter Amsterdam")
+        self._assert_chapter_pending_1161(member.name, "Test Chapter Amsterdam")
 
         # Approve the application
         approval_result = self._approve_as(application, notes="Test approval", create_invoice=True)
@@ -1458,7 +1450,10 @@ class TestChapterSelection(ApplicationFlowCase):
                 try:
                     frappe.delete_doc("Membership Dues Schedule", schedule.name, force=True)
                 except Exception:
-                    pass
+                    # A surviving schedule leaks into later modules (#2271)
+                    get_harness_logger("cleanup").error(
+                        "could not delete Membership Dues Schedule %s", schedule.name, exc_info=True
+                    )
 
             # Delete memberships
             for membership in frappe.get_all("Membership", filters={"member": member_name}):
@@ -1477,7 +1472,8 @@ class TestChapterSelection(ApplicationFlowCase):
             if customer_name:
                 frappe.delete_doc("Customer", customer_name, force=True)
         except Exception:
-            pass
+            # The Member/Customer deletes were swallowed here too (#2271)
+            get_harness_logger("cleanup").error("cleanup of member %s failed", member_name, exc_info=True)
 
     def test_multiple_chapters_in_same_region(self):
         """Test handling of multiple chapters in the same region"""
@@ -1516,12 +1512,7 @@ class TestChapterSelection(ApplicationFlowCase):
 
         member = frappe.get_doc("Member", self._materialised(application_data))
 
-        primary_chapter = get_member_primary_chapter(member.name)
-        self.assertEqual(
-            primary_chapter,
-            additional_chapter_name,
-            "Should be able to select specific chapter even in same region",
-        )
+        self._assert_chapter_pending_1161(member.name, additional_chapter_name)
 
         print("✅ Multiple chapters in same region handled correctly")
 

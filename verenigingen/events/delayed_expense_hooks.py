@@ -11,6 +11,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, now_datetime
 
+from verenigingen.events.event_emitter import enqueue_deduplicated
+
 # Upper bound on the in-job backoff, kept under the 120s enqueue timeout used by
 # the retry call site so the wait can never consume the job's whole budget.
 MAX_RETRY_WAIT_SECONDS = 60
@@ -40,11 +42,10 @@ def schedule_member_expense_history_update(doc, method=None):
 
     # Enqueue a per-member ADD drain job instead of processing inline, so the
     # history update happens outside the Expense Claim save transaction.
-    frappe.enqueue(
+    enqueue_deduplicated(
         "verenigingen.services.volunteer.expense_handlers.drain_member_expense_history",
         queue="short",
         job_id=f"fin_history_expense_{volunteer_record.member}_{doc.name}_add",
-        deduplicate=True,
         enqueue_after_commit=True,
         timeout=300,
         member=volunteer_record.member,

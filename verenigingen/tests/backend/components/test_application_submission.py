@@ -55,9 +55,10 @@ class TestApplicationSubmission(ApprovalCase):
         self.assertEqual(member.email, form_data["email"].lower())
         self.assertEqual(member.application_id, application_id)
 
-        # Most importantly - check that NO _pending_fee_change was created
-        self.assertFalse(hasattr(member, "_pending_fee_change"),
-                        "New application should not create _pending_fee_change!")
+        # Most importantly - the member-save fee override path records nothing for a new
+        # application; the only history row is the dues schedule creation at approval.
+        change_types = [row.change_type for row in member.fee_change_history]
+        self.assertNotIn("Fee Adjustment", change_types)
 
         self.assertEqual((member.application_status, member.status), ("Approved", "Active"))
 

@@ -22,9 +22,13 @@ from frappe.utils import getdate
 
 from verenigingen.services.billing.invoice_matcher import InvoiceMatchResult, find_matching_invoice
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.invoice_candidates import (
     log_ambiguous_refusal,
     unambiguous_invoice,
+)
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    refuse_staff_cancelled_forward_payment,
 )
 
 
@@ -192,6 +196,15 @@ class MolliePaymentOrchestrator:
             self._bank_config_cache = self.bt_creator.get_mollie_bank_account_config()
         return self._bank_config_cache
 
+    def _live_mollie_bank_transaction(self, payment_id: str):
+        """Live Bank Transaction for this payment on the Mollie bank account, or None (#2620).
+
+        Uses the cached config so a misconfigured account is validated (and logged) once.
+        """
+        return self.bt_creator.find_mollie_bank_transaction(
+            payment_id, fields=["name", "docstatus", "party", "date"], config=self._get_bank_account_config()
+        )
+
     def clear_bank_config_cache(self) -> None:
         """Reset the cached Mollie bank-account configuration (#867).
 
@@ -225,12 +238,10 @@ class MolliePaymentOrchestrator:
         status = ProcessingStatus(payment_id=payment_id)
 
         # Check for Bank Transaction
-        bt = frappe.db.get_value(
-            "Bank Transaction",
-            {"reference_number": payment_id},
-            ["name", "party", "date"],
-            as_dict=True,
-        )
+        # Scoped to the Mollie bank account, live rows only: reference_number is unique
+        # per bank account (#1267), so another account's row or a cancelled one is not
+        # this payment's booking (#2620).
+        bt = self._live_mollie_bank_transaction(payment_id)
 
         if bt:
             status.has_bank_transaction = True
@@ -505,6 +516,10 @@ class MolliePaymentOrchestrator:
 
             self._determine_final_status(result)
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             result.status = "error"
             result.error = str(e)
@@ -821,6 +836,10 @@ class MolliePaymentOrchestrator:
             fiscal_year = ensure_fiscal_year_exists(payment_date, company)
             if fiscal_year:
                 result.actions_taken.append(f"Ensured Fiscal Year: {fiscal_year}")
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as fy_error:
             result.actions_taken.append(f"Cannot create invoice: missing fiscal year for {payment_date}")
             frappe.log_error(
@@ -878,11 +897,9 @@ class MolliePaymentOrchestrator:
 
         try:
             # Check if BT already exists (idempotency)
-            existing_bt = frappe.db.get_value(
-                "Bank Transaction",
-                {"reference_number": payment_id},
-                "name",
-            )
+            # Mollie account, live rows only (#2620; see get_processing_status)
+            existing = self._live_mollie_bank_transaction(payment_id)
+            existing_bt = existing.name if existing else None
             if existing_bt:
                 result.status = "already_processed"
                 result.bank_transaction = existing_bt
@@ -897,6 +914,15 @@ class MolliePaymentOrchestrator:
             if not is_payment_successful(payment):
                 result.status = "skipped"
                 result.skipped_reason = f"Payment status is '{payment.status}', not 'paid'"
+                return result
+
+            # Resolve the BT configuration BEFORE the customer step: with an unresolvable
+            # Mollie account the lookup above sees no row, and creating a Customer for a
+            # payment that may already be booked would be a side effect with no BT (#2620).
+            config = self._get_bank_account_config()
+            if config.get("error"):
+                result.status = "error"
+                result.error = f"Bank account config error: {config['error']}"
                 return result
 
             # Get Mollie customer ID and try to find/create Customer
@@ -914,13 +940,6 @@ class MolliePaymentOrchestrator:
             else:
                 # Anonymous payment - no customer ID available
                 result.actions_taken.append("Anonymous payment (no Mollie customer ID)")
-
-            # Get BT configuration
-            config = self._get_bank_account_config()
-            if config.get("error"):
-                result.status = "error"
-                result.error = f"Bank account config error: {config['error']}"
-                return result
 
             # Build description based on available info
             description_parts = ["Orphaned payment (no member match)"]
@@ -949,6 +968,10 @@ class MolliePaymentOrchestrator:
                 result.status = "error"
                 result.error = "Failed to create Bank Transaction"
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             result.status = "error"
             result.error = str(e)
@@ -1032,6 +1055,14 @@ class MolliePaymentOrchestrator:
             payment_amount = extractor.extract_amount(payment)
             payment_date = extractor.extract_date(payment, field_name="paid_at")
 
+            # Staff cancelled this payment's entry: do not book it again (#2406). Refused before any
+            # invoice or Bank Transaction exists, so a refused redelivery leaves nothing behind;
+            # "skipped" is acknowledged (no retry) and the alert names the payment for staff.
+            if refuse_staff_cancelled_forward_payment(payment_id, payment_amount, "the orphan payment flow"):
+                result.status = "skipped"
+                result.skipped_reason = "Payment Entry was cancelled by staff; not booked again"
+                return result
+
             result.actions_taken.append("WARNING: Processing as ORPHANED payment - no member match found")
 
             # Get or create orphaned payments customer
@@ -1110,6 +1141,10 @@ class MolliePaymentOrchestrator:
                 "REMINDER: This payment requires manual review to identify the member"
             )
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             result.status = "error"
             result.error = str(e)
@@ -1153,6 +1188,10 @@ class MolliePaymentOrchestrator:
             frappe.logger().info(f"Created orphan customer: {customer.name}")
             return customer.name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             frappe.log_error(
                 title="Orphan Customer Creation Error",
@@ -1171,6 +1210,7 @@ class MolliePaymentOrchestrator:
         """Create a Sales Invoice for an orphaned payment."""
         try:
             from verenigingen.e_boekhouden.utils.invoice_helpers import ensure_fiscal_year_exists
+            from verenigingen.utils.invoice_price_list import get_selling_price_list_for_currency
 
             settings = frappe.get_single("Verenigingen Settings")
             company = settings.company or frappe.defaults.get_global_default("company")
@@ -1195,6 +1235,9 @@ class MolliePaymentOrchestrator:
             # currency, e.g. an INR system default against a EUR company) -- the
             # mismatch otherwise fails Sales Invoice validation.
             invoice.currency = frappe.get_cached_value("Company", company, "default_currency")
+            # #2810: pin a price list in that currency, else the site default (possibly
+            # another currency) triggers a live rate fetch a webhook user is refused.
+            invoice.selling_price_list = get_selling_price_list_for_currency(invoice.currency, customer)
             invoice.posting_date = payment_date
             invoice.due_date = payment_date
             invoice.is_membership_invoice = 1
@@ -1250,6 +1293,10 @@ class MolliePaymentOrchestrator:
 
             return invoice.name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             frappe.log_error(
                 title="Orphan Invoice Creation Error",
@@ -1299,6 +1346,11 @@ class MolliePaymentOrchestrator:
         regenerates remarks from the amount and party - which is what used to discard
         the "requires manual review" banner this entry exists to carry.
         """
+        # The writer guards too, not only its caller: the key hashes the party, so a different
+        # party is not stopped by the unique index and would book the payment again (#2406).
+        if refuse_staff_cancelled_forward_payment(payment_id, amount, "the orphan Payment Entry writer"):
+            return None
+
         try:
             from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
                 get_mollie_config,
@@ -1323,6 +1375,10 @@ class MolliePaymentOrchestrator:
 
             return payment_entry.name
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             frappe.log_error(
                 title="Orphan PE Creation Error",
@@ -1359,11 +1415,9 @@ class MolliePaymentOrchestrator:
 
         try:
             # Check if BT already exists (idempotency)
-            existing_bt = frappe.db.get_value(
-                "Bank Transaction",
-                {"reference_number": payment_id},
-                "name",
-            )
+            # Mollie account, live rows only (#2620; see get_processing_status)
+            existing = self._live_mollie_bank_transaction(payment_id)
+            existing_bt = existing.name if existing else None
             if existing_bt:
                 result.status = "already_processed"
                 result.bank_transaction = existing_bt
@@ -1420,6 +1474,10 @@ class MolliePaymentOrchestrator:
                 result.status = "error"
                 result.error = "Failed to create Bank Transaction"
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             result.status = "error"
             result.error = str(e)
@@ -1507,6 +1565,10 @@ class MolliePaymentOrchestrator:
                     return existing_customer
                 raise  # Re-raise if we still can't find it
 
+        except NON_RESUMABLE_DB_ERRORS:
+            # #3013: a 1213/1205 has already discarded (1213) or half-applied (1205) the unit of work;
+            # reporting it as a normal result lets the caller carry on and count work that is gone.
+            raise
         except Exception as e:
             frappe.log_error(
                 title="Mollie Customer Creation Error",

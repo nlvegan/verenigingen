@@ -18,7 +18,9 @@ The endpoints are still invoked as a logged-in plain member so the @self_service
 tier gate is exercised exactly as in production.
 """
 
+import ast
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -249,3 +251,88 @@ class TestMolliePortalEndpointsUnit(PortalSelfServiceTestMixin, EnhancedTestCase
 
         # The UTC date at call time (tolerating a UTC-midnight rollover during the test).
         self.assertIn(mandate_data["signatureDate"], {date_before, date_after})
+
+    # --- #2369: no code or test may send a site-local signatureDate ------------
+
+    _SITE_LOCAL_DATE_CALLS = frozenset({"today", "nowdate", "getdate"})
+
+    @classmethod
+    def _site_local_signature_date_lines(cls, source):
+        """Line numbers where a ``signatureDate`` dict key or keyword value calls a site-local clock."""
+        tree = ast.parse(source)
+        lines = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                pairs = [
+                    (key, value)
+                    for key, value in zip(node.keys, node.values)
+                    if isinstance(key, ast.Constant) and key.value == "signatureDate"
+                ]
+            elif isinstance(node, ast.Call):
+                pairs = [(kw.arg, kw.value) for kw in node.keywords if kw.arg == "signatureDate"]
+            elif isinstance(node, ast.Assign):
+                pairs = [
+                    (target, node.value)
+                    for target in node.targets
+                    if isinstance(target, ast.Subscript)
+                    and isinstance(target.slice, ast.Constant)
+                    and target.slice.value == "signatureDate"
+                ]
+            else:
+                continue
+            for _key, value in pairs:
+                for call in ast.walk(value):
+                    if not isinstance(call, ast.Call):
+                        continue
+                    func = call.func
+                    name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+                    if name in cls._SITE_LOCAL_DATE_CALLS:
+                        lines.append(call.lineno)
+        return lines
+
+    def test_no_mandate_signature_date_is_site_local(self):
+        """#2369: a mandate signatureDate built from a site-local clock is rejected by Mollie.
+
+        Mollie 422s a signature date in the future by ITS clock, and site-local today() is
+        tomorrow whenever the site timezone is east of UTC and it is late in the UTC day.
+        The live tests in ``test_real_api`` did this (red 3/7 for part of every day) and
+        always skip in CI, so only a static scan can pin it there.
+
+        Covers, in every ``.py`` under the app: a ``signatureDate`` dict key, a
+        ``signatureDate=`` keyword argument, or a ``x["signatureDate"] = ...`` assignment
+        whose value contains a call to ``today``, ``nowdate`` or ``getdate`` (bare or as an
+        attribute, at any depth, so ``str(frappe.utils.today())`` and ``add_days(today(), 0)``
+        are caught). NOT covered: a date computed into a variable first and sent under
+        another name, or a site-local value built by other means (e.g. ``now_datetime()``).
+        Use ``mollie_signature_date()`` instead.
+        """
+        must_flag = {
+            "dict today": 'x = {"signatureDate": today()}',
+            "dict nowdate attr": 'x = {"signatureDate": frappe.utils.nowdate()}',
+            "dict str-wrapped": 'x = {"signatureDate": str(frappe.utils.today())}',
+            "dict add_days": 'x = {"signatureDate": add_days(today(), 0)}',
+            "dict getdate": 'x = {"signatureDate": getdate()}',
+            "keyword": "f(signatureDate=today())",
+            "subscript": 'x["signatureDate"] = today()',
+        }
+        for label, source in must_flag.items():
+            self.assertTrue(self._site_local_signature_date_lines(source), label)
+        self.assertEqual(
+            self._site_local_signature_date_lines('x = {"signatureDate": mollie_signature_date()}'), []
+        )
+        self.assertEqual(
+            self._site_local_signature_date_lines(
+                'x = {"signatureDate": datetime.now(timezone.utc).strftime("%Y-%m-%d")}'
+            ),
+            [],
+        )
+
+        app_root = Path(mollie_payment.__file__).resolve().parents[1]
+        offenders = []
+        for path in app_root.rglob("*.py"):
+            try:
+                lines = self._site_local_signature_date_lines(path.read_text(encoding="utf-8"))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            offenders.extend(f"{path.relative_to(app_root)}:{n}" for n in lines)
+        self.assertEqual(offenders, [], "site-local signatureDate sent to Mollie: use mollie_signature_date()")

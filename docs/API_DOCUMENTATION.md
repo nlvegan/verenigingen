@@ -297,7 +297,7 @@ Member-facing payment dashboard endpoints. All require login.
 
 | Endpoint | Auth | Security Decorator | Description |
 |---|---|---|---|
-| `check_member_dues_status(member_name, ...)` | Login | `@standard_api(FINANCIAL)` | Checks dues status for a member. `methods=["GET", "POST"]` |
+| `check_member_dues_status(period_start, period_end)` | Login | `@critical_api(FINANCIAL)` | Lists the members needing a dues invoice for the period (CRITICAL access, POST only; a refusal is a 403). `methods=["POST"]` |
 | `generate_missing_invoices(member_list, ...)` | Login | -- | Generates missing invoices for specified members |
 | `validate_sepa_eligibility(invoice_list)` | Login | `@standard_api(FINANCIAL)` | Validates SEPA eligibility for invoices. `methods=["GET", "POST"]` |
 | `prepare_sepa_batch(invoice_list, execution_date, ...)` | Login | -- | Prepares a SEPA batch from eligible invoices |
@@ -679,16 +679,6 @@ Note: `send_template_email()` and `get_email_template()` are internal helper fun
 | Endpoint | Auth | Security Decorator | Description |
 |---|---|---|---|
 | `create_default_email_templates()` | Login | -- | Creates default membership email templates |
-
----
-
-## Overdue Application Notifications
-
-**Module:** `verenigingen.api.overdue_application_notifications`
-
-| Endpoint | Auth | Security Decorator | Description |
-|---|---|---|---|
-| `send_overdue_notifications(**kwargs)` | Login | -- | Sends notifications for overdue applications |
 
 ---
 

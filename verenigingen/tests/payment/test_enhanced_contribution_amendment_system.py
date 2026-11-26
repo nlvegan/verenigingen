@@ -16,8 +16,9 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import frappe
-from frappe.utils import add_days, getdate, now_datetime, today
+from frappe.utils import add_days, now_datetime, today
 
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -352,7 +353,7 @@ class TestEnhancedContributionAmendmentSystem(VereningingenTestCase):
         self.assertEqual(self.test_member.dues_rate, 40.00)
         self.assertIn("Amendment:", self.test_member.fee_override_reason)
         # fee_override_date is a Date field (datetime.date); compare via getdate.
-        self.assertEqual(getdate(self.test_member.fee_override_date), getdate(today()))
+        assert_written_today(self, self.test_member.fee_override_date)
 
     def test_zero_amount_handling(self):
         """A zero requested amount is rejected.

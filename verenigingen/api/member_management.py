@@ -35,6 +35,13 @@ from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 @performance_monitor(threshold_ms=500)
 def assign_member_to_chapter(member_name: str, chapter_name: str) -> OperationResult[Dict[str, Any]]:
     """Assign a member to a specific chapter using centralized manager"""
+    return _assign_one_member_to_chapter(member_name, chapter_name)
+
+
+# The body, without the security stack: bulk_assign_members_to_chapters calls this once per assignment
+# (under handle_api_error, so one failing item still becomes a failed result), so a bulk call ticks its
+# own rate-limit bucket once instead of N more of the endpoint's (#2280).
+def _assign_one_member_to_chapter(member_name: str, chapter_name: str) -> OperationResult[Dict[str, Any]]:
     # Validate inputs using standardized validation
     validate_required_fields(
         {"member_name": member_name, "chapter_name": chapter_name}, ["member_name", "chapter_name"]
@@ -104,6 +111,7 @@ def can_assign_member_to_chapter(member_name, chapter_name):
             WHERE v.member = %s
             AND cbm.parent = %s
             AND cbm.is_active = 1
+            AND cr.is_active = 1
             AND cr.permissions_level = 'Admin'
         """,
             [user_member, chapter_name],
@@ -125,6 +133,7 @@ def can_assign_member_to_chapter(member_name, chapter_name):
                 WHERE v.member = %s
                 AND cbm.parent = %s
                 AND cbm.is_active = 1
+                AND cr.is_active = 1
                 AND cr.permissions_level = 'Admin'
             """,
                 [user_member, settings.national_board_chapter],
@@ -253,7 +262,7 @@ def bulk_assign_members_to_chapters(assignments) -> OperationResult[Dict[str, An
             member_name = assignment.get("member_name")
             chapter_name = assignment.get("chapter_name")
 
-            result = assign_member_to_chapter(member_name, chapter_name)
+            result = handle_api_error(_assign_one_member_to_chapter)(member_name, chapter_name)
             # Handle OperationResult from assign_member_to_chapter
             result_dict = (
                 result.to_dict(scrub_sensitive=True) if isinstance(result, OperationResult) else result
@@ -279,6 +288,19 @@ def bulk_assign_members_to_chapters(assignments) -> OperationResult[Dict[str, An
             message=f"Processed {len(assignments)} assignments: {success_count} successful, {error_count} failed",
         )
 
+    # #506: assign_member_to_chapter re-raises a 1205/1213 (#504). Keep going and the
+    # remaining members run on a transaction the server may have discarded, and the
+    # summary would count the earlier ones as done. As in bulk_suspend_members (#475):
+    # stop the loop, roll back (this frame owns the unit of work; a plain rollback, not a
+    # savepoint one, so it cannot mask the error), log, re-raise. No partial result is
+    # reported -- after a 1213 it would be fiction.
+    except NON_RESUMABLE_DB_ERRORS:
+        frappe.db.rollback()
+        frappe.log_error(
+            title="Bulk Assignment Error",
+            message=f"Non-resumable DB error in bulk_assign_members_to_chapters\n{frappe.get_traceback()}",
+        )
+        raise
     except Exception as e:
         frappe.log_error(f"Error in bulk assignment: {str(e)}", "Bulk Assignment Error")
         return OperationResult.fail(f"Failed to process bulk assignments: {str(e)}")

@@ -951,35 +951,6 @@ def validate_user_logged_in(custom_message: str = None) -> str:
     return frappe.session.user
 
 
-def validate_member_for_user(user: str = None, custom_message: str = None) -> str:
-    """
-    Validate user has associated member record - development helper
-
-    Args:
-        user: User email (defaults to current user)
-        custom_message: Custom error message
-
-    Returns:
-        Member name
-
-    Raises:
-        DoesNotExistError: If no member found
-    """
-    if not user:
-        user = validate_user_logged_in()
-
-    # Caller identity is the Member.user link only (#1936); no Member.email fallback.
-    from verenigingen.utils.member_utils import get_member_name_for_board_access
-
-    member = get_member_name_for_board_access(user)
-
-    if not member:
-        message = custom_message or "No member record found for your account"
-        frappe.throw(_(message), frappe.DoesNotExistError)
-
-    return member
-
-
 # =============================================================================
 # Error Message Sanitization Utilities
 # =============================================================================

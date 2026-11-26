@@ -43,7 +43,8 @@ class PaymentAlertService:
 
     @property
     def alert_recipients(self) -> list:
-        """Get alert recipients from hook configuration (cached)."""
+        """The optional ``accounts_managers_email`` hook override (cached). No app defines it, so
+        normally empty; recipients then come from the key-first staff resolver (#2555)."""
         if self._recipients_cache is None:
             self._recipients_cache = frappe.get_hooks("accounts_managers_email") or []
         return self._recipients_cache
@@ -167,15 +168,17 @@ class PaymentAlertService:
         Returns:
             True if alert was sent successfully, False otherwise
         """
+        # Gateway-supplied text (ids, error strings) goes into an HTML body: escape it.
+        escape = frappe.utils.escape_html
         return self._send_email_alert(
             subject=f"{source} Reconciliation Issue: {issue_type} - {transaction_id}",
             message=(
                 f"<p>A payment reconciliation issue has been detected.</p>"
-                f"<p><strong>Source:</strong> {source}</p>"
-                f"<p><strong>Transaction ID:</strong> {transaction_id}</p>"
-                f"<p><strong>Issue Type:</strong> {issue_type}</p>"
+                f"<p><strong>Source:</strong> {escape(source)}</p>"
+                f"<p><strong>Transaction ID:</strong> {escape(transaction_id)}</p>"
+                f"<p><strong>Issue Type:</strong> {escape(issue_type)}</p>"
                 f"<p><strong>Details:</strong></p>"
-                f"<pre>{details}</pre>"
+                f"<pre>{escape(details)}</pre>"
                 f"<p>Please review and resolve this issue.</p>"
             ),
             alert_type="reconciliation",
@@ -218,17 +221,6 @@ class PaymentAlertService:
         from verenigingen.services.communication.email_service import get_email_service
 
         try:
-            recipients = self.alert_recipients
-            if not recipients:
-                frappe.log_error(
-                    title="No Alert Recipients Configured",
-                    message=(
-                        f"Cannot send {alert_type} alert for {context_id}: "
-                        "accounts_managers_email hook not configured."
-                    ),
-                )
-                return False
-
             # Map alert_type to notification_key
             notification_key_map = {
                 "overpayment": "payment_alert_overpayment",
@@ -237,18 +229,39 @@ class PaymentAlertService:
             }
             notification_key = notification_key_map.get(alert_type, "payment_alert_failure")
 
+            recipients = self.alert_recipients or self._resolve_staff_recipients(notification_key)
+            if not recipients:
+                frappe.log_error(
+                    title="No Alert Recipients Configured",
+                    message=(
+                        f"Cannot send {alert_type} alert for {context_id}: no recipient is configured "
+                        f"for {notification_key} and no enabled Verenigingen Financial Manager exists."
+                    ),
+                )
+                return False
+
             email_service = get_email_service()
             result = email_service.send_simple_email(
                 recipients=recipients,
                 subject=subject,
                 message=message,
                 notification_key=notification_key,
+                # Per transaction: otherwise one payment's alert silences the next payment's for an
+                # hour, per recipient (#2310).
+                cooldown_scope=context_id,
             )
             # A skip (cooldown, disabled key, opt-out) is not a send (#2096)
             return result.success and not result.skip_reason
         except Exception as e:
             frappe.logger().warning(f"Failed to send {alert_type} alert email: {e}")
             return False
+
+    def _resolve_staff_recipients(self, notification_key: str) -> list:
+        """Key-first staff resolver (#2555): the key's row, then enabled Financial Managers."""
+        from verenigingen.utils.constants import Roles
+        from verenigingen.verenigingen_payments.api.sepa_batch_notifications import get_financial_admin_emails
+
+        return get_financial_admin_emails(notification_key, default_roles=[Roles.FINANCIAL_MANAGER])
 
     def _format_overpayment_email(
         self,
@@ -260,11 +273,12 @@ class PaymentAlertService:
         overpayment: float,
     ) -> str:
         """Format HTML email for overpayment alert."""
+        escape = frappe.utils.escape_html
         return (
             f"<p>An overpayment has been detected.</p>"
-            f"<p><strong>Payment Source:</strong> {source}</p>"
-            f"<p><strong>Transaction ID:</strong> {transaction_id}</p>"
-            f"<p><strong>Reference:</strong> {reference_name}</p>"
+            f"<p><strong>Payment Source:</strong> {escape(source)}</p>"
+            f"<p><strong>Transaction ID:</strong> {escape(transaction_id)}</p>"
+            f"<p><strong>Reference:</strong> {escape(reference_name)}</p>"
             f"<p><strong>Amount Paid:</strong> {amount_paid:.2f}</p>"
             f"<p><strong>Amount Due:</strong> {amount_due:.2f}</p>"
             f"<p><strong>Overpayment:</strong> {overpayment:.2f}</p>"
@@ -280,14 +294,15 @@ class PaymentAlertService:
         error_message: str,
     ) -> str:
         """Format HTML email for payment entry failure alert."""
+        escape = frappe.utils.escape_html
         return (
             f"<p><strong>Payment Entry creation failed.</strong></p>"
-            f"<p><strong>Payment Source:</strong> {source}</p>"
-            f"<p><strong>Transaction ID:</strong> {transaction_id}</p>"
-            f"<p><strong>Reference:</strong> {reference_name or 'N/A'}</p>"
+            f"<p><strong>Payment Source:</strong> {escape(source)}</p>"
+            f"<p><strong>Transaction ID:</strong> {escape(transaction_id)}</p>"
+            f"<p><strong>Reference:</strong> {escape(reference_name or 'N/A')}</p>"
             f"<p><strong>Amount:</strong> {flt(amount):.2f}</p>"
             f"<p><strong>Error:</strong></p>"
-            f"<pre>{error_message}</pre>"
+            f"<pre>{escape(error_message)}</pre>"
             f"<p>Manual intervention is required to create the Payment Entry.</p>"
         )
 

@@ -31,6 +31,7 @@ from frappe.utils import getdate
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.verenigingen_payments.clients.balances_client import BalancesClient
+from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 
 
 class BalanceTransactionProcessor:
@@ -185,9 +186,24 @@ class BalanceTransactionProcessor:
             # across different Mollie APIs (Payment API, Balance Transaction API, Settlement API)
 
             # Strategy 1: Check by balance transaction ID in reference_number
-            existing_bt = frappe.db.get_value(
-                "Bank Transaction", {"reference_number": transaction_id}, "name"
+            # All three strategies are scoped to the Mollie bank account and to live rows:
+            # reference_number / transaction_id are unique per bank account only (#1267), so
+            # another account's row or a cancelled one must not skip a real booking (#2620).
+            from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+                get_bank_transaction_creator,
             )
+
+            creator = get_bank_transaction_creator()
+            config = creator.get_mollie_bank_account_config()
+            if config.get("error"):
+                result["status"] = "error"
+                result["error"] = config["error"]
+                return result
+            bank_account = config["bank_account"]
+            company = config["company"]
+
+            existing = creator._find_matching_bank_transaction(transaction_id, bank_account, company)
+            existing_bt = existing.name if existing else None
 
             if existing_bt:
                 result["status"] = "already_processed"
@@ -200,9 +216,8 @@ class BalanceTransactionProcessor:
             # Strategy 2: Check by payment ID in reference_number (if available)
             # This prevents duplicates when DuesPaymentProcessor already created a Bank Transaction
             if payment_id:
-                existing_bt_by_payment = frappe.db.get_value(
-                    "Bank Transaction", {"reference_number": payment_id}, "name"
-                )
+                by_payment = creator._find_matching_bank_transaction(payment_id, bank_account, company)
+                existing_bt_by_payment = by_payment.name if by_payment else None
 
                 if existing_bt_by_payment:
                     result["status"] = "already_processed"
@@ -219,7 +234,14 @@ class BalanceTransactionProcessor:
             # Strategy 3: Check by transaction_id field (unique field)
             # This catches cases where the ID is stored in the unique transaction_id field
             existing_bt_by_txid = frappe.db.get_value(
-                "Bank Transaction", {"transaction_id": payment_id if payment_id else transaction_id}, "name"
+                "Bank Transaction",
+                {
+                    "transaction_id": payment_id if payment_id else transaction_id,
+                    "docstatus": ["!=", 2],
+                    "bank_account": bank_account,
+                    "company": company,
+                },
+                "name",
             )
 
             if existing_bt_by_txid:
@@ -263,21 +285,6 @@ class BalanceTransactionProcessor:
             withdrawal = abs(initial_amount) if not is_deposit else 0.0
 
             # Get company and bank account using centralized service
-            from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
-                get_bank_transaction_creator,
-            )
-
-            creator = get_bank_transaction_creator()
-            config = creator.get_mollie_bank_account_config()
-
-            if config.get("error"):
-                result["status"] = "error"
-                result["error"] = config["error"]
-                return result
-
-            bank_account = config["bank_account"]
-            company = config["company"]
-
             # Use extractor for date and currency extraction
             transaction_date = extractor.extract_date(transaction, field_name="created_at")
             # Currency extraction from balance transaction (tries result_amount.currency first)
@@ -336,6 +343,8 @@ class BalanceTransactionProcessor:
                     reference_number=reference_number,
                     description=description,
                     transaction_id=stored_transaction_id,  # Store balance transaction ID
+                    # Mollie payment / settlement / balance transaction id: unique by construction (#1349).
+                    **{SYSTEM_ISSUED_FIELDNAME: 1},
                 )
 
                 if not bank_transaction_name:
@@ -365,13 +374,18 @@ class BalanceTransactionProcessor:
             except frappe.exceptions.DuplicateEntryError:
                 # Race condition: Another process created the Bank Transaction between our check and creation
                 # Re-query to get the existing record
+                # Same scope as the idempotency check above (#2620). A cancelled row that
+                # still holds the unique key (#2626) is not "created by a concurrent process".
                 existing = frappe.db.get_value(
                     "Bank Transaction",
                     {
                         "reference_number": [
                             "in",
                             [transaction_id, payment_id] if payment_id else [transaction_id],
-                        ]
+                        ],
+                        "docstatus": ["!=", 2],
+                        "bank_account": bank_account,
+                        "company": company,
                     },
                     "name",
                 )

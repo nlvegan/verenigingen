@@ -97,8 +97,6 @@ def initiate_payment(
     payer_name: str,
     payer_iban: str | None = None,
     account_holder: str | None = None,
-    success_url: str | None = None,
-    cancel_url: str | None = None,
     recurring: bool = False,
     interval: str | None = None,
 ) -> dict:
@@ -132,8 +130,6 @@ def initiate_payment(
         payer_name: Payer's name
         payer_iban: IBAN (required for SEPA)
         account_holder: Account holder name (for SEPA, defaults to payer_name)
-        success_url: Redirect URL on success
-        cancel_url: Redirect URL on cancel
         recurring: Ignored -- forced to False. See docstring above.
         interval: Ignored -- forced to None. See docstring above.
 
@@ -171,17 +167,12 @@ def initiate_payment(
         "account_holder": account_holder or payer_name,
     }
 
-    redirect_urls = None
-    if success_url or cancel_url:
-        redirect_urls = {"success": success_url, "cancel": cancel_url}
-
     return PaymentHook.initiate_payment(
         method=method,
         amount=resolved_amount,
         reference_doctype=reference_doctype,
         reference_name=reference_name,
         payer_info=payer_info,
-        redirect_urls=redirect_urls,
         recurring=False,
         interval=None,
     )

@@ -10,6 +10,7 @@ bulk assignment, and the debug diagnostic, all against real Member docs.
 """
 
 import unittest
+from unittest.mock import patch
 
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -143,6 +144,220 @@ class TestDebugMemberIdAssignment(EnhancedTestCase):
         self.assertTrue(info["should_have_member_id"])
         self.assertTrue(info["can_assign_id"])
         self.assertIn("eligible", info["explanation"].lower())
+
+
+class TestBulkAssignmentDatabaseLockError(EnhancedTestCase):
+    """#2388: a 1213/1205 inside the bulk loop must stop the batch and report the truth.
+
+    The fault is injected at ``frappe.db.sql`` on the counter's ``FOR UPDATE`` read,
+    i.e. below every layer that catches on the real path (the decorator, the
+    per-member ``except``). For a deadlock the injection also rolls back the
+    assignments made so far, which is what MariaDB does to the transaction
+    (see _seed_unassigned_members).
+    """
+
+    COUNTER_READ = "FOR UPDATE"
+    SAVEPOINT = "bulk_member_id_2388"
+
+    def _seed_unassigned_members(self, n):
+        names = []
+        for i in range(n):
+            member = self.create_test_member(
+                first_name="Lock",
+                last_name=f"Loop{i}",
+                email=f"lock.loop{i}@example.com",
+            )
+            frappe.db.set_value("Member", member.name, "member_id", None)
+            names.append(member.name)
+        # The injected rollback must not take the fixtures with it; only assignments are
+        # at risk. A bare commit would grow the order-dependence baseline (hard gate), so
+        # the "rollback" below is a rollback TO this savepoint: it discards exactly the
+        # assignments made after it, which is the part of a 1213 under test. (A real 1213
+        # also destroys the savepoint and the fixtures; that is why this is an emulation
+        # of the rollback's effect on the assignments, not of the whole server behaviour.)
+        frappe.db.savepoint(self.SAVEPOINT)
+        return names
+
+    def _run_with_fault_on_nth_counter_read(self, nth, exc_class, rollback):
+        real_sql = frappe.db.sql
+        counter_reads = []
+
+        def faulty_sql(query, *args, **kwargs):
+            if isinstance(query, str) and self.COUNTER_READ in query and "tabSingles" in query:
+                counter_reads.append(1)
+                if len(counter_reads) == nth:
+                    if rollback:
+                        frappe.db.rollback(save_point=self.SAVEPOINT)
+                    raise exc_class("injected below the per-member except")
+            return real_sql(query, *args, **kwargs)
+
+        # Mock justified: fault injection: the nth counter read raises an injected lock error, every other statement runs for real
+        with patch.object(frappe.db, "sql", side_effect=faulty_sql):
+            result = get_member_id_service().assign_missing_member_ids()
+        return result, len(counter_reads)
+
+    def _persisted(self, names):
+        return len(frappe.get_all("Member", filters={"name": ["in", names], "member_id": ["is", "set"]}))
+
+    def test_deadlock_stops_the_batch_and_does_not_count_rolled_back_members(self):
+        names = self._seed_unassigned_members(4)
+        result, counter_reads = self._run_with_fault_on_nth_counter_read(3, frappe.QueryDeadlockError, True)
+        frappe.db.rollback(save_point=self.SAVEPOINT)  # discard what a (wrongly) continuing loop wrote
+
+        self.assertEqual(counter_reads, 3, "the loop kept taking IDs after a 1213")
+        self.assertFalse(result.success)
+        reported = result.metadata["assigned"]
+        self.assertEqual(reported, 0, "the 1213 rolled back every uncommitted assignment")
+        self.assertEqual(self._persisted(names), 0)
+        self.assertTrue(any("QueryDeadlockError" in e for e in result.errors))
+
+    def test_lock_timeout_stops_the_batch_but_keeps_what_persisted(self):
+        """A 1205 rolls back only the failing statement: earlier assignments survive and are counted."""
+        self._seed_unassigned_members(4)
+        result, counter_reads = self._run_with_fault_on_nth_counter_read(3, frappe.QueryTimeoutError, False)
+        frappe.db.rollback(save_point=self.SAVEPOINT)  # discard the assignments; keep the fixtures
+
+        self.assertEqual(counter_reads, 3, "the loop kept taking IDs after a lock timeout")
+        self.assertFalse(result.success)
+        # Two members were assigned before the 3rd counter read failed; a 1205 keeps them.
+        self.assertEqual(result.metadata["assigned"], 2)
+
+
+class TestBulkAssignmentNothingAssigned(EnhancedTestCase):
+    """#2424: the zero-assigned branch must return a failure that carries the real facts.
+
+    It used to pass ``errors=`` AND ``**results`` (which holds ``errors``), so Python
+    raised TypeError and the outer ``except`` replaced the result with a generic one,
+    losing the per-member errors and ``total_checked``.
+    """
+
+    def _seed_unassigned_member(self):
+        member = self.create_test_member(
+            first_name="Nothing",
+            last_name="Assigned",
+            email="nothing.assigned@example.com",
+        )
+        frappe.db.set_value("Member", member.name, "member_id", None)
+        return member
+
+    def test_per_member_errors_and_total_checked_survive_when_nothing_is_assigned(self):
+        self._seed_unassigned_member()
+        with patch(
+            "verenigingen.verenigingen.doctype.member.member.Member.should_have_member_id",
+            return_value=True,
+        ), patch(
+            "verenigingen.verenigingen.doctype.member.member.Member.ensure_member_id",
+            side_effect=frappe.ValidationError("counter exploded"),
+        ):
+            result = get_member_id_service().assign_missing_member_ids()
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_message, "No member IDs were assigned")
+        self.assertNotIn("multiple values", str(result.error_message))
+        self.assertTrue(result.errors)
+        self.assertTrue(all("counter exploded" in e for e in result.errors), result.errors)
+        self.assertGreaterEqual(result.metadata["total_checked"], 1)
+        self.assertEqual(result.metadata["assigned"], 0)
+
+    def test_nobody_eligible_reports_the_placeholder_error_and_total_checked(self):
+        """A Pending applicant without a member_id is genuinely not eligible.
+
+        Probe shortcut: application_id/application_status are written with
+        ``db.set_value`` on a factory member, not through the application flow.
+        """
+        member = self._seed_unassigned_member()
+        frappe.db.set_value(
+            "Member",
+            member.name,
+            {"application_id": f"APP-2424-{member.name}", "application_status": "Pending"},
+        )
+        result = get_member_id_service().assign_missing_member_ids()
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_message, "No member IDs were assigned")
+        self.assertEqual(result.errors, ["No eligible members found"])
+        self.assertGreaterEqual(result.metadata["total_checked"], 1)
+        self.assertEqual(result.metadata["assigned"], 0)
+        self.assertFalse(frappe.db.get_value("Member", member.name, "member_id"))
+
+
+class TestBulkAssignmentLostRace(EnhancedTestCase):
+    """#2427: a member another writer numbered after the listing must not be counted.
+
+    ``ensure_member_id()`` answers ``success: False`` (it does not raise) for a member
+    that already has an ID, and the loop used to count it anyway. The concurrent
+    writer is the REAL single-assignment service, run right after the bulk listing
+    query and before the loop loads the member.
+    """
+
+    def _seed_race_members(self, n):
+        names = []
+        for i in range(n):
+            member = self.create_test_member(
+                first_name="Race",
+                last_name=f"Loop{i}",
+                email=f"race.loop{i}@example.com",
+            )
+            frappe.db.set_value("Member", member.name, "member_id", None)
+            names.append(member.name)
+        return names
+
+    def _bulk_run_where_another_writer_numbers(self, raced_names):
+        service = get_member_id_service()
+        state = {"done": False}
+        real_logger = service.logger
+
+        class RacingLogger:
+            def __getattr__(self, attr):
+                return getattr(real_logger, attr)
+
+            def info(self, message, *args, **kwargs):
+                # "Found N members without member IDs" is logged right after the listing
+                # query and before the loop loads any member: the window the race needs.
+                if not state["done"] and "members without member IDs" in str(message):
+                    state["done"] = True
+                    for name in raced_names:
+                        test.assertTrue(service.assign_member_id(name).success)
+                return real_logger.info(message, *args, **kwargs)
+
+        test = self
+        service.logger = RacingLogger()
+        try:
+            result = service.assign_missing_member_ids()
+        finally:
+            service.logger = real_logger
+        self.assertTrue(state["done"], "the race window was never reached")
+        return result
+
+    def test_member_numbered_by_another_writer_is_not_counted_and_is_reported(self):
+        raced, mine = self._seed_race_members(2)
+        result = self._bulk_run_where_another_writer_numbers([raced])
+
+        # The control: the other member really was assigned by the bulk run.
+        self.assertTrue(frappe.db.get_value("Member", mine, "member_id"))
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(
+            result.data["assigned"],
+            len(
+                frappe.get_all(
+                    "Member",
+                    filters={"name": mine, "member_id": ["is", "set"]},
+                    pluck="name",
+                )
+            ),
+        )
+        not_assigned = {row["member"]: row["reason"] for row in result.data["not_assigned"]}
+        self.assertIn(raced, not_assigned)
+        self.assertTrue(not_assigned[raced])
+        self.assertNotIn(mine, not_assigned)
+
+    def test_nothing_assigned_when_every_member_was_numbered_by_another_writer(self):
+        raced = self._seed_race_members(1)
+        result = self._bulk_run_where_another_writer_numbers(raced)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.metadata["assigned"], 0)
+        self.assertEqual([row["member"] for row in result.metadata["not_assigned"]], raced)
 
 
 if __name__ == "__main__":

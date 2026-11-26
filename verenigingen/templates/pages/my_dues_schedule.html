@@ -257,7 +257,7 @@
                 <div>
                     <p class="text-sm font-medium text-gray-500">{{ _("Monthly Amount") }}</p>
                     <p class="text-2xl font-bold text-gray-800">
-                        {% if current_schedule %}
+                        {% if current_schedule and current_schedule.monthly_amount is not none %}
                             {{ frappe.format_value(current_schedule.monthly_amount, {"fieldtype": "Currency"})|e }}
                         {% else %}
                             <span class="text-gray-400">--</span>
@@ -292,7 +292,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <p class="text-sm font-medium text-gray-500">{{ _("Coverage") }}</p>
-                    <p class="text-2xl font-bold text-gray-800">{{ coverage_percentage|e }}%</p>
+                    <p class="text-2xl font-bold text-gray-800">{% if coverage_percentage is not none %}{{ coverage_percentage|e }}%{% else %}<span class="text-gray-400">--</span>{% endif %}</p>
                 </div>
                 <div class="p-3 bg-green-50 rounded-full">
                     <i class="fa fa-shield text-green-600"></i>
@@ -319,31 +319,17 @@
                         <p class="text-sm text-gray-500 mb-1">{{ _("Billing Frequency") }}</p>
                         <p class="font-medium text-gray-800">{{ _(current_schedule.billing_frequency)|e }}</p>
                     </div>
-                    <div>
-                        <p class="text-sm text-gray-500 mb-1">{{ _("Start Date") }}</p>
-                        <p class="font-medium text-gray-800">{{ frappe.format_value(current_schedule.start_date, {"fieldtype": "Date"})|e }}</p>
-                    </div>
-                    <div>
-                        <p class="text-sm text-gray-500 mb-1">{{ _("End Date") }}</p>
-                        <p class="font-medium text-gray-800">
-                            {% if current_schedule.end_date %}
-                                {{ frappe.format_value(current_schedule.end_date, {"fieldtype": "Date"})|e }}
-                            {% else %}
-                                {{ _("Ongoing") }}
-                            {% endif %}
-                        </p>
-                    </div>
                 </div>
 
                 <!-- Coverage Progress -->
                 <div class="mb-6">
                     <div class="flex justify-between items-center mb-2">
-                        <p class="text-sm font-medium text-gray-700">{{ _("Coverage Progress") }}</p>
-                        <p class="text-sm text-gray-500">{{ coverage_percentage|e }}%</p>
+                        <p class="text-sm font-medium text-gray-700">{{ _("Coverage Progress (last 12 months)") }}</p>
+                        <p class="text-sm text-gray-500">{% if coverage_percentage is not none %}{{ coverage_percentage|e }}%{% else %}--{% endif %}</p>
                     </div>
                     <div class="progress-bar">
-                        <div class="progress-fill" style="width: {{ coverage_percentage|e }}%"></div>
-                        <div class="progress-text">{{ covered_months|e }} / {{ total_months|e }} {{ _("months") }}</div>
+                        <div class="progress-fill" style="width: {{ (coverage_percentage or 0)|e }}%"></div>
+                        <div class="progress-text">{% if covered_months is not none %}{{ covered_months|e }} / {{ total_months|e }} {{ _("months") }}{% endif %}</div>
                     </div>
                 </div>
 
@@ -487,26 +473,12 @@
                             {% endif %}
                         </span>
                     </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-sm text-gray-500">{{ _("Auto-Renewal") }}</span>
-                        <span class="text-sm font-medium text-gray-800">
-                            {% if current_schedule.auto_renewal %}
-                                <i class="fa fa-check text-green-600"></i> {{ _("Enabled") }}
-                            {% else %}
-                                <i class="fa fa-times text-red-600"></i> {{ _("Disabled") }}
-                            {% endif %}
-                        </span>
+                    {% if mandate_to_sign %}
+                    <div id="sepa-sign-notice" class="text-sm text-warning-800">
+                        {{ _("Your direct debit authorisation is waiting for your signature. Until you sign it, pay by bank transfer.") }}
+                        <a href="/payment_dashboard" class="font-medium underline">{{ _("Sign it in the payment dashboard") }}</a>
                     </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-sm text-gray-500">{{ _("Notification") }}</span>
-                        <span class="text-sm font-medium text-gray-800">
-                            {% if current_schedule.email_notifications %}
-                                <i class="fa fa-check text-green-600"></i> {{ _("Enabled") }}
-                            {% else %}
-                                <i class="fa fa-times text-red-600"></i> {{ _("Disabled") }}
-                            {% endif %}
-                        </span>
-                    </div>
+                    {% endif %}
                     {% endif %}
                 </div>
             </div>

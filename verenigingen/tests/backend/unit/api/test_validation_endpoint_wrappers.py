@@ -32,6 +32,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, getdate, today
+from verenigingen.tests.support.owned_membership_type import make_owned_membership_type
 
 from verenigingen.api.membership_application import (
     check_application_eligibility_endpoint,
@@ -52,10 +53,9 @@ from verenigingen.api.membership_application import (
 )
 
 
-def _get_any_membership_type():
-    """Return the name of a real Membership Type, or None if none exist."""
-    types = frappe.get_all("Membership Type", limit=1)
-    return types[0]["name"] if types else None
+def _get_any_membership_type(test_case):
+    """Return the name of a Membership Type this test owns (never an arbitrary row: #2271)."""
+    return make_owned_membership_type(test_case).name
 
 
 def _assert_success_shape(test_case, result):
@@ -175,9 +175,7 @@ class TestValidateMembershipAmountSelection(FrappeTestCase):
         self.assertIn("errors", result["error"])
 
     def test_with_real_membership_type_zero_custom_returns_failure(self):
-        mt = _get_any_membership_type()
-        if not mt:
-            self.skipTest("No Membership Type exists in database")
+        mt = _get_any_membership_type(self)
 
         result = validate_membership_amount_selection_endpoint(mt, 0, True)
         # Custom amount of 0 is invalid ("must be greater than 0")
@@ -192,18 +190,14 @@ class TestValidateCustomAmount(FrappeTestCase):
         _assert_failure_shape(self, result)
 
     def test_with_real_membership_type_and_null_amount(self):
-        mt = _get_any_membership_type()
-        if not mt:
-            self.skipTest("No Membership Type exists in database")
+        mt = _get_any_membership_type(self)
 
         result = validate_custom_amount_endpoint(mt, None)
         _assert_failure_shape(self, result)
         self.assertIn("valid amount", result["error"]["message"].lower())
 
     def test_with_real_membership_type_and_positive_amount(self):
-        mt = _get_any_membership_type()
-        if not mt:
-            self.skipTest("No Membership Type exists in database")
+        mt = _get_any_membership_type(self)
 
         result = validate_custom_amount_endpoint(mt, 9999)
         _assert_success_shape(self, result)
@@ -309,9 +303,7 @@ class TestGetMembershipFeeInfo(FrappeTestCase):
     """Characterize get_membership_fee_info_endpoint wrapper."""
 
     def test_with_real_membership_type_returns_success(self):
-        mt = _get_any_membership_type()
-        if not mt:
-            self.skipTest("No Membership Type exists in database")
+        mt = _get_any_membership_type(self)
 
         result = get_membership_fee_info_endpoint(mt)
         _assert_success_shape(self, result)
@@ -336,9 +328,7 @@ class TestGetMembershipTypeDetails(FrappeTestCase):
     """Characterize get_membership_type_details_endpoint wrapper."""
 
     def test_with_real_membership_type_returns_success(self):
-        mt = _get_any_membership_type()
-        if not mt:
-            self.skipTest("No Membership Type exists in database")
+        mt = _get_any_membership_type(self)
 
         result = get_membership_type_details_endpoint(mt)
         _assert_success_shape(self, result)
@@ -357,9 +347,7 @@ class TestSuggestMembershipAmounts(FrappeTestCase):
     """Characterize suggest_membership_amounts_endpoint wrapper."""
 
     def test_with_real_membership_type_returns_success_or_fail(self):
-        mt = _get_any_membership_type()
-        if not mt:
-            self.skipTest("No Membership Type exists in database")
+        mt = _get_any_membership_type(self)
 
         result = suggest_membership_amounts_endpoint(mt)
         self.assertIsInstance(result, dict)

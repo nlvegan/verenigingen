@@ -16,3 +16,6 @@ website_route_rules = [
     {"from_route": "/word-lid/bevestig", "to_route": "word-lid-bevestig"},
     {"from_route": "/word-lid/<door>", "to_route": "word-lid"},
 ]
+
+# /member/xyz (lowercase doctype slug) is a 404, not Frappe's printview ImportError 500 (#2308).
+page_renderer = ["verenigingen.utils.doctype_slug_renderer.DoctypeSlugNotFound"]

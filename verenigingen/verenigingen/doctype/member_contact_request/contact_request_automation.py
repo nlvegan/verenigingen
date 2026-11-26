@@ -67,7 +67,7 @@ def send_follow_up_reminders():
                 """
 
                 email_service = get_email_service()
-                email_service.send_simple_email(
+                result = email_service.send_simple_email(
                     recipients=[assigned_user.email],
                     subject=subject,
                     message=message,
@@ -75,6 +75,11 @@ def send_follow_up_reminders():
                     reference_name=request.name,
                     notification_key="contact_request_assigned",
                 )
+
+                # A skip (cooldown, disabled key, opt-out) or a failure reminded nobody: leave the
+                # request due rather than pushing its follow-up date out (#2178)
+                if not result.success or result.skip_reason:
+                    continue
 
                 # Update follow-up date to avoid duplicate reminders
                 frappe.db.set_value(
@@ -153,14 +158,20 @@ def escalate_contact_request(request, overdue_days):
         """
 
         email_service = get_email_service()
-        email_service.send_simple_email(
+        result = email_service.send_simple_email(
             recipients=manager_emails,
             subject=subject,
             message=message,
             reference_doctype="Member Contact Request",
             reference_name=request.name,
             notification_key="contact_request_escalated",
+            # Per request: another overdue request within the hour must still be escalated (#2310).
+            cooldown_scope=request.name,
         )
+
+        # The note claims the managers were notified, so only a real send may write it (#2178)
+        if not result.success or result.skip_reason:
+            return
 
         # Add escalation note to the request
         doc = frappe.get_doc("Member Contact Request", request.name)

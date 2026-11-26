@@ -11,9 +11,11 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
+from verenigingen.utils.boolean_utils import is_confirmed, is_dry_run
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.transaction_errors import SAVEPOINT_DOES_NOT_EXIST, mysql_error_code
 
 
 def validate_cleanup_permissions():
@@ -103,6 +105,9 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
     Returns:
         dict: Results of the cleanup operation
     """
+    # Over HTTP these flags are strings and "0" is truthy; only an explicit yes counts (#2385).
+    confirm_nuclear_cleanup = is_confirmed(confirm_nuclear_cleanup)
+    dry_run = is_dry_run(dry_run)
     # ENHANCED SECURITY VALIDATION
     validate_cleanup_permissions()
     validate_nuclear_confirmation(confirm_nuclear_cleanup)
@@ -159,6 +164,8 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
     Returns:
         dict: Results of cleanup
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     validate_cleanup_permissions()
 
     results = {
@@ -303,10 +310,13 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
                     results["orphaned_invoices"]["deleted"] += 1
                 except Exception as e:
                     results["orphaned_invoices"]["errors"].append(f"{invoice.name}: {str(e)}")
+                    if _lost_the_transaction(e):
+                        results["aborted"] = True
+                        break
 
             # Delete orphaned schedules
             # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
-            for schedule in orphaned_schedules:
+            for schedule in [] if results.get("aborted") else orphaned_schedules:
                 try:
                     frappe.delete_doc(
                         "Membership Dues Schedule", schedule.name, ignore_permissions=True, force=True
@@ -314,6 +324,14 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
                     results["orphaned_schedules"]["deleted"] += 1
                 except Exception as e:
                     results["orphaned_schedules"]["errors"].append(f"{schedule.name}: {str(e)}")
+                    if _lost_the_transaction(e):
+                        results["aborted"] = True
+                        break
+
+            if results.get("aborted"):
+                # Not resumable (#2595): the server rolled back every deletion counted above.
+                _report_aborted_cleanup(results, ("orphaned_schedules", "orphaned_invoices"))
+                return results
 
             frappe.db.commit()
             results["summary"] = (
@@ -322,6 +340,7 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
 
         except Exception as e:
             frappe.db.rollback()
+            _zero_cleanup_counters(results, ("orphaned_schedules", "orphaned_invoices"))
             results["summary"] = f"ROLLED BACK: {str(e)}"
             frappe.log_error(f"Force cleanup failed: {str(e)}", "Orphaned Cleanup Error")
 
@@ -347,6 +366,8 @@ def cleanup_orphaned_chapter_members(dry_run=True):
     Returns:
         dict: Results of cleanup
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     validate_cleanup_permissions()
 
     results = {
@@ -355,6 +376,8 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         "orphaned_found": 0,
         "orphaned_removed": 0,
         "chapters_affected": [],
+        "chapters_failed": [],
+        "chapters_cleaned": 0,
         "errors": [],
     }
 
@@ -363,9 +386,9 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         results["chapters_checked"] = len(chapters)
 
         for chapter in chapters:
+            orphaned_indices = []
             try:
                 chapter_doc = frappe.get_doc("Chapter", chapter.name)
-                orphaned_indices = []
 
                 # Find orphaned members in this chapter
                 for i, member_row in enumerate(chapter_doc.members or []):
@@ -383,25 +406,39 @@ def cleanup_orphaned_chapter_members(dry_run=True):
                     )
 
                     if not dry_run:
-                        # Remove orphaned entries (in reverse order to preserve indices)
-                        for idx, member_name in reversed(orphaned_indices):
-                            chapter_doc.remove(chapter_doc.members[idx])
-                            results["orphaned_removed"] += 1
-
-                        # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
-                        chapter_doc.save(ignore_permissions=True)
+                        _remove_orphans_atomically(chapter_doc, orphaned_indices)
+                        # Count only once the save has landed: a refused save (e.g. an
+                        # unrelated dangling board link) leaves every row in place.
+                        results["orphaned_removed"] += len(orphaned_indices)
+                        results["chapters_cleaned"] += 1
 
             except Exception as e:
                 results["errors"].append(f"{chapter.name}: {str(e)}")
+                if orphaned_indices and not dry_run:
+                    results["chapters_failed"].append(chapter.name)
+                if not dry_run and _lost_the_transaction(e):
+                    # Not resumable (#2482): the server rolled back every chapter cleaned
+                    # earlier in this run too, so carrying on would only pile more
+                    # uncommitted work onto a transaction that is no longer ours.
+                    results["aborted"] = True
+                    break
 
-        if dry_run:
+        if results.get("aborted"):
+            _report_aborted_run(results)
+        elif dry_run:
             results["summary"] = (
                 f"DRY RUN: Found {results['orphaned_found']} orphaned members across {len(results['chapters_affected'])} chapters"
             )
         else:
             results["summary"] = (
-                f"Removed {results['orphaned_removed']} orphaned members from {len(results['chapters_affected'])} chapters"
+                f"Removed {results['orphaned_removed']} orphaned members from "
+                f"{results['chapters_cleaned']} chapter(s)"
             )
+            if results["chapters_failed"]:
+                results["summary"] += (
+                    f"; {len(results['chapters_failed'])} chapter(s) failed and kept their orphans: "
+                    + ", ".join(results["chapters_failed"][:5])
+                )
             frappe.db.commit()
 
     except Exception as e:
@@ -409,6 +446,88 @@ def cleanup_orphaned_chapter_members(dry_run=True):
         frappe.log_error(f"Orphaned chapter cleanup error: {str(e)}", "Chapter Cleanup Error")
 
     return results
+
+
+def _lost_the_transaction(error):
+    """True when the server rolled the WHOLE transaction back (1213, or its aftermath).
+
+    Two shapes: the 1213 itself reaching us, or a 1213 swallowed below `Chapter.save`
+    (the chapter validators catch `Exception`), after which `save()` returns normally and
+    the savepoint release raises 1305. In this function a 1305 can only mean the
+    transaction is gone: nothing here commits, so no nested commit can have cleared it.
+
+    A 1205 lock-wait timeout is deliberately not matched: with `innodb_rollback_on_timeout`
+    OFF it only undoes the failed statement, so earlier chapters are still pending.
+    """
+    return isinstance(error, frappe.QueryDeadlockError) or mysql_error_code(error) in (
+        1213,
+        SAVEPOINT_DOES_NOT_EXIST,
+    )
+
+
+def _report_aborted_run(results):
+    """Nothing from an aborted run persisted, so the counters must say so (#2482)."""
+    frappe.db.rollback()
+    results["orphaned_removed"] = 0
+    results["chapters_cleaned"] = 0
+    failed = results["chapters_failed"][-1] if results["chapters_failed"] else "a chapter"
+    results["summary"] = (
+        f"ABORTED at {failed}: the database rolled this run back (deadlock), so no orphans "
+        "were removed. Run the cleanup again."
+    )
+
+
+def _zero_cleanup_counters(results, buckets):
+    """A rolled-back run deleted nothing: zero every `deleted` bucket and flat total (#2595)."""
+    for bucket in buckets:
+        results[bucket]["deleted"] = 0
+    for key in ("gl_entries_deleted", "payment_ledger_deleted", "payment_references_deleted"):
+        if key in results:
+            results[key] = 0
+
+
+def _report_aborted_cleanup(results, buckets):
+    """Counterpart of `_report_aborted_run` for the cleanups whose counters sit in buckets."""
+    # Roll back explicitly: after a swallowed 1213 the 1305 arrives while the connection may
+    # still hold work, and "nothing persisted" must also hold if a caller commits next.
+    frappe.db.rollback()
+    _zero_cleanup_counters(results, buckets)
+    results["aborted"] = True
+    results["summary"] = (
+        "ABORTED: the database rolled this run back (deadlock), so nothing was deleted. "
+        "Run the cleanup again."
+    )
+
+
+def _remove_orphans_atomically(chapter_doc, orphaned_indices):
+    """Remove the orphan rows and save, rolling back to the pre-state if anything fails.
+
+    A save can fail after it has already written (e.g. an `on_update` handler raising),
+    and the caller's final commit would then persist the half-saved chapter. frappe's
+    `savepoint()` context manager swallows the exception, so the savepoint is explicit
+    and the error is re-raised for the caller to report.
+    """
+    savepoint_name = "orphan_chapter_cleanup"
+    frappe.db.savepoint(savepoint_name)
+    try:
+        # Remove orphaned entries (in reverse order to preserve indices)
+        for idx, _member_name in reversed(orphaned_indices):
+            chapter_doc.remove(chapter_doc.members[idx])
+
+        # Security: Orphan cleanup protected by @critical_api + validate_cleanup_permissions()
+        chapter_doc.save(ignore_permissions=True)
+    except Exception:
+        try:
+            frappe.db.rollback(save_point=savepoint_name)
+        except Exception as rollback_error:
+            # A deadlock victim has already lost the whole transaction, so the savepoint is
+            # gone (1305). Keep the ORIGINAL error for the caller; only log this one.
+            frappe.log_error(
+                title="Orphaned Chapter Cleanup Rollback Error",
+                message=f"{chapter_doc.name}: savepoint rollback failed: {rollback_error}",
+            )
+        raise
+    frappe.db.release_savepoint(savepoint_name)
 
 
 @frappe.whitelist()
@@ -423,6 +542,8 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
     Returns:
         dict: Results of cleanup
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     validate_cleanup_permissions()
 
     results = {
@@ -476,6 +597,10 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
                         results[bucket]["deleted"] += 1
                     except Exception as e:
                         results[bucket]["errors"].append(f"{name}: {str(e)}")
+                        if _lost_the_transaction(e):
+                            # Not resumable (#2595): earlier deletions were rolled back too.
+                            _report_aborted_cleanup(results, ("addresses", "contacts"))
+                            return results
 
             # Shared parents keep their record but lose the dangling links.
             _delete_in("Dynamic Link", "link_name", dead_members, "AND link_doctype = 'Member'")
@@ -489,6 +614,7 @@ def cleanup_orphaned_addresses_and_contacts(dry_run=True):
 
         except Exception as e:
             frappe.db.rollback()
+            _zero_cleanup_counters(results, ("addresses", "contacts"))
             results["summary"] = f"ROLLED BACK: {str(e)}"
 
     except Exception as e:
@@ -1290,12 +1416,24 @@ def _run_cleanup_phases(sets, results, dry_run):
     _step(results, "donors", "Donor", "member", members, dry_run)
 
     # --- PHASE 3: volunteer graph --------------------------------------------
-    for bucket, doctype in (
-        ("chapter_board_members", "Chapter Board Member"),
-        ("team_members", "Team Member"),
-        ("movement_members", "Movement Member"),
-    ):
-        _step(results, bucket, doctype, "volunteer", volunteers, dry_run)
+    # A Chapter Board Member / Team Member row is reachable by BOTH its doomed
+    # volunteer and its doomed parent chapter/team. Counting it under two selectors
+    # (phase 3 and again in phase 4) doubled the dry run, because the live run
+    # deletes a row reached through both in phase 3, so phase 4's parent selector
+    # found nothing left for it. Rows held only by a SURVIVING volunteer were still
+    # deleted in phase 4 via the parent. Resolve the union of row names and delete
+    # it exactly once, here; the live outcome is unchanged.
+    board_member_rows = sorted(
+        set(_pluck_in("Chapter Board Member", "volunteer", volunteers))
+        | set(_pluck_in("Chapter Board Member", "parent", chapters))
+    )
+    _step(results, "chapter_board_members", "Chapter Board Member", "name", board_member_rows, dry_run)
+    team_member_rows = sorted(
+        set(_pluck_in("Team Member", "volunteer", volunteers))
+        | set(_pluck_in("Team Member", "parent", teams))
+    )
+    _step(results, "team_members", "Team Member", "name", team_member_rows, dry_run)
+    _step(results, "movement_members", "Movement Member", "volunteer", volunteers, dry_run)
     for bucket, doctype in (
         ("volunteer_skills", "Volunteer Skill"),
         ("volunteer_assignments", "Volunteer Assignment"),
@@ -1319,8 +1457,6 @@ def _run_cleanup_phases(sets, results, dry_run):
         | set(_pluck_in("Chapter Member", "parent", chapters))
     )
     _step(results, "chapter_members", "Chapter Member", "name", chapter_member_rows, dry_run)
-    _step(results, "chapter_board_members", "Chapter Board Member", "parent", chapters, dry_run)
-    _step(results, "team_members", "Team Member", "parent", teams, dry_run)
     _step(results, "chapters", "Chapter Join Request", "member", members, dry_run)
     if not dry_run and members:
         _update_in("Chapter", "chapter_head = NULL", "chapter_head", members)
@@ -1478,6 +1614,8 @@ def cleanup_all_test_data(dry_run=True):
         # Actually delete
         bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.cleanup_all_test_data --kwargs '{"dry_run": False}'
     """
+    # Over HTTP the flag is a string; fail closed so an unrecognised value stays a dry run (#2385).
+    dry_run = is_dry_run(dry_run)
     validate_cleanup_permissions()
 
     results = _new_cleanup_results(dry_run)
@@ -1546,8 +1684,8 @@ def cleanup_test_members_only(email_patterns: list | None = None, dry_run=False)
     # ENHANCED SECURITY VALIDATION
     validate_cleanup_permissions()
 
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() in ("true", "1", "yes")
+    # An unrecognised string used to mean a real run here; fail closed (#2385).
+    dry_run = is_dry_run(dry_run)
 
     if not email_patterns:
         email_patterns = ["%test@example.com", "%@test.com", "test_%@%", "%example.%", "%@test.%"]
@@ -1719,6 +1857,9 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
         - Requires Verenigingen Administrator role
         - Rate limited to 2 uses per hour per user (via COR)
     """
+    # Over HTTP these flags are strings and "0" is truthy; only an explicit yes counts (#2385).
+    confirm_nuclear_truncate = is_confirmed(confirm_nuclear_truncate)
+    dry_run = is_dry_run(dry_run)
     # Security validation - Verenigingen Administrator only
     _validate_verenigingen_admin_permissions()
 
@@ -2117,8 +2258,8 @@ def scan_and_clear_broken_links(
     # ENHANCED SECURITY VALIDATION
     validate_cleanup_permissions()
 
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() in ("true", "1", "yes")
+    # An unrecognised string used to mean a real run here; fail closed (#2385).
+    dry_run = is_dry_run(dry_run)
 
     # Default target doctypes - common ones that get truncated
     default_targets = [
@@ -2229,6 +2370,8 @@ def scan_and_clear_broken_links(
                     # Table might not exist or column missing
                     if "doesn't exist" not in str(e).lower() and "Unknown column" not in str(e):
                         results["errors"].append(f"{field.doctype}.{field.fieldname}: {str(e)}")
+                    if not dry_run and _lost_the_transaction(e):
+                        return _aborted_broken_link_scan(results)
 
             # 2. Check Dynamic Links (used by Contact, Address, etc.)
             try:
@@ -2292,6 +2435,8 @@ def scan_and_clear_broken_links(
 
             except Exception as e:
                 results["errors"].append(f"Dynamic Link ({target_doctype}): {str(e)}")
+                if not dry_run and _lost_the_transaction(e):
+                    return _aborted_broken_link_scan(results)
 
             if target_results["total"] > 0:
                 results["broken_links"][target_doctype] = target_results
@@ -2325,3 +2470,17 @@ def scan_and_clear_broken_links(
             errors=[str(e)],
             context={"operation": "scan_and_clear_broken_links", "dry_run": dry_run},
         )
+
+
+def _aborted_broken_link_scan(results):
+    """The server rolled the whole run back, so every reference counted as cleared is back (#2595)."""
+    frappe.db.rollback()
+    results["cleared"] = 0
+    results["aborted"] = True
+    results["summary"] = (
+        "ABORTED: the database rolled this run back (deadlock), so no broken links were "
+        "cleared. Run the scan again."
+    )
+    return OperationResult.fail(
+        _(results["summary"]), errors=results["errors"], context={"aborted": True}
+    )

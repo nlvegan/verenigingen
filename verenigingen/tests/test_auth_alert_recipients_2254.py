@@ -10,7 +10,7 @@ uses), real Verenigingen Email Configuration row seeded from the registry. Contr
 a System-Manager-ROLE-only user, a Verenigingen-Administrator-ROLE-only user, a disabled holder, a holder
 of another profile and the Administrator user holding the profile.
 
-Mock justification: the health snapshot (needs a broken auth system) and the EmailService factory (the
+Mock justification: the EmailService factory (the
 outgoing-mail boundary, as in test_staff_recipients_2095) are stubbed. The recipient list is what the
 alert handed that boundary. Probe shortcut: ``test_a_legacy_only_holder_is_found`` writes the deprecated
 ``role_profile_name`` column directly, because ``User.validate`` always mirrors it into the child table.
@@ -23,6 +23,7 @@ import importlib
 from unittest.mock import MagicMock, patch
 
 import frappe
+from frappe.core.doctype.activity_log.activity_log import add_authentication_log
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.utils.notification_state import (
@@ -31,25 +32,19 @@ from verenigingen.tests.utils.notification_state import (
     snapshot_notification_rows,
 )
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.operation_result import OperationResult
 
 CONFIG = "Verenigingen Email Configuration"
 KEY = "auth_monitoring_alert"
 PROFILE = "Verenigingen System Administrator"
 OTHER_PROFILE = "Verenigingen Administrator"
 MODULE = "verenigingen.utils.auth_monitoring"
-BROKEN = {
-    "success": True,
-    "health_status": "error",
-    "warnings": ["w"],
-    "invalid_sessions": 3,
-    "recent_errors": {"error_count": 9},
-}
 
 
 class _Mail:
     def __init__(self):
         self.service = MagicMock(name="EmailService")
-        self.service.send_simple_email.return_value = MagicMock(success=True, error_message=None)
+        self.service.send_simple_email.return_value = OperationResult.ok({})
 
     @property
     def recipients(self):
@@ -126,11 +121,13 @@ class TestAuthAlertRecipients2254(EnhancedTestCase):
         frappe.db.set_value("User", "Administrator", "email", email, update_modified=False)
 
     def _fire_auth_alert(self):
+        """Real failed-login rows at the threshold (#2285: the alert keys on a failed-login rate now)."""
         mail = _Mail()
         module = importlib.import_module(MODULE)
-        with patch(f"{MODULE}.get_auth_health_status", return_value=BROKEN), patch(
-            f"{MODULE}.get_email_service", return_value=mail.service
-        ):
+        frappe.db.delete("Activity Log", {"operation": "Login", "status": "Failed"})
+        for _ in range(module.FAILED_LOGIN_ALERT_THRESHOLD):
+            add_authentication_log("Invalid login credentials", f"nobody-2254-{frappe.generate_hash(length=6)}", status="Failed")
+        with patch(f"{MODULE}.get_email_service", return_value=mail.service):
             module.alert_if_auth_issues()
         return mail
 

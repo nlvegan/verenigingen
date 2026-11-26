@@ -236,9 +236,10 @@ doc_events = {
     # User.roles from the assigned profile on every save and would undo a removal
     # performed before it. A Volunteer-side second writer does only the removal,
     # so its effect is undone by the next User save. The function was deleted
-    # along with this registration; it had no other caller. The defect itself is
-    # still live in on_member_on_update ("Member") and on_chapter_role_on_update
-    # ("Chapter Role"), which call the same function -- #702, which also carries the
+    # along with this registration; it had no other caller. The defect was also live in
+    # on_member_on_update ("Member") and on_chapter_role_on_update ("Chapter Role"),
+    # which call the same function; #702 fixed it there (assign_chapter_board_role now
+    # withdraws the role profile with the role). What #702 still carries is the
     # Volunteer.member re-link case BoardManager cannot see.
     #
     # performance_event_handlers.on_volunteer_assignment_change. Inert even when
@@ -252,9 +253,12 @@ doc_events = {
     # this block argues against.
     #
     # native_expense_helpers.update_employee_approver. The daily scheduled
-    # refresh_all_expense_approvers (hooks/scheduler.py) already recomputes
+    # refresh_all_expense_approvers (hooks/scheduler.py) recomputes
     # Employee.expense_approver for every volunteer with an employee_id, through
-    # this same function. A Volunteer on_update is the wrong trigger regardless:
+    # this same function, and since #1682 a seat change (BoardManager.
+    # flush_pending_board_profile_syncs) and a Chapter Role level/active change
+    # refresh it at once too; the daily run is no longer the only trigger (it still
+    # never CLEARS an approver). A Volunteer on_update is the wrong trigger regardless:
     # the value derives from Chapter Board Member / Chapter Member / Team Member
     # rows and Verenigingen Settings, none of which touch the Volunteer doc.
     # Nothing writes Volunteer.employee_id through the ORM either: the ACR pipeline

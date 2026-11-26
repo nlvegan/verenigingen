@@ -275,10 +275,6 @@ class TestPaymentHookIntegration(FrappeTestCase):
             reference_doctype="Donation",
             reference_name=self.donation_name if self.has_donation else "TEST-DON",
             payer_info={"email": "test@example.com", "name": "Test User"},
-            redirect_urls={
-                "success": "/thank-you",
-                "cancel": "/donate",
-            },
         )
 
         if result["success"]:

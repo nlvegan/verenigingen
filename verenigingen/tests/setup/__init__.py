@@ -174,6 +174,10 @@ def before_tests():
         make_test_records("Customer", verbose=False, force=True, commit=True)
         frappe.db.commit()
 
+    # #2766: committed exchange rates for every module, including those whose test
+    # case has no harness setUp (plain FrappeTestCase / unittest). Idempotent.
+    _create_test_exchange_rates()
+
     # Seed the Mode of Payment records the app and many tests depend on
     # (Bank Transfer, SEPA Direct Debit, Mollie, Manual, Cash). The same helper
     # is wired into after_migrate for production sites; CI sites are bench-new
@@ -240,6 +244,51 @@ def before_tests():
     # Last, so it sees the fully seeded site and cannot report a link that one of
     # the seeders above was about to create.
     report_stale_single_links()
+
+
+def seed_for_standalone_module_runs():
+    """Run ``before_tests`` the way Frappe's test runner does, for ``bench execute`` (#2361).
+
+    The pre-queue PR job runs one ``run-tests`` per module, and the runner only runs
+    ``before_tests`` for integration-category tests, so the job seeds once up front with
+    ``bench --site test_site execute verenigingen.tests.setup.seed_for_standalone_module_runs``.
+
+    ``bench execute`` does NOT set the test context the runner sets
+    (``frappe.tests.utils.toggle_test_mode(True)``, called from
+    ``frappe.testing.environment._initialize_test_environment``). Without it Frappe's
+    password-strength policy applies, so on a fresh site erpnext's fixture users
+    marcus@abc.com, thalia@abc.com and mathias@abc.com (``new_password`` "password") are
+    refused with "This is a top-10 common password." ("Eastern_43A1W" passes.) Locally the users already existed, which hid it. Call this, not
+    ``before_tests``, from any non-runner entry point.
+
+    It also mutes outgoing mail for the call. With ``in_test`` on, a new User's welcome
+    email is sent synchronously from the ``after_commit`` queue, and a fresh site has no
+    outgoing Email Account ("Email Account not setup"), which re-enters ``commit`` and
+    fails the seed. Nothing here needs a mail to leave; the Email Queue rows still insert.
+    """
+    from frappe.tests.utils import toggle_test_mode
+
+    was_in_test = bool(frappe.in_test)
+    was_muted = frappe.flags.mute_emails
+    toggle_test_mode(True)
+    frappe.flags.mute_emails = True
+    try:
+        before_tests()
+    finally:
+        toggle_test_mode(was_in_test)
+        frappe.flags.mute_emails = was_muted
+
+
+def _create_test_exchange_rates():
+    """Seed stored Currency Exchange rows and COMMIT them (#2766).
+
+    Committed so the class-level rollback of a plain FrappeTestCase module cannot
+    take them away. A `_create_*` builder, like the other seed helpers here.
+    """
+    from verenigingen.tests.fixtures.enhanced_test_factory import ensure_test_exchange_rates
+
+    ensure_test_exchange_rates()
+    frappe.db.commit()
 
 
 def find_stale_single_links():

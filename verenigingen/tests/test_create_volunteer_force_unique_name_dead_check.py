@@ -35,6 +35,7 @@ class TestCreateVolunteerDoesNotProbeDeadCollisionCheck(EnhancedTestCase):
                 wasted_calls.append(dn)
             return original_exists(dt, dn, *args, **kwargs)
 
+        # Mock justified: call-through spy: records each exists() probe, then runs the real lookup
         with patch.object(frappe.db, "exists", side_effect=spy_exists):
             volunteer = self.factory.create_volunteer(
                 volunteer_name="Force Unique Name 1466 Dead Check"

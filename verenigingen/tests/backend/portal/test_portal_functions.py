@@ -19,6 +19,7 @@ import frappe
 from frappe.utils import today, now_datetime
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class TestPortalFunctions(EnhancedTestCase):
@@ -107,7 +108,7 @@ class TestPortalFunctions(EnhancedTestCase):
         # Cancellation is tracked via recurring_cancelled_date, not status.
         donation.reload()
         self.assertEqual(donation.status, "Recurring")
-        self.assertEqual(str(donation.recurring_cancelled_date), today())
+        assert_written_today(self, donation.recurring_cancelled_date)
 
     def test_update_donation_amount_function(self):
         """update_recurring_donation changes the amount for the owner."""

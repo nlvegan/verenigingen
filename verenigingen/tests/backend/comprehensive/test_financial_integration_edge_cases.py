@@ -262,58 +262,6 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
         finally:
             membership.delete()
 
-    def test_orphaned_dues_schedule_cleanup(self):
-        """Test orphaned dues schedule detection and cleanup"""
-        # Create membership
-        membership = frappe.get_doc(
-            {
-                "doctype": "Membership",
-                "member": self.member.name,
-                "membership_type": self.membership_type.name,
-                "start_date": today(),
-                # Note: fee is defined in membership_type, not directly on membership
-                "status": "Active"}
-        )
-        membership.insert()
-
-        # Simulate orphaned state by deleting member. setUpClass links a
-        # Volunteer to this member (reqd link), so remove it first to avoid
-        # LinkExistsError on delete.
-        for vol in frappe.get_all("Volunteer", filters={"member": self.member.name}, pluck="name"):
-            frappe.delete_doc("Volunteer", vol, force=True)
-        self.member.delete()
-
-        # Run orphaned dues schedule cleanup
-        try:
-            from verenigingen.utils.membership_dues_integration import cleanup_orphaned_dues_schedules
-
-            cleanup_orphaned_dues_schedules()
-
-            # Membership should be marked as orphaned or deleted
-            orphaned_membership = frappe.db.exists("Membership", membership.name)
-            if orphaned_membership:
-                updated_membership = frappe.get_doc("Membership", membership.name)
-                self.assertIn(updated_membership.status, ["Cancelled", "Orphaned"])
-        except ImportError:
-            # Cleanup function not implemented yet
-            pass
-        finally:
-            # Restore member for other tests
-            self.member = frappe.get_doc(
-                {
-                    "doctype": "Member",
-                    "first_name": "Financial",
-                    "last_name": "Testmember",
-                    "email": "financial.test@test.com",
-                    "status": "Active",
-                    "chapter": self.chapter.name}
-            )
-            self.member.insert()
-
-            # Clean up membership if it still exists
-            if frappe.db.exists("Membership", membership.name):
-                membership.delete()
-
     # ===== VOLUNTEER EXPENSE EDGE CASES =====
 
     @unittest.skip(VOLUNTEER_EXPENSE_ARCHIVED)

@@ -33,9 +33,11 @@ class TestPageBrandCss(EnhancedTestCase):
         self.assertEqual(context.no_cache, 1)
 
         # Response headers force no-cache so brand changes propagate immediately.
-        self.assertEqual(frappe.response.content_type, "text/css; charset=utf-8")
-        self.assertEqual(frappe.response.headers["Cache-Control"], "no-cache, no-store, must-revalidate")
-        self.assertEqual(frappe.response.headers["Pragma"], "no-cache")
+        self.assertEqual(frappe.local.response_headers["Content-Type"], "text/css; charset=utf-8")
+        self.assertEqual(
+            frappe.local.response_headers["Cache-Control"], "no-cache, no-store, must-revalidate"
+        )
+        self.assertEqual(frappe.local.response_headers["Pragma"], "no-cache")
 
     def test_get_context_reads_static_file_when_present(self):
         """When the static brand CSS file exists, its content is served verbatim."""
@@ -55,11 +57,11 @@ class TestPageBrandCss(EnhancedTestCase):
         self.assertIn(file_css, context.css_content)
 
     def test_serve_brand_css_returns_css_string(self):
-        """The whitelisted serve_brand_css returns CSS text and sets content type."""
+        """The whitelisted serve_brand_css returns CSS text and sets cache headers."""
         result = brand_css.serve_brand_css()
         self.assertIsInstance(result, str)
         self.assertIn("/* Generated at", result)
-        self.assertEqual(frappe.response.content_type, "text/css; charset=utf-8")
+        self.assertEqual(frappe.local.response_headers["Pragma"], "no-cache")
 
     def test_serve_brand_css_guest_accessible(self):
         """serve_brand_css is allow_guest=True and works without a privileged user."""

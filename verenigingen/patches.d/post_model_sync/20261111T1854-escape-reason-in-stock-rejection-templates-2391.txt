@@ -1,0 +1,1 @@
+verenigingen.patches.v2_2.escape_reason_in_stock_rejection_templates_2391

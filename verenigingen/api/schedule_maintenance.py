@@ -10,6 +10,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
+from verenigingen.utils.boolean_utils import cbool, is_dry_run
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
@@ -109,6 +110,7 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True) -> OperationResult[Dict
     Returns:
         OperationResult: Cleanup results
     """
+    dry_run = is_dry_run(dry_run)
     try:
         # Log this sensitive operation
         log_sensitive_operation(

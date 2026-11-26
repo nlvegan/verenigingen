@@ -11,6 +11,7 @@ from verenigingen.api.sepa_duplicate_prevention import (
     release_processing_lock,
 )
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 class SEPAMandateUsage(Document):
@@ -220,6 +221,13 @@ def get_mandate_sequence_type(mandate_name: str, reference_name: str = None):
 
         return {"sequence_type": "RCUR", "reason": "Recurring usage - mandate has been used before"}
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.log_error(f"Error determining sequence type for mandate {mandate_name}: {str(e)}")
-        return {"sequence_type": "FRST", "reason": f"Error occurred, defaulting to FRST: {str(e)}"}
+        # "error" lets a caller that caches results (#2628) tell this guess from a determination.
+        return {
+            "sequence_type": "FRST",
+            "reason": f"Error occurred, defaulting to FRST: {str(e)}",
+            "error": True,
+        }

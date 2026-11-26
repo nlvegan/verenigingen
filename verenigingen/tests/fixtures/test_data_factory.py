@@ -105,8 +105,18 @@ class CoreTestDataFactory:
         self._test_membership_types = None
         self._test_region = None
 
-    def cleanup(self):
-        """Clean up all created test data in reverse dependency order"""
+    def cleanup(self, commit=False):
+        """Clean up all created test data in reverse dependency order
+
+        `commit=False` by default: the deletes live in the caller's test transaction, so
+        a LATER `frappe.db.rollback()` puts back any tracked row that was committed
+        before the delete (#842, same mechanism as #489). `commit=True` makes the
+        deletes durable. Opt-in, not the default, because a mid-test caller would
+        otherwise commit every other pending row (the #330 failure mode). A caller
+        passing it MUST do so AFTER `super().tearDown()` has run: the commit is
+        connection-wide, and before the base teardown's rollback it would also make
+        every other uncommitted row permanent (measured under #489).
+        """
         print(f"🧹 Cleaning up {len(self.created_records)} test records...")
 
         # Clean up in reverse order to respect dependencies
@@ -119,6 +129,14 @@ class CoreTestDataFactory:
                 print(f"⚠️  Failed to delete {record['doctype']} {record['name']}: {e}")
 
         self.created_records = []
+
+        if commit:
+            self._cleanup_commit_core_factory_deletes()
+
+    @staticmethod
+    def _cleanup_commit_core_factory_deletes():
+        """Commit the deletes `cleanup(commit=True)` just made (#842)."""
+        frappe.db.commit()
 
     def track_doc(self, doctype: str, name: str):
         """Track a created record for cleanup"""
@@ -518,21 +536,26 @@ class CoreTestDataFactory:
         return uom_name
 
     def _ensure_selling_price_list(self, currency="EUR"):
-        """Return a selling Price List name, preferring ERPNext's 'Standard Selling'."""
-        if frappe.db.exists("Price List", "Standard Selling"):
+        """Return an enabled selling Price List IN `currency` (#2766).
+
+        A list in another currency (a fresh site's 'Standard Selling' is INR) makes
+        erpnext fetch a live exchange rate on insert, which it refuses unless the
+        session user is a System User -- so the invoice depended on whatever user an
+        earlier module left behind. Shared master data, not claimed by either drain; a
+        test's rollback can still remove it, and the get-or-create rebuilds it.
+        """
+        if frappe.db.get_value("Price List", "Standard Selling", "currency") == currency:
             return "Standard Selling"
-        existing = frappe.db.get_value("Price List", {"selling": 1}, "name")
-        if existing:
-            return existing
-        price_list = frappe.get_doc({
-            "doctype": "Price List",
-            "price_list_name": "Standard Selling",
-            "selling": 1,
-            "currency": currency,
-        })
-        price_list.insert(ignore_permissions=True)
-        self.track_doc("Price List", price_list.name)
-        return price_list.name
+        name = f"Test Selling {currency}"
+        if not frappe.db.exists("Price List", name):
+            # Lazy: a module-level import of enhanced_test_factory costs ~1400 modules.
+            from verenigingen.tests.fixtures.enhanced_test_factory import suspend_insert_capture
+
+            with suspend_insert_capture():
+                frappe.get_doc(
+                    {"doctype": "Price List", "price_list_name": name, "selling": 1, "currency": currency}
+                ).insert(ignore_permissions=True)
+        return name
 
     def _ensure_test_item(self, item_code="Test Service"):
         """Ensure a sellable, non-stock test Item exists (with mandatory stock_uom)."""

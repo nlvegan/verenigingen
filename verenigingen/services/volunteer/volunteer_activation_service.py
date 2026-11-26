@@ -12,8 +12,9 @@ Functions:
 import frappe
 from frappe import _
 
-from verenigingen.utils.member_utils import get_volunteer_for_member
+from verenigingen.utils.member_utils import get_orphan_volunteer_for_email, get_volunteer_for_member
 from verenigingen.utils.safe_error_logging import safe_log_error
+from verenigingen.utils.secure_operations import authorised_follow_on_steps, follow_on_ignore_permissions
 
 
 def _log_upgrade_result(upgrade_result, context_label):
@@ -33,18 +34,35 @@ def _log_upgrade_result(upgrade_result, context_label):
 
 
 def activate_volunteer_record(member):
-    """Activate volunteer record when membership application is approved."""
+    """Activate volunteer record when membership application is approved.
+
+    The caller must have chapter-authorised the approver: the check in here is role-level only.
+    Defensive hardening per ruling #1930 (#3022): approve_application cannot reach the failing branch today
+    (it seats the member in the chapter first, so the approver may already write the Volunteer); the
+    elevation guards a future caller or a change in chapter-row timing.
+    """
     # Permission check - ensure user can write to Volunteer records
     if not frappe.has_permission("Volunteer", "write"):
         frappe.throw(_("You don't have permission to activate volunteers"))
 
+    # The check above is the approver's own authorisation and stays. Once it has passed, the writes below
+    # run with permission checks bypassed, still as the approver (#1930, #3022): a chapter board approver's
+    # DocPerms refuse the Active flip on a Volunteer that has no chapter. The scope covers this call only.
+    with authorised_follow_on_steps():
+        _activate_volunteer_record_authorised(member)
+
+
+def _activate_volunteer_record_authorised(member):
+    """The activation writes. Call only inside `authorised_follow_on_steps` after the caller's permission check."""
+    ignore_permissions = follow_on_ignore_permissions()
     try:
         # Find existing volunteer record for this member
         volunteer_name = get_volunteer_for_member(member.name)
 
         # Also check by email in case member record was recreated
         if not volunteer_name:
-            volunteer_name = frappe.db.get_value("Volunteer", {"email": member.email}, "name")
+            # Orphans only (#2784): a Volunteer linked to another Member is not ours to repoint
+            volunteer_name = get_orphan_volunteer_for_email(member.email)
             if volunteer_name:
                 frappe.logger().info(
                     f"Found orphaned volunteer {volunteer_name} by email, relinking to member {member.name}"
@@ -55,25 +73,25 @@ def activate_volunteer_record(member):
                 volunteer.volunteer_name = (
                     member.full_name or f"{member.first_name} {member.last_name}".strip()
                 )
-                volunteer.save()
+                volunteer.save(ignore_permissions=ignore_permissions)
 
                 # Also update member's volunteer_record field if it exists
                 if hasattr(member, "volunteer_record"):
                     member.volunteer_record = volunteer_name
-                    member.save()
+                    member.save(ignore_permissions=ignore_permissions)
 
         if volunteer_name:
             # Update existing volunteer record
             volunteer = frappe.get_doc("Volunteer", volunteer_name)
             volunteer.status = "Active"
-            volunteer.save()
+            volunteer.save(ignore_permissions=ignore_permissions)
             frappe.logger().info(f"Activated volunteer record {volunteer_name} for member {member.name}")
 
             # Link volunteer to member record if not already linked
             if hasattr(member, "volunteer_record") and member.volunteer_record != volunteer_name:
                 member.reload()  # Ensure we have latest data
                 member.volunteer_record = volunteer_name
-                member.save()
+                member.save(ignore_permissions=ignore_permissions)
                 frappe.logger().info(f"Linked volunteer {volunteer_name} to member {member.name}")
 
             # Upgrade user account from Website User to System User for volunteer access
@@ -102,7 +120,7 @@ def activate_volunteer_record(member):
             volunteer = create_volunteer_record(member)
             if volunteer:
                 volunteer.status = "Active"
-                volunteer.save()
+                volunteer.save(ignore_permissions=ignore_permissions)
                 frappe.logger().info(
                     f"Created and activated volunteer record {volunteer.name} for member {member.name}"
                 )

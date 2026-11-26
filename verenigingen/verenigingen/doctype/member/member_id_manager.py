@@ -7,7 +7,7 @@ All other ID generation code should delegate to MemberIDManager.get_next_member_
 Implementation Details:
     - Uses FOR UPDATE row locking for atomicity
     - Prevents duplicate IDs under concurrent member creation
-    - Falls back to timestamp-based IDs on error
+    - Never fabricates an ID: any error (incl. a 1213 deadlock) propagates (#2339)
 
 Consumers:
     - services/member/core/member_id_service.py (delegates here)
@@ -49,86 +49,81 @@ class MemberIDManager:
         tabSingles table, not in a dedicated tabVerenigingen Settings table.
 
         Returns: int - the next member ID to use
-        """
-        try:
-            doctype_name = "Verenigingen Settings"
-            field_name = "last_member_id"
 
-            # Lock the settings row to prevent concurrent access
-            # FOR UPDATE works within Frappe's existing transaction
-            # Single DocTypes store data in tabSingles table
-            current_id = frappe.db.sql(
+        Raises: any database error is propagated. A deadlock (1213) rolls back the
+        WHOLE transaction, so retrying in place would silently drop the caller's
+        earlier writes; the caller's request must fail and be retried as a whole.
+        An out-of-sequence ID is never substituted (#2339).
+        """
+        doctype_name = "Verenigingen Settings"
+        field_name = "last_member_id"
+
+        # Lock the settings row to prevent concurrent access
+        # FOR UPDATE works within Frappe's existing transaction
+        # Single DocTypes store data in tabSingles table
+        current_id = frappe.db.sql(
+            """
+            SELECT value
+            FROM `tabSingles`
+            WHERE doctype = %s AND field = %s
+            FOR UPDATE
+            """,
+            (doctype_name, field_name),
+            as_dict=True,
+        )
+
+        if not current_id or current_id[0].value is None:
+            # Initialize from existing data
+            initialized_id = MemberIDManager._initialize_counter()
+            # Check if row exists first
+            row_exists = frappe.db.sql(
                 """
-                SELECT value
-                FROM `tabSingles`
+                SELECT 1 FROM `tabSingles`
                 WHERE doctype = %s AND field = %s
-                FOR UPDATE
                 """,
                 (doctype_name, field_name),
-                as_dict=True,
             )
-
-            if not current_id or current_id[0].value is None:
-                # Initialize from existing data
-                initialized_id = MemberIDManager._initialize_counter()
-                # Check if row exists first
-                row_exists = frappe.db.sql(
+            if row_exists:
+                frappe.db.sql(
                     """
-                    SELECT 1 FROM `tabSingles`
+                    UPDATE `tabSingles`
+                    SET value = %s
                     WHERE doctype = %s AND field = %s
                     """,
-                    (doctype_name, field_name),
+                    (initialized_id, doctype_name, field_name),
                 )
-                if row_exists:
-                    frappe.db.sql(
-                        """
-                        UPDATE `tabSingles`
-                        SET value = %s
-                        WHERE doctype = %s AND field = %s
-                        """,
-                        (initialized_id, doctype_name, field_name),
-                    )
-                else:
-                    frappe.db.sql(
-                        """
-                        INSERT INTO `tabSingles` (doctype, field, value)
-                        VALUES (%s, %s, %s)
-                        """,
-                        (doctype_name, field_name, initialized_id),
-                    )
-                next_id = initialized_id + 1
             else:
-                stored_id = cint(current_id[0].value)
-                # Self-heal: if counter drifted behind actual data (e.g. CSV import,
-                # manual DB insert, or test data), re-scan MAX(member_id) and use
-                # whichever is higher. Cheap query, runs once per stale counter.
-                actual_max = MemberIDManager._get_max_numeric_member_id()
-                next_id = max(stored_id, actual_max) + 1
+                frappe.db.sql(
+                    """
+                    INSERT INTO `tabSingles` (doctype, field, value)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (doctype_name, field_name, initialized_id),
+                )
+            next_id = initialized_id + 1
+        else:
+            stored_id = cint(current_id[0].value)
+            # Self-heal: if counter drifted behind actual data (e.g. CSV import,
+            # manual DB insert, or test data), re-scan MAX(member_id) and use
+            # whichever is higher. Cheap query, runs once per stale counter.
+            actual_max = MemberIDManager._get_max_numeric_member_id()
+            next_id = max(stored_id, actual_max) + 1
 
-            # Update to next value atomically
-            frappe.db.sql(
-                """
-                UPDATE `tabSingles`
-                SET value = %s
-                WHERE doctype = %s AND field = %s
-                """,
-                (next_id, doctype_name, field_name),
-            )
+        # Update to next value atomically
+        frappe.db.sql(
+            """
+            UPDATE `tabSingles`
+            SET value = %s
+            WHERE doctype = %s AND field = %s
+            """,
+            (next_id, doctype_name, field_name),
+        )
 
-            # Update cache for performance (but don't rely on it for atomicity)
-            counter_key = "member_id_counter"
-            frappe.cache().set(counter_key, next_id)
+        # Update cache for performance (but don't rely on it for atomicity)
+        counter_key = "member_id_counter"
+        frappe.cache().set(counter_key, next_id)
 
-            return next_id
-
-        except Exception as e:
-            frappe.log_error(f"Error generating member ID: {str(e)}", "Member ID Generation")
-            # Fallback to timestamp-based ID to avoid blocking user
-            import time
-
-            fallback_id = int(time.time() * 1000) % 1000000  # Last 6 digits
-            frappe.logger().warning(f"Using fallback member ID: {fallback_id}")
-            return fallback_id
+        return next_id
 
     @staticmethod
     def _get_max_numeric_member_id():

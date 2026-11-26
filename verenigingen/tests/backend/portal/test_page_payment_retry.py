@@ -109,14 +109,15 @@ class TestPagePaymentRetry(EnhancedTestCase):
     # pair -- no name, membership type or invoice total disclosed. --------
 
     def test_guest_with_real_matching_pair_discloses_nothing(self):
-        """A Guest supplying a real, mutually-consistent (member, invoice) pair is refused."""
+        """A Guest supplying a real, mutually-consistent (member, invoice) pair gets no data: login redirect (#2109)."""
         member, invoice = self._member_with_invoice()
         frappe.set_user("Guest")
         frappe.local.form_dict = frappe._dict({"member": member.name, "invoice": invoice.name})
         context = frappe._dict()
-        payment_retry.get_context(context)
-        self.assertIsNone(context.member)
-        self.assertIsNone(context.invoice)
+        with self.assertRaises(frappe.Redirect):
+            payment_retry.get_context(context)
+        self.assertIsNone(context.get("member"))
+        self.assertIsNone(context.get("invoice"))
 
     def test_other_logged_in_member_with_real_matching_pair_discloses_nothing(self):
         """A DIFFERENT logged-in member supplying a real matching pair is refused."""

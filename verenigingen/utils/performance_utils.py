@@ -265,10 +265,11 @@ def performance_monitor(threshold_ms: float = 1000):
                 if execution_time > threshold_ms:
                     logger = frappe.logger("verenigingen.performance")
                     logger.warning(
-                        "Slow operation: {func.__module__}.{func.__name__} took {execution_time:.2f}ms",
+                        f"Slow operation: {func.__module__}.{func.__name__} took {execution_time:.2f}ms",
                         extra={
                             "function": func.__name__,
-                            "module": func.__module__,
+                            # "module" is a reserved LogRecord attribute: makeRecord raises KeyError (#2892)
+                            "func_module": func.__module__,
                             "execution_time_ms": execution_time,
                             "args_length": len(args),
                             "user": frappe.session.user if frappe.session else "System",
@@ -295,48 +296,34 @@ def get_user_volunteer_record_optimized(user_email: str) -> Optional[Dict[str, A
         Volunteer record with member information, or None if not found
     """
     try:
-        # Single query with JOIN to get all required data. Note:
-        # `skills_and_qualifications` is a child Table field — it has no column
-        # on `tabVolunteer`, so it CANNOT appear in this SELECT. Including it
-        # raised OperationalError on every call, which the bare-except below
-        # silently swallowed → callers got None for every user.
+        # #2461 / #2206 (maintainer ruling 2026-11-11): the caller's Volunteer is resolved
+        # by explicit link only (Volunteer.user, or Volunteer.member -> Member.user), via
+        # the one ruled helper. No Member.email / Volunteer.email fallback: a User who
+        # merely shares an email with a Member or Volunteer must not inherit its record.
+        from verenigingen.utils.member_utils import get_volunteer_name_for_user
+
+        volunteer_name = get_volunteer_name_for_user(user_email)
+        if not volunteer_name:
+            return None
+
+        # Note: `skills_and_qualifications` is a child Table field with no column on
+        # `tabVolunteer`, so it CANNOT appear in this SELECT (it raised OperationalError,
+        # swallowed below, so callers got None for every user). LEFT JOIN: a Volunteer
+        # linked only by Volunteer.user may have no Member row.
         volunteer_data = frappe.db.sql(
             """
             SELECT v.name, v.volunteer_name, v.member, v.commitment_level,
                    m.name as member_name, m.email, m.first_name, m.last_name
             FROM `tabVolunteer` v
-            JOIN `tabMember` m ON v.member = m.name
-            WHERE m.email = %s
+            LEFT JOIN `tabMember` m ON v.member = m.name
+            WHERE v.name = %s
             LIMIT 1
         """,
-            [user_email],
+            [volunteer_name],
             as_dict=True,
         )
 
-        if volunteer_data:
-            return volunteer_data[0]
-
-        # Fallback: a Volunteer may exist without a linked Member (or with an
-        # empty member field), in which case the member JOIN above matches
-        # nothing. Match the Volunteer directly by its own email — this mirrors
-        # the documented contract in templates/pages/volunteer/dashboard.py
-        # (member-linked first, then volunteer-by-email). Without this fallback,
-        # unlinked volunteers are invisible to the expense portal.
-        volunteer_by_email = frappe.db.sql(
-            """
-            SELECT v.name, v.volunteer_name, v.member, v.commitment_level
-            FROM `tabVolunteer` v
-            WHERE v.email = %s
-            LIMIT 1
-        """,
-            [user_email],
-            as_dict=True,
-        )
-
-        if volunteer_by_email:
-            return volunteer_by_email[0]
-
-        return None
+        return volunteer_data[0] if volunteer_data else None
 
     except Exception as e:
         frappe.logger("verenigingen.performance").error(
@@ -350,8 +337,11 @@ def get_user_chapter_memberships_optimized(user_email: str) -> List[Dict[str, An
     """
     Optimized version to get user's chapter memberships
 
+    Identity is Member.user only (#2461 / #2206 class): no Member.email match, so a User
+    who merely shares an email with a Member inherits none of its chapter relationships.
+
     Args:
-        user_email: User's email address
+        user_email: User's email address (the login, matched against Member.user)
 
     Returns:
         List of chapter memberships
@@ -365,7 +355,7 @@ def get_user_chapter_memberships_optimized(user_email: str) -> List[Dict[str, An
             FROM `tabChapter Member` cm
             JOIN `tabMember` m ON cm.member = m.name
             JOIN `tabChapter` c ON cm.parent = c.name
-            WHERE m.email = %s AND cm.status = 'Active' AND cm.enabled = 1
+            WHERE m.user = %s AND cm.status = 'Active' AND cm.enabled = 1
 
             UNION
 
@@ -375,7 +365,7 @@ def get_user_chapter_memberships_optimized(user_email: str) -> List[Dict[str, An
             JOIN `tabVolunteer` v ON cbm.volunteer = v.name
             JOIN `tabMember` m ON v.member = m.name
             JOIN `tabChapter` c ON cbm.parent = c.name
-            WHERE m.email = %s AND cbm.is_active = 1
+            WHERE m.user = %s AND cbm.is_active = 1
         """,
             [user_email, user_email],
             as_dict=True,

@@ -1,9 +1,9 @@
 {% extends "templates/web.html" %}
 
-{% block title %}{{ title }}{% endblock %}
+{% block title %}{{ title|e }}{% endblock %}
 
 {% block head_include %}
-<meta name="csrf-token" content="{{ csrf_token }}">
+<meta name="csrf-token" content="{{ csrf_token|e }}">
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
 {% endblock %}
 
@@ -13,10 +13,10 @@
 
         <!-- Header -->
         <div class="mb-8">
-            <h1 class="text-3xl font-bold text-gray-900">{{ title }}</h1>
-            <p class="mt-2 text-sm text-gray-600">Current Period: {{ current_period_start }} to {{ current_period_end }}</p>
+            <h1 class="text-3xl font-bold text-gray-900">{{ title|e }}</h1>
+            <p class="mt-2 text-sm text-gray-600">Current Period: {{ current_period_start|e }} to {{ current_period_end|e }}</p>
             {% if debug_info %}
-            <p class="mt-1 text-xs text-red-600">DEBUG: {{ debug_info }}</p>
+            <p class="mt-1 text-xs text-red-600">DEBUG: {{ debug_info|e }}</p>
             {% endif %}
         </div>
 
@@ -51,7 +51,7 @@
                         <h3 class="text-sm font-medium text-gray-600">{{ _("Active Members") }}</h3>
                         <p class="text-3xl font-bold text-gray-900" id="card-active-members">
                             {% if workflow_status and workflow_status.members_analysis %}
-                                {{ workflow_status.members_analysis.total_active_members }}
+                                {{ workflow_status.members_analysis.total_active_members|e }}
                             {% else %}
                                 --
                             {% endif %}
@@ -71,7 +71,7 @@
                         <h3 class="text-sm font-medium text-gray-600">{{ _("Missing Invoices") }}</h3>
                         <p class="text-3xl font-bold text-gray-900" id="card-missing-invoices">
                             {% if workflow_status and workflow_status.members_analysis %}
-                                {{ workflow_status.members_analysis.members_missing_invoices }}
+                                {{ workflow_status.members_analysis.members_missing_invoices|e }}
                             {% else %}
                                 --
                             {% endif %}
@@ -91,7 +91,7 @@
                         <h3 class="text-sm font-medium text-gray-600">{{ _("Lacking Memberships") }}</h3>
                         <p class="text-3xl font-bold text-gray-900" id="card-lacking-memberships">
                             {% if workflow_status and workflow_status.members_analysis and workflow_status.members_analysis.members_without_membership %}
-                                {{ workflow_status.members_analysis.members_without_membership }}
+                                {{ workflow_status.members_analysis.members_without_membership|e }}
                             {% else %}
                                 --
                             {% endif %}
@@ -111,7 +111,7 @@
                         <h3 class="text-sm font-medium text-gray-600">{{ _("Missing Billing") }}</h3>
                         <p class="text-3xl font-bold text-gray-900" id="card-missing-schedule">
                             {% if workflow_status and workflow_status.members_analysis and workflow_status.members_analysis.members_without_schedule %}
-                                {{ workflow_status.members_analysis.members_without_schedule }}
+                                {{ workflow_status.members_analysis.members_without_schedule|e }}
                             {% else %}
                                 --
                             {% endif %}
@@ -131,7 +131,7 @@
                         <h3 class="text-sm font-medium text-gray-600">{{ _("SEPA Ready") }}</h3>
                         <p class="text-3xl font-bold text-gray-900" id="card-sepa-ready">
                             {% if workflow_status and workflow_status.members_analysis %}
-                                {{ workflow_status.members_analysis.sepa_eligible }}
+                                {{ workflow_status.members_analysis.sepa_eligible|e }}
                             {% else %}
                                 --
                             {% endif %}
@@ -159,13 +159,13 @@
                 </div>
                 <div class="ml-4 flex-1">
                     <h3 class="text-lg font-semibold text-yellow-900 mb-4">
-                        {{ _("Data Integrity Issues") }} ({{ workflow_status.coverage_mismatches.total_mismatches }})
+                        {{ _("Data Integrity Issues") }} ({{ workflow_status.coverage_mismatches.total_mismatches|e }})
                     </h3>
 
                     {% if workflow_status.coverage_mismatches.extending_past.count > 0 %}
                     <details class="mb-4">
                         <summary class="cursor-pointer font-medium text-yellow-800 hover:text-yellow-900">
-                            {{ _("Coverage Extending Past Schedule") }} ({{ workflow_status.coverage_mismatches.extending_past.count }})
+                            {{ _("Coverage Extending Past Schedule") }} ({{ workflow_status.coverage_mismatches.extending_past.count|e }})
                         </summary>
                         <div class="mt-3 overflow-x-auto">
                             <table class="min-w-full divide-y divide-yellow-200">
@@ -181,13 +181,13 @@
                                 <tbody class="divide-y divide-yellow-200">
                                     {% for item in workflow_status.coverage_mismatches.extending_past['items'] %}
                                     <tr class="hover:bg-yellow-50">
-                                        <td class="px-4 py-2 text-sm">{{ item.member_name }}</td>
+                                        <td class="px-4 py-2 text-sm">{{ item.member_name|e }}</td>
                                         <td class="px-4 py-2 text-sm">
-                                            <a href="/app/membership-dues-schedule/{{ item.schedule }}" class="text-blue-600 hover:text-blue-800">{{ item.schedule }}</a>
+                                            <a href="/app/membership-dues-schedule/{{ item.schedule|e }}" class="text-blue-600 hover:text-blue-800">{{ item.schedule|e }}</a>
                                         </td>
-                                        <td class="px-4 py-2 text-sm">{{ item.coverage_end }}</td>
-                                        <td class="px-4 py-2 text-sm">{{ item.next_invoice_date }}</td>
-                                        <td class="px-4 py-2 text-sm text-red-600 font-semibold">{{ item.gap_days }} days</td>
+                                        <td class="px-4 py-2 text-sm">{{ item.coverage_end|e }}</td>
+                                        <td class="px-4 py-2 text-sm">{{ item.next_invoice_date|e }}</td>
+                                        <td class="px-4 py-2 text-sm text-red-600 font-semibold">{{ item.gap_days|e }} days</td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -199,7 +199,7 @@
                     {% if workflow_status.coverage_mismatches.ending_early.count > 0 %}
                     <details>
                         <summary class="cursor-pointer font-medium text-yellow-800 hover:text-yellow-900">
-                            {{ _("Coverage Ending Too Early") }} ({{ workflow_status.coverage_mismatches.ending_early.count }})
+                            {{ _("Coverage Ending Too Early") }} ({{ workflow_status.coverage_mismatches.ending_early.count|e }})
                         </summary>
                         <div class="mt-3 overflow-x-auto">
                             <table class="min-w-full divide-y divide-yellow-200">
@@ -215,13 +215,13 @@
                                 <tbody class="divide-y divide-yellow-200">
                                     {% for item in workflow_status.coverage_mismatches.ending_early['items'] %}
                                     <tr class="hover:bg-yellow-50">
-                                        <td class="px-4 py-2 text-sm">{{ item.member_name }}</td>
+                                        <td class="px-4 py-2 text-sm">{{ item.member_name|e }}</td>
                                         <td class="px-4 py-2 text-sm">
-                                            <a href="/app/membership-dues-schedule/{{ item.schedule }}" class="text-blue-600 hover:text-blue-800">{{ item.schedule }}</a>
+                                            <a href="/app/membership-dues-schedule/{{ item.schedule|e }}" class="text-blue-600 hover:text-blue-800">{{ item.schedule|e }}</a>
                                         </td>
-                                        <td class="px-4 py-2 text-sm">{{ item.coverage_end }}</td>
-                                        <td class="px-4 py-2 text-sm">{{ item.next_invoice_date }}</td>
-                                        <td class="px-4 py-2 text-sm text-orange-600 font-semibold">{{ item.gap_days }} days</td>
+                                        <td class="px-4 py-2 text-sm">{{ item.coverage_end|e }}</td>
+                                        <td class="px-4 py-2 text-sm">{{ item.next_invoice_date|e }}</td>
+                                        <td class="px-4 py-2 text-sm text-orange-600 font-semibold">{{ item.gap_days|e }} days</td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -278,11 +278,11 @@
 let eligibleInvoices = [];
 let workflowConfig;
 try {
-    workflowConfig = JSON.parse('{{ js_config|safe }}' || '{}');
+    workflowConfig = JSON.parse({{ js_config|default('')|tojson }} || '{}');
 } catch (e) {
     workflowConfig = {
-        period_start: '{{ current_period_start }}',
-        period_end: '{{ current_period_end }}',
+        period_start: {{ current_period_start|default('')|tojson }},
+        period_end: {{ current_period_end|default('')|tojson }},
         user_roles: [],
         can_approve: false,
         can_generate_invoices: false
@@ -537,12 +537,25 @@ function checkMemberStatus() {
         },
         error: function(r) {
             hideSpinner('status-spinner');
-            let errorMsg = 'Failed to check member status.';
-            if (r.message) {
+            let errorMsg = __('Failed to check member status.');
+            if (r && r.message) {
                 errorMsg = r.message.error || r.message.message || r.message || errorMsg;
             }
             showResults('Error', errorMsg, 'error');
         }
+    }).fail(function(xhr) {
+        // The website frappe.call (website.js) answers a 403 with a bare "Not permitted" popup and never
+        // calls opts.error (only a 417 does), so the refusal is handled on the request itself (#2280).
+        // The status check is a treasurer-level (CRITICAL, POST-only) action.
+        if (xhr.status === 417) return;  // opts.error already ran
+        hideSpinner('status-spinner');
+        showResults(
+            'Error',
+            xhr.status === 403
+                ? __('You do not have permission to check member status. This requires treasurer-level access.')
+                : __('Failed to check member status.'),
+            'error'
+        );
     });
 }
 

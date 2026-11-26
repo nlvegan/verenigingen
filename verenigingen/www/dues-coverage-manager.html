@@ -1,9 +1,9 @@
 {% extends "templates/web.html" %}
 
-{% block title %}{{ title }}{% endblock %}
+{% block title %}{{ title|e }}{% endblock %}
 
 {% block head_include %}
-<meta name="csrf-token" content="{{ csrf_token }}">
+<meta name="csrf-token" content="{{ csrf_token|e }}">
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
 <script>
 // Load brand CSS dynamically
@@ -63,7 +63,7 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
 
         <!-- Header -->
         <div class="mb-8">
-            <h1 class="text-3xl font-bold text-gray-900">{{ title }}</h1>
+            <h1 class="text-3xl font-bold text-gray-900">{{ title|e }}</h1>
             <p class="mt-2 text-sm text-gray-600">Analyze coverage gaps and generate catch-up invoices</p>
         </div>
 
@@ -308,14 +308,14 @@ function renderMembersTable(data) {
         const coverageColor = getCoverageColor(member.coverage_percentage);
 
         return `
-            <tr class="member-row" data-member="${member.member}">
+            <tr class="member-row" data-member="${escapeHtml(member.member)}">
                 <td class="px-6 py-4">
-                    ${hasCatchup ? `<input type="checkbox" class="member-checkbox rounded" data-member="${member.member}" ${isSelected ? 'checked' : ''} onchange="toggleMemberSelection(this)">` : '<span class="text-gray-400">—</span>'}
+                    ${hasCatchup ? `<input type="checkbox" class="member-checkbox rounded" data-member="${escapeHtml(member.member)}" ${isSelected ? 'checked' : ''} onchange="toggleMemberSelection(this)">` : '<span class="text-gray-400">—</span>'}
                 </td>
                 <td class="px-6 py-4">
                     <div>
-                        <a href="/app/member/${member.member}" class="text-primary-600 hover:text-primary-700 font-medium" target="_blank">${member.member_name}</a>
-                        <p class="text-xs text-gray-500">${member.member}</p>
+                        <a href="/app/member/${encodeURIComponent(member.member)}" class="text-primary-600 hover:text-primary-700 font-medium" target="_blank">${escapeHtml(member.member_name)}</a>
+                        <p class="text-xs text-gray-500">${escapeHtml(member.member)}</p>
                     </div>
                 </td>
                 <td class="px-6 py-4">
@@ -336,7 +336,7 @@ function renderMembersTable(data) {
                     </div>
                 </td>
                 <td class="px-6 py-4">
-                    <button onclick="viewMemberDetails('${member.member}')" class="text-primary-600 hover:text-primary-700 text-sm font-medium">
+                    <button data-member="${escapeHtml(member.member)}" onclick="viewMemberDetails(this.dataset.member)" class="text-primary-600 hover:text-primary-700 text-sm font-medium">
                         <i class="fa fa-eye mr-1"></i>Details
                     </button>
                 </td>
@@ -495,7 +495,7 @@ function generateSelectedInvoices() {
 
 function viewMemberDetails(memberName) {
     // Open member in new tab
-    window.open(`/app/member/${memberName}`, '_blank');
+    window.open(`/app/member/${encodeURIComponent(memberName)}`, '_blank');
 }
 
 function clearFilters() {

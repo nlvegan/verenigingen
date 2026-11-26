@@ -57,32 +57,22 @@ def get_volunteer_expense_statistics(volunteer_name: str) -> tuple[dict, str]:
         if not volunteer_doc.employee_id:
             return get_empty_statistics(), "No employee_id found for volunteer"
 
-        # Single optimized query for statistics
-        stats_result = frappe.db.sql(
-            """
-            SELECT
-                COUNT(*) as total_count,
-                COALESCE(SUM(total_claimed_amount), 0) as total_submitted,
-                COALESCE(SUM(CASE
-                    WHEN status IN ('Paid', 'Reimbursed') OR approval_status = 'Approved'
-                    THEN COALESCE(total_sanctioned_amount, total_claimed_amount)
-                    ELSE 0
-                END), 0) as total_approved,
-                COUNT(CASE
-                    WHEN status IN ('Paid', 'Reimbursed') OR approval_status = 'Approved'
-                    THEN 1
-                END) as approved_count
-            FROM `tabExpense Claim`
-            WHERE employee = %s AND docstatus != 2
-        """,
-            [volunteer_doc.employee_id],
-            as_dict=True,
-        )[0]
+        # get_list, not raw SQL: the permission query must scope the caller (#1819).
+        claims = frappe.get_list(
+            "Expense Claim",
+            filters={"employee": volunteer_doc.employee_id, "docstatus": ["!=", 2]},
+            fields=["total_claimed_amount", "total_sanctioned_amount", "status", "approval_status"],
+            limit_page_length=0,
+        )
 
-        total_submitted = flt(stats_result.total_submitted)
-        total_approved = flt(stats_result.total_approved)
-        approved_count = int(stats_result.approved_count or 0)
-        total_count = int(stats_result.total_count or 0)
+        total_count = len(claims)
+        total_submitted = flt(sum(flt(c.total_claimed_amount) for c in claims), 2)
+        approved = [
+            c for c in claims if c.status in ("Paid", "Reimbursed") or c.approval_status == "Approved"
+        ]
+        approved_count = len(approved)
+        # total_sanctioned_amount is NOT NULL in the schema, so no COALESCE is needed
+        total_approved = flt(sum(flt(c.total_sanctioned_amount) for c in approved), 2)
         pending_count = total_count - approved_count
 
         debug_msg = (
@@ -140,7 +130,7 @@ def get_volunteer_organizations(volunteer_name: str) -> dict:
         # Get chapters where this member is active
         chapter_members = frappe.get_all(
             "Chapter Member",
-            filters={"member": volunteer_doc.member, "enabled": 1},
+            filters={"member": volunteer_doc.member, "enabled": 1, "status": "Active"},
             fields=["parent"],
         )
 
@@ -247,8 +237,10 @@ def get_volunteer_expenses_from_claims(volunteer_name: str, limit: Optional[int]
         if not volunteer_doc.employee_id:
             return []
 
-        # Get expense claims for this employee
-        expense_claims = frappe.get_all(
+        # Get expense claims for this employee. get_list, not get_all: the caller must only
+        # read claims the Expense Claim permission query lets them list (#1819); a volunteer
+        # whose employee_id is not the caller's own Employee gets nothing.
+        expense_claims = frappe.get_list(
             "Expense Claim",
             filters={"employee": volunteer_doc.employee_id, "docstatus": ["!=", 2]},  # Exclude cancelled
             fields=[
@@ -265,7 +257,7 @@ def get_volunteer_expenses_from_claims(volunteer_name: str, limit: Optional[int]
                 "custom_expense_category",
             ],
             order_by="posting_date desc",
-            limit=limit,
+            limit_page_length=limit or 0,  # get_list defaults to 20; get_all to unlimited
         )
 
         expenses = []
@@ -377,79 +369,6 @@ def map_erpnext_status_to_volunteer_status(status: str, approval_status: Optiona
 # =============================================================================
 # Validation Functions
 # =============================================================================
-
-
-def validate_volunteer_organization_access(
-    volunteer_name: str, organization_type: str, organization_name: str
-) -> bool:
-    """Enhanced validation for volunteer access to organizations.
-
-    Supports direct chapter membership AND indirect access via team membership.
-
-    Args:
-        volunteer_name: Volunteer record name
-        organization_type: 'Chapter', 'Team', or 'National'
-        organization_name: Name of the organization
-
-    Returns:
-        bool: True if volunteer has access
-    """
-    try:
-        volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
-
-        if organization_type == "Chapter":
-            # Direct chapter membership check. Chapter Member is keyed on the
-            # MEMBER (it has no `volunteer` column), so resolve the volunteer's
-            # member first -- mirroring _validate_chapter_access in
-            # expense_submission_service. Filtering on a non-existent `volunteer`
-            # column silently matched nothing, denying genuine chapter members.
-            member = getattr(volunteer_doc, "member", None)
-            direct_membership = (
-                frappe.db.exists("Chapter Member", {"parent": organization_name, "member": member})
-                if member
-                else None
-            )
-
-            if direct_membership:
-                return True
-
-            # Indirect access via team membership
-            # Get teams where volunteer is a member and team's chapter matches
-            team_memberships = frappe.get_all(
-                "Team Member", filters={"volunteer": volunteer_name}, fields=["parent"]
-            )
-
-            for membership in team_memberships:
-                team_doc = frappe.get_doc("Team", membership.parent)
-                if hasattr(team_doc, "chapter") and team_doc.chapter == organization_name:
-                    frappe.logger().info(
-                        f"Volunteer {volunteer_name} has access to chapter {organization_name} "
-                        f"via team {team_doc.name}"
-                    )
-                    return True
-
-            return False
-
-        elif organization_type == "Team":
-            # Direct team membership check
-            team_membership = frappe.db.exists(
-                "Team Member", {"parent": organization_name, "volunteer": volunteer_name}
-            )
-            return bool(team_membership)
-
-        elif organization_type == "National":
-            # All volunteers have access to national expenses
-            return True
-
-        return False
-
-    except Exception as e:
-        frappe.log_error(
-            f"Error validating volunteer organization access: {str(e)}",
-            "Access Validation Error",
-        )
-        # In case of error, allow access to prevent blocking legitimate requests
-        return True
 
 
 def is_policy_covered_expense(category: str) -> bool:
@@ -587,7 +506,7 @@ def validate_expense_data(expense_data: dict, line_number: int) -> list:
             )
 
     # Description validation
-    description = expense_data.get("description", "").strip()
+    description = (expense_data.get("description") or "").strip()
     if description and len(description) > 200:
         errors.append(
             {

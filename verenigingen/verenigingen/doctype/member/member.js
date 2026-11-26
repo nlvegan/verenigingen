@@ -67,6 +67,15 @@ if (!window.unwrapOperationResult) {
 		return msg;
 	};
 }
+if (!window.getSuccessMessage) {
+	// Fallback shim; normally set by operation-result-helpers.js (#1490).
+	window.getSuccessMessage = function (msg, defaultMsg) {
+		if (msg && typeof msg === 'object' && msg.meta && typeof msg.meta === 'object') {
+			return msg.meta.message || defaultMsg;
+		}
+		return defaultMsg;
+	};
+}
 if (!window.escapeHtml) {
 	window.escapeHtml = function (str) {
 		if (str == null) {
@@ -1445,10 +1454,9 @@ function create_user_account_dialog(frm) {
 						// to_dict(scrub_sensitive=True) -- the NESTED schema. The
 						// success text lives under r.message.meta.message, never a
 						// top-level "message" (#1452, same bug class as #1420).
-						const meta = r.message.meta || {};
 						frappe.show_alert(
 							{
-								message: meta.message || __('User account created successfully'),
+								message: getSuccessMessage(r.message, __('User account created successfully')),
 								indicator: 'green'
 							},
 							5
@@ -2097,10 +2105,11 @@ function show_suspension_dialog(frm) {
 									if (!isOperationResultFailed(resp.message)) {
 										dialog.hide();
 										frm.reload_doc();
-										frappe.show_alert({
-											message: __('Member suspended successfully'),
-											indicator: 'green'
-										});
+										show_suspension_outcome(
+											resp.message,
+											__('Member suspended successfully'),
+											__('Member suspended, but NOT everything was done')
+										);
 									} else {
 										frappe.show_alert({
 											message: getErrorMessage(resp.message, __('Suspension failed')),
@@ -2116,6 +2125,22 @@ function show_suspension_dialog(frm) {
 				dialog.show();
 			}
 		}
+	});
+}
+
+// #2597: a suspension that changed the member but left a team row (or the user account)
+// undone comes back as success with data.partial + data.errors. Show those, never a plain
+// green "success"; a modal, because an alert fades before staff can read which team is active.
+function show_suspension_outcome(message, success_text, partial_text) {
+	const data = (message && message.data) || {};
+	if (!data.partial) {
+		frappe.show_alert({ message: success_text, indicator: 'green' });
+		return;
+	}
+	frappe.msgprint({
+		title: partial_text,
+		indicator: 'orange',
+		message: (data.errors || []).map((e) => frappe.utils.escape_html(e)).join('<br>')
 	});
 }
 
@@ -2157,10 +2182,11 @@ function show_unsuspension_dialog(frm) {
 						if (!isOperationResultFailed(r.message)) {
 							dialog.hide();
 							frm.reload_doc();
-							frappe.show_alert({
-								message: __('Member unsuspended successfully'),
-								indicator: 'green'
-							});
+							show_suspension_outcome(
+								r.message,
+								__('Member unsuspended successfully'),
+								__('Member unsuspended, but NOT everything was done')
+							);
 						} else {
 							frappe.show_alert({
 								message: getErrorMessage(r.message, __('Unsuspension failed')),
@@ -2902,10 +2928,9 @@ function generate_manual_invoice_for_member(frm, _member_info) {
 			// now?" confirm navigated to "Sales Invoice/undefined".
 			const data = unwrapOperationResult(r.message);
 			if (data) {
-				const meta = (r.message && r.message.meta) || {};
 				frappe.show_alert(
 					{
-						message: meta.message || __('Invoice generated successfully'),
+						message: getSuccessMessage(r.message, __('Invoice generated successfully')),
 						indicator: 'green'
 					},
 					5

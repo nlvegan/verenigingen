@@ -21,7 +21,6 @@ targets the branches those tests leave uncovered:
 - ``validate_entity_configuration`` role-specific valid / bad-role /
   bad-role-profile branches.
 - ``_is_system_operation_authorized`` for a non-privileged user.
-- ``assign_role_profile`` role-specific assignment end to end.
 
 Real Role Profiles, Teams, Chapters, Users, Members, Volunteers and Team /
 Chapter Roles are created via ``frappe.get_doc().insert()`` / the test factory.
@@ -39,6 +38,10 @@ from verenigingen.services.member.account.base_role_profile_manager import (
     _is_system_operation_authorized,
     _read_role_profiles,
     validate_entity_configuration,
+)
+from verenigingen.tests.support.role_profile_grant import (
+    end_team_membership_without_sync,
+    grant_team_profile_via_sync,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.team_role_profile_manager import TEAM_CONFIG, _team_manager
@@ -191,23 +194,6 @@ class TestBaseRoleProfileManagerSweep(VereningingenTestCase):
         self.assertIsNone(self.team_manager.determine_role_profile_for_member(team, role=team_role))
 
     # =================================================================
-    # assign_role_profile: role-specific path end to end
-    # =================================================================
-
-    def test_assign_role_specific_profile_assigned(self):
-        specific_profile = self._make_role_profile()
-        team_role = self._make_team_role()
-        team = self._make_team(enable_specific=1, role_specific=[(team_role, specific_profile)])
-        user = self._make_system_user()
-
-        with self.assertNoErrorLog():
-            result = self.team_manager.assign_role_profile(user, team, role=team_role)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["action"], "assigned")
-        self.assertEqual(result["role_profile"], specific_profile)
-        self.assertIn(specific_profile, self._assigned_profiles(user))
-
-    # =================================================================
     # get_entities_using_role_profile / requiring: role-specific child table
     # =================================================================
 
@@ -265,7 +251,10 @@ class TestBaseRoleProfileManagerSweep(VereningingenTestCase):
             )
             team_doc.save()
 
-        self.team_manager.assign_role_profile(user, team_a)
+        # The real sync granted the profile when the volunteer joined the teams.
+        from verenigingen.utils.user_role_profile_calculator import sync_user_role_profile
+
+        sync_user_role_profile(user)
         self.assertIn(profile, self._assigned_profiles(user))
 
         # Remove from team_a: user is still Active in team_b which needs the same
@@ -288,8 +277,9 @@ class TestBaseRoleProfileManagerSweep(VereningingenTestCase):
         team = self._make_team(default_profile=profile)
         user, member, volunteer = self._make_member_user_volunteer()
 
-        self.team_manager.assign_role_profile(user, team)
-        self.assertIn(profile, self._assigned_profiles(user))
+        row = grant_team_profile_via_sync(user, volunteer.name, team)
+        self.assertIn(profile, self._assigned_profiles(user), "setup: sync did not grant the team profile")
+        end_team_membership_without_sync(row)
 
         result = self.team_manager.remove_role_profile(user, team)
         self.assertTrue(result["success"])
@@ -447,96 +437,39 @@ class TestBaseRoleProfileManagerSweep(VereningingenTestCase):
         self.assertEqual(CHAPTER_CONFIG.child_table_doctype, "Chapter Role Profile Mapping")
 
     # =================================================================
-    # assign_role_profile: no-config / already-assigned / disabled-user
-    # =================================================================
-
-    def test_assign_no_config_returns_no_config_action(self):
-        # A team with neither a default profile nor role-specific profiles yields
-        # action="no_config" and success=True (nothing to assign, not an error).
-        team = self._make_team()  # no default, no role-specific
-        user = self._make_system_user()
-        with self.assertNoErrorLog():
-            result = self.team_manager.assign_role_profile(user, team)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["action"], "no_config")
-        self.assertNotIn("role_profile", self._assigned_profiles(user))
-
-    def test_assign_already_assigned_is_idempotent(self):
-        # Re-assigning a profile the user already holds returns action="already_assigned"
-        # without re-writing or duplicating the role_profiles row.
-        profile = self._make_role_profile()
-        team = self._make_team(default_profile=profile)
-        user = self._make_system_user()
-
-        first = self.team_manager.assign_role_profile(user, team)
-        self.assertEqual(first["action"], "assigned")
-        second = self.team_manager.assign_role_profile(user, team)
-        self.assertTrue(second["success"])
-        self.assertEqual(second["action"], "already_assigned")
-        # Still exactly one assignment of that profile.
-        self.assertEqual(sum(1 for p in self._assigned_profiles(user) if p == profile), 1)
-
-    def test_assign_to_disabled_user_is_rejected(self):
-        # A disabled user cannot receive a role profile: the method rolls back and
-        # returns a VALIDATION_ERROR without assigning anything.
-        from verenigingen.services.member.account.base_role_profile_manager import ERROR_CODES
-
-        profile = self._make_role_profile()
-        team = self._make_team(default_profile=profile)
-        user = self._make_system_user()
-        frappe.db.set_value("User", user, "enabled", 0)
-
-        result = self.team_manager.assign_role_profile(user, team)
-        self.assertFalse(result["success"])
-        self.assertEqual(result["error_code"], ERROR_CODES["VALIDATION_ERROR"])
-        self.assertIn("disabled", result["error"])
-        self.assertNotIn(profile, self._assigned_profiles(user))
-
-    def test_assign_profile_pointing_at_missing_profile_record(self):
-        # The team's default profile name points at a Role Profile that does not
-        # exist → determine() returns None (dependency validation fails), so assign
-        # reports no_config rather than asserting a phantom profile.
-        team = self._make_team()
-        frappe.db.set_value("Team", team, "default_role_profile", "Ghost Profile ZZZ")
-        user = self._make_system_user()
-        result = self.team_manager.assign_role_profile(user, team)
-        self.assertTrue(result["success"])
-        self.assertEqual(result["action"], "no_config")
-
-    # =================================================================
     # input validation guards (_validate_role_assignment_inputs)
     # =================================================================
 
-    def test_assign_blank_user_is_validation_error(self):
+    def test_remove_blank_user_is_validation_error(self):
         from verenigingen.services.member.account.base_role_profile_manager import ERROR_CODES
 
         team = self._make_team(default_profile=self._make_role_profile())
-        result = self.team_manager.assign_role_profile("   ", team)
+        result = self.team_manager.remove_role_profile("   ", team)
         self.assertFalse(result["success"])
         self.assertEqual(result["error_code"], ERROR_CODES["VALIDATION_ERROR"])
 
-    def test_assign_nonexistent_user_is_not_found(self):
+    def test_remove_nonexistent_user_is_not_found(self):
         from verenigingen.services.member.account.base_role_profile_manager import ERROR_CODES
 
         team = self._make_team(default_profile=self._make_role_profile())
-        result = self.team_manager.assign_role_profile("ghost-user-zzz@nope.invalid", team)
+        result = self.team_manager.remove_role_profile("ghost-user-zzz@nope.invalid", team)
         self.assertFalse(result["success"])
         self.assertEqual(result["error_code"], ERROR_CODES["NOT_FOUND"])
 
-    def test_assign_nonexistent_entity_is_not_found(self):
+    def test_remove_nonexistent_entity_is_not_found(self):
         from verenigingen.services.member.account.base_role_profile_manager import ERROR_CODES
 
         user = self._make_system_user()
-        result = self.team_manager.assign_role_profile(user, "No Such Team ZZZ")
+        result = self.team_manager.remove_role_profile(user, "No Such Team ZZZ")
         self.assertFalse(result["success"])
         self.assertEqual(result["error_code"], ERROR_CODES["NOT_FOUND"])
 
-    def test_assign_overlong_role_is_validation_error(self):
+    def test_remove_overlong_role_is_validation_error(self):
         from verenigingen.services.member.account.base_role_profile_manager import ERROR_CODES
 
         team = self._make_team(default_profile=self._make_role_profile())
         user = self._make_system_user()
-        result = self.team_manager.assign_role_profile(user, team, role="x" * 101)
+        result = self.team_manager.remove_role_profile(user, team, role="x" * 101)
         self.assertFalse(result["success"])
         self.assertEqual(result["error_code"], ERROR_CODES["VALIDATION_ERROR"])
 

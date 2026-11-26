@@ -187,16 +187,30 @@ class Member(
 
         get_member_fee_validation_service().validate_fee_override_permissions(self)
 
-    def has_permission(self, ptype="read", user=None):
+    def has_permission(self, permtype="read", *, debug=False, user=None):
         """
-        Override permission check to bypass User Permission restrictions for VBCM users.
+        Member permission gate: ``has_member_permission`` (admin roles, chapter board, own record).
+
+        Also bypasses User Permission restrictions for VBCM users.
 
         This method is called by Frappe's permission system BEFORE User Permission checks.
         It allows Chapter Board Members to access Member records in their chapters even if
         those members are linked to Employee records the board member doesn't have User Permission for.
 
+        The signature mirrors ``frappe.model.document.Document.has_permission``: callers such
+        as ``File.has_permission`` pass ``debug=`` (#3040). ``debug`` is accepted and unused.
+
+        INTENTIONALLY STRICT (#3047, maintainer ruling 2026-11-24): unlike the base
+        ``Document.has_permission``, this override does NOT honour
+        ``doc.flags.ignore_permissions``. A caller without admin, chapter-board or own-record access (the
+        ``has_member_permission`` gate) is refused even with the flag set. Document.insert/save reach this method through check_permission, so the flag
+        does not help them either. A flow that needs elevation must be fixed explicitly (run it
+        as a privileged or service user), not by teaching this method to honour the flag. Do
+        not "fix" the divergence from the base class; ``test_member_permission_strict_3047`` pins it.
+
         Args:
-            ptype: Permission type (read, write, etc.)
+            permtype: Permission type (read, write, etc.)
+            debug: Accepted for signature parity with the base class; unused
             user: User to check permissions for
 
         Returns:
@@ -211,7 +225,7 @@ class Member(
         # Use our custom permission function which handles chapter-based access
         # This will return True for VBCM users who have access to this member's chapter
         # regardless of Employee User Permission restrictions
-        return has_member_permission(self, user, ptype)
+        return has_member_permission(self, user, permtype)
 
     @staticmethod
     def has_query_permission(user):
@@ -379,6 +393,7 @@ class Member(
         custom_rate_reason=None,
         is_csv_import=False,
         approval_fields=None,
+        system_follow_on=False,
     ):
         """
         Create membership record when application is approved.
@@ -398,6 +413,7 @@ class Member(
             custom_rate_reason=custom_rate_reason,
             is_csv_import=is_csv_import,
             approval_fields=approval_fields,
+            system_follow_on=system_follow_on,
         )
 
     # Member.reject_application removed in T4.1, same reasoning as
@@ -736,7 +752,7 @@ class Member(
         return result.get("duration_years", 0)
 
     @frappe.whitelist()
-    @standard_api(operation_type=OperationType.ADMIN)
+    @critical_api(operation_type=OperationType.ADMIN)
     def force_update_membership_duration(self):
         """Force update membership duration - delegates to MemberDurationService."""
         from verenigingen.services.member.utils.member_duration_service import (
@@ -777,7 +793,7 @@ class Member(
         return get_member_item_service().get_or_create_membership_item(self)
 
     @frappe.whitelist()
-    @standard_api(operation_type=OperationType.ADMIN)
+    @critical_api(operation_type=OperationType.ADMIN)
     def force_update_chapter_display(self):
         """Force update chapter display - delegates to MemberChapterDisplayService."""
         from verenigingen.services.member.display.member_chapter_display_service import (
@@ -936,7 +952,7 @@ def create_user(doc: str | dict = None):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def create_organization_user(
-    member: str, email: str, first_name: str, last_name: str = "", send_welcome_email=True
+    member: str, email: str, first_name: str, last_name: str = "", send_welcome_email: bool = True
 ):
     """Create an organization user account for a member.
 

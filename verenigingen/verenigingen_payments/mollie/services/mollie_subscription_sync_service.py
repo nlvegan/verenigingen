@@ -205,6 +205,7 @@ class MollieSubscriptionSyncService:
                     member.mollie_customer_id,
                     old_subscription_id,
                     reason=f"Amendment {amendment_doc.name}: {amendment_doc.amendment_type} - Replaced by {new_subscription.id}",
+                    record_owner_cancel=False,  # replacement is live (#873)
                 )
 
                 # Step 3: Update member with new subscription ID
@@ -277,6 +278,7 @@ class MollieSubscriptionSyncService:
                                 member.mollie_customer_id,
                                 new_subscription.id,
                                 reason=f"Rollback after failed amendment {amendment_doc.name}",
+                                record_owner_cancel=False,  # old subscription stays live (#873)
                             )
 
                             frappe.logger().info(
@@ -499,7 +501,7 @@ class MollieSubscriptionSyncService:
 
         Handles three amendment types with different parameter sources:
         1. Fee Change: New amount from amendment, interval from current dues schedule
-        2. Membership Type Change: Amount and interval from requested membership type's template
+        2. Membership Type Change: New amount from amendment, interval from the member's applied dues schedule (template only if none)
         3. Billing Interval Change: Interval from amendment, amount from current dues schedule
 
         Args:
@@ -534,8 +536,13 @@ class MollieSubscriptionSyncService:
             # Membership Type Change: Get interval from new membership type, use requested_amount
             amount = amendment_doc.requested_amount
 
-            # Get interval from the requested membership type's dues schedule template
-            if amendment_doc.requested_membership_type:
+            # The amendment has already been applied, so the member's schedule carries the
+            # frequency that bills: the kept one, or the amendment's replacement frequency
+            # (#1937). The Type's template only answers when there is no schedule.
+            dues_schedule = self._get_membership_dues_schedule(membership.member)
+            if dues_schedule:
+                interval = BILLING_INTERVAL_TO_MOLLIE_FORMAT.get(dues_schedule.billing_frequency, "1 month")
+            elif amendment_doc.requested_membership_type:
                 new_type_doc = frappe.get_doc("Membership Type", amendment_doc.requested_membership_type)
 
                 if new_type_doc.dues_schedule_template:
@@ -657,7 +664,12 @@ class MollieSubscriptionSyncService:
         }
 
     def _get_membership_dues_schedule(self, member_id: str):
-        """Get the member's active dues schedule (a ScheduleInfo, or None).
+        """Get the member's own dues schedule, Active or else Paused (a ScheduleInfo, or None).
+
+        A Paused schedule is still the member's: the in-place type-change path leaves it
+        Paused, and its frequency and rate are what the amendment values must follow.
+        Falling back to the Type template or "1 month" for a Paused member was #2507.
+        This lookup only reads; it does not decide what a Paused member's Mollie state is.
 
         Delegates to DuesScheduleRepository, which is the canonical implementation
         of this query. This method used to filter on docstatus=1; Membership Dues
@@ -679,7 +691,9 @@ class MollieSubscriptionSyncService:
         fail closed (amount 0, which Mollie rejects; and a failed verification that
         escalates to an admin).
         """
-        return DuesScheduleRepository().get_active_schedule(member_id)
+        repo = DuesScheduleRepository()
+        # Active first: if a member somehow holds both, the billing one wins.
+        return repo.get_active_schedule(member_id) or repo.get_active_or_paused_schedule(member_id)
 
     def _get_webhook_url(self) -> str:
         """Canonical subscription webhook URL (Mollie Settings owns it)."""

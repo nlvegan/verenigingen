@@ -307,6 +307,17 @@ frappe.ui.form.on('Direct Debit Batch Invoice', {
 				callback(r) {
 					// Unwrap OperationResult format
 					const data = unwrapOperationResult(r.message);
+					// A refusal (e.g. ambiguous or missing mandate) arrives as a normal 200
+					// {valid: false, error}. Without this check every field below was set to
+					// undefined, blanking the row with no explanation (#1220).
+					if (data && data.valid === false) {
+						frappe.msgprint({
+							title: __('Could not load mandate details'),
+							indicator: 'red',
+							message: frappe.utils.escape_html(data.error || __('Could not load mandate details'))
+						});
+						return;
+					}
 					if (data) {
 						frappe.model.set_value(cdt, cdn, 'iban', data.iban);
 						frappe.model.set_value(cdt, cdn, 'bic', data.bic);
@@ -590,6 +601,27 @@ function load_unpaid_invoices(frm) {
 					} else {
 						frappe.msgprint(__('No unpaid invoices found matching criteria'));
 					}
+				},
+				// load_unpaid_invoices is @handle_api_error-wrapped, so a validation failure is a
+				// real HTTP 400 carrying {message: {success: false, error: {message}}}. frappe's
+				// request.js never calls `callback` for a non-200, and has no 400 handler, so
+				// the failure reaches here as the xhr (a 417 hands over the parsed body; 403/500
+				// pass nothing and frappe has already shown its own dialog). Measured through
+				// the real WSGI app, 2026-11-18 (#1220).
+				error(xhr) {
+					const body = (xhr && xhr.responseJSON) || xhr;
+					if (!body || typeof body !== 'object') {
+						return;
+					}
+					const fallback = __('Could not load unpaid invoices');
+					const message = verenigingen.utils.isFailureResult(body.message)
+						? verenigingen.utils.getErrorMessage(body.message, fallback)
+						: verenigingen.utils.getHttpErrorMessage(body, fallback);
+					frappe.msgprint({
+						title: fallback,
+						indicator: 'red',
+						message: frappe.utils.escape_html(message)
+					});
 				}
 			});
 		}
@@ -769,7 +801,8 @@ function process_returns_dialog(frm) {
 			frappe.call({
 				method: 'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.process_sepa_return_file',
 				args: {
-					file_content: values.return_file,
+					// An Attach value is the uploaded File's URL, not its content (#3031)
+					file_url: values.return_file,
 					file_type: 'pain.002'
 				},
 				callback(r) {
@@ -824,15 +857,26 @@ function mark_as_processed_dialog(frm) {
 			frappe.show_progress(__('Processing Payments'), 0, 100);
 
 			frappe.call({
-				method: 'mark_invoices_as_paid',
-				doc: frm.doc,
+				method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.mark_invoices_as_paid',
+				args: { batch_name: frm.doc.name },
 				callback(r) {
-					frappe.hide_progress();
-					if (!r.exc && r.message) {
+					if (!r.exc) {
 						frm.reload_doc();
-						frappe.msgprint(__('Successfully processed {0} payments', [r.message]));
+						// #2573: 0 means no NEW payment was created (rows already collected are
+						// skipped); say so instead of closing silently or claiming success.
+						frappe.msgprint(
+							r.message
+								? __('Successfully processed {0} payments', [r.message])
+								: __(
+										'No new payments were processed. Invoices already collected were skipped; check the invoice rows for any that failed.'
+									)
+						);
 						dialog.hide();
 					}
+				},
+				// callback runs on success only; a 403 or thrown error must not leave the dialog up
+				always() {
+					frappe.hide_progress();
 				}
 			});
 		}

@@ -26,24 +26,28 @@ from typing import Optional
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, get_url
+from frappe.utils import flt
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
-from verenigingen.utils.transaction_errors import atomic_status_transition
+from verenigingen.utils.transaction_errors import atomic_status_transition, insert_and_submit_atomically
 from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_request_status
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     REQUEST_GUARDED_FIELDS,
+    PontoSubmitCompensation,
     alert_executed_on_cancelled_row,
     alert_executed_unbookable,
     alert_payment_entry_conflict,
     as_system_update,
     as_system_update_from_db,
+    persist_cancelled_status,
     refuse_unless_system_update,
 )
 
 
-class PontoPaymentRequest(Document):
+class PontoPaymentRequest(PontoSubmitCompensation, Document):
     """Controller for Ponto Payment Request DocType."""
+
+    PONTO_DELETE_METHOD = "delete_ponto_payment"
 
     def validate(self):
         """Validate payment request before save."""
@@ -72,7 +76,7 @@ class PontoPaymentRequest(Document):
         """Handle cancellation."""
         if self.status == "Pending" and self.ponto_payment_id:
             self.cancel_ponto_payment()
-        self.status = "Cancelled"
+        persist_cancelled_status(self)
 
     def validate_currency(self):
         """Ensure currency is EUR for SEPA payments."""
@@ -123,13 +127,15 @@ class PontoPaymentRequest(Document):
         callback, that an `error=access_denied` comes from the browser we sent to Ponto
         (#1815). A custom redirect_uri replaces our callback, so it carries none."""
         from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
-        from verenigingen.verenigingen_payments.ponto.api.payment_callback import CANCEL_TOKEN_PURPOSE
+        from verenigingen.verenigingen_payments.ponto.api.payment_callback import (
+            CANCEL_TOKEN_PURPOSE,
+            build_request_return_url,
+        )
 
         cancel_token = generate_guest_return_token(CANCEL_TOKEN_PURPOSE, self.name)
-        return get_url(
-            f"/api/method/verenigingen.verenigingen_payments.ponto.api.payment_callback"
-            f"?payment_request={self.name}&cancel_token={cancel_token}"
-        )
+        # The short guest route (#2274): the /api/method/... form named the module, not its
+        # function, and was too long for Ponto's 255-character redirectUri limit.
+        return build_request_return_url(self.name, cancel_token)
 
     def create_ponto_payment(self):
         """
@@ -165,6 +171,7 @@ class PontoPaymentRequest(Document):
 
             # Update document with Ponto response
             self.ponto_payment_id = created.id
+            self.flags.ponto_created_id = created.id  # _submit deletes it if the save fails (#2294)
             self.redirect_link = created.redirect_link
             self.status = "Pending"
 
@@ -193,18 +200,22 @@ class PontoPaymentRequest(Document):
         if not self.ponto_payment_id:
             return
 
-        from verenigingen.verenigingen_payments.ponto.clients.payment_client import get_payment_client
-
         try:
-            client = get_payment_client()
-            client.delete_payment(
-                account_id=self.ponto_account,
-                payment_id=self.ponto_payment_id,
-            )
+            self.delete_ponto_payment()
             frappe.logger().info(f"Cancelled Ponto payment {self.ponto_payment_id}")
         except Exception as e:
             frappe.logger().warning(f"Failed to cancel Ponto payment {self.ponto_payment_id}: {e}")
             # Don't throw - the payment may already be signed or executed
+
+    def delete_ponto_payment(self):
+        """The Ponto delete call itself; raises on failure (on_cancel swallows, the failed-submit
+        compensation reports it, #2294)."""
+        from verenigingen.verenigingen_payments.ponto.clients.payment_client import get_payment_client
+
+        get_payment_client().delete_payment(
+            account_id=self.ponto_account,
+            payment_id=self.ponto_payment_id,
+        )
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
@@ -583,8 +594,7 @@ class PontoPaymentRequest(Document):
         pe.reference_date = frappe.utils.today()
         pe.bank_account = bank_account
 
-        pe.insert()
-        pe.submit()
+        insert_and_submit_atomically(pe)
 
         self.payment_entry = pe.name
         self.save()

@@ -34,6 +34,8 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.tests.support.mollie_bank_scope import pin_mollie_bank_account
+from verenigingen.tests.support.mollie_settings import own_mollie_clearing_account
 from verenigingen.tests.support.sepa_test_company import get_eur_test_company
 from verenigingen.verenigingen_payments.services import mollie_payment_orchestrator as orch_mod
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import (
@@ -62,6 +64,9 @@ class OrchestratorBase(EnhancedTestCase):
         )
         self.pid = f"tr_{frappe.generate_hash(length=20)}"
         self._isolate_mollie_client()
+        # The processing-status probe looks on the Mollie bank account (#2620); an
+        # unresolvable account would log a configuration Error Log row per call.
+        self._mollie = pin_mollie_bank_account(self)
 
     def _isolate_mollie_client(self):
         """Make MollieClient construction independent of ambient Mollie Settings,
@@ -474,19 +479,14 @@ class TestCreateOrphanPaymentEntry(OrchestratorBase):
         # setup problem it is. Fail here, where the message names the cause.
         assert cls.clearing_account, f"no Mollie clearing account could be ensured for {cls._company}"
 
-        # SETUP-only Single writes (class fixture, not a test body). Written with
-        # set_single_value and restored via addClassCleanup: these Singles survive the
-        # harness rollback, and Mollie Settings.mollie_clearing_account has no harness
-        # restore at all, so leaving it repointed drifts every later suite in the shard
-        # that reads it.
-        for doctype, field, value in (
-            ("Verenigingen Settings", "company", cls._company),
-            ("Mollie Settings", "mollie_clearing_account", cls.clearing_account),
-        ):
-            previous = frappe.db.get_single_value(doctype, field)
-            frappe.db.set_single_value(doctype, field, value)
-            cls.addClassCleanup(frappe.db.set_single_value, doctype, field, previous)
-        cls.addClassCleanup(frappe.db.commit)
+        # SETUP-only Single writes (class fixture, not a test body). The company is restored by
+        # EnhancedTestCase's own_settings_company pin; the Mollie clearing account goes through
+        # own_mollie_clearing_account, whose restore commits. The loop this replaces registered
+        # a commit BEFORE its restores (LIFO: it ran first), so the restores were uncommitted and
+        # whether they stuck depended on another cleanup's commit; on develop it left
+        # `Mollie - TPIC` in Mollie Settings (#528).
+        frappe.db.set_single_value("Verenigingen Settings", "company", cls._company)
+        own_mollie_clearing_account(cls, cls.clearing_account)
         frappe.db.commit()
 
         # MollieConfigurationService caches Mollie Settings in Redis for 5 minutes

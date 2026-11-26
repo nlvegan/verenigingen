@@ -22,6 +22,17 @@ from verenigingen.utils.security.types import OperationType
 from verenigingen.verenigingen_payments.services.balance_transaction_processor import (
     BalanceTransactionProcessor,
 )
+from verenigingen.verenigingen_payments.services.bank_transaction_creator import (
+    get_bank_transaction_creator,
+)
+from verenigingen.verenigingen_payments.utils import bank_transaction_status
+
+
+def _row_outcome(row):
+    """Classified outcome of a Bank Transaction row: the page must not key on ``status`` (#2396)."""
+    return bank_transaction_status.row_outcome(
+        row.docstatus, row.status, row.get(bank_transaction_status.FIELD)
+    )
 
 
 @frappe.whitelist()
@@ -255,11 +266,21 @@ def check_transaction_status(transaction_id: str, include_mollie_data: bool = Fa
         }
 
         # Check if Bank Transaction exists
-        existing_bt = frappe.db.get_value(
-            "Bank Transaction",
-            {"reference_number": transaction_id},
-            ["name", "date", "deposit", "withdrawal", "status", "currency", "description"],
-            as_dict=True,
+        # Mollie bank account, live rows only (#2620): another account's row or a cancelled
+        # one must not be reported as this balance transaction's booking.
+        existing_bt = get_bank_transaction_creator().find_mollie_bank_transaction(
+            transaction_id,
+            fields=[
+                "name",
+                "date",
+                "deposit",
+                "withdrawal",
+                "status",
+                "docstatus",
+                bank_transaction_status.FIELD,
+                "currency",
+                "description",
+            ],
         )
 
         if existing_bt:
@@ -272,6 +293,8 @@ def check_transaction_status(transaction_id: str, include_mollie_data: bool = Fa
                 "amount": float(existing_bt.deposit or existing_bt.withdrawal or 0),
                 "currency": existing_bt.currency,
                 "status": existing_bt.status,
+                "processing_status": existing_bt.get(bank_transaction_status.FIELD),
+                "outcome": _row_outcome(existing_bt),
                 "description": existing_bt.description,
             }
 
@@ -444,6 +467,8 @@ def search_transactions_by_description(search_term: str, limit: int = 50) -> Dic
                 withdrawal,
                 currency,
                 status,
+                docstatus,
+                custom_processing_status,
                 reference_number,
                 transaction_id,
                 bank_account
@@ -469,6 +494,8 @@ def search_transactions_by_description(search_term: str, limit: int = 50) -> Dic
                     "type": "deposit" if row.deposit else "withdrawal",
                     "currency": row.currency,
                     "status": row.status,
+                    "processing_status": row.custom_processing_status,
+                    "outcome": _row_outcome(row),
                     "reference_number": row.reference_number,
                     "transaction_id": row.transaction_id,
                     "bank_account": row.bank_account,
@@ -526,6 +553,10 @@ def fetch_recent_transactions_for_search(limit: int = 100) -> Dict:
         # Fetch recent transactions from Mollie
         transactions = processor.balances_client.list_balance_transactions(balance_id=balance_id, limit=limit)
 
+        # Resolve the Mollie account once, not once per transaction (#2620)
+        creator = get_bank_transaction_creator()
+        mollie_config = creator.get_mollie_bank_account_config()
+
         # Process each transaction into ERPNext
         processed = 0
         already_exists = 0
@@ -534,7 +565,8 @@ def fetch_recent_transactions_for_search(limit: int = 100) -> Dict:
         for transaction in transactions:
             try:
                 # Check if already processed
-                existing = frappe.db.exists("Bank Transaction", {"reference_number": transaction.id})
+                # Mollie bank account, live rows only (#2620)
+                existing = creator.find_mollie_bank_transaction(transaction.id, config=mollie_config)
                 if existing:
                     already_exists += 1
                     continue
@@ -590,6 +622,8 @@ def get_processing_statistics(days: int = 30) -> Dict:
 
         from frappe.utils import getdate, now_datetime
 
+        from verenigingen.verenigingen_payments.utils import bank_transaction_status
+
         # Validate days
         try:
             days = int(days)
@@ -613,23 +647,13 @@ def get_processing_statistics(days: int = 30) -> Dict:
         )
 
         # Get reconciliation status breakdown
-        reconciled = frappe.db.count(
-            "Bank Transaction",
-            filters={
-                "reference_number": ["like", "baltr_%"],
-                "date": ["between", [getdate(start_date), getdate(end_date)]],
-                "status": "Reconciled",
-            },
-        )
-
-        unreconciled = frappe.db.count(
-            "Bank Transaction",
-            filters={
-                "reference_number": ["like", "baltr_%"],
-                "date": ["between", [getdate(start_date), getdate(end_date)]],
-                "status": "Unreconciled",
-            },
-        )
+        # Drafts carry the pool's marker, not a status (#2344); same window as the total.
+        window = {
+            "reference_number": ["like", "baltr_%"],
+            "date": ["between", [getdate(start_date), getdate(end_date)]],
+        }
+        reconciled = bank_transaction_status.count_reconciled(window)
+        unreconciled = bank_transaction_status.count_unreconciled(window)
 
         # Get total amounts
         amounts = frappe.db.sql(

@@ -14,6 +14,9 @@ class DepartmentHierarchyManager:
         if not settings.company:
             frappe.throw(_("Company not configured in Verenigingen Settings"))
         self.company = settings.company
+        # Departments an approver sync could not find for self.company (#2551);
+        # the daily sync reports these instead of claiming a clean success.
+        self.skipped_departments = []
 
     def setup_association_departments(self):
         """Create complete department structure mirroring association hierarchy"""
@@ -84,12 +87,16 @@ class DepartmentHierarchyManager:
         _ensure_department would re-insert and hit a duplicate-PK error).
 
         Returns the real record name if a Department with this department_name
-        exists, otherwise None.
+        exists FOR THIS MANAGER'S COMPANY, otherwise None. Both lookups are
+        company-scoped: another company's same-named department must never be
+        resolved, or ``_ensure_group`` would promote it (#2551).
         """
         # Exact record-name match first (already-abbreviated / no-company sites)
-        if frappe.db.exists("Department", dept_name):
+        if frappe.db.exists("Department", {"name": dept_name, "company": self.company}):
             return dept_name
-        return frappe.db.get_value("Department", {"department_name": dept_name}, "name")
+        return frappe.db.get_value(
+            "Department", {"department_name": dept_name, "company": self.company}, "name"
+        )
 
     def _ensure_department(self, dept_name, parent=None):
         """Create department if it doesn't exist"""
@@ -104,7 +111,15 @@ class DepartmentHierarchyManager:
         if parent:
             # Parents are referenced by their human-readable name but stored
             # abbreviated, so resolve to the actual record name.
-            dept.parent_department = self._resolve_department_name(parent) or parent
+            resolved_parent = self._resolve_department_name(parent)
+            if not resolved_parent:
+                # Never fall back to the raw name: it may be another company's
+                # record, which must be neither promoted nor attached to (#2551).
+                frappe.throw(
+                    _("Parent department {0} not found for company {1}").format(parent, self.company)
+                )
+            dept.parent_department = resolved_parent
+            self._ensure_group(resolved_parent)
 
         result = secure_document_operation(
             operation="insert",
@@ -121,6 +136,35 @@ class DepartmentHierarchyManager:
             frappe.throw(_("Unable to create department: Security validation failed"))
 
         return dept
+
+    def _ensure_group(self, dept_name):
+        """Make an existing leaf Department a group so a child can attach to it.
+
+        erpnext version-16 (01da148d49) rejects a child whose parent has
+        ``is_group=0``. Departments are inserted as leaves, and sites that ran
+        this setup before that rule hold their parents as leaves, so the parent
+        is promoted when it first gains a child rather than at creation time.
+        Saving it re-validates its own parent, so a legacy chain of leaves is
+        promoted top-down.
+        """
+        if frappe.db.get_value("Department", dept_name, "is_group") != 0:
+            return
+        parent_doc = frappe.get_doc("Department", dept_name)
+        if parent_doc.parent_department:
+            self._ensure_group(parent_doc.parent_department)
+        parent_doc.is_group = 1
+        result = secure_document_operation(
+            operation="save",
+            doc=parent_doc,
+            justification=f"Make department {dept_name} a group so child departments can attach",
+            required_permissions=["Department:write"],
+        )
+        if not result.success:
+            frappe.log_error(
+                title="Department Creation Security",
+                message=f"Failed to make department {dept_name} a group: {'; '.join(result.errors)}",
+            )
+            frappe.throw(_("Unable to create department: Security validation failed"))
 
     def get_volunteer_department(self, volunteer_name):
         """Determine appropriate department for a volunteer based on their assignments"""
@@ -232,7 +276,7 @@ class DepartmentHierarchyManager:
         """Sync approvers for teams that have financial responsibilities"""
         # This is optional - only if teams have their own budgets
 
-    def sync_chapter_approvers_for_chapter(self, chapter_name):
+    def sync_chapter_approvers_for_chapter(self, chapter_name, remove_approvers=(), system_operation=False):
         """
         Sync approvers for a single chapter to its department.
 
@@ -241,6 +285,12 @@ class DepartmentHierarchyManager:
 
         Args:
             chapter_name: Name of the chapter to sync
+            remove_approvers: Users whose seat just ended or changed (#1682). When the
+                chapter has no financial approver left they are taken off its departments
+                (#1650: unassigned, not left stale); an approver added by hand stays.
+            system_operation: The writes are system bookkeeping derived from board seats,
+                not the acting user's discretionary edit (a board admin has no Department
+                write).
         """
         if not frappe.db.exists("Chapter", chapter_name):
             frappe.logger().warning(
@@ -251,19 +301,23 @@ class DepartmentHierarchyManager:
         chapter_doc = frappe.get_doc("Chapter", chapter_name)
         approvers = self._get_financial_approvers(chapter_name)
 
-        if approvers:
-            # Update chapter board department
-            dept_name = f"Chapter {chapter_doc.name} Board"
-            self._update_department_approvers(dept_name, approvers)
+        # The scheduled run writes "National Board" for the national chapter too.
+        departments = [f"Chapter {chapter_doc.name} Board", f"Chapter {chapter_doc.name}"]
+        if chapter_name == frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"):
+            departments.append("National Board")
 
-            # Also update parent chapter department for fallback
-            parent_dept = f"Chapter {chapter_doc.name}"
-            self._update_department_approvers(parent_dept, approvers)
+        if approvers:
+            for dept_name in departments:
+                self._update_department_approvers(dept_name, approvers, system_operation=system_operation)
 
             frappe.logger().info(
                 f"Synced {len(approvers)} approver(s) to departments for chapter {chapter_name}"
             )
         else:
+            for dept_name in departments:
+                self._remove_department_approvers(
+                    dept_name, remove_approvers, system_operation=system_operation
+                )
             frappe.logger().debug(f"No financial approvers found for chapter {chapter_name}")
 
     def _get_financial_approvers(self, chapter_name):
@@ -307,11 +361,41 @@ class DepartmentHierarchyManager:
 
         return []
 
-    def _update_department_approvers(self, dept_name, approver_emails):
+    def _remove_department_approvers(self, dept_name, approver_emails, system_operation=False):
+        """Take the given users off a department's expense approvers (others stay)."""
+        resolved = self._resolve_department_name(dept_name)
+        if not resolved or not approver_emails:
+            return
+
+        dept = frappe.get_doc("Department", resolved)
+        stale = [row for row in dept.get("expense_approvers") or [] if row.approver in approver_emails]
+        if not stale:
+            return
+
+        for row in stale:
+            dept.remove(row)
+
+        result = secure_document_operation(
+            operation="save",
+            doc=dept,
+            justification=f"Remove departed expense approvers from department {dept_name} (no financial seat left)",
+            required_permissions=["Department:write"],
+            system_operation=system_operation,
+        )
+        if not result.success:
+            frappe.log_error(
+                title="Department Approver Update Security",
+                message=f"Failed to remove approvers from {dept_name}: {'; '.join(result.errors)}",
+            )
+
+    def _update_department_approvers(self, dept_name, approver_emails, system_operation=False):
         """Update department's expense approvers"""
         resolved = self._resolve_department_name(dept_name)
         if not resolved:
-            frappe.logger().debug(f"Department {dept_name} does not exist, skipping approver sync")
+            # Visible skip (#2551): the caller reports it in the sync result.
+            skipped = {"department": dept_name, "company": self.company}
+            if skipped not in self.skipped_departments:
+                self.skipped_departments.append(skipped)
             return
 
         dept = frappe.get_doc("Department", resolved)
@@ -345,6 +429,7 @@ class DepartmentHierarchyManager:
             doc=dept,
             justification=f"Update department {dept_name} expense approvers for financial workflow",
             required_permissions=["Department:write"],
+            system_operation=system_operation,
         )
 
         if not result.success:

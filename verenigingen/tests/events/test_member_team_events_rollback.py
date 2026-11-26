@@ -40,19 +40,6 @@ class _RollbackBase(VereningingenTestCase):
         # Each create_test_volunteer() would otherwise leave an untracked test-volunteer-* User
         # behind (11 per run); this module builds its own User where it needs one.
         frappe.flags.skip_volunteer_account_creation = True
-        # in_import=False also re-arms Frappe's throttle_user_creation() (>60 Users created in
-        # the last hour raises "Throttled"), and these setUps insert a User. Raise the limit
-        # instead, as enhanced_test_factory does; restore via addCleanup so it cannot leak.
-        self._had_throttle_limit = "throttle_user_limit" in frappe.local.conf
-        self._original_throttle_limit = frappe.local.conf.get("throttle_user_limit")
-        self.addCleanup(self._restore_throttle_limit_2144)
-        frappe.local.conf["throttle_user_limit"] = 1000000
-
-    def _restore_throttle_limit_2144(self):
-        if self._had_throttle_limit:
-            frappe.local.conf["throttle_user_limit"] = self._original_throttle_limit
-        else:
-            frappe.local.conf.pop("throttle_user_limit", None)
 
     def tearDown(self):
         for k, v in self._saved_flags.items():
@@ -137,21 +124,6 @@ class TestMemberEventsRollback(_RollbackBase):
 
     def _approve_2144(self):
         self._set_2144(application_status="Approved")
-
-    def test_control_committed_suspension_mails_the_member(self):
-        jobs = self._capture_jobs_2144(self._suspend_2144)
-        self.assertEqual(frappe.db.get_value("Member", self.member.name, "status"), "Suspended")
-        with self._mail_boundary() as service:
-            self._run_jobs_2144(jobs, only="handle_lifecycle_notifications")
-        service.send_notification.assert_called_once()
-
-    def test_rolled_back_suspension_sends_no_mail(self):
-        jobs = self._rolled_back(self._suspend_2144)
-        self.assertEqual(frappe.db.get_value("Member", self.member.name, "status"), "Active")
-        self.assertTrue(any(j["method"].endswith("handle_lifecycle_notifications") for j in jobs))
-        with self._mail_boundary() as service:
-            self._run_jobs_2144(jobs, only="handle_lifecycle_notifications")
-        service.send_notification.assert_not_called()
 
     def test_control_committed_approval_mails_the_member(self):
         jobs = self._capture_jobs_2144(self._approve_2144)
@@ -283,7 +255,8 @@ class TestMemberEventsRollback(_RollbackBase):
 
     def test_member_jobs_are_held_until_commit(self):
         jobs = self._capture_jobs_2144(self._suspend_2144) + self._capture_jobs_2144(self._approve_2144)
-        self.assertEqual(len(jobs), 4)
+        # Suspend queues 1 job (cache invalidation; #2019 deleted the lifecycle mail job), approval 2.
+        self.assertEqual(len(jobs), 3)
         self.assertTrue(all(j["enqueue_after_commit"] is True for j in jobs), jobs)
 
 

@@ -106,7 +106,7 @@ class MijnRoodVolunteerSyncService:
                 return acr_msg  # None if user exists or ACR already queued
             role = config.get("verenigingen_role")
             if role:
-                role_msg = self._ensure_user_role(member_name, role)
+                role_msg = self._ensure_user_role(member_name, role, event=event)
                 if role_msg:
                     return role_msg
             return None
@@ -135,12 +135,18 @@ class MijnRoodVolunteerSyncService:
             if result.get("success") is False:
                 error = result.get("error", "Unknown error")
                 self.logger.warning("Volunteer creation skipped for %s: %s", member_name, error)
+                get_related_records_orchestrator().alert_step_failed(
+                    "volunteer", member_name, str(error)[:200]
+                )
                 return _("Volunteer creation skipped: {0}").format(error)
 
             volunteer_name = result.get("volunteer_name")
             if create_account and result.get("account_creation_queued") is False:
                 # The volunteer exists but its ACR was refused (and Error-Logged by
                 # create_volunteer_from_member). Do not dedup or report it as queued (#1613).
+                get_related_records_orchestrator().alert_step_failed(
+                    "account", member_name, str(result.get("account_creation_error"))[:200]
+                )
                 return _("Volunteer {0} created; account creation not queued: {1}").format(
                     volunteer_name, result.get("account_creation_error")
                 )
@@ -167,9 +173,10 @@ class MijnRoodVolunteerSyncService:
                 frappe.get_traceback(),
                 f"MijnRood Sync - Volunteer Creation Failed: {member_name}",
             )
+            get_related_records_orchestrator().alert_step_failed("volunteer", member_name, str(e)[:200])
             return _("Volunteer creation failed: {0}").format(str(e)[:200])
 
-    def _ensure_user_role(self, member_name: str, role: str) -> Optional[str]:
+    def _ensure_user_role(self, member_name: str, role: str, event=None) -> Optional[str]:
         """Ensure a member's user account has the specified role.
 
         Returns:
@@ -181,6 +188,9 @@ class MijnRoodVolunteerSyncService:
 
         if not frappe.db.exists("Role", role):
             self.logger.warning("Role '%s' does not exist, skipping assignment", role)
+            get_related_records_orchestrator().alert_role_mapping_invalid(
+                "Role", role, "does not exist", member_name, event
+            )
             return _("Role '{0}' does not exist").format(role)
 
         try:
@@ -201,6 +211,7 @@ class MijnRoodVolunteerSyncService:
             return _("Role '{0}' assigned to {1}").format(role, user)
         except Exception as e:
             self.logger.error("Role assignment failed for %s (role %s): %s", user, role, e)
+            get_related_records_orchestrator().alert_step_failed("role", member_name, str(e)[:200])
             return _("Role assignment failed: {0}").format(str(e)[:200])
 
     def _prune_orphan_team_members(self, team_doc, team_name: str) -> int:
@@ -256,9 +267,19 @@ class MijnRoodVolunteerSyncService:
         """
         chapter_name = get_mapping_service().resolve_division_id(division_id)
         if not chapter_name:
+            get_related_records_orchestrator().alert_division_unmapped(
+                division_id, "unmapped", "no Chapter has that division id", member_name, event
+            )
             return _("Division ID {0} does not match any Chapter").format(division_id)
 
         if not frappe.db.exists("Chapter", chapter_name):
+            get_related_records_orchestrator().alert_division_unmapped(
+                division_id,
+                "chapter missing",
+                f"its mapped Chapter '{chapter_name}' does not exist",
+                member_name,
+                event,
+            )
             return _("Chapter '{0}' does not exist").format(chapter_name)
 
         # Need a Volunteer record for the board member
@@ -272,6 +293,9 @@ class MijnRoodVolunteerSyncService:
 
         if not frappe.db.exists("Chapter Role", chapter_role):
             self.logger.warning("Chapter Role '%s' does not exist, skipping board assignment", chapter_role)
+            get_related_records_orchestrator().alert_role_mapping_invalid(
+                "Chapter Role", chapter_role, "does not exist", member_name, event
+            )
             return _("Chapter Role '{0}' does not exist").format(chapter_role)
 
         # Check if already on this chapter's board (active)
@@ -308,7 +332,9 @@ class MijnRoodVolunteerSyncService:
             # Turning this into a per-member "failed" status would let the sync run march
             # on to the next member inside a transaction the server has already discarded,
             # and frappe.log_error() below would be a write on it. Let it reach whoever
-            # owns the transaction boundary so the whole sync run is retried instead.
+            # owns the transaction boundary. Whether that job retries is its own policy
+            # (execute_job retries only InternalError/RetryBackgroundJobError), so this
+            # guarantees the failure is seen, not that the run is retried.
             raise
         except Exception as e:
             self.logger.error(
@@ -321,6 +347,7 @@ class MijnRoodVolunteerSyncService:
                 frappe.get_traceback(),
                 f"MijnRood Sync - Chapter Board Addition Failed: {member_name}",
             )
+            get_related_records_orchestrator().alert_step_failed("board", member_name, str(e)[:200])
             return _("Chapter board addition failed: {0}").format(str(e)[:200])
 
     def _end_chapter_board_membership(
@@ -358,6 +385,15 @@ class MijnRoodVolunteerSyncService:
         """
         chapter_name = get_mapping_service().resolve_division_id(division_id)
         if not chapter_name:
+            # A revoked contact keeps the board seat of a chapter we cannot find: staff must remove it.
+            get_related_records_orchestrator().alert_division_unmapped(
+                division_id,
+                "unmapped (removal)",
+                "no Chapter has that division id, so the board seat of a revoked division contact "
+                "could not be removed",
+                member_name,
+                event,
+            )
             return None, _("Division ID {0} does not match any Chapter").format(division_id)
 
         from verenigingen.verenigingen.doctype.volunteer.volunteer import (
@@ -486,9 +522,9 @@ class MijnRoodVolunteerSyncService:
         - Both ``remove_board_member_role()`` and ``_sync_role_profile_for_volunteer()``
           go through BoardManager._log_or_reraise, which logs and continues for
           everything that is not a broken transaction.
-        - ``auto_sync_on_role_change`` is explicitly fire-and-forget: it logs and
-          returns, and turns a non-exception failure (``success: False``) into a
-          logged warning.
+        - ``auto_sync_on_role_change`` is fire-and-forget for ordinary failures: it
+          logs and returns, and turns a non-exception failure (``success: False``)
+          into a logged warning. A 1213/1205 is the exception: it is re-raised (#1888).
 
         So re-running sync_user_role_profile() here is not a belt-and-braces retry —
         after the save it is the first recalculation that can see the seat is gone, and
@@ -617,6 +653,10 @@ class MijnRoodVolunteerSyncService:
         """
         chapter_names = list(vacated_chapters)
 
+        # #2307: the subject channel is deliberately NOT escaped here. Frappe renders the Notification Log
+        # subject as HTML (mail `<p>{{ body_content }}</p>` and the bell dropdown), so a raw member name is
+        # still live there, but escaping it would show literal entities in plain-text subjects. The
+        # clean fix lies outside this change and is tracked separately.
         subject = _("Board membership ended for {0}").format(member_name)
         message = _("MijnRood sync ended board membership for {0} in: {1}").format(
             member_name, ", ".join(chapter_names)
@@ -637,7 +677,7 @@ class MijnRoodVolunteerSyncService:
         try:
             notify_administrators(
                 subject=subject,
-                message=f"<p>{message}</p>",
+                message=f"<p>{frappe.utils.escape_html(message)}</p>",
                 notification_key="chapter_board_removed",
                 category="Chapter",
                 document_type="MijnRood Sync Event",
@@ -677,8 +717,14 @@ class MijnRoodVolunteerSyncService:
 
         team_status = frappe.db.get_value("Team", team_name, "status")
         if not team_status:
+            get_related_records_orchestrator().alert_role_mapping_invalid(
+                "Team", team_name, "does not exist", member_name, event
+            )
             return _("Team '{0}' does not exist").format(team_name)
         if team_status != "Active":
+            get_related_records_orchestrator().alert_role_mapping_invalid(
+                "Team", team_name, "is not active", member_name, event
+            )
             return _("Team '{0}' is not active (status: {1})").format(team_name, team_status)
 
         # Check if already an active team member
@@ -719,6 +765,11 @@ class MijnRoodVolunteerSyncService:
                 event.name if event else "N/A",
             )
             return _("Added to team '{0}'").format(team_name)
+        except NON_RESUMABLE_DB_ERRORS:
+            # The save's on_team_members_change hook re-raises a 1213/1205 (#1888). The
+            # transaction is already discarded, so log_error() below would write on a dead
+            # one and the event would be reported as handled; let it reach the owner.
+            raise
         except Exception as e:
             self.logger.error(
                 "Failed to add %s to team %s: %s",
@@ -730,6 +781,7 @@ class MijnRoodVolunteerSyncService:
                 frappe.get_traceback(),
                 f"MijnRood Sync - Team Addition Failed: {member_name}",
             )
+            get_related_records_orchestrator().alert_step_failed("team", member_name, str(e)[:200])
             return _("Team addition failed: {0}").format(str(e)[:200])
 
     def _end_team_membership(
@@ -819,8 +871,7 @@ class MijnRoodVolunteerSyncService:
         except NON_RESUMABLE_DB_ERRORS:
             # The transaction is already discarded — log_error() below would be a
             # write on it. Let it reach the transaction owner (same clause and
-            # reasoning as _ensure_chapter_board_membership; the team *addition*
-            # path has no such clause).
+            # reasoning as _ensure_chapter_board_membership and _ensure_team_membership).
             raise
         except Exception as e:
             self.logger.error("Failed to end team membership for %s in %s: %s", member_name, team_name, e)
@@ -835,13 +886,15 @@ class MijnRoodVolunteerSyncService:
 
         Ending the Team Member row is bookkeeping; the recalculation triggered by
         ``on_team_members_change`` is what withdraws the access. That recalculation
-        cannot fail loudly — it is swallowed twice:
+        cannot fail loudly for ordinary errors:
 
         - ``team_role_profile_hooks.on_team_members_change`` catches every
           exception per volunteer and ``continue``s.
-        - ``user_role_profile_calculator.auto_sync_on_role_change`` is explicitly
-          fire-and-forget: it logs and returns, and turns a non-exception failure
-          (``success: False``) into a logged warning.
+        - ``user_role_profile_calculator.auto_sync_on_role_change`` is fire-and-forget:
+          it logs and returns, and turns a non-exception failure (``success: False``)
+          into a logged warning.
+
+        Only a deadlock/lock-wait (1213/1205) gets through both: it is re-raised (#1888).
 
         So a disabled User (``sync_user_role_profile`` refuses to touch one — it
         would re-enable the account via the Employee/User status lockstep), a

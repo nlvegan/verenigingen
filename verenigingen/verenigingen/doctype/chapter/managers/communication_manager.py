@@ -256,7 +256,8 @@ class CommunicationManager(BaseManager):
             leave_reason=leave_reason,
         )
 
-    def _board_lifecycle_notifications_enabled(self) -> bool:
+    @staticmethod
+    def _board_lifecycle_notifications_enabled() -> bool:
         """Gate: returns True only if none of the suppression rules fire."""
         if getattr(frappe.flags, "is_bulk_import", False):
             return False

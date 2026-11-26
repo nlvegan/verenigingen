@@ -63,7 +63,11 @@ class ChapterMembershipManager:
 
             # Use the chapter's member manager to request membership (pending approval)
             result = chapter_doc.member_manager.request_to_join(  # ast-skip: @property not field
-                member_id=member_id, introduction=introduction, website_url=website_url, notify=True
+                member_id=member_id,
+                introduction=introduction,
+                website_url=website_url,
+                notify=True,
+                acting_as_member=ChapterMembershipManager._proved_member_caller(user_email),
             )
 
             # Update member tracking fields if successful
@@ -231,22 +235,7 @@ class ChapterMembershipManager:
             # Get chapter document and use its member manager
             chapter_doc = frappe.get_doc("Chapter", chapter_name)
 
-            # Determine notification behavior with four-tier priority:
-            # 1. Bulk operation context (suppress_chapter_notifications flag)
-            # 2. Explicit notify parameter override
-            # 3. Global setting from Verenigingen Settings
-            # 4. Conservative default (False)
-
-            # Check if we're in a bulk operation context first
-            if getattr(frappe.flags, "suppress_chapter_notifications", False):
-                send_notifications = False
-            elif notify is not None:
-                # Explicit parameter override
-                send_notifications = notify
-            else:
-                # Check global setting
-                settings = frappe.get_single("Verenigingen Settings")
-                send_notifications = getattr(settings, "send_chapter_assignment_notifications", False)
+            send_notifications = ChapterMembershipManager._assignment_notifications_wanted(notify)
 
             result = chapter_doc.member_manager.add_member(  # ast-skip: @property not field
                 member_id=member_id,
@@ -281,6 +270,21 @@ class ChapterMembershipManager:
             else:
                 frappe.log_error(f"Error in assign_member_to_chapter: {str(e)}", "ChapterMembershipManager")
             return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def _assignment_notifications_wanted(notify: bool = None) -> bool:
+        """Whether an assignment sends the member's welcome mail, by four-tier priority:
+        1. bulk operation context (suppress_chapter_notifications flag)
+        2. explicit notify parameter override
+        3. global setting from Verenigingen Settings
+        4. conservative default (False)
+        """
+        if getattr(frappe.flags, "suppress_chapter_notifications", False):
+            return False
+        if notify is not None:
+            return notify
+        settings = frappe.get_single("Verenigingen Settings")
+        return getattr(settings, "send_chapter_assignment_notifications", False)
 
     @staticmethod
     def get_member_chapter_status(member_id: str) -> Dict[str, Any]:

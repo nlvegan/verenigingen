@@ -99,6 +99,7 @@ imports scripts/ code.
 """
 import ast
 import importlib.util
+import os
 import sys
 import tempfile
 import unittest
@@ -149,6 +150,10 @@ _KNOWN_SCRIPTS_FILES_IMPORTED_UNDER_TESTS = {
     "scripts/testing/check_new_test_failures.py",  # tests/test_check_new_test_failures.py
     "scripts/validation/hooks_parser.py",  # tests/backend/validation/test_import_validation_integration.py
     "scripts/validation/test_quality_enforcer.py",  # tests/integration/test_permission_bypass_elimination_validation.py
+    # #2385: tests/api/test_bool_flags_over_http_2385.py
+    "scripts/api_maintenance/fix_workspace.py",
+    "scripts/api_maintenance/sepa_integration_setup.py",  # tests/payment/test_sepa_reconciliation.py (#681)
+    "scripts/cleanup/cleanup_invalid_member_schedules.py",
 }
 
 
@@ -299,6 +304,21 @@ def _resolve_name_under_dir(name: str, directory: Path) -> Path | None:
     return None
 
 
+def _dead_if_body_skipped(stmt: ast.AST) -> bool:
+    """True for `if TYPE_CHECKING:` / `if False:` -- the `body` never runs
+    (the `orelse` does). Same TYPE_CHECKING shape as `is_type_checking_guard`
+    in `verenigingen/tests/utils/barrel_init_ast.py`, plus the literal
+    `False` (#1570)."""
+    if not isinstance(stmt, ast.If):
+        return False
+    test = stmt.test
+    if isinstance(test, ast.Constant):
+        return test.value is False
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    return isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+
+
 def _flatten_leaf_statements(stmts: list) -> list:
     """Every "leaf" statement in `stmts`, in source order, recursing into
     `if`/`try`/`with`/`for`/`while` bodies (`body`, `orelse`, `finalbody`,
@@ -317,6 +337,8 @@ def _flatten_leaf_statements(stmts: list) -> list:
             out.append(stmt)
             continue
         for field in ("body", "orelse"):
+            if field == "body" and _dead_if_body_skipped(stmt):
+                continue  # never runs; its orelse still does
             child = getattr(stmt, field, None)
             if isinstance(child, list):
                 out += _flatten_leaf_statements(child)
@@ -328,15 +350,39 @@ def _flatten_leaf_statements(stmts: list) -> list:
     return out
 
 
+def _function_bodies_in(node: ast.AST, skip: ast.AST | None = None) -> list:
+    """Flattened statements of every function body under `node` (excluding
+    `skip`'s own body)."""
+    out: list = []
+    for fn in ast.walk(node):
+        if fn is not skip and isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out += _flatten_leaf_statements(fn.body)
+    return out
+
+
 def _iter_scopes(tree: ast.AST):
-    """Every independent "scope" a sys.path hack could run in: the module
-    body, and the body of every function/method in the file (however deeply
-    nested in classes) -- each flattened and searched on its own, since a
-    sys.path call inside one function has no bearing on imports in another."""
-    yield tree.body
+    """Every independent "scope" a sys.path hack could run in, as
+    `(scope_body, bridged)`: the module body, and the body of every
+    function/method in the file (however deeply nested in classes).
+
+    `bridged` is the flattened statements of the OTHER scopes whose imports
+    a hack in this scope can legitimately serve (#1570): a module-level hack
+    serves every function in the file (`zabbix_integration.py`'s insert +
+    `_import_monitoring_functions` import), and a method's hack (typically
+    `setUpClass`) serves its sibling methods. A plain function's hack has no
+    bridge. Bridged imports are order-insensitive: a sibling method may run
+    before or after the hack's own method."""
+    yield tree.body, _function_bodies_in(tree)
+    in_class: dict = {}
+    for cls in ast.walk(tree):
+        if isinstance(cls, ast.ClassDef):
+            for method in cls.body:
+                if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    in_class[method] = cls
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            yield node.body
+            cls = in_class.get(node)
+            yield node.body, (_function_bodies_in(cls, skip=node) if cls else [])
 
 
 def _scripts_targets_from_syspath_hacks(
@@ -360,22 +406,15 @@ def _scripts_targets_from_syspath_hacks(
     matching `_scripts_targets_from_spec_from_file_location`'s convention for
     a target that was never created.
 
-    Two known limits, neither reachable by anything currently under
-    `verenigingen/tests/` (tracked in #1570, filed rather than fixed here): a
-    hack in one scope (module level, or a `setUpClass`) whose real import
-    lives in a DIFFERENT function/method is a scope split this scan does not
-    bridge, and fails loud for the wrong reason rather than resolving --
-    `verenigingen/monitoring/zabbix_integration.py`'s own module-level insert
-    + `_import_monitoring_functions`-body import is this shape, were it ever
-    in scan scope. And `if TYPE_CHECKING:` / `if False:` bodies are flattened
-    as ordinary live code -- a hack sitting in one of those with nothing
-    resolving would also fail loud despite never running.
-    `verenigingen/tests/utils/barrel_init_ast.py` already carries the
-    precedent for excluding such bodies, for a different scanner.
+    #1570: a module-level hack's candidates also include every function body
+    in the file, and a method's hack (`setUpClass`) also includes its sibling
+    methods (see `_iter_scopes`). `if TYPE_CHECKING:` / `if False:` bodies are
+    never flattened (see `_flatten_leaf_statements`), so a hack or import in
+    one is neither reported nor counted.
     """
     found: set[str] = set()
 
-    for scope_body in _iter_scopes(tree):
+    for scope_body, bridged in _iter_scopes(tree):
         flat = _flatten_leaf_statements(scope_body)
         for i, stmt in enumerate(flat):
             if not (isinstance(stmt, ast.Expr) and _is_sys_path_mutation_call(stmt.value)):
@@ -385,7 +424,7 @@ def _scripts_targets_from_syspath_hacks(
                 continue
 
             resolved_any = False
-            for candidate in flat[i + 1 :]:
+            for candidate in flat[i + 1 :] + bridged:
                 name = _bare_import_name(candidate)
                 if name is None:
                     continue
@@ -593,19 +632,36 @@ class TestExtractTriggerPaths(unittest.TestCase):
         self.assertEqual(wpf.extract_trigger_paths(text, "push"), ["scripts/x.py"])
 
 
+def _import_yaml_or_fail_in_ci(testcase, ci=None, importer=importlib.import_module):
+    """Return the `yaml` module. Where it is missing: FAIL when running under CI
+    (GitHub Actions sets `CI=true`), skip otherwise (#1585).
+
+    The cross-check below used to `skipTest` unconditionally, and a skip reads as
+    neither pass nor fail, so for as long as the Code Validation job lacked PyYAML
+    the check never ran in the one place that gates merges and nobody saw it. The
+    job now installs PyYAML; this makes its removal loud instead of silent. A
+    contributor without PyYAML locally still gets a skip. `ci`/`importer` are
+    parameters only so the guard itself can be tested."""
+    ci = os.environ.get("CI") if ci is None else ci
+    try:
+        return importer("yaml")
+    except ImportError:
+        if ci:
+            testcase.fail(
+                "PyYAML is not installed but CI is set: the YAML cross-check would be "
+                "silently skipped (#1585). Install PyYAML in the Code Validation job."
+            )
+        testcase.skipTest("PyYAML not installed in this environment")
+
+
 class TestExtractTriggerPathsAgainstRealYAML(unittest.TestCase):
     """Cross-check against PyYAML itself rather than a reading of the YAML
-    spec. Skipped where PyYAML is unavailable -- the Code Validation job that
-    runs this test file installs nothing beyond `pathlib` (see the module
-    docstring for why the scanner itself must stay stdlib-only) -- but PyYAML
-    is present in this bench's env, so this is real cross-validation
-    wherever it runs, not a no-op."""
+    spec. The scanner itself stays stdlib-only (see the module docstring), but
+    the Code Validation job installs PyYAML for this test (#1585), so this runs
+    in CI; without PyYAML it skips locally and FAILS under CI=true."""
 
     def _assert_matches_yaml(self, item_line: str):
-        try:
-            import yaml
-        except ImportError:
-            self.skipTest("PyYAML not installed in this environment")
+        yaml = _import_yaml_or_fail_in_ci(self)
         text = f"on:\n  push:\n    paths:\n      {item_line}\n"
         expected = yaml.safe_load(text)[True]["push"]["paths"]
         self.assertEqual(wpf.extract_trigger_paths(text, "push"), expected)
@@ -638,10 +694,7 @@ class TestExtractTriggerPathsAgainstRealYAML(unittest.TestCase):
         did not anticipate. `on:` parses as the boolean key `True` in
         PyYAML, not the string `"on"` -- measured, see this class's
         docstring."""
-        try:
-            import yaml
-        except ImportError:
-            self.skipTest("PyYAML not installed in this environment")
+        yaml = _import_yaml_or_fail_in_ci(self)
         workflows_dir = wpf.REPO_ROOT / ".github" / "workflows"
         for wf_path in sorted(workflows_dir.glob("*.yml")):
             text = wf_path.read_text()
@@ -654,6 +707,32 @@ class TestExtractTriggerPathsAgainstRealYAML(unittest.TestCase):
                 expected = trig.get("paths", []) if isinstance(trig, dict) else []
                 with self.subTest(file=wf_path.name, trigger=trigger):
                     self.assertEqual(wpf.extract_trigger_paths(text, trigger), expected)
+
+
+class TestYamlImportGuard(unittest.TestCase):
+    """#1585: the missing-PyYAML guard of the cross-check class."""
+
+    @staticmethod
+    def _no_yaml(name):
+        raise ImportError(name)
+
+    def test_missing_yaml_fails_under_ci(self):
+        # A SkipTest here must be a RED, not a skip: SkipTest is not a failureException,
+        # so without this wrapper a guard that skips under CI would skip THIS test too.
+        try:
+            with self.assertRaises(self.failureException) as ctx:
+                _import_yaml_or_fail_in_ci(self, ci="true", importer=self._no_yaml)
+        except unittest.SkipTest:
+            self.fail("guard skipped instead of failing under CI")
+        self.assertIn("#1585", str(ctx.exception))
+
+    def test_missing_yaml_skips_outside_ci(self):
+        with self.assertRaises(unittest.SkipTest):
+            _import_yaml_or_fail_in_ci(self, ci="", importer=self._no_yaml)
+
+    def test_present_yaml_is_returned(self):
+        sentinel = object()
+        self.assertIs(_import_yaml_or_fail_in_ci(self, ci="true", importer=lambda n: sentinel), sentinel)
 
 
 class TestSysPathHackAndImportlibDetection(unittest.TestCase):
@@ -874,6 +953,164 @@ class TestSysPathHackAndImportlibDetection(unittest.TestCase):
             '_spec = importlib.util.spec_from_file_location("x", _PATH)\n'
         )
         self.assertEqual(found, set())
+
+
+class TestSysPathHackScopeSplitAndDeadBranches(TestSysPathHackAndImportlibDetection):
+    """#1570: the two shapes the same-scope flattened scan modelled wrongly,
+    each failing loud for the WRONG reason. Reuses the parent's fake
+    `scripts/` tree (inherited tests are skipped via the empty-list trick
+    below so they do not run twice)."""
+
+    _HACK = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        'APP_ROOT = Path(__file__).resolve().parents[1]\n'
+    )
+    _INSERT = 'sys.path.insert(0, str(APP_ROOT / "scripts" / "validation"))\n'
+
+    def test_module_level_hack_with_import_in_a_function_is_detected(self):
+        found = self._scan(
+            self._HACK
+            + self._INSERT
+            + "def _load():\n"
+            "    import widget_validator\n"
+            "    return widget_validator\n"
+        )
+        self.assertEqual(found, {"scripts.validation.widget_validator"})
+
+    def test_setupclass_hack_with_import_in_a_sibling_method_is_detected(self):
+        found = self._scan(
+            self._HACK
+            + "class T:\n"
+            "    @classmethod\n"
+            "    def setUpClass(cls):\n"
+            f"        {self._INSERT}"
+            "    def test_x(self):\n"
+            "        import widget_validator\n"
+        )
+        self.assertEqual(found, {"scripts.validation.widget_validator"})
+
+    def test_control_module_hack_with_no_resolving_import_anywhere_still_fails_loud(self):
+        with self.assertRaises(AssertionError):
+            self._scan(
+                self._HACK
+                + self._INSERT
+                + "def _load():\n"
+                "    import totally_nonexistent_validator\n"
+            )
+
+    def test_control_setupclass_hack_with_no_resolving_import_still_fails_loud(self):
+        with self.assertRaises(AssertionError):
+            self._scan(
+                self._HACK
+                + "class T:\n"
+                "    @classmethod\n"
+                "    def setUpClass(cls):\n"
+                f"        {self._INSERT}"
+                "    def test_x(self):\n"
+                "        import totally_nonexistent_validator\n"
+            )
+
+    def test_every_resolving_import_after_one_hack_is_found_not_just_the_first(self):
+        (self.root / "scripts" / "validation" / "second_validator.py").write_text("VALUE = 2\n")
+        found = self._scan(
+            self._HACK
+            + self._INSERT
+            + "import widget_validator\n"
+            "import second_validator\n"
+        )
+        self.assertEqual(
+            found,
+            {"scripts.validation.widget_validator", "scripts.validation.second_validator"},
+        )
+
+    def test_control_setupclass_hack_does_not_borrow_another_classes_import(self):
+        """Bridging is per class: class V's resolving import must not satisfy
+        class U's hack (a whole-file bridge would mask the broken U)."""
+        with self.assertRaises(AssertionError):
+            self._scan(
+                self._HACK
+                + "class U:\n"
+                "    @classmethod\n"
+                "    def setUpClass(cls):\n"
+                f"        {self._INSERT}"
+                "class V:\n"
+                "    def test_x(self):\n"
+                "        import widget_validator\n"
+            )
+
+    def test_control_plain_function_hack_does_not_borrow_an_unrelated_function_import(self):
+        """A hack inside a free function has no bridge: another function's
+        resolving import must not satisfy it (over-bridging would hide a
+        broken hack)."""
+        with self.assertRaises(AssertionError):
+            self._scan(
+                self._HACK
+                + "def a():\n"
+                f"    {self._INSERT}"
+                "def b():\n"
+                "    import widget_validator\n"
+            )
+
+    def test_hack_inside_type_checking_block_is_not_reported(self):
+        found = self._scan(
+            self._HACK
+            + "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            f"    {self._INSERT}"
+            "    import totally_nonexistent_validator\n"
+        )
+        self.assertEqual(found, set())
+
+    def test_hack_inside_if_false_block_is_not_reported(self):
+        found = self._scan(
+            self._HACK
+            + "if False:\n"
+            f"    {self._INSERT}"
+            "    import totally_nonexistent_validator\n"
+        )
+        self.assertEqual(found, set())
+
+    def test_import_inside_dead_block_does_not_satisfy_a_live_hack(self):
+        """The dead body's import must not count as a resolution candidate
+        either: a live hack whose only 'resolving' import sits in
+        `if TYPE_CHECKING:` serves nothing at runtime, so it fails loud."""
+        with self.assertRaises(AssertionError):
+            self._scan(
+                self._HACK
+                + "import typing\n"
+                + self._INSERT
+                + "if typing.TYPE_CHECKING:\n"
+                "    import widget_validator\n"
+            )
+
+    def test_else_branch_of_a_dead_if_is_still_live(self):
+        found = self._scan(
+            self._HACK
+            + "if False:\n"
+            "    pass\n"
+            "else:\n"
+            f"    {self._INSERT}"
+            "    import widget_validator\n"
+        )
+        self.assertEqual(found, {"scripts.validation.widget_validator"})
+
+    def test_control_real_unresolved_hack_inside_a_live_if_still_fails_loud(self):
+        with self.assertRaises(AssertionError):
+            self._scan(
+                self._HACK
+                + "import os\n"
+                "if os.name:\n"
+                f"    {self._INSERT}"
+                "    import totally_nonexistent_validator\n"
+            )
+
+
+# Do not re-run the parent's inherited tests under this subclass.
+for _inherited in [n for n in dir(TestSysPathHackAndImportlibDetection) if n.startswith("test_")]:
+    if _inherited not in TestSysPathHackScopeSplitAndDeadBranches.__dict__:
+        setattr(TestSysPathHackScopeSplitAndDeadBranches, _inherited, None)
+del _inherited
 
 
 class TestServerTestsWorkflowCoversScriptsImportedByTests(unittest.TestCase):

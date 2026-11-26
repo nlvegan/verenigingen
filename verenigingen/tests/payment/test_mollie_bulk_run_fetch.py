@@ -84,6 +84,7 @@ class TestMollieFetchLayer(EnhancedTestCase):
             fake_client = MagicMock()
             fake_client.payments.list.side_effect = lambda **kw: pages[0]
             mc.return_value.sdk_client = fake_client
+            mc.return_value.list_resource_page.side_effect = lambda name, **kw: getattr(fake_client, name).list(**kw)
             mm.return_value.find_member_for_payment.return_value = None
 
             out = svc._list_mollie_payments("2021-01-01", "2021-03-31")
@@ -105,6 +106,7 @@ class TestMollieFetchLayer(EnhancedTestCase):
             fake_client = MagicMock()
             fake_client.payments.list.side_effect = lambda **kw: pages[0]
             mc.return_value.sdk_client = fake_client
+            mc.return_value.list_resource_page.side_effect = lambda name, **kw: getattr(fake_client, name).list(**kw)
             mm.return_value.find_member_for_payment.return_value = None
 
             out = svc._list_mollie_payments("2021-01-01", "2021-03-31")
@@ -144,6 +146,7 @@ class TestMollieFetchLayer(EnhancedTestCase):
             fake_client = MagicMock()
             fake_client.payments.list.side_effect = fake_list
             mc.return_value.sdk_client = fake_client
+            mc.return_value.list_resource_page.side_effect = lambda name, **kw: getattr(fake_client, name).list(**kw)
             mm.return_value.find_member_for_payment.return_value = None
 
             out = svc._list_mollie_payments("2021-01-01", "2021-03-31")
@@ -170,6 +173,7 @@ class TestMollieFetchLayer(EnhancedTestCase):
             fake_client = MagicMock()
             fake_client.payments.list.side_effect = lambda **kw: page
             mc.return_value.sdk_client = fake_client
+            mc.return_value.list_resource_page.side_effect = lambda name, **kw: getattr(fake_client, name).list(**kw)
             mm.return_value.find_member_for_payment.return_value = None
 
             out = svc._list_mollie_payments("2021-01-01", "2021-03-31")
@@ -196,6 +200,7 @@ class TestMollieFetchLayer(EnhancedTestCase):
             fake_client = MagicMock()
             fake_client.payments.list.side_effect = lambda **kw: page
             mc.return_value.sdk_client = fake_client
+            mc.return_value.list_resource_page.side_effect = lambda name, **kw: getattr(fake_client, name).list(**kw)
             mm.return_value.find_member_for_payment.side_effect = fake_match
 
             out = svc._list_mollie_payments("2021-01-01", "2021-03-31")

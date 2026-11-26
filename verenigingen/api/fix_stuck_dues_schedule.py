@@ -6,6 +6,7 @@ preventing invoice generation despite no actual invoice existing.
 import frappe
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.utils.boolean_utils import is_confirmed
 from verenigingen.utils.constants import Roles
 
 # Import security framework
@@ -23,6 +24,12 @@ def diagnose_stuck_schedule(schedule_name: str):
     """
     Diagnose why a dues schedule is not generating invoices
     """
+    return _diagnose_stuck_schedule(schedule_name)
+
+
+def _diagnose_stuck_schedule(schedule_name: str):
+    # Undecorated body: fix_stuck_schedule calls this, so one fix is one audit row and one
+    # rate-limit bucket, not two (#2280).
     schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
     member_doc = frappe.get_doc("Member", schedule.member) if schedule.member else None
 
@@ -103,10 +110,12 @@ def fix_stuck_schedule(schedule_name: str, force=False):
     """
     Fix a stuck dues schedule by resetting the dates appropriately
     """
+    # Over HTTP the flag is a string and "0" is truthy; only an explicit yes counts (#2385).
+    force = is_confirmed(force)
     schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
 
     # Diagnose first
-    diagnosis = diagnose_stuck_schedule(schedule_name)
+    diagnosis = _diagnose_stuck_schedule(schedule_name)
 
     if not diagnosis.get("issues_found") and not force:
         return {"success": False, "message": "No issues found with this schedule", "diagnosis": diagnosis}

@@ -7,8 +7,8 @@ Tests for Chapter Board Document functionality
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import today
 
+from verenigingen.tests.utils.clock_race import assert_written_today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 import unittest
 
@@ -154,7 +154,7 @@ class TestChapterBoardDocument(EnhancedTestCase):
         }).insert(ignore_permissions=True)
 
         # Verify upload_date is today
-        self.assertEqual(str(doc.upload_date), str(today()))
+        assert_written_today(self, doc.get("upload_date"))
 
     def test_document_sorting_by_name(self):
         """Test that documents can be sorted by name (for date-based naming)"""

@@ -344,6 +344,8 @@ class ModernTemplateValidator:
         
         return filtered_vars
     
+    _module_str_seqs: Dict[str, Set[str]] = {}
+
     def extract_python_context(self, py_file: Path) -> Dict[str, Any]:
         """Extract context variables from Python files with AST analysis"""
         try:
@@ -373,6 +375,11 @@ class ModernTemplateValidator:
         
         try:
             tree = ast.parse(content)
+            self._module_str_seqs = {
+                t.id: self._string_constants(n.value)
+                for n in tree.body if isinstance(n, ast.Assign)
+                for t in n.targets if isinstance(t, ast.Name)
+            }
             
             # Find get_context function
             for node in ast.walk(tree):
@@ -381,6 +388,9 @@ class ModernTemplateValidator:
                         context_data['has_get_context'] = True
                         context_data['variables'].update(
                             self._extract_context_from_function(node)
+                        )
+                        context_data['variables'].update(
+                            self._extract_context_from_helpers(node, tree)
                         )
                     elif node.name.startswith('get_'):
                         context_data['methods'].add(node.name)
@@ -391,44 +401,185 @@ class ModernTemplateValidator:
         
         return context_data
     
-    def _extract_context_from_function(self, func_node: ast.FunctionDef) -> Set[str]:
-        """Extract context variables from a function AST node"""
+    def _extract_context_from_helpers(self, func_node: ast.FunctionDef, tree: ast.Module,
+                                      context_name: str = 'context',
+                                      seen: Optional[Set[tuple]] = None) -> Set[str]:
+        """Follow same-module helpers that RECEIVE the context object.
+
+        get_context() often delegates, e.g. ``_add_bank_details_context(context)``
+        which then does ``context.member_doc = ...`` (#2395). A helper only counts
+        when the context is actually passed to it (positionally or by keyword);
+        the helper's own parameter name is used to read its assignments. Followed
+        transitively (helpers of helpers) with a visited set, so cycles stop.
+
+        Only WRITES count (#2408), see _extract_context_from_function. Keyword-only
+        and positional-only parameters are followed, and ``seen`` is keyed by
+        (helper, parameter) so a helper reached with the context bound to two
+        different parameters is read for both.
+        """
+        seen = set() if seen is None else seen
+        module_funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
         variables = set()
-        
-        for node in ast.walk(func_node):
+
+        for call in ast.walk(func_node):
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)):
+                continue
+            helper = module_funcs.get(call.func.id)
+            if helper is None or helper is func_node:
+                continue
+            param = self._context_param_name(helper, call, context_name)
+            if param is None or (helper.name, param) in seen:
+                continue
+            seen.add((helper.name, param))
+            variables.update(self._extract_context_from_function(helper, param))
+            variables.update(self._extract_context_from_helpers(helper, tree, param, seen))
+
+        return variables
+
+    @staticmethod
+    def _context_param_name(helper: ast.FunctionDef, call: ast.Call,
+                            context_name: str) -> Optional[str]:
+        """Name the helper binds the context to, or None if the call passes none."""
+        positional = [a.arg for a in helper.args.posonlyargs + helper.args.args]
+        by_keyword = [a.arg for a in helper.args.args + helper.args.kwonlyargs]
+        for index, arg in enumerate(call.args):
+            if isinstance(arg, ast.Name) and arg.id == context_name and index < len(positional):
+                return positional[index]
+        for kw in call.keywords:
+            if (kw.arg in by_keyword and isinstance(kw.value, ast.Name)
+                    and kw.value.id == context_name):
+                return kw.arg
+        return None
+
+    def _extract_context_from_function(self, func_node: ast.FunctionDef,
+                                       context_name: str = 'context') -> Set[str]:
+        """Extract the context variables a function WRITES.
+
+        Counts ``ctx.k = v``, ``ctx['k'] = v``, ``ctx.update({...})`` /
+        ``ctx.update(k=v)`` and ``return {...}``. Does NOT count (#2408) reads
+        (``x = ctx.k``), method calls (``ctx.get('k')``), writes in a branch that
+        can never run (``if False:``, code after ``return``/``raise``) and writes
+        made after the parameter is rebound (``ctx = {}``), which land on some
+        other object. A conditional write (``if x: ctx.k = 1``) still counts: we
+        cannot tell whether it runs, and the template side guards its own use.
+        """
+        variables = set()
+        rebound_at = self._first_rebind(func_node, context_name)
+        loop_keys = self._loop_key_names(func_node)
+
+        for node in self._iter_live(func_node):
+            if rebound_at is not None and self._position(node) > rebound_at:
+                continue
+
             # context["key"] = value
             if isinstance(node, ast.Subscript):
-                if isinstance(node.value, ast.Name) and node.value.id == 'context':
-                    if isinstance(node.slice, ast.Constant):
-                        variables.add(node.slice.value)
-            
+                if (isinstance(node.ctx, ast.Store) and isinstance(node.value, ast.Name)
+                        and node.value.id == context_name
+                        and isinstance(node.slice, ast.Constant)):
+                    variables.add(node.slice.value)
+                elif (isinstance(node.ctx, ast.Store) and isinstance(node.value, ast.Name)
+                        and node.value.id == context_name and isinstance(node.slice, ast.Name)):
+                    variables.update(loop_keys.get(node.slice.id, ()))
+
             # context.key = value
             elif isinstance(node, ast.Attribute):
-                if isinstance(node.value, ast.Name) and node.value.id == 'context':
+                if (isinstance(node.ctx, ast.Store) and isinstance(node.value, ast.Name)
+                        and node.value.id == context_name):
                     variables.add(node.attr)
-            
-            # context.update({...})
+
+            # context.update({...}) / context.update(k=v)
             elif isinstance(node, ast.Call):
-                if (hasattr(node.func, 'attr') and node.func.attr == 'update' and
-                    hasattr(node.func, 'value') and 
-                    isinstance(node.func.value, ast.Name) and 
-                    node.func.value.id == 'context'):
-                    
+                if (isinstance(node.func, ast.Attribute) and node.func.attr == 'update' and
+                    isinstance(node.func.value, ast.Name) and
+                    node.func.value.id == context_name):
+
                     for arg in node.args:
                         if isinstance(arg, ast.Dict):
                             for key in arg.keys:
                                 if isinstance(key, ast.Constant):
                                     variables.add(key.value)
-            
+                    variables.update(kw.arg for kw in node.keywords if kw.arg)
+
             # return {...}
             elif isinstance(node, ast.Return):
                 if isinstance(node.value, ast.Dict):
                     for key in node.value.keys:
                         if isinstance(key, ast.Constant):
                             variables.add(key.value)
-        
+
         return variables
-    
+
+    @staticmethod
+    def _position(node: ast.AST) -> tuple:
+        return (getattr(node, 'lineno', 0), getattr(node, 'col_offset', 0))
+
+    def _first_rebind(self, func_node: ast.FunctionDef, name: str) -> Optional[tuple]:
+        """Position of the first UNCONDITIONAL rebinding of ``name`` in the
+        function's own body (``name = {}``), or None. Writes after it do not
+        reach the object the caller handed in. Not counted: a rebind nested in
+        an ``if``/loop/``try`` (it may not run), one inside a nested function
+        (its own scope), and a wrapper such as ``name = frappe._dict(name)``
+        (get_context returns it, and Frappe uses the returned dict)."""
+        for stmt in func_node.body:
+            if isinstance(stmt, ast.Assign):
+                targets, value = stmt.targets, stmt.value
+            elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+                targets, value = [stmt.target], stmt.value
+            else:
+                continue
+            if not any(isinstance(t, ast.Name) and t.id == name for t in targets):
+                continue
+            if any(isinstance(x, ast.Name) and x.id == name for x in ast.walk(value)):
+                continue
+            return self._position(stmt)
+        return None
+
+    def _loop_key_names(self, func_node: ast.FunctionDef) -> Dict[str, Set[str]]:
+        """``for key in ("a", "b")`` / ``for key in MODULE_TUPLE``: the string
+        constants each loop variable can take, so ``ctx[key] = ...`` in the loop
+        provides them (mollie_checkout.py)."""
+        keys: Dict[str, Set[str]] = {}
+        for n in ast.walk(func_node):
+            if not (isinstance(n, ast.For) and isinstance(n.target, ast.Name)):
+                continue
+            if isinstance(n.iter, ast.Name):
+                names = self._module_str_seqs.get(n.iter.id, set())
+            else:
+                names = self._string_constants(n.iter)
+            if names:
+                keys.setdefault(n.target.id, set()).update(names)
+        return keys
+
+    @staticmethod
+    def _string_constants(node: ast.AST) -> Set[str]:
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            return {e.value for e in node.elts
+                    if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+        return set()
+
+    def _iter_live(self, node: ast.AST):
+        """Like ast.walk, but skips branches that can never run: the dead arm of
+        ``if <constant>:`` and statements after ``return``/``raise``/``break``/
+        ``continue`` in the same block."""
+        yield node
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Constant):
+            yield from self._iter_live(node.test)
+            live = node.body if node.test.value else node.orelse
+            yield from self._iter_block(live)
+            return
+        for _, value in ast.iter_fields(node):
+            if isinstance(value, list):
+                yield from self._iter_block(value)
+            elif isinstance(value, ast.AST):
+                yield from self._iter_live(value)
+
+    def _iter_block(self, items: list):
+        for item in items:
+            if isinstance(item, ast.AST):
+                yield from self._iter_live(item)
+                if isinstance(item, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
+                    return
+
     def _extract_context_regex(self, content: str) -> Set[str]:
         """Fallback regex extraction for context variables"""
         variables = set()
@@ -578,71 +729,81 @@ class ModernTemplateValidator:
     def _is_variable_context_protected(self, var_name: str, line_num: int, 
                                      content: str, lines: List[str]) -> bool:
         """Check if variable is protected by broader template context"""
-        
-        # Look for immediate protection on the same line or previous line
-        check_lines = []
-        if line_num > 1:
-            check_lines.append(lines[line_num - 2])  # Previous line
-        check_lines.append(lines[line_num - 1])  # Current line
-        
-        for check_line in check_lines:
-            # Direct conditional protection
-            if f'if {var_name}' in check_line and '%}' in check_line:
-                return True
-            # Conditional with additional checks
-            if f'if {var_name} and not {var_name}.error' in check_line:
-                return True
-            # Property conditional
-            if re.search(f'{var_name}\\.[a-zA-Z_][a-zA-Z0-9_]*', check_line) and 'if' in check_line:
-                return True
-        
-        # Look for broader context - search backwards for protective blocks
-        search_start = max(0, line_num - 50)  # Look back up to 50 lines
-        context_section = '\n'.join(lines[search_start:line_num])
-        
-        # Check for conditional blocks that protect this variable
-        if_patterns = [
-            f'{{% if {var_name} %}}',
-            f'{{% if {var_name} and not {var_name}\\.error %}}',
-            f'{{% if {var_name} and {var_name}\\.[a-zA-Z_][a-zA-Z0-9_]* %}}'
-        ]
-        
-        for pattern in if_patterns:
-            if re.search(pattern.replace('{%', r'\{%').replace('%}', r'%\}'), context_section):
-                # Found opening if, check if we haven't hit an endif yet
-                if not self._has_matching_endif_before_line(context_section, line_num - search_start):
-                    return True
-        
-        # Check for loop context protection
-        for_pattern = f'{{% for [a-zA-Z_][a-zA-Z0-9_]* in {var_name} %}}'
-        if re.search(for_pattern.replace('{%', r'\{%').replace('%}', r'%\}'), context_section):
-            return True
-        
-        # Check if variable is defined in a loop (making it safe within the loop)
-        loop_var_pattern = f'{{% for {var_name} in [a-zA-Z_][a-zA-Z0-9_]* %}}'
-        if re.search(loop_var_pattern.replace('{%', r'\{%').replace('%}', r'%\}'), context_section):
-            return True
-        
-        return False
-    
-    def _has_matching_endif_before_line(self, context_section: str, relative_line: int) -> bool:
-        """Check if there's a matching endif before the target line"""
-        lines = context_section.split('\n')
-        if relative_line >= len(lines):
+
+        # Every guard (if arms and for loops) is judged by the open-block replay in
+        # _is_inside_if_guard. The substring checks on the previous/current line and the
+        # 50-line for-loop regexes that used to sit here accepted closed, commented-out
+        # and unrelated blocks (#2443).
+        return self._is_inside_if_guard(var_name, line_num, lines)
+
+    _JINJA_BLOCK_TAG = re.compile(
+        r'\{%-?\s*(if|elif|else|endif|for|endfor|set|with|macro)\b(.*?)-?%\}', re.DOTALL)
+    _JINJA_INERT = re.compile(r'\{#.*?#\}|\{%-?\s*raw\s*-?%\}.*?\{%-?\s*endraw\s*-?%\}', re.DOTALL)
+
+    def _is_inside_if_guard(self, var_name: str, line_num: int, lines: List[str]) -> bool:
+        """True if an OPEN enclosing ``{% if %}`` arm requires ``var_name`` to be truthy.
+
+        Replays every if/elif/else/endif above the line as a stack, so nesting,
+        distance and ``{% else %}`` arms are handled (#2404). Comments and
+        ``{% raw %}`` blocks are ignored. An arm guards the variable when its
+        condition is an ``and`` chain (no ``or``) with a conjunct that is
+        ``var_name``, a path below it, or such a path compared with a constant,
+        e.g. ``a and a.b and a.b.n > 0``. A tag that rebinds the name
+        (``set``/``with``/``macro``) ends every open guard on it.
+        """
+        current = lines[line_num - 1]
+        access = re.search(r'\{\{[^}]*\b' + re.escape(var_name) + r'\b', current)
+        # tags earlier on the same line count; the access itself and what follows do not
+        before = lines[:line_num - 1] + [current[:access.start()] if access else '']
+        source = self._JINJA_INERT.sub('', '\n'.join(before))
+        arms: List[Optional[str]] = []
+        for tag in self._JINJA_BLOCK_TAG.finditer(source):
+            kind, condition = tag.group(1), tag.group(2).strip()
+            if kind == 'if':
+                arms.append(condition)
+            elif kind == 'elif' and arms:
+                arms[-1] = condition
+            elif kind == 'else' and arms:
+                arms[-1] = None
+            elif kind == 'for':
+                arms.append(self._for_guard(condition, var_name))
+            elif kind in ('endif', 'endfor') and arms:
+                arms.pop()
+            elif kind in ('set', 'with', 'macro') and self._tag_rebinds(kind, condition, var_name):
+                arms = [None] * len(arms)
+        return any(c is not None and self._condition_requires(c, var_name) for c in arms)
+
+    @staticmethod
+    def _for_guard(body: str, var_name: str) -> Optional[str]:
+        """Condition a ``{% for %}`` body implies: iterating ``var_name`` (or a path
+        below it) means it is truthy; binding the name as the loop variable makes it safe."""
+        target, _, iterable = body.partition(' in ')
+        if re.search(rf'(?:^|[\s,(]){re.escape(var_name)}\s*(?:,|\)|$)', target.strip()):
+            return var_name
+        return iterable.strip()
+
+    @staticmethod
+    def _tag_rebinds(kind: str, body: str, var_name: str) -> bool:
+        name = re.escape(var_name)
+        if kind in ('set', 'with'):
+            return bool(re.search(rf'(?:^|[\s,(]){name}\s*=(?!=)', body))
+        return bool(re.search(rf'\([^)]*\b{name}\b', body))  # macro parameters
+
+    @staticmethod
+    def _condition_requires(condition: str, var_name: str) -> bool:
+        if re.search(r'\bor\b', condition):
             return False
-            
-        # Simple check - count if/endif pairs
-        if_count = 0
-        for i in range(relative_line):
-            line = lines[i]
-            if re.search(r'\\{%\\s*if\\s+', line):
-                if_count += 1
-            elif re.search(r'\\{%\\s*endif\\s*%\\}', line):
-                if_count -= 1
-        
-        # If if_count is 0, all if blocks were closed
-        return if_count == 0
-    
+        for conjunct in re.split(r'\band\b', condition):
+            conjunct = conjunct.strip().strip('()').strip()
+            name = re.escape(var_name)
+            path = r'(?:\.\w+|\[[^\]]*\])'
+            # truthiness of the variable or a path below it, or a path below it
+            # compared with something (a bare ``var == x`` says nothing about var.a.b)
+            if re.match(rf'{name}{path}*$', conjunct) or re.match(
+                    rf'{name}{path}+\s*(?:[<>]=?|==)[^=].*$', conjunct):
+                return True
+        return False
+
     def check_security_issues(self, template_path: Path) -> List[TemplateIssue]:
         """Check for security issues in templates with context awareness"""
         issues = []

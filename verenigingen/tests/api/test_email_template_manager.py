@@ -113,13 +113,13 @@ class TestEmailTemplateManager(VereningingenTestCase):
         self.assertIn("{{ receipt_number }}", anbi.subject)
 
         donation = frappe.get_doc("Email Template", "donation_confirmation")
-        self.assertIn("{{ donor_name }}", donation.response)
+        self.assertIn("{{ donor_name | e }}", donation.response)
         # The donation send context (send_donation_confirmation_email) provides a
         # FLAT key, not a `doc`, so the template must use {{ donation_amount }}.
         self.assertIn("{{ donation_amount }}", donation.response)
 
         approval = frappe.get_doc("Email Template", "expense_approval_request")
-        self.assertIn("{{ approver_name }}", approval.response)
+        self.assertIn("{{ approver_name | e }}", approval.response)
         self.assertIn("{{ approval_url }}", approval.response)
 
     def test_donation_templates_render_with_real_send_context(self):
@@ -240,7 +240,7 @@ class TestEmailTemplateManager(VereningingenTestCase):
         self.assertIn("250", rendered["message"])
         # Unsubstituted Jinja markers must not survive rendering.
         self.assertNotIn("{{ receipt_number }}", rendered["subject"])
-        self.assertNotIn("{{ donor_name }}", rendered["message"])
+        self.assertNotIn("{{ donor_name | e }}", rendered["message"])
 
     def test_get_email_template_missing_uses_fallback(self):
         """A non-existent template returns the supplied (rendered) fallback,
@@ -342,7 +342,7 @@ class TestEmailTemplateManager(VereningingenTestCase):
         # collapse, auto-closed tags), so it won't be byte-identical to the TextEditor
         # `response`. What matters is that response_html carries the same real markup.
         self.assertIn("<div", doc.response_html, "response_html must carry the HTML body")
-        self.assertIn("{{ donor_name }}", doc.response_html, "response_html must carry the template content")
+        self.assertIn("{{ donor_name | e }}", doc.response_html, "response_html must carry the template content")
 
         # response_ (the property Frappe uses) returns response_html when use_html=1,
         # so it must be the real HTML body, not empty.
@@ -506,7 +506,7 @@ class TestEmailTemplateManager(VereningingenTestCase):
         # Body carries the substituted context, not the raw Jinja markers.
         self.assertIn("Sent Donor", kwargs["message"])
         self.assertIn("77", kwargs["message"])
-        self.assertNotIn("{{ donor_name }}", kwargs["message"])
+        self.assertNotIn("{{ donor_name | e }}", kwargs["message"])
 
     def test_send_template_email_without_notification_key_passes_none(self):
         """Omitting notification_key (the warning branch) still dispatches, and the

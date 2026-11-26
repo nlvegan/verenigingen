@@ -27,7 +27,7 @@ from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.security.client_ip import get_client_ip
-from verenigingen.utils.service_user import ServiceUserUnavailable
+from verenigingen.utils.service_user import ServiceUserUnavailable, restores_session_user
 from verenigingen.utils.transaction_errors import (
     rollback_to_savepoint,
     safe_savepoint_name as _safe_savepoint_name,
@@ -46,6 +46,7 @@ from verenigingen.verenigingen_payments.utils.payment_services.logging_utils imp
 from verenigingen.verenigingen_payments.utils.webhook_ack import message_log_length, webhook_ack
 
 
+@restores_session_user
 def _maybe_finalize_payment_plan(order_id: str, payload: dict) -> bool:
     """If this Pay.nl order references a Payment Plan Payment, finalize the
     installment and return True (webhook consumed). Otherwise return False.

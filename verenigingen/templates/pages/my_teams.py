@@ -9,19 +9,24 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Membership
-from verenigingen.utils.error_handling import validate_member_for_user, validate_user_logged_in
+from verenigingen.utils.error_handling import validate_user_logged_in
+from verenigingen.utils.member_portal_utils import setup_portal_context
 
 
 def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
     """Get context for my teams page"""
 
     # Modernized validation with helpers
-    user = validate_user_logged_in()
-    member = validate_member_for_user(user)
+    validate_user_logged_in()
 
     # Ensure context is a frappe._dict for attribute access
     if not hasattr(context, "no_cache"):
         context = frappe._dict(context)
+
+    # An account with no linked Member gets the "not linked" banner, not an error page (#2207)
+    member = setup_portal_context(context, "My Teams")
+    if not member:
+        return context
 
     context.no_cache = 1
     context.title = _("My Teams")

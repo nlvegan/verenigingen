@@ -22,14 +22,16 @@ from verenigingen.verenigingen_payments.services.donation_journal_entry_creator 
     get_donation_journal_entry_creator,
 )
 from verenigingen.verenigingen_payments.services.journal_entry_booking_support import (
-    find_journal_entry_by_reference,
+    mollie_amount_or_none,
+    resolve_journal_entry_by_reference,
 )
 
 # Import payment data extraction utilities
+from verenigingen.verenigingen_payments.utils.bank_transaction_reference_key import SYSTEM_ISSUED_FIELDNAME
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 # Import custom exceptions
-from ..exceptions import MolliePaymentError, MollieSecurityError, MollieWebhookError
+from ..exceptions import MolliePaymentError, MollieSecurityError, MollieWebhookError, is_payment_not_found
 
 # Import logging and monitoring utilities
 from ..utils import subscription_activation_reasons
@@ -53,6 +55,17 @@ def is_permanent_subscription_refusal(reason: Optional[str]) -> bool:
     by spelling (issue #353).
     """
     return reason in subscription_activation_reasons.PERMANENT_SUBSCRIPTION_ACTIVATION_REASONS
+
+
+def _respond_service_unavailable() -> None:
+    """Answer 503 with a real ``Retry-After`` HTTP header (#2487).
+
+    ``frappe.local.response[...]`` keys are serialised into the JSON body, never headers;
+    only ``frappe.local.response_headers`` reaches the wire. Whether Mollie honours the
+    header is not established; the 503 itself is what makes it retry.
+    """
+    frappe.local.response.http_status_code = 503
+    frappe.local.response_headers.set("Retry-After", "60")
 
 
 def _reversal_history_row(
@@ -182,7 +195,7 @@ class UnifiedWebhookWrapperService:
                 # as a Payment Entry is invisible to every layer here, and the sweep
                 # books BT + JE on top of it (#370). Two blind checks covering each
                 # other's blind spots is not a guard.
-                already_booked = find_booked_reversal(refund_reference)
+                already_booked = find_booked_reversal(refund_reference, flt(refund_amount))
                 if already_booked:
                     self.logger.info(
                         f"⏭️ Refund {refund_id} already booked as "
@@ -460,7 +473,14 @@ class UnifiedWebhookWrapperService:
 
             # Fetch payment to classify it
             try:
-                payment = router.fetch_payment(payment_id)
+                try:
+                    payment = router.fetch_payment(payment_id)
+                except Exception as fetch_error:
+                    # Only the payment GET itself: a 404 from later classification or routing
+                    # (a customer, a subscription) says nothing about the payment id (#1805).
+                    if is_payment_not_found(fetch_error):
+                        return self._ack_unknown_payment(payment_id, start_time)
+                    raise
 
                 # PAYMENT PLAN PAYMENTS: finalize the installment and return
                 # BEFORE donation classification (whose "donation" keyword would
@@ -477,7 +497,8 @@ class UnifiedWebhookWrapperService:
                     result["duration_seconds"] = time.time() - start_time
                     return result
 
-                classification = router.classify_payment(payment)
+                # alert_staff: the webhook is the delivery path (#1497 (2)); Mollie redelivers it
+                classification = router.classify_payment(payment, alert_staff=True)
 
                 self.logger.info(
                     f"📊 Payment classification: type={classification['payment_type']}, "
@@ -488,6 +509,19 @@ class UnifiedWebhookWrapperService:
                 from ..domain.payment_classification import PaymentType
 
                 payment_type = classification["payment_type"]
+
+                # AMBIGUOUS: a Mollie id shared by several Members/Donors. Do NOT fall
+                # through to the donation path below; report failure so Mollie
+                # re-delivers once staff have fixed the duplicate (#1497).
+                if payment_type == PaymentType.AMBIGUOUS:
+                    duration = time.time() - start_time
+                    record_operation_performance("unified_webhook_processing", duration, False)
+                    return {
+                        "status": "error",
+                        "message": "More than one member/donor carries this payment's Mollie id; not booked",
+                        "payment_id": payment_id,
+                        "duration_seconds": duration,
+                    }
 
                 # ORDER payments: Create Bank Transactions for reconciliation
                 if payment_type == PaymentType.ORDER:
@@ -508,7 +542,7 @@ class UnifiedWebhookWrapperService:
                 # DUES payments: Create Payment Entries for membership dues
                 elif payment_type == PaymentType.DUES:
                     self.logger.info(f"🔀 Routing {payment_id} to DuesPaymentProcessor")
-                    result = router.route_payment(payment_id, payment)
+                    result = router.route_payment(payment_id, payment, alert_staff=True)
                     result = self._book_dues_reversals(payment_id, payment, result)
 
                     # Add timing information
@@ -624,8 +658,7 @@ class UnifiedWebhookWrapperService:
                 record_operation_performance("unified_webhook_processing", duration, False)
 
                 # Set HTTP 503 status for service unavailability
-                frappe.local.response.http_status_code = 503
-                frappe.local.response["Retry-After"] = "60"  # Mollie should retry after 60 seconds
+                _respond_service_unavailable()
 
                 response = {
                     "status": "service_unavailable",
@@ -642,6 +675,10 @@ class UnifiedWebhookWrapperService:
                     }
 
                 return response
+
+            # A 404 (and nothing worse) from Mollie: answered like a known id (#1805).
+            if processing_state.payment_not_found:
+                return self._ack_unknown_payment(payment_id, start_time)
 
             # STEP 2: Handle based on unified state
             if processing_state.is_fully_processed():
@@ -667,6 +704,16 @@ class UnifiedWebhookWrapperService:
                 "payment_id": payment_id,
                 "duration_seconds": duration,
             }
+
+    def _ack_unknown_payment(self, payment_id: str, start_time: float) -> Dict[str, Any]:
+        """Answer a payment id Mollie 404s exactly as a known id (2xx, no Retry-After); alert staff."""
+        from .unknown_payment_ack import acknowledge_unknown_payment
+
+        duration = time.time() - start_time
+        record_operation_performance("unified_webhook_processing", duration, True)
+        result = acknowledge_unknown_payment(payment_id)
+        result["duration_seconds"] = duration
+        return result
 
     @staticmethod
     def _payment_reports_reversal(payment) -> bool:
@@ -715,18 +762,42 @@ class UnifiedWebhookWrapperService:
             return forward_result
 
         state = self.idempotency_manager.check_payment_processing_state(payment_id, include_mollie_api=True)
+        if state.payment_not_found and not (state.refund_check_failed or state.chargeback_check_failed):
+            # Mollie knew the id a moment ago (the router fetched it to classify it) and now 404s:
+            # the same permanent answer as in STEP 1 (#1805). The forward booking stands.
+            self._ack_unknown_payment(payment_id, time.time())
+            return forward_result
         if state.refund_check_failed or state.chargeback_check_failed:
             # Same designed degradation as STEP 1: say so and let Mollie retry. The
             # forward booking is idempotent, so the retry costs nothing.
-            frappe.local.response.http_status_code = 503
-            frappe.local.response["Retry-After"] = "60"
+            _respond_service_unavailable()
             return {
                 "status": "service_unavailable",
                 "message": "Mollie API unavailable - cannot verify refund/chargeback state",
                 "payment_id": payment_id,
             }
 
-        outcomes = [
+        outcomes = self.book_pending_reversals(payment_id, state)
+
+        failed = [o for o in outcomes if o.get("status") == "error"]
+        forward_result["reversals"] = [o.get("status") for o in outcomes]
+        if failed:
+            forward_result["status"] = "error"
+            forward_result["message"] = (
+                f"{len(failed)} of {len(outcomes)} reversal(s) of {payment_id} could not be booked: "
+                f"{failed[0].get('message')}"
+            )
+        return forward_result
+
+    def book_pending_reversals(self, payment_id: str, state) -> list:
+        """Book every refund/chargeback ``state`` (an idempotency check) found pending.
+
+        The one place a discovered reversal becomes a booking, shared by the payment
+        webhook (``_book_dues_reversals``) and the scheduled rediscovery sweep (#2140),
+        so both book through ``process_reversal_webhook``'s per-reversal-key
+        idempotency and neither has a second booking path.
+        """
+        return [
             self.process_reversal_webhook(
                 payment_id=payment_id,
                 reversal_id=refund["refund_id"],
@@ -746,16 +817,6 @@ class UnifiedWebhookWrapperService:
             )
             for chargeback in state.pending_chargebacks
         ]
-
-        failed = [o for o in outcomes if o.get("status") == "error"]
-        forward_result["reversals"] = [o.get("status") for o in outcomes]
-        if failed:
-            forward_result["status"] = "error"
-            forward_result["message"] = (
-                f"{len(failed)} of {len(outcomes)} reversal(s) of {payment_id} could not be booked: "
-                f"{failed[0].get('message')}"
-            )
-        return forward_result
 
     def _handle_fully_processed_payment(
         self, payment_id: str, processing_state, start_time: float
@@ -1261,7 +1322,9 @@ class UnifiedWebhookWrapperService:
                 # "Unknown column 'reference_no'" and aborted the whole partial-processing
                 # backfill whenever the JE had to be looked up from the DB.
                 if not journal_entry_name:
-                    journal_entry_name = find_journal_entry_by_reference(payment_id)
+                    journal_entry_name = resolve_journal_entry_by_reference(
+                        payment_id, mollie_amount_or_none(payment_data)
+                    )
                 if self._update_donation_payment_history_atomic(donation, payment_data, journal_entry_name):
                     results.append("Donation payment history updated")
                 else:
@@ -1667,6 +1730,9 @@ class UnifiedWebhookWrapperService:
                 "party_type": party_type,
                 "party": party,
                 "bank_party_name": bank_party_name,
+                # The reference is build_reversal_key(): this webhook's own idempotency key, so
+                # the database must refuse a concurrent duplicate delivery (#1349, #1267).
+                SYSTEM_ISSUED_FIELDNAME: 1,
             },
             bank_account=config["bank_account"],
             company=config["company"],
@@ -1683,6 +1749,10 @@ class UnifiedWebhookWrapperService:
 
         journal_entry_name = book_journal_entry(bank_transaction_name)
         if not journal_entry_name:
+            if self._keep_bank_transaction_for_live_journal_entry(
+                bank_transaction_name, reference, reversal_type, reversal_id, payment_id
+            ):
+                return None
             message = (
                 f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: "
                 f"Journal Entry creation failed after Bank Transaction {bank_transaction_name}; "
@@ -1694,6 +1764,43 @@ class UnifiedWebhookWrapperService:
             return None
 
         return ("Journal Entry", journal_entry_name)
+
+    def _keep_bank_transaction_for_live_journal_entry(
+        self,
+        bank_transaction_name: str,
+        reference: str,
+        reversal_type: str,
+        reversal_id: str,
+        payment_id: str,
+    ) -> bool:
+        """True when a LIVE Journal Entry still books this reversal, so its bank line must stay (#2754).
+
+        The creators return None for every failed booking, a cleanly cancelled entry
+        and one whose discard was blocked alike (a failed ``cancel()`` is only known
+        to have worked by re-reading, #926). In the blocked case the entry is at
+        ``docstatus=1``: withdrawing the Bank Transaction then leaves a posted
+        reversal with no bank line. Asked of the database, not inferred from the
+        creator's return value, so it also covers a creator that raised after its
+        submit landed. A draft is not live (``resolve_journal_entry_by_reference``
+        finishes it on redelivery), so it is not handled here.
+
+        Nothing is reconciled automatically: the entry's submit failed, so its
+        ledger rows are not known to be complete.
+        """
+        live_journal_entry = frappe.db.get_value(
+            "Journal Entry", {"cheque_no": reference, "docstatus": 1}, "name"
+        )
+        if not live_journal_entry:
+            return False
+        message = (
+            f"Cannot book {reversal_type} {reversal_id} for payment {payment_id}: its Journal Entry "
+            f"{live_journal_entry} failed to post but could not be cancelled and is still live, so "
+            f"Bank Transaction {bank_transaction_name} was KEPT rather than withdrawn. Check "
+            f"{live_journal_entry}'s ledger rows, then reconcile the two by hand."
+        )
+        self.logger.error(f"❌ {message}")
+        frappe.log_error(title="Mollie Reversal Needs Manual Reconciliation", message=message)
+        return True
 
     def _withdraw_bank_transaction(self, bank_transaction_name: str) -> None:
         """Undo a Bank Transaction whose Journal Entry never arrived.
@@ -1950,7 +2057,7 @@ class UnifiedWebhookWrapperService:
             # book different doctypes under one key, so a Payment-Entry-only check
             # could not see a Journal Entry the sweep had already written.
             reference_pattern = build_reversal_key(payment_id, reversal_type, reversal_id)
-            existing = find_booked_reversal(reference_pattern)
+            existing = find_booked_reversal(reference_pattern, flt(amount))
             existing_reversal = existing[1] if existing else None
 
             if existing_reversal:
@@ -2636,18 +2743,13 @@ class UnifiedWebhookWrapperService:
             payment_amount = extractor.extract_amount(
                 payment_data, allow_zero=True
             )  # payment_data is dict format
-            paid_date = payment_data.get("paid_at") or payment_data.get("created_at")
+            # The site-local day of the UTC timestamp, not the UTC day (#2378)
+            from ...utils.timezone_utils import mollie_timestamp_to_local_date
 
-            # Parse ISO datetime to date
-            if isinstance(paid_date, str):
-                try:
-                    from dateutil import parser
-
-                    paid_date = parser.parse(paid_date).date()
-                except (ValueError, TypeError, ImportError):
-                    paid_date = frappe.utils.getdate()
-            elif not paid_date:
-                paid_date = frappe.utils.getdate()
+            paid_date = (
+                mollie_timestamp_to_local_date(payment_data.get("paid_at") or payment_data.get("created_at"))
+                or frappe.utils.getdate()
+            )
 
             donation.append(
                 "payments",

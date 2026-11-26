@@ -444,10 +444,9 @@ class TestTheMemberPortalAgreesWithTheDeskGrid(_CreditedInvoiceFixture):
     exact conflation this change exists to remove, surviving in the place the MEMBER
     looks.
 
-    The set itself is deliberately left alone: its other consumer,
-    `dues_schedule_manager`, asks "should we still chase this?" and must keep answering
-    NO for a credited invoice. A waived member must not become collectable again. Two
-    questions, one constant; the portal branches before consulting it.
+    The set itself was left alone for a second consumer, `dues_schedule_manager`'s
+    sync, which has since been deleted (#3092: it never persisted anything). The
+    portal branches on the credit-note statuses before consulting the set.
     """
 
     MEMBER_FIRST_NAME = "CreditedPortal"

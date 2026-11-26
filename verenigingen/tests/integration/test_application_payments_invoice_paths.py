@@ -23,6 +23,7 @@ from frappe.utils import add_days, add_months, add_years, getdate, today
 
 from verenigingen.services.member.approval import application_payments as ap
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.utils.clock_race import assert_written_today
 
 
 class _InvoicePathBase(EnhancedTestCase):
@@ -155,7 +156,7 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
         # Default billing_period is Annual. Coverage is INCLUSIVE of both ends, so
         # the period must stop the day BEFORE the anniversary - the anniversary
         # itself is the first day of the NEXT period (#206).
-        self.assertEqual(str(invoice.custom_coverage_start_date), today())
+        assert_written_today(self, invoice.custom_coverage_start_date)
         self.assertEqual(str(invoice.custom_coverage_end_date), add_days(add_years(today(), 1), -1))
         # The anniversary must not be inside this period at all.
         self.assertNotEqual(str(invoice.custom_coverage_end_date), add_years(today(), 1))
@@ -194,8 +195,8 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
         self._track_approval_invoice(invoice.name)
 
         # A Daily period is ONE day: an inclusive period whose end is its start.
-        self.assertEqual(str(invoice.custom_coverage_start_date), today())
-        self.assertEqual(str(invoice.custom_coverage_end_date), today())
+        assert_written_today(self, invoice.custom_coverage_start_date)
+        assert_written_today(self, invoice.custom_coverage_end_date)
 
     def test_quarterly_biannual_and_custom_periods_stop_before_the_next_one(self):
         """Every non-Annual branch is the same defect as #206's Annual branch."""
@@ -216,7 +217,7 @@ class TestCreateMembershipInvoiceWithAmount(_InvoicePathBase):
                     invoice = ap.create_membership_invoice_with_amount(member, membership, 5.0)
                 self._track_approval_invoice(invoice.name)
 
-                self.assertEqual(str(invoice.custom_coverage_start_date), today())
+                assert_written_today(self, invoice.custom_coverage_start_date)
                 self.assertEqual(str(invoice.custom_coverage_end_date), expected_end)
 
     def test_the_membership_types_period_is_ignored_while_a_schedule_exists(self):

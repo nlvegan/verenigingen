@@ -33,6 +33,7 @@ from verenigingen.services.member.account.role_profile_mapping_guard import (
     NATIONAL_PROFILES,
     NATIONAL_TREASURER_PROFILE,
 )
+from verenigingen.utils.board_seat import count_live_seats, get_live_seats
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
@@ -409,13 +410,14 @@ def get_board_member_profiles(user: str, member: str) -> list:
             return profiles
 
         # Get all active board positions
-        board_positions = frappe.db.get_all(
-            "Chapter Board Member",
-            filters={"volunteer": volunteer, "is_active": 1},
-            fields=["parent", "chapter_role"],
-        )
+        board_positions = get_live_seats({"volunteer": volunteer}, fields=["parent", "chapter_role"])
 
         for position in board_positions:
+            # A seat on a deactivated Chapter Role confers no profile (#2958)
+            if position.chapter_role and not frappe.db.get_value(
+                "Chapter Role", position.chapter_role, "is_active"
+            ):
+                continue
             try:
                 # Validate chapter exists
                 if not frappe.db.exists("Chapter", position.parent):
@@ -707,11 +709,7 @@ def is_active_board_member(user: str, member: str) -> bool:
             return False
 
         # Check for active board memberships
-        active_board_positions = frappe.db.count(
-            "Chapter Board Member", filters={"volunteer": volunteer, "is_active": 1}
-        )
-
-        return active_board_positions > 0
+        return count_live_seats(volunteer) > 0
 
     except Exception as e:
         frappe.logger().warning(f"Error checking board membership for {user}: {str(e)}")
@@ -830,6 +828,11 @@ def _ensure_employee_for_profile(user: str, role_profile_name: str) -> None:
     except frappe.DuplicateEntryError:
         # Concurrent sync created the Employee between our check and insert
         frappe.logger().debug("Employee for %s already exists (concurrent creation)", user)
+    except NON_RESUMABLE_DB_ERRORS:
+        # #1888: after a 1213 the transaction is gone and the user.save() that follows
+        # would run on a fresh one; after a 1205 it is still live but half-applied (only
+        # the failed statement was rolled back). Either way the unit of work is abandoned.
+        raise
     except Exception as e:
         # Surfaces as an error log entry, not just a logger line: when this
         # stub insert fails, the board member loses their Employee-bearing
@@ -907,13 +910,32 @@ def get_user_role_profiles(user_name: str) -> list[str]:
     return [single] if single else []
 
 
+def get_users_holding_profiles(profiles: list[str]) -> list[str]:
+    """Names of users holding ANY of ``profiles``, in any position (#2433).
+
+    ``User.role_profile_name`` mirrors only a user's FIRST profile, so filtering on it
+    skips everyone whose qualifying profile is stacked behind another. Under
+    multi-profile support the ``role_profiles`` child table is the source of truth;
+    the deprecated column is kept as a union for rows written before it was a mirror.
+    """
+    holders = set(frappe.get_all("User", filters={"role_profile_name": ["in", profiles]}, pluck="name"))
+    if _has_multi_profile_support():
+        holders.update(
+            frappe.get_all(
+                "User Role Profile",
+                filters={"role_profile": ["in", profiles], "parenttype": "User"},
+                pluck="parent",
+            )
+        )
+    return sorted(holders)
+
+
 def sync_user_role_profile(
     user: str,
     dry_run: bool = False,
     allow_disabled: bool = False,
     withdraw: tuple = (),
     nightly: bool = False,
-    reraise_non_resumable: bool = False,
 ) -> dict:
     """
     Calculate and apply the correct role profile to a user.
@@ -936,13 +958,15 @@ def sync_user_role_profile(
             and the record is written. (2) Roles held directly, i.e. supplied by none of
             the user's old profiles, are kept across the save (User.validate otherwise
             resets roles to the profiles' roles). (3) A write inside a savepoint that
-            fails is rolled back, and a deadlock/timeout is re-raised instead of being
-            swallowed, so the run stops rather than resuming on a damaged transaction.
-            The event-driven callers keep the replace behaviour (#1293).
-        reraise_non_resumable: Re-raise a deadlock/lock-wait instead of returning
-            success=False, WITHOUT the other nightly behaviours. For a caller whose own
-            save must abort when the transaction is broken (the Chapter board seating
-            flush, #1672). Default False: every other event-driven caller is unchanged.
+            fails is rolled back. (A deadlock/timeout is re-raised for EVERY caller, not
+            only this mode: see Raises.) The event-driven callers keep the replace
+            behaviour (#1293).
+
+    Raises:
+        frappe.QueryDeadlockError, frappe.QueryTimeoutError: always (#1888). After a 1213
+            MariaDB has already rolled the transaction back, so returning success=False
+            would let the caller's save carry on without the role-profile write. Every
+            other exception is logged and returned as success=False.
 
     Returns:
         dict: {
@@ -960,6 +984,21 @@ def sync_user_role_profile(
             frappe.db.savepoint(savepoint)
         if not frappe.db.exists("User", user):
             return {"success": False, "error": f"User {user} not found", "user": user}
+
+        # Administrator and Guest are never governed by a role profile: frappe's
+        # User.populate_role_profile_roles() empties role_profiles for STANDARD_USERS, so
+        # the write is discarded. What was NOT discarded was the Employee that
+        # _ensure_employee_for_profile() inserts first when the account is linked to a
+        # Member holding a profile with the Employee role (#694). Every caller reaches
+        # this function, so the guard lives here rather than in each of them.
+        if user in frappe.STANDARD_USERS:
+            return {
+                "success": True,
+                "user": user,
+                "changed": False,
+                "skipped": "standard_user",
+                "message": f"Skipped: {user} is a standard user",
+            }
 
         # A disabled account is normally never synced: doing so can silently
         # re-enable it.
@@ -1163,13 +1202,11 @@ def sync_user_role_profile(
             ),
         }
 
-    except NON_RESUMABLE_DB_ERRORS as e:
-        if nightly or reraise_non_resumable:
-            raise
-        return _sync_failed(user, e)
-    # The nightly sweep re-raises deadlock/timeout above; event-driven callers have always
-    # been handed success=False instead and must keep that contract (#1293).
-    except Exception as e:  # non-resumable-ok: legacy swallow contract for non-nightly callers
+    except NON_RESUMABLE_DB_ERRORS:
+        # Every caller, event-driven or nightly (#1888): the server has discarded the
+        # transaction, so the unit of work must be abandoned, not logged and resumed.
+        raise
+    except Exception as e:
         if nightly:
             rollback_to_savepoint(savepoint)
         return _sync_failed(user, e)
@@ -1179,8 +1216,9 @@ def _sync_failed(user: str, e: Exception) -> dict:
     # Surface as Error Log too: the warning-only path lost us a
     # TimestampMismatchError regression for weeks (issue surfaced 2026-04-19
     # when the customer_group bug stopped masking it). Callers
-    # (auto_sync_on_role_change, ACR's _sync_role_profile) also swallow,
-    # so this is the last reachable point before silent absorption.
+    # (auto_sync_on_role_change, ACR's _sync_role_profile) also swallow
+    # ordinary errors, so this is the last reachable point before silent
+    # absorption. A 1213/1205 never gets here: it is re-raised (#1888).
     frappe.logger().error(f"Error syncing role profile for {user}: {str(e)}")
     frappe.log_error(
         message=f"Error syncing role profile for {user}: {e}",
@@ -1218,7 +1256,9 @@ def _restore_direct_roles(user: str, roles: list) -> None:
 def resync_chapter_seat_holders(chapter_name: str) -> list:
     """Recalculate the role profiles of everyone holding an active seat on a chapter's board.
 
-    Returns the users that could not be synced; one failure never stops the rest.
+    Returns the users that could not be synced; an ordinary failure never stops the rest.
+    A deadlock/lock-wait (1213/1205) does: it propagates (#1888), so a caller such as the
+    Verenigingen Settings save is aborted rather than left on a discarded transaction.
     """
     seats = frappe.db.get_all(
         "Chapter Board Member", filters={"parent": chapter_name, "is_active": 1}, pluck="volunteer"
@@ -1262,7 +1302,8 @@ def sync_role_profiles_for_users(users: list, dry_run: bool = False, nightly: bo
     Plain (non-whitelisted) so the scheduler can call it without going through
     high_security_api. sync_user_role_profile catches its own failures (one Error Log
     row each) and returns success=False, which is counted here; with ``nightly`` it
-    also rolls the failed user's partial writes back, and re-raises a deadlock/timeout.
+    also rolls the failed user's partial writes back. A deadlock/timeout (1213/1205) is
+    re-raised for every caller, nightly or not (#1888), and stops the run.
     """
     results = {
         "total": len(users),
@@ -1333,6 +1374,9 @@ def nightly_role_profile_sync() -> dict:
     return results
 
 
+_DEFAULT_SYNC_PROFILES = [PROFILE_MEMBER, PROFILE_VOLUNTEER, PROFILE_TEAM_LEADER, PROFILE_BOARD_MEMBER]
+
+
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def bulk_recalculate_role_profiles(filters: dict = None, dry_run: bool = True):
@@ -1349,12 +1393,7 @@ def bulk_recalculate_role_profiles(filters: dict = None, dry_run: bool = True):
     try:
         # Default to users with verenigingen role profiles
         if not filters:
-            filters = {
-                "role_profile_name": [
-                    "in",
-                    [PROFILE_MEMBER, PROFILE_VOLUNTEER, PROFILE_TEAM_LEADER, PROFILE_BOARD_MEMBER],
-                ]
-            }
+            filters = {"name": ["in", get_users_holding_profiles(_DEFAULT_SYNC_PROFILES)]}
 
         results = sync_role_profiles_for_users(
             frappe.get_all("User", filters=filters, pluck="name"), dry_run=dry_run
@@ -1362,6 +1401,8 @@ def bulk_recalculate_role_profiles(filters: dict = None, dry_run: bool = True):
 
         return results
 
+    except NON_RESUMABLE_DB_ERRORS:
+        raise  # #1888: the transaction is gone; {"success": False} would hide that
     except Exception as e:
         frappe.log_error(
             title="Role Profile Bulk Sync Error",
@@ -1379,13 +1420,17 @@ def auto_sync_on_role_change(user: str):
     - Team leadership changes
     - Volunteer status changes
 
-    This is a fire-and-forget function that logs errors but doesn't throw.
+    This is a fire-and-forget function that logs errors but doesn't throw, except for a
+    deadlock/lock-wait (1213/1205), which must reach whoever owns the transaction (#1888).
+    Frappe does not retry a background job that fails this way; see the callers.
     """
     try:
         result = sync_user_role_profile(user, dry_run=False)
         if not result.get("success"):
             frappe.logger().warning(f"Auto-sync failed for {user}: {result.get('error')}")
         return result
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
     except Exception as e:
         frappe.logger().error(f"Error in auto-sync for {user}: {str(e)}")
 
@@ -1533,25 +1578,17 @@ def validate_role_profile_data_integrity():
                         )
 
         # Check 5: Users with incorrect profiles (sample check)
-        users_to_check = frappe.db.get_all(
-            "User",
-            filters={
-                "role_profile_name": [
-                    "in",
-                    [PROFILE_MEMBER, PROFILE_VOLUNTEER, PROFILE_TEAM_LEADER, PROFILE_BOARD_MEMBER],
-                ]
-            },
-            fields=["name", "role_profile_name"],
-            limit=100,  # Limit to avoid timeout
-        )
+        users_to_check = get_users_holding_profiles(_DEFAULT_SYNC_PROFILES)[:100]  # Limit to avoid timeout
 
-        for user in users_to_check:
-            calculated_profile = calculate_user_role_profile(user.name)
-            if calculated_profile and calculated_profile != user.role_profile_name:
+        for user_name in users_to_check:
+            held = get_user_role_profiles(user_name)
+            calculated_profile = calculate_user_role_profile(user_name)
+            # The headline profile only has to be HELD: stacked profiles are legitimate (#2433).
+            if calculated_profile and calculated_profile not in held:
                 issues["profile_mismatches"].append(
                     {
-                        "user": user.name,
-                        "current_profile": user.role_profile_name,
+                        "user": user_name,
+                        "current_profile": frappe.db.get_value("User", user_name, "role_profile_name"),
                         "calculated_profile": calculated_profile,
                         "issue": "Current profile does not match calculated profile",
                     }

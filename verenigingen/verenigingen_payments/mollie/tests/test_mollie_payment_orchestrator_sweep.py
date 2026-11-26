@@ -29,12 +29,13 @@ from types import SimpleNamespace
 
 import frappe
 
-from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, ensure_selling_price_list
 from verenigingen.tests.support.sepa_test_company import (
     ensure_membership_dues_item,
     get_eur_bank_account,
     get_eur_test_company,
 )
+from verenigingen.verenigingen_payments.services.bank_transaction_creator import BankTransactionCreator
 from verenigingen.verenigingen_payments.services.mollie_payment_orchestrator import (
     MolliePaymentOrchestrator,
     PaymentProcessingResult,
@@ -86,6 +87,11 @@ class _FakeBTCreator:
 
     def get_mollie_bank_account_config(self):
         return self._config
+
+    # The idempotency lookup is the real scoped DB query (#2620), not a fake: it is what
+    # the tests that plant decoy rows exercise.
+    find_mollie_bank_transaction = BankTransactionCreator.find_mollie_bank_transaction
+    _find_matching_bank_transaction = BankTransactionCreator._find_matching_bank_transaction
 
     def create_from_mollie_payment(self, **kwargs):
         self.create_calls.append(kwargs)
@@ -293,8 +299,17 @@ class TestCreateOrphanInvoice(EnhancedTestCase):
         )
         frappe.db.set_single_value("Verenigingen Payments Settings", "dues_income_account", self.income)
         frappe.clear_document_cache("Verenigingen Payments Settings", "Verenigingen Payments Settings")
+        # The orphan invoice sets no price list, so frappe.new_doc fills in the global
+        # default ("Standard Selling" = INR on a fresh site) and erpnext fetches a live
+        # exchange rate INR->EUR, refused for a non-System session user (#2766).
+        self._orig_selling_list = frappe.db.get_default("selling_price_list")
+        frappe.db.set_default(
+            "selling_price_list",
+            ensure_selling_price_list(frappe.db.get_value("Company", self.company, "default_currency")),
+        )
 
     def tearDown(self):
+        frappe.db.set_default("selling_price_list", self._orig_selling_list)
         frappe.db.set_single_value("Verenigingen Settings", "company", self._orig_company)
         frappe.db.set_single_value("Verenigingen Payments Settings", "dues_income_account", self._orig_income)
         frappe.clear_document_cache("Verenigingen Settings", "Verenigingen Settings")
@@ -403,7 +418,7 @@ class TestProcessOrphanedPaymentCustomerLinked(EnhancedTestCase):
         # reached for real, not simulated.
         payment_id = f"tr_sweep_{frappe.generate_hash()[:10]}"
 
-        bt = _FakeBTCreator(bt_name="BT-LINKED")
+        bt = _FakeBTCreator(bt_name="BT-LINKED", config={"bank_account": bank_account, "company": company})
         orch = _bare_orchestrator(bt=bt)
         orch._find_or_create_customer_from_mollie = lambda cid, payment, result: "CUST-RESOLVED"
 

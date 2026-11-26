@@ -116,6 +116,8 @@ import json
 import os
 import sys
 import tempfile
+from functools import lru_cache
+from pathlib import Path
 
 SETUP_FUNCS = {"setUp", "setUpClass", "setUpModule"}
 SCOPING_KW = {"filters", "name", "or_filters"}  # presence => query is (likely) scoped
@@ -175,6 +177,56 @@ def _get_value_filters_arg(call):
 
 
 _FILTERS_OMITTED = object()
+
+
+def _get_value_doctype_literal(call):
+    """The doctype name when it is passed as a string literal, else None."""
+    arg = call.args[0] if call.args else None
+    if arg is None:
+        for kw in call.keywords:
+            if kw.arg in ("doctype", "dt"):
+                arg = kw.value
+    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+        return arg.value
+    return None
+
+
+@lru_cache(maxsize=1)
+def _known_single_doctypes():
+    """Names of every doctype whose JSON says ``"issingle": 1`` (#1338).
+
+    A Single has exactly one row, so ``get_value("<Single>", None, field)`` -- the
+    standard way to read one -- cannot depend on what a neighbouring test left behind
+    and is not REUSE. The scanner is AST-only, so "is this a Single" is answered from
+    the doctype JSONs of THIS app only.
+
+    Singles of other apps (frappe/erpnext/hrms, e.g. System Settings) are deliberately
+    NOT resolved: CI scans a bare checkout with no bench, so resolving them where a
+    bench exists would make the census differ between a local run and CI and turn
+    "Baseline is in sync" red after a green local run. A setUp read of one still counts
+    as REUSE, exactly as before #1338. The census is identical with or without a bench.
+    """
+    roots = [Path(__file__).resolve().parent.parent.parent / "verenigingen"]
+    singles = set()
+    for root in roots:
+        for dirpath, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if d not in ("node_modules", ".git", "__pycache__", "public")]
+            if os.path.basename(os.path.dirname(dirpath)) != "doctype":
+                continue
+            name = os.path.basename(dirpath) + ".json"
+            if name not in files:
+                continue
+            try:
+                with open(os.path.join(dirpath, name), encoding="utf-8") as fh:
+                    text = fh.read()
+                if '"issingle"' not in text:
+                    continue
+                data = json.loads(text)
+            except (OSError, ValueError):
+                continue
+            if data.get("issingle") in (1, True) and data.get("name"):
+                singles.add(data["name"])
+    return frozenset(singles)
 
 
 def _get_value_is_unscoped(call):
@@ -324,10 +376,15 @@ class Visitor(ast.NodeVisitor):
         # limit=1) called directly in a test, get_value's single-row return is its normal,
         # intended shape everywhere, not a signal of this specific anti-pattern -- see
         # #1311's own before/after census for why setUp-only keeps this reviewable.
-        if _is_get_value(node) and _get_value_is_unscoped(node):
-            in_setup = any(f in SETUP_FUNCS for f in self.func_stack)
-            if in_setup:
-                self._add("REUSE", node)
+        # #1338: not for a Single -- it has one row, whatever the filter shape. The
+        # Single lookup walks doctype JSONs, so it runs last, only for a real candidate.
+        if (
+            _is_get_value(node)
+            and any(f in SETUP_FUNCS for f in self.func_stack)
+            and _get_value_is_unscoped(node)
+            and _get_value_doctype_literal(node) not in _known_single_doctypes()
+        ):
+            self._add("REUSE", node)
 
         self.generic_visit(node)
 
@@ -351,13 +408,20 @@ class Visitor(ast.NodeVisitor):
         return False
 
 
+class UnscannableFile(Exception):
+    """A file the scanner could not read or parse (#944)."""
+
+
 def scan_file(path, root):
     rel = os.path.relpath(path, root)
     try:
-        src = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
         tree = ast.parse(src, filename=path)
-    except (OSError, SyntaxError):
-        return []
+    except (OSError, SyntaxError, UnicodeDecodeError) as exc:
+        # #944: this used to `return []`, so a file the scanner never examined counted
+        # as clean for the gate. Raise so the caller can fail the run.
+        raise UnscannableFile(f"{rel}: {type(exc).__name__}: {exc}") from exc
     v = Visitor(rel, src.splitlines())
     v.visit(tree)
     return v.findings
@@ -400,19 +464,38 @@ def discover_findings(root):
     names one, so support it directly instead of mis-answering it.
     """
     if os.path.isfile(root):
-        return list(scan_file(root, os.path.dirname(root) or "."))
+        try:
+            return list(scan_file(root, os.path.dirname(root) or "."))
+        except UnscannableFile as exc:
+            sys.exit(f"ORDER-DEPENDENCE SCAN FAILED, unscannable file: {exc}")
     if not os.path.isdir(root):
         sys.exit(
             f"{root}: no such file or directory -- this scanner walks a directory "
             "or scans a single file, and cannot report findings for neither."
         )
     findings = []
-    for dirpath, dirs, files in os.walk(root):
+    unscannable = []
+
+    def _walk_failed(err):
+        # #944: os.walk() skips an unreadable directory silently by default.
+        unscannable.append(f"{err.filename}: {type(err).__name__}: {err.strerror}")
+
+    for dirpath, dirs, files in os.walk(root, onerror=_walk_failed):
         if "__pycache__" in dirs:
             dirs.remove("__pycache__")
         for fn in files:
             if _is_scannable(dirpath, root, fn):
-                findings.extend(scan_file(os.path.join(dirpath, fn), root))
+                try:
+                    findings.extend(scan_file(os.path.join(dirpath, fn), root))
+                except UnscannableFile as exc:
+                    unscannable.append(str(exc))
+    if unscannable:
+        # Fail closed, naming every file: an unexamined file is not a clean one.
+        sys.exit(
+            "ORDER-DEPENDENCE SCAN FAILED: the scanner could not examine "
+            f"{len(unscannable)} path(s), so its count would understate the tree "
+            "(#944):\n  " + "\n  ".join(sorted(unscannable))
+        )
     return findings
 
 

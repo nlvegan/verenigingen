@@ -12,6 +12,7 @@ from frappe import _
 
 from verenigingen.verenigingen_payments.services.batch_validation_service import batch_validation_service
 from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
+from verenigingen.verenigingen_payments.utils.sepa_constants import row_left_out_of_file
 from verenigingen.verenigingen_payments.utils.sepa_utilities import (
     BatchLoggingUtilities,
     CalculationUtilities,
@@ -37,7 +38,8 @@ class BatchProcessingService:
             batch_doc: Direct Debit Batch document
 
         Returns:
-            Number of successfully processed invoices
+            Number of invoices collected by THIS call (rows already Successful
+            are skipped and not counted; the batch status still counts them)
 
         Raises:
             frappe.ValidationError: If batch is not in correct state
@@ -51,14 +53,29 @@ class BatchProcessingService:
         # generate_sepa_xml() requires (#1231's Staff-submit path). Marking such
         # a batch's invoices "paid" would record a collection that never
         # happened, so require the file explicitly rather than inferring it
-        # from docstatus/status -- mirroring the same guard already present in
-        # process_batch_submission() a few lines below.
+        # from docstatus/status.
         if not batch_doc.sepa_file_generated:
             frappe.throw(_("SEPA file must be generated before marking invoices as paid"))
 
         success_count = 0
+        already_collected = 0
+        left_out = 0
 
         for invoice_item in batch_doc.invoices:
+            # #2839: the generated file does not contain this row, so the bank was never asked
+            # for this debit. Booking it would mark the invoice Paid without a collection.
+            if row_left_out_of_file(invoice_item.status, invoice_item.result_code):
+                left_out += 1
+                continue
+
+            # #2573: a row is set Successful only after its Payment Entry was created
+            # (same transaction), so Successful means "this batch already collected it".
+            # Re-entering would make ERPNext reject the duplicate and overwrite the row
+            # (and the batch) as Failed although the Payment Entry exists.
+            if invoice_item.status == "Successful":
+                already_collected += 1
+                continue
+
             try:
                 # Get the invoice
                 invoice = frappe.get_doc("Sales Invoice", invoice_item.invoice)
@@ -98,52 +115,52 @@ class BatchProcessingService:
                 )
 
         # Update batch status (persisted via db_set, see above).
-        self._update_batch_status_after_processing(batch_doc, success_count)
+        self._update_batch_status_after_processing(batch_doc, success_count + already_collected)
 
         # Log results. batch_log is not allow_on_submit either, so persist via db_set.
         BatchLoggingUtilities.add_to_document_batch_log(
-            batch_doc, f"Processed {success_count} of {len(batch_doc.invoices)} invoices"
+            batch_doc,
+            f"Processed {success_count} of {len(batch_doc.invoices)} invoices"
+            + (f" ({already_collected} already collected, skipped)" if already_collected else "")
+            + (f" ({left_out} not in the SEPA file, skipped)" if left_out else ""),
         )
         batch_doc.db_set("batch_log", batch_doc.batch_log, update_modified=False)
 
         return success_count
 
-    def process_batch_submission(self, batch_doc) -> bool:
+    def record_collected_by_bank_reconciliation(self, row, payment_entry_name: str) -> None:
+        """Record that bank reconciliation booked this row's Payment Entry (#2798).
+
+        Same writes as the success branch of mark_batch_invoices_as_paid, so a later
+        "Mark as Processed" skips the row (#2573) instead of re-booking an invoice that is
+        already paid and flipping row and batch to Failed. db_set only, no commit: the
+        caller's transaction owns atomicity with the Payment Entry.
+
+        A row already Failed (e.g. a bank return code such as AC04) keeps its status, result
+        code and message and its mandate usage stays as it was: reconciliation must not turn
+        a returned collection into a collected one (maintainer ruling on #2798). The persisted
+        status is read, not the in-memory one, which may predate the row's last write.
         """
-        Process the batch submission - placeholder for bank integration.
+        if frappe.db.get_value("Direct Debit Batch Invoice", row.name, "status") == "Failed":
+            return
+        self._set_invoice_status_after_submit(
+            row, "Successful", "PDNG", f"Payment entry {payment_entry_name} created"
+        )
+        self._mark_mandate_usage_collected(row.invoice)
 
-        Args:
-            batch_doc: Direct Debit Batch document
+    def refresh_batch_status_from_rows(self, batch_doc) -> None:
+        """Recompute the batch status from its rows' persisted state (#2798).
 
-        Returns:
-            True if submission successful
-
-        Raises:
-            frappe.ValidationError: If SEPA file not generated or other errors
+        Only a Submitted or Processed batch is refreshed: any other status (Rolled Back,
+        Partially Failed, ...) records a decision this recompute must not overwrite.
         """
-        try:
-            if not batch_doc.sepa_file_generated:
-                frappe.throw(_("SEPA file must be generated before processing"))
-
-            # Set status to submitted
-            batch_doc.status = "Submitted"
-            BatchLoggingUtilities.add_to_document_batch_log(batch_doc, _("Batch submitted for processing"))
-            batch_doc.save()
-
-            # Here you would add code to communicate with your bank's API
-            # For now, this is a placeholder
-
-            frappe.logger().info(f"Batch {batch_doc.name} submitted for processing")
-            return True
-
-        except Exception as e:
-            error_msg = _("Error processing batch: {0}").format(str(e))
-            BatchLoggingUtilities.add_to_document_batch_log(batch_doc, error_msg)
-            frappe.log_error(
-                title="SEPA Direct Debit Batch Error",
-                message=f"Error processing batch {batch_doc.name}: {str(e)}",
-            )
-            raise frappe.ValidationError(error_msg)
+        persisted = frappe.db.get_value("Direct Debit Batch", batch_doc.name, "status")
+        if persisted not in ("Submitted", "Processed"):
+            return
+        collected = frappe.db.count(
+            "Direct Debit Batch Invoice", {"parent": batch_doc.name, "status": "Successful"}
+        )
+        self._update_batch_status_after_processing(batch_doc, collected)
 
     def calculate_batch_totals_optimized(self, batch_doc) -> None:
         """

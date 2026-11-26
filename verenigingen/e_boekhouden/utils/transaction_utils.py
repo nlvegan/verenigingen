@@ -11,7 +11,9 @@ import frappe
 from frappe.utils import flt, getdate
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.services.supplier_group_resolver import resolve_non_group_supplier_group
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 def create_customer_impl(migration_doc, customer_data):
@@ -70,6 +72,9 @@ def create_customer_impl(migration_doc, customer_data):
 
         return {"success": True, "customer": customer.name, "created": True}
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # A 1213 rolled the batch back; a success=False result lets the caller carry on (#3029).
+        raise
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -100,9 +105,7 @@ def create_supplier_impl(migration_doc, supplier_data):
         supplier = frappe.new_doc("Supplier")
         supplier.supplier_name = supplier_name
         supplier.supplier_type = "Company" if company_name else "Individual"
-        supplier.supplier_group = (
-            frappe.db.get_single_value("Buying Settings", "supplier_group") or "All Supplier Groups"
-        )
+        supplier.supplier_group = resolve_non_group_supplier_group()
         supplier.company = migration_doc.company
 
         # Save supplier
@@ -127,6 +130,9 @@ def create_supplier_impl(migration_doc, supplier_data):
 
         return {"success": True, "supplier": supplier.name, "created": True}
 
+    except NON_RESUMABLE_DB_ERRORS:
+        # A 1213 rolled the batch back; a success=False result lets the caller carry on (#3029).
+        raise
     except Exception as e:
         return {"success": False, "error": str(e)}
 

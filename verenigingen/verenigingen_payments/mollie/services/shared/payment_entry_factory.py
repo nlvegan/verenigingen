@@ -25,8 +25,12 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import frappe
 
 from verenigingen.services.customer_group_resolver import resolve_non_group_customer_group
+from verenigingen.utils.transaction_errors import submit_atomically
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
+from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
+    refuse_staff_cancelled_forward_payment,
+)
 
 from .cost_center_resolver import CostCenterResolver
 
@@ -121,6 +125,10 @@ class PaymentEntryFactory:
                 )
                 return None
 
+            # Staff cancelled this payment's entry: do not book it again, staff decide (#2406)
+            if refuse_staff_cancelled_forward_payment(payment_id, amount, "the Payment Entry factory"):
+                return None
+
             # Resolve customer if not provided
             if not customer:
                 customer = self._resolve_customer_for_context(context)
@@ -177,6 +185,7 @@ class PaymentEntryFactory:
                     "cost_center": cost_center,
                     "title": title,
                     "remarks": remarks,
+                    "custom_remarks": 1,  # else ERPNext's set_remarks regenerates it on validate (#3088)
                 }
             )
 
@@ -184,7 +193,10 @@ class PaymentEntryFactory:
             pe.insert()
 
             try:
-                pe.submit()
+                # Savepoint: a submit that fails in on_submit has already written
+                # docstatus 1, which delete_doc below cannot remove (#2406). Rolling back
+                # to the savepoint restores the draft, which it can.
+                submit_atomically(pe)
             except Exception as submit_error:
                 # Submit failed - clean up the inserted but unsubmitted PE
                 self._handle_orphan_cleanup(pe, submit_error, context, mollie_data)
@@ -404,7 +416,8 @@ class PaymentEntryFactory:
         """
         Get the reference date for the Payment Entry.
 
-        Prefers Mollie's paid_at timestamp if available, otherwise uses today.
+        Prefers Mollie's paid_at timestamp if available, otherwise uses today. The
+        timestamp is UTC; the reference date is the SITE-local day of it (#2378).
 
         Args:
             mollie_data: Dictionary containing Mollie payment data
@@ -414,12 +427,12 @@ class PaymentEntryFactory:
         """
         paid_at = mollie_data.get("paid_at")
         if paid_at:
-            try:
-                from dateutil import parser
+            from ....utils.timezone_utils import mollie_timestamp_to_local_date
 
-                return parser.parse(paid_at).date()
-            except Exception as e:
-                self.logger.warning(f"Could not parse paid_at '{paid_at}': {e}. Using today's date.")
+            local_date = mollie_timestamp_to_local_date(paid_at)
+            if local_date:
+                return local_date
+            self.logger.warning(f"Could not parse paid_at '{paid_at}'. Using today's date.")
 
         return frappe.utils.getdate()
 

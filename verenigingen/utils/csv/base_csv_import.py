@@ -103,11 +103,10 @@ def prepare_background_import(doctype: str, import_doc_name: str, test_mode) -> 
 
     Caller contract: this helper SETS `frappe.flags.in_background_job`
     and `frappe.flags.ignore_version_changes` but does NOT clean them
-    up. Callers MUST reset both in a `finally` block — the two
-    existing Procurios `process_import_background` functions both
-    do this. If `frappe.get_doc` raises (e.g. `DoesNotExistError` on
-    a stale `import_doc_name`), the exception propagates with the
-    flags still set; the caller's `finally` block handles cleanup.
+    up. Callers wrap the job in
+    `@restored_flags("in_background_job", "ignore_version_changes")` so
+    the caller's previous values come back on every exit, including a
+    raise from `frappe.get_doc` on a stale `import_doc_name` (#2577).
     """
     frappe.only_for(ADMIN_ROLES, message=True)
     test_mode = coerce_test_mode(test_mode)

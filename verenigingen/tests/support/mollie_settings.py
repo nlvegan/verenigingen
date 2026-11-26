@@ -32,19 +32,41 @@ def clear_mollie_config_cache() -> None:
     MollieConfigurationService.clear_cache()
 
 
-def pin_verenigingen_settings(test_case, **fields) -> None:
-    """Point ``Verenigingen Settings`` fields at this test's fixtures for its duration."""
-    previous = {field: frappe.db.get_single_value("Verenigingen Settings", field) for field in fields}
+def _pin_single(test_case, doctype, **fields) -> None:
+    """Set Single ``doctype`` fields for this test's duration and restore them via ``addCleanup``."""
+    previous = {field: frappe.db.get_single_value(doctype, field) for field in fields}
 
     for field, value in fields.items():
-        frappe.db.set_single_value("Verenigingen Settings", field, value)
+        frappe.db.set_single_value(doctype, field, value)
 
     def restore():
         for field, value in previous.items():
-            frappe.db.set_single_value("Verenigingen Settings", field, value)
+            frappe.db.set_single_value(doctype, field, value)
         frappe.db.commit()
 
     test_case.addCleanup(restore)
+
+
+def pin_verenigingen_settings(test_case, **fields) -> None:
+    """Point ``Verenigingen Settings`` fields at this test's fixtures for its duration."""
+    _pin_single(test_case, "Verenigingen Settings", **fields)
+
+
+def pin_payments_settings(test_case, **fields) -> None:
+    """Point ``Verenigingen Payments Settings`` fields (e.g. ``dues_income_account``) at this test's fixtures."""
+    _pin_single(test_case, "Verenigingen Payments Settings", **fields)
+
+
+def pin_mollie_settings_bank_account(test_case, account: str) -> None:
+    """Point ``Mollie Settings.mollie_bank_account`` (the GL account Mollie writers book to) at ``account``.
+
+    Writers read it before any fallback, so a value leaked by another test (an account of a
+    different company) stops every Payment Entry being booked. The cache is dropped on both ends;
+    ``addCleanup`` is LIFO, so the cache clear registered first runs AFTER the Single is restored.
+    """
+    test_case.addCleanup(clear_mollie_config_cache)
+    _pin_single(test_case, "Mollie Settings", mollie_bank_account=account)
+    clear_mollie_config_cache()
 
 
 def pin_mollie_clearing_account(test_case, clearing_account: str) -> None:
@@ -56,10 +78,27 @@ def pin_mollie_clearing_account(test_case, clearing_account: str) -> None:
     previous = frappe.db.get_single_value("Mollie Settings", "mollie_clearing_account")
     frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", clearing_account)
     clear_mollie_config_cache()
+    test_case.addCleanup(_restore_mollie_clearing_account, previous)
 
-    def restore():
-        frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", previous)
-        frappe.db.commit()
-        clear_mollie_config_cache()
 
-    test_case.addCleanup(restore)
+def own_mollie_clearing_account(test_class, clearing_account: str | None) -> None:
+    """Class-scope ``pin_mollie_clearing_account``: pin in ``setUpClass``, restore at class cleanup (#528).
+
+    Call it AFTER ``super().setUpClass()``. ``addClassCleanup`` is LIFO and the framework's
+    rollback was registered first, so this restore runs before it -- and commits for that
+    reason (see the module docstring), so it is not discarded. A class that wrote the Single
+    with ``save()`` and a bare ``commit()`` left its clearing account behind for every later
+    class in the shard, and a later test whose Bank Transaction lookup is scoped by Mollie's
+    bank account then saw a configuration it never set up.
+    """
+    previous = frappe.db.get_single_value("Mollie Settings", "mollie_clearing_account")
+    test_class.addClassCleanup(_restore_mollie_clearing_account, previous)
+    frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", clearing_account)
+    clear_mollie_config_cache()
+
+
+def _restore_mollie_clearing_account(previous) -> None:
+    """Put ``previous`` back, durably: the commit is the point (see the module docstring)."""
+    frappe.db.set_single_value("Mollie Settings", "mollie_clearing_account", previous)
+    frappe.db.commit()
+    clear_mollie_config_cache()

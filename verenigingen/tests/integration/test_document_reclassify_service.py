@@ -58,6 +58,7 @@ class TestReclassifyDocuments(VereningingenTestCase):
         )
         settings.flags.ignore_validate = True
         settings.flags.ignore_permissions = True
+        settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
         settings.save()
 
         cls.settings_doc = settings
@@ -71,6 +72,7 @@ class TestReclassifyDocuments(VereningingenTestCase):
             settings.append("document_folder_mapping", row)
         settings.flags.ignore_validate = True
         settings.flags.ignore_permissions = True
+        settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
         settings.save()
 
         cls.factory.cleanup()
@@ -241,6 +243,7 @@ class TestReclassifyDocuments(VereningingenTestCase):
                 row.folder_path = folder_path
         settings.flags.ignore_validate = True
         settings.flags.ignore_permissions = True
+        settings.flags.ignore_mandatory = True  # unseeded site: no before_tests seed (#2361)
         settings.save()
 
     def test_date_falls_back_to_folder_path(self):

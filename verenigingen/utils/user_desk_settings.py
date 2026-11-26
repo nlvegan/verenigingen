@@ -35,16 +35,27 @@ DESK_PROPERTIES = (
 )
 
 
+def _held_profiles(user_doc):
+    """Every role profile on the user: the child table (v16) plus the deprecated first-profile mirror."""
+    held = {row.role_profile for row in (user_doc.get("role_profiles") or []) if row.role_profile}
+    if user_doc.get("role_profile_name"):
+        held.add(user_doc.role_profile_name)
+    return held
+
+
 def ensure_desk_settings_for_role_profile(doc, method=None):
     """Enable all desk settings when user gets a volunteer-level+ role profile.
 
     Called as a User doc_event handler (on_update / after_insert).
     """
-    # Only act when role_profile_name changes (or on insert)
-    if method == "on_update" and not doc.has_value_changed("role_profile_name"):
-        return
-
-    if doc.role_profile_name not in DESK_ENABLED_PROFILES:
+    # Only act when a desk-enabled profile is newly held (or on insert). role_profile_name
+    # mirrors only the FIRST profile, so read the whole set (#2432).
+    gained = _held_profiles(doc) & DESK_ENABLED_PROFILES
+    if method == "on_update":
+        before = doc.get_doc_before_save()
+        if before:
+            gained -= _held_profiles(before)
+    if not gained:
         return
 
     # Check if any setting is currently disabled

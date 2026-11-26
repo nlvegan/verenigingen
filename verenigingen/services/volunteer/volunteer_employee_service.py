@@ -11,6 +11,7 @@ from frappe import _
 
 from verenigingen.services.member.account.account_creation_manager import AccountCreationManager
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.employee_user_link import find_reusable_employee_of_user
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
@@ -36,7 +37,7 @@ def create_employee_for_volunteer(volunteer: str) -> dict:
         frappe.throw(_("The volunteer needs a linked member with a user account first."))
     _refuse_unsuitable_user(member)
 
-    existing = frappe.db.get_value("Employee", {"user_id": member.user}, "name")
+    existing = find_reusable_employee_of_user(member.user)
     if existing:
         _link_employee(record, existing)
         return {"employee": existing, "created": False}

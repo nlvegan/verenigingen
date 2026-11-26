@@ -136,6 +136,53 @@ class FilePathScanTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class UnscannableFileFailsLoudlyTest(unittest.TestCase):
+    """#944: scan_file() used to swallow (OSError, SyntaxError) and return [], so a test
+    file the scanner could not read counted as clean. The scan must fail instead."""
+
+    BAD = "import frappe\n\n\ndef test_a(:\n    frappe.db.commit()\n"
+
+    def _scan_cli(self, root):
+        return subprocess.run([sys.executable, SCANNER, root], capture_output=True, text=True)
+
+    def test_syntax_error_file_fails_the_scan_and_names_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "test_broken.py"), "w") as fh:
+                fh.write(self.BAD)
+            res = self._scan_cli(tmp)
+            self.assertNotEqual(res.returncode, 0, res.stdout + res.stderr)
+            self.assertIn("test_broken.py", res.stdout + res.stderr)
+
+    def test_one_unparseable_file_fails_even_beside_a_clean_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "test_ok.py"), "w") as fh:
+                fh.write("def test_a():\n    pass\n")
+            with open(os.path.join(tmp, "test_broken.py"), "w") as fh:
+                fh.write(self.BAD)
+            self.assertNotEqual(self._scan_cli(tmp).returncode, 0)
+
+    def test_valid_tree_still_exits_zero(self):
+        # Control: the failure above is about the broken file, not any scan.
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "test_ok.py"), "w") as fh:
+                fh.write("def test_a():\n    pass\n")
+            self.assertEqual(self._scan_cli(tmp).returncode, 0)
+
+    def test_unreadable_subdirectory_fails_the_scan(self):
+        if os.geteuid() == 0:
+            self.skipTest("root ignores chmod 000")
+        with tempfile.TemporaryDirectory() as tmp:
+            sub = os.path.join(tmp, "locked")
+            os.mkdir(sub)
+            with open(os.path.join(sub, "test_x.py"), "w") as fh:
+                fh.write("import frappe\n\n\ndef test_a():\n    frappe.db.commit()\n")
+            os.chmod(sub, 0)
+            try:
+                self.assertNotEqual(self._scan_cli(tmp).returncode, 0)
+            finally:
+                os.chmod(sub, 0o700)
+
+
 class CommitExemptionVisibilityTest(unittest.TestCase):
     """#825: a rename into a _create_*/_cleanup_*/tearDown-prefixed function used to
     erase a COMMIT finding with no trace anywhere. It must now surface as the
@@ -424,8 +471,60 @@ class GetValueReuseTest(unittest.TestCase):
                 tmp,
                 "import frappe\n\n\nclass T:\n"
                 "    def setUp(self):\n"
-                "        self.x = frappe.db.get_value(\"System Settings\")\n",
+                "        self.x = frappe.db.get_value(\"Customer\")\n",
             )
+        self.assertIn("REUSE=1", result.stdout, result.stdout)
+
+    def _setup_body(self, call):
+        return "import frappe\n\n\nclass T:\n    def setUp(self):\n        self.x = " + call + "\n"
+
+    def test_single_doctype_read_with_none_filter_is_not_flagged(self):
+        # #1338: get_value("<Single>", None, field) is THE way to read a Single. A
+        # Single has exactly one row, so it cannot depend on what a neighbour left.
+        # "Ponto Settings" is issingle=1 in this repo's own doctype JSON.
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._scan(
+                tmp, self._setup_body('frappe.db.get_value("Ponto Settings", None, "enabled")')
+            )
+        self.assertIn("REUSE=0", result.stdout, result.stdout)
+
+    def test_single_doctype_read_other_unscoped_shapes_are_not_flagged(self):
+        for call in (
+            'frappe.db.get_value("Ponto Settings", {}, "enabled")',
+            'frappe.db.get_value("Ponto Settings", fieldname="enabled")',
+            'frappe.get_value("Ponto Settings", None, "enabled")',
+            'frappe.db.get_value(doctype="Ponto Settings", filters=None, fieldname="enabled")',
+        ):
+            with self.subTest(call=call), tempfile.TemporaryDirectory() as tmp:
+                result = self._scan(tmp, self._setup_body(call))
+                self.assertIn("REUSE=0", result.stdout, result.stdout)
+
+    def test_non_single_doctype_with_none_filter_is_still_flagged(self):
+        # CONTROL for the Single exemption: same shape, a doctype that is NOT a Single
+        # (Member is a regular doctype in this repo's JSON), so a "never flag None" or
+        # an always-exempt fix both fail here.
+        for call in (
+            'frappe.db.get_value("Member", None, "name")',
+            'frappe.db.get_value("Customer", None, "name")',
+            'frappe.db.get_value(doctype="Member", filters=None, fieldname="name")',
+        ):
+            with self.subTest(call=call), tempfile.TemporaryDirectory() as tmp:
+                result = self._scan(tmp, self._setup_body(call))
+                self.assertIn("REUSE=1", result.stdout, result.stdout)
+
+    def test_unresolved_settings_named_doctype_is_still_flagged(self):
+        # Control against a "name ends in Settings" shortcut, and the determinism
+        # decision: only THIS app's JSON is consulted, so another app's Single
+        # (System Settings) and an unknown "... Settings" are both still REUSE.
+        for dt in ("Imaginary Widget Settings", "System Settings"):
+            with self.subTest(dt=dt), tempfile.TemporaryDirectory() as tmp:
+                result = self._scan(tmp, self._setup_body(f'frappe.db.get_value("{dt}", None, "x")'))
+                self.assertIn("REUSE=1", result.stdout, result.stdout)
+
+    def test_non_literal_doctype_with_none_filter_is_still_flagged(self):
+        # The scanner cannot tell what a variable names, so it keeps flagging it.
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._scan(tmp, self._setup_body('frappe.db.get_value(self.doctype, None, "name")'))
         self.assertIn("REUSE=1", result.stdout, result.stdout)
 
     def test_scoped_dict_filters_in_setup_is_not_flagged(self):

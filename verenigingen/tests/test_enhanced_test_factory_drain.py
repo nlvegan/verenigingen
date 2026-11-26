@@ -10,6 +10,8 @@ symptoms of this framework gap; see
 docs/plans/2026-05-24-test-framework-tracked-doc-drain-design.md.
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
@@ -18,6 +20,7 @@ from verenigingen.tests.support.dues_schedule_invoice_fixtures import (
     make_submitted_invoice_for_schedule,
 )
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.utils.force_delete import force_delete
 
 
 class TestDrainTrackedDocuments(EnhancedTestCase):
@@ -779,3 +782,221 @@ class TestDrainDefersCustomerBlockedByCapturedInvoice(EnhancedTestCase):
             "no leak should ever be recorded for this row -- it was always "
             "going to be removed, just not on the first attempt",
         )
+
+
+class TestDrainRemovesAChapterThatIsStillReferenced2745(EnhancedTestCase):
+    """A Chapter delete is refused while anything references it (#2745), so the drain must
+    release what the TEST pointed at it before it deletes the Chapter.
+
+    Before the refusal, a forced Chapter delete took its board rows with it and ignored
+    Verenigingen Settings.national_board_chapter. Now neither is true, and a drain that
+    still deletes Member first, then Chapter, then the leftovers in reverse creation order
+    strands the Chapter, and the standalone Chapter Board Member row whose after_delete
+    can no longer save a Volunteer whose Member is gone.
+    """
+
+    def _create_drain2745_seated_volunteer_on_factory_chapter(self):
+        """Member -> Volunteer -> board seat, on a Chapter built by the factory.
+
+        Same construction as ``test_volunteer_sync_service.TestBoardRevocationClosesAccess``:
+        the Member and Chapter are factory-tracked, the Volunteer and the seat are created by
+        production code and so are captured-only.
+        """
+        from verenigingen.verenigingen.doctype.volunteer.volunteer import create_volunteer_from_member
+
+        chapter = self.factory.create_chapter()
+        role_name = f"Drain2745 Role {frappe.generate_hash(length=6)}"
+        frappe.get_doc(
+            {"doctype": "Chapter Role", "role_name": role_name, "permissions_level": "Basic", "is_active": 1}
+        ).insert(ignore_permissions=True)
+        member = self.factory.create_member(
+            first_name="Drain2745",
+            last_name="Seat",
+            email=f"drain2745.{frappe.generate_hash(length=8)}@example.org",
+        )
+        result = create_volunteer_from_member(member_name=member.name, create_user_account=False)
+        volunteer_name = result.get("volunteer_name") or result.get("volunteer")
+        chapter_doc = frappe.get_doc("Chapter", chapter.name)
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": volunteer_name,
+                "chapter_role": role_name,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return chapter.name, member.name, volunteer_name
+
+    def _drain2745_stop_draining(self, doctype, name, keep_captured=False):
+        """Take one record off the tracked list (and, by default, the captured one too).
+
+        ``keep_captured`` leaves it for the captured-insert drain alone, which is how a record
+        made by production code (not by the factory) is drained.
+        """
+        self.factory.created_documents = [
+            d for d in self.factory.created_documents if (d["doctype"], d["name"]) != (doctype, name)
+        ]
+        self.factory.core.created_records = [
+            d for d in self.factory.core.created_records if (d["doctype"], d["name"]) != (doctype, name)
+        ]
+        if not keep_captured:
+            self._captured_inserts = [key for key in self._captured_inserts if tuple(key) != (doctype, name)]
+
+    def _drain2745_run_both_drains(self):
+        self._drain_tracked_documents()
+        self._drain_captured_inserts()
+
+    def test_a_chapter_with_a_seated_board_volunteer_is_removed_with_no_leak(self):
+        chapter_name, member_name, volunteer_name = self._create_drain2745_seated_volunteer_on_factory_chapter()
+        self.assertTrue(
+            frappe.db.exists(
+                "Chapter Board Member", {"parent": chapter_name, "volunteer": volunteer_name, "is_active": 1}
+            ),
+            "precondition: the seat must exist",
+        )
+
+        self._drain2745_run_both_drains()
+
+        self.assertEqual(self.leaked_records, [])
+        self.assertFalse(frappe.db.exists("Chapter", chapter_name))
+        self.assertFalse(frappe.db.exists("Volunteer", volunteer_name))
+        self.assertFalse(frappe.db.exists("Member", member_name))
+
+    def _create_drain2745_settings_pointer_at(self, chapter_name):
+        """Point Verenigingen Settings.national_board_chapter at ``chapter_name`` and commit it.
+
+        The commit is the point: the drains roll back first, so only a committed pointer
+        reaches them (the way production code that commits leaves it).
+        """
+        old = frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter")
+        self.addCleanup(frappe.db.set_single_value, "Verenigingen Settings", "national_board_chapter", old)
+        frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", chapter_name)
+        frappe.db.commit()
+
+    def _create_drain2745_member_enrolled_in_a_later_chapter(self):
+        """A captured-only Member, then a Chapter created after it that lists the Member.
+
+        The Member is taken off the tracked list, so only the captured-insert drain can
+        remove it, as for a Member created by production code (a MijnRood event). The assignment
+        is the real flow, which writes the Member's chapter history: the Link the delete refuses on.
+        """
+        from verenigingen.services.chapter.chapter_assignment_service import ChapterAssignmentService
+
+        member = self.factory.create_member(
+            first_name="Drain2745",
+            last_name="Later",
+            email=f"drain2745.later.{frappe.generate_hash(length=8)}@example.org",
+        )
+        self._drain2745_stop_draining("Member", member.name, keep_captured=True)
+        chapter = self.factory.create_chapter()
+        ChapterAssignmentService().assign_with_cleanup(member=member.name, chapter=chapter.name)
+        frappe.db.commit()
+        return chapter.name, member.name
+
+    def test_a_chapter_created_after_the_captured_member_enrolled_in_it_is_removed_with_no_leak(self):
+        chapter_name, member_name = self._create_drain2745_member_enrolled_in_a_later_chapter()
+        self.assertIn(("Member", member_name), [tuple(k) for k in self._captured_inserts], "precondition")
+
+        self._drain2745_run_both_drains()
+
+        self.assertEqual(self.leaked_records, [])
+        self.assertFalse(frappe.db.exists("Chapter", chapter_name))
+        self.assertFalse(frappe.db.exists("Member", member_name))
+
+    def test_an_enrolment_row_is_removed_without_running_its_farewell_mail_hook(self):
+        """A Chapter delete is refused while its Member exists (#2745), so the Chapter Member row
+        is no longer swept away silently WITH its Chapter: the drain reaches the row first. Deleted
+        through delete_doc it runs on_trash, a farewell mail that resolves the default company, and
+        a company that is broken at teardown (test_approval_without_invoice restores it only in an
+        addCleanup, after the drain) leaked the row. Removing a row in teardown is not a member leaving.
+
+        Stand-in, stated: on_trash raises as the broken company made it raise, rather than breaking
+        the site-wide company setting, which would need a commit to survive the drain's rollback.
+        """
+        from verenigingen.verenigingen.doctype.chapter_member.chapter_member import ChapterMember
+
+        chapter_name, member_name = self._create_drain2745_member_enrolled_in_a_later_chapter()
+        self.assertTrue(
+            frappe.db.exists("Chapter Member", {"parent": chapter_name, "member": member_name}),
+            "precondition: the enrolment row exists",
+        )
+
+        with patch.object(ChapterMember, "on_trash", side_effect=frappe.ValidationError("farewell mail")):
+            self._drain2745_run_both_drains()
+
+        self.assertEqual(self.leaked_records, [])
+        self.assertFalse(frappe.db.exists("Chapter", chapter_name))
+        self.assertFalse(frappe.db.exists("Member", member_name))
+
+    def test_a_chapter_set_as_the_national_board_chapter_is_removed_with_no_leak(self):
+        chapter = self.factory.create_chapter()
+        self._create_drain2745_settings_pointer_at(chapter.name)
+
+        self._drain2745_run_both_drains()
+
+        self.assertEqual(self.leaked_records, [])
+        self.assertFalse(frappe.db.exists("Chapter", chapter.name))
+
+    def test_the_drain_leaves_the_national_board_chapter_alone_when_it_names_another_chapter(self):
+        """Control: only a pointer AT the drained Chapter is released."""
+        drained = self.factory.create_chapter()
+        bystander = self.factory.create_chapter()
+        self._drain2745_stop_draining("Chapter", bystander.name)
+        self.addCleanup(force_delete, "Chapter", bystander.name)
+        self._create_drain2745_settings_pointer_at(bystander.name)
+
+        self._drain2745_run_both_drains()
+
+        self.assertFalse(frappe.db.exists("Chapter", drained.name), "the drained Chapter is gone")
+        self.assertEqual(
+            frappe.db.get_single_value("Verenigingen Settings", "national_board_chapter"), bystander.name
+        )
+
+
+class TestVereningingenCleanupRemovesAChapterItsMemberIsLinkedTo2745(VereningingenTestCase):
+    """``VereningingenTestCase.tearDown`` deletes tracked documents in reverse creation order.
+
+    A Chapter is usually created AFTER the Member and Volunteer that end up linked to it, so
+    the Chapter used to be deleted first. Chapter.on_trash now refuses that (#2745), which
+    stranded the Chapter in every such test (21 leaks in test_termination_non_resumable_errors).
+    """
+
+    def _create_drain2745_member_volunteer_chapter_link(self):
+        """Member, Volunteer, then Chapter (creation order matters), the Member seated and enrolled."""
+        member = self.create_test_member()
+        volunteer = self.create_test_volunteer(member=member.name)
+        chapter = self.create_test_chapter()
+        role = self.create_test_chapter_role()
+        chapter_doc = frappe.get_doc("Chapter", chapter.name)
+        chapter_doc.append("members", {"member": member.name, "enabled": 1})
+        chapter_doc.append(
+            "board_members",
+            {
+                "volunteer": volunteer.name,
+                "chapter_role": role.name,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter_doc.save()
+        frappe.db.commit()
+        return chapter.name
+
+    def test_teardown_removes_a_chapter_created_after_the_member_linked_to_it(self):
+        chapter_name = self._create_drain2745_member_volunteer_chapter_link()
+        self.assertTrue(
+            frappe.db.exists("Chapter", chapter_name), "precondition: the Chapter is committed"
+        )
+
+        # A test of the teardown, not an idiom: tearDown runs again, as a no-op, at the end.
+        self.tearDown()
+
+        self.assertEqual(
+            [d["name"] for d in self._test_docs if d.get("cleanup_status") == "failed"],
+            [],
+            "no tracked document may be left undeleted",
+        )
+        self.assertFalse(frappe.db.exists("Chapter", chapter_name))

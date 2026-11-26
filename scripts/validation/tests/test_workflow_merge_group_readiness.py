@@ -36,7 +36,7 @@ QUEUE_WORKFLOWS = ("ci.yml", "code-validation.yml", "quality-assurance.yml", "se
 _EVENT_CONDITIONAL = re.compile(
     r"github\.(event_name|head_ref|base_ref|event\.(number|pull_request|issue))"
     r"|github\.ref(_name)?\b"
-    r"|GITHUB_(BASE_REF|HEAD_REF|EVENT_NAME|REF)\b"
+    r"|GITHUB_(BASE_REF|HEAD_REF|EVENT_NAME|REF(_NAME)?)\b"
     r"|context\.(issue|payload)"
 )
 _DECISION = "# merge_group:"
@@ -58,6 +58,11 @@ def undecided_lines(text: str) -> list[int]:
             continue
         j = i - 1
         decided = False
+        if _SCOPE_START.match(line):
+            # A step's opening line starts its own scope (#2204): the previous step's
+            # decision does not reach it. (A decision on this very line is already
+            # accepted above, by the `merge_group in line` skip.)
+            j = -1
         while j >= 0:
             if _DECISION in lines[j]:
                 decided = True
@@ -88,7 +93,7 @@ def queue_trigger_is_unfiltered(text: str) -> bool:
             continue
         if re.match(r"^\S|^  \S", line):  # next trigger or top-level key ends the block
             break
-        if re.match(r"^\s+(paths|paths-ignore|branches|branches-ignore):", line):
+        if re.match(r"""^\s+['"]?(paths|paths-ignore|branches|branches-ignore)['"]?\s*:""", line):
             return False
     return True
 
@@ -218,6 +223,59 @@ class TestScannerControls(unittest.TestCase):
         self.assertFalse(triggers_on_merge_group("on:\n  push:\n# merge_group: later\n"))
 
 
+class TestScanner2204Gaps(unittest.TestCase):
+    """#2204: three gaps in the scanner, each with a control that an over-broad fix would break."""
+
+    def test_a_conditional_on_a_steps_opening_line_does_not_inherit_the_previous_decision(self):
+        for opener in ("if: github.event_name == 'pull_request'", "run: echo $GITHUB_REF"):
+            with self.subTest(opener=opener):
+                text = (
+                    "      - name: A\n"
+                    "        # merge_group: decided for A only\n"
+                    "        run: true\n"
+                    f"      - {opener}\n"
+                )
+                self.assertEqual(undecided_lines(text), [4])
+
+    def test_a_decision_on_the_opening_line_itself_still_counts(self):
+        text = "      - if: github.event_name == 'pull_request'  # merge_group: skipped, PR-only\n"
+        self.assertEqual(undecided_lines(text), [])
+
+    def test_a_step_opening_line_naming_merge_group_is_decided(self):
+        text = "      - if: github.event_name == 'merge_group' || github.event_name == 'push'\n"
+        self.assertEqual(undecided_lines(text), [])
+
+    def test_a_decided_step_stays_decided_for_its_later_lines(self):
+        # Control: the opening-line rule must not make every line undecided.
+        text = (
+            "      - name: A\n"
+            "        # merge_group: decided\n"
+            "        if: github.event_name == 'pull_request'\n"
+            "        run: echo $GITHUB_REF\n"
+        )
+        self.assertEqual(undecided_lines(text), [])
+
+    def test_github_ref_name_env_var_is_flagged(self):
+        self.assertEqual(undecided_lines("    - name: Step\n      run: echo $GITHUB_REF_NAME\n"), [2])
+
+    def test_unrelated_github_ref_prefixed_names_are_not_flagged(self):
+        # Control: `GITHUB_REF(_NAME)?` must not become a bare `GITHUB_REF` prefix match.
+        for name in ("GITHUB_REFERENCE", "GITHUB_REF_TYPE"):
+            with self.subTest(name=name):
+                self.assertEqual(undecided_lines(f"    - name: Step\n      run: echo ${name}\n"), [])
+
+    def test_a_quoted_or_spaced_filter_key_is_still_a_filter(self):
+        for key in ("'paths':", '"paths":', "paths :", "'branches-ignore' :", '"paths-ignore":'):
+            with self.subTest(key=key):
+                text = f"on:\n  merge_group:\n    types: [checks_requested]\n    {key}\n      - x\n"
+                self.assertFalse(queue_trigger_is_unfiltered(text))
+
+    def test_a_key_merely_starting_with_a_filter_name_is_not_a_filter(self):
+        # Control: a real filter-free trigger must stay accepted.
+        text = "on:\n  merge_group:\n    types: [checks_requested]\n    pathsx: [a]\n  push:\n"
+        self.assertTrue(queue_trigger_is_unfiltered(text))
+
+
 class TestQueueWorkflowsAreReady(unittest.TestCase):
     def test_every_queue_workflow_triggers_on_merge_group(self):
         missing = [w for w in QUEUE_WORKFLOWS if not triggers_on_merge_group((_WORKFLOWS / w).read_text())]
@@ -309,7 +367,81 @@ class TestServerTestsRunsTheSuiteOnlyInTheQueue(unittest.TestCase):
 
     def test_the_summary_reads_the_suite_result(self):
         # Without `needs: tests`, needs.tests.result is empty and the gate no longer reflects shards.
-        self.assertEqual(_job_field(self.text, "summary", "needs"), "tests")
+        # The pre-queue census jobs are read too: a PR is green only when pr-tests succeeded.
+        needs = _job_field(self.text, "summary", "needs")
+        self.assertEqual(needs, "[tests, select-pr-modules, pr-tests]")
+
+    def test_the_census_jobs_run_on_pull_request_only(self):
+        # The queue and dispatch run the whole suite; a census job there would only spend runners.
+        self.assertEqual(_job_if(self.text, "select-pr-modules"), "github.event_name == 'pull_request'")
+        self.assertTrue(
+            (_job_if(self.text, "pr-tests") or "").startswith("github.event_name == 'pull_request'")
+        )
+
+    def test_an_empty_selection_cannot_fall_back_to_the_whole_suite(self):
+        # Empty `test-modules` means "run everything" in the reusable workflow (60 minutes).
+        self.assertIn("needs.select-pr-modules.outputs.modules != ''", _job_if(self.text, "pr-tests"))
+
+    # --- the summary's pull_request branch, judged on the script itself (not on a substring
+    # of the file, which a trailing comment or a widened condition would still satisfy) ---
+
+    def _summary_script(self) -> str:
+        """The `run:` script of the summary job's Report Result step, ${{ }} still in place."""
+        lines = self.text.splitlines()
+        start = lines.index("  summary:")
+        run_at = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+        body = []
+        for line in lines[run_at + 1:]:
+            if line.strip() and not line.startswith("          "):
+                break
+            body.append(line[10:])
+        return "\n".join(body)
+
+    def _pull_request_block(self) -> list[str]:
+        """Executable (non-comment) lines inside `if [ ...event_name... == "pull_request" ]`."""
+        lines = self._summary_script().splitlines()
+        i = next(n for n, l in enumerate(lines) if "github.event_name" in l and '"pull_request"' in l)
+        block, depth = [], 0
+        for line in lines[i:]:
+            stripped = line.strip()
+            if re.match(r"^if\b", stripped):
+                depth += 1
+            elif stripped == "fi":
+                depth -= 1
+                if depth == 0:
+                    break
+            if stripped and not stripped.startswith("#"):
+                block.append(stripped)
+        return block[1:]  # drop the opening `if` line
+
+    def test_the_summary_pull_request_branch_accepts_only_exactly_success(self):
+        block = self._pull_request_block()
+        conditions = [l for l in block if re.match(r"^if\b", l)]
+        self.assertEqual(conditions, ['if [ "$pr_status" == "success" ]; then'])
+        for l in block:
+            self.assertNotRegex(l, r"\|\||!=|skipped|cancelled|failure", l)
+
+    def test_the_summary_pull_request_branch_succeeds_in_one_place_and_falls_through_to_exit_1(self):
+        block = self._pull_request_block()
+        exits = [l for l in block if l.startswith("exit")]
+        self.assertEqual(exits, ["exit 0", "exit 1"])
+        self.assertEqual(block[-1], "exit 1")
+        self.assertLess(block.index("exit 0"), block.index("fi"))
+
+    def test_the_summary_pull_request_branch_behaves(self):
+        # Run the real script for each result value. Only `success` may pass: `skipped`
+        # means select-pr-modules failed or the selection was empty, so no census ran.
+        import subprocess, tempfile, os
+        script = self._summary_script()
+        for result, want in (("success", 0), ("skipped", 1), ("failure", 1), ("cancelled", 1), ("", 1)):
+            text = (script.replace("${{ github.event_name }}", "pull_request")
+                    .replace("${{ needs.tests.result }}", "skipped")
+                    .replace("${{ needs.pr-tests.result }}", result)
+                    .replace("${{ needs.select-pr-modules.result }}", "success"))
+            with tempfile.TemporaryDirectory() as d:
+                env = {**os.environ, "GITHUB_STEP_SUMMARY": os.path.join(d, "s.md")}
+                rc = subprocess.run(["bash", "-e", "-c", text], env=env, capture_output=True).returncode
+            self.assertEqual(rc, want, f"pr-tests result {result!r}")
 
 if __name__ == "__main__":
     unittest.main()

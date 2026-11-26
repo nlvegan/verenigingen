@@ -11,6 +11,7 @@ from verenigingen.utils.member_utils import (
     get_active_membership_for_member,
     get_current_user_member_name,
     get_member_customer,
+    get_not_linked_message,
     get_volunteer_for_member,
     require_login,
 )
@@ -45,10 +46,8 @@ def get_context(context):
     if not member:
         # Show a graceful error message instead of throwing
         context.no_member_record = True
-        context.error_title = _("Member Record Not Found")
-        context.error_message = _(
-            "No member record found for your account. Please contact support if you believe this is an error."
-        )
+        context.error_title = _("Account not linked to a membership")
+        context.error_message = get_not_linked_message()
         # Try to get support email from settings, with fallback
         try:
             context.support_email = frappe.db.get_single_value("Verenigingen Settings", "support_email")

@@ -27,6 +27,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count
 from frappe.utils.file_lock import create_lock, delete_lock, lock_exists
 
+from verenigingen.utils.boolean_utils import is_dry_run
 from verenigingen.utils.operation_result import OperationResult
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
@@ -538,7 +539,7 @@ def detect_orphaned_child_tables() -> OperationResult[Dict[str, Any]]:
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def cleanup_orphaned_child_tables(
-    dry_run=True, table_filter=None, skip_index_check=False
+    dry_run=True, table_filter=None, skip_index_check: bool = False
 ) -> OperationResult[Dict[str, Any]]:
     """
     Clean up orphaned child table records with concurrent execution protection.
@@ -557,10 +558,7 @@ def cleanup_orphaned_child_tables(
             - timing_metrics: Performance metrics for each table cleanup
             - summary: Human-readable summary of cleanup operation
     """
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() in ("true", "1", "yes")
-    if isinstance(skip_index_check, str):
-        skip_index_check = skip_index_check.lower() in ("true", "1", "yes")
+    dry_run = is_dry_run(dry_run)  # unrecognised string stays a dry run (#2385)
 
     # Acquire distributed lock for non-dry-run operations to prevent concurrent execution
     lock = None
@@ -838,8 +836,7 @@ def cleanup_member_child_tables_only(dry_run=True) -> OperationResult[Dict[str, 
         "Member Fee Change History",
     }
 
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() in ("true", "1", "yes")
+    dry_run = is_dry_run(dry_run)  # unrecognised string stays a dry run (#2385)
 
     # Acquire distributed lock for non-dry-run operations
     lock = None
@@ -997,8 +994,7 @@ def cleanup_volunteer_child_tables_only(dry_run=True) -> OperationResult[Dict[st
         "Volunteer Interest Area",
     }
 
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() in ("true", "1", "yes")
+    dry_run = is_dry_run(dry_run)  # unrecognised string stays a dry run (#2385)
 
     # Acquire distributed lock for non-dry-run operations
     lock = None

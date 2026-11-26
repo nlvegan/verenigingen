@@ -33,6 +33,7 @@ from typing import Optional
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.query_builder.functions import Coalesce
 from frappe.utils import get_url
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
@@ -41,9 +42,11 @@ from verenigingen.utils.transaction_errors import atomic_status_transition
 from verenigingen.verenigingen_payments.ponto.core.status_maps import is_refused_move, map_link_status
 from verenigingen.verenigingen_payments.ponto.core.submitted_rows import (
     LINK_GUARDED_FIELDS,
+    PontoSubmitCompensation,
     alert_executed_on_cancelled_row,
     as_system_update,
     as_system_update_from_db,
+    persist_cancelled_status,
     refuse_unless_system_update,
 )
 
@@ -56,8 +59,10 @@ class PontoCreateError(frappe.ValidationError):
     """
 
 
-class PontoPaymentLink(Document):
+class PontoPaymentLink(PontoSubmitCompensation, Document):
     """Controller for Ponto Payment Link DocType."""
+
+    PONTO_DELETE_METHOD = "delete_ponto_request"
 
     def validate(self):
         """Validate payment link before save."""
@@ -79,7 +84,7 @@ class PontoPaymentLink(Document):
         """Handle cancellation."""
         if self.status == "Pending Authorization" and self.ponto_request_id:
             self.cancel_ponto_request()
-        self.status = "Cancelled"
+        persist_cancelled_status(self)
 
     def validate_currency(self):
         """Ensure currency is EUR for SEPA payments."""
@@ -221,13 +226,19 @@ class PontoPaymentLink(Document):
         # The cancel_token proves, on the guest-reachable callback, that an
         # `error=access_denied` comes from the browser we sent to Ponto (#1815).
         from verenigingen.utils.security.guest_return_tokens import generate_guest_return_token
-        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import CANCEL_TOKEN_PURPOSE
+        from verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback import (
+            CANCEL_TOKEN_PURPOSE,
+            RETURN_PROOF_PURPOSE,
+            build_return_url,
+        )
 
         cancel_token = generate_guest_return_token(CANCEL_TOKEN_PURPOSE, self.name)
-        callback_url = get_url(
-            f"/api/method/verenigingen.verenigingen_payments.ponto.api.betaalverzoek_callback.payment_link_callback"
-            f"?payment_link={self.name}&cancel_token={cancel_token}"
-        )
+        # A separate proof (#1833): without it payment_link_callback will not hand out the
+        # payment_success token for this link.
+        return_proof = generate_guest_return_token(RETURN_PROOF_PURPOSE, self.name)
+        # The short guest route, not /api/method/...: Ponto rejects a redirectUri over 255
+        # characters and the long path with both 64-hex tokens was 313 on veg11.
+        callback_url = build_return_url(self.name, cancel_token, return_proof)
 
         try:
             client = get_betaalverzoek_client()
@@ -244,6 +255,7 @@ class PontoPaymentLink(Document):
 
             # Update document with Ponto response
             self.ponto_request_id = result.id
+            self.flags.ponto_created_id = result.id  # _submit deletes it if the save fails (#2294)
             self.redirect_link = result.redirect_link
             self.status = "Pending Authorization"
 
@@ -276,17 +288,21 @@ class PontoPaymentLink(Document):
         if not self.ponto_request_id:
             return
 
-        from verenigingen.verenigingen_payments.ponto.clients.betaalverzoek_client import (
-            get_betaalverzoek_client,
-        )
-
         try:
-            client = get_betaalverzoek_client()
-            client.delete_payment_request(self.ponto_request_id)
+            self.delete_ponto_request()
             frappe.logger().info(f"Cancelled Ponto payment request {self.ponto_request_id}")
         except Exception as e:
             frappe.logger().warning(f"Failed to cancel Ponto payment request {self.ponto_request_id}: {e}")
             # Don't throw - the request may already be authorized or executed
+
+    def delete_ponto_request(self):
+        """The Ponto delete call itself; raises on failure (on_cancel swallows, the failed-submit
+        compensation reports it, #2294)."""
+        from verenigingen.verenigingen_payments.ponto.clients.betaalverzoek_client import (
+            get_betaalverzoek_client,
+        )
+
+        get_betaalverzoek_client().delete_payment_request(self.ponto_request_id)
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
@@ -485,9 +501,22 @@ class PontoPaymentLink(Document):
     def increment_payment_count(self):
         """Increment total payments collected for periodic payments."""
         if self.payment_type == "Periodic":
-            self.total_payments_collected = (self.total_payments_collected or 0) + 1
-            # Security: Internal method called from webhook - counter update only
-            self.save(ignore_permissions=True)
+            # total_payments_collected is not allow_on_submit, so saving the submitted row refuses
+            # it (#2974); and Select validation refuses a stored "Periodic" first. Write the column
+            # alone: no document hooks run, so the #1907 guard is not consulted (it guards only
+            # status/entry/invoice/debtor, never this counter). An SQL increment, not a
+            # read-modify-write, so two webhook deliveries racing both count. `modified` is left
+            # alone so the caller's in-memory doc can still be saved afterwards.
+            link = frappe.qb.DocType(self.doctype)
+            (
+                frappe.qb.update(link)
+                .set(link.total_payments_collected, Coalesce(link.total_payments_collected, 0) + 1)
+                .where(link.name == self.name)
+                .run()
+            )
+            self.total_payments_collected = frappe.db.get_value(
+                self.doctype, self.name, "total_payments_collected"
+            )
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
@@ -552,7 +581,7 @@ class PontoPaymentLink(Document):
             "company": self.creditor_name,
         }
 
-        email_service.send_templated_email(
+        result = email_service.send_templated_email(
             template_name="payment_notification",
             recipients=[email],
             context=context,
@@ -561,6 +590,15 @@ class PontoPaymentLink(Document):
             reference_name=self.name,
             notification_key="ponto_payment_link_request",
         )
+
+        # A skipped (disabled key, cooldown, opt-out) or failed mail queued nothing (#2178)
+        if not result.success or result.skip_reason:
+            frappe.throw(
+                _("Payment link was not sent to {0}: {1}").format(
+                    email, result.skip_reason or result.error_message or _("email not queued")
+                ),
+                title=_("Cannot Send"),
+            )
 
         frappe.msgprint(
             _("Payment link sent to {0}").format(email),

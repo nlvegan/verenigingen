@@ -10,7 +10,11 @@ from frappe.utils import add_days, add_months, flt, getdate, today
 
 from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
-from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
+from verenigingen.utils.transaction_errors import (
+    NON_RESUMABLE_DB_ERRORS,
+    insert_and_submit_atomically,
+    rollback_to_savepoint,
+)
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.services.mollie_configuration_service import get_mollie_config
 
@@ -379,8 +383,7 @@ class PaymentPlan(Document):
         )
         payment_entry.paid_to = frappe.get_value("Company", payment_entry.company, "default_cash_account")
 
-        payment_entry.save()
-        payment_entry.submit()
+        insert_and_submit_atomically(payment_entry)
 
     def send_payment_confirmation(self, installment_number, amount):
         """Send payment confirmation email"""

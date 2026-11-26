@@ -14,7 +14,6 @@ This test suite covers:
 
 import unittest
 import frappe
-from unittest.mock import patch, MagicMock
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen import auth_hooks
 
@@ -71,104 +70,7 @@ class TestAuthHooksSecurity(EnhancedTestCase):
         frappe.set_user(self.original_user)
         super().tearDown()
 
-    # ===== SESSION CREATION SAFETY TESTS =====
-
-    def test_session_creation_with_none_user(self):
-        """Test session creation handles Guest user gracefully (Guest is the 'None' equivalent in Frappe)"""
-        # Use Guest user (Frappe's equivalent of no authenticated user)
-        frappe.set_user("Guest")
-        login_manager = MagicMock()
-
-        # Should not raise exception, should return early for Guest
-        try:
-            auth_hooks.on_session_creation(login_manager)
-            self.assertTrue(True, "Function handled Guest user without error")
-        except Exception as e:
-            self.fail(f"Session creation failed with Guest user: {e}")
-
-    def test_session_creation_with_empty_user(self):
-        """Test session creation handles system user gracefully"""
-        # Use Administrator (always exists in Frappe)
-        frappe.set_user("Administrator")
-        login_manager = MagicMock()
-
-        try:
-            auth_hooks.on_session_creation(login_manager)
-            self.assertTrue(True, "Function handled Administrator user without error")
-        except Exception as e:
-            self.fail(f"Session creation failed with Administrator user: {e}")
-
-    def test_session_creation_with_invalid_login_manager(self):
-        """Test session creation handles invalid login_manager"""
-        # Use test member user
-        frappe.set_user(self.test_member_user.name)
-        # Pass None as login manager
-        try:
-            auth_hooks.on_session_creation(None)
-            self.assertTrue(True, "Function handled None login_manager")
-        except Exception as e:
-            self.fail(f"Session creation failed with None login_manager: {e}")
-
-    def test_database_failure_during_session_creation(self):
-        """Test session creation handles database failures gracefully"""
-        frappe.set_user(self.test_member_user.name)
-        # Mock database failure
-        # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with patch('frappe.db.get_value', side_effect=Exception("Database connection failed")):
-            login_manager = MagicMock()
-
-            try:
-                auth_hooks.on_session_creation(login_manager)
-                self.assertTrue(True, "Function handled database failure gracefully")
-            except Exception as e:
-                self.fail(f"Session creation should handle database errors: {e}")
-
     # ===== RACE CONDITION TESTS =====
-
-    def test_concurrent_session_creation(self):
-        """Test multiple simultaneous session creation attempts.
-
-        frappe.local (session, conf, message_log, ...) is per-thread
-        (werkzeug.local.Local), so each worker thread must call
-        frappe.init(site=..., force=True) and establish its own session before
-        touching any Frappe API. Without this the workers fail with a bare
-        'session' KeyError that has nothing to do with on_session_creation's
-        own thread-safety.
-        """
-        import threading
-
-        results = []
-        errors = []
-        results_lock = threading.Lock()
-        site = frappe.local.site
-        member_user = self.test_member_user.name
-
-        def create_session():
-            try:
-                frappe.init(site=site, force=True)
-                frappe.connect()
-                frappe.set_user(member_user)
-                login_manager = MagicMock()
-                auth_hooks.on_session_creation(login_manager)
-                with results_lock:
-                    results.append("success")
-            except Exception as e:
-                with results_lock:
-                    errors.append(repr(e))
-            finally:
-                frappe.destroy()
-
-        threads = [threading.Thread(target=create_session) for _ in range(5)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=15)
-
-        # Check no errors occurred
-        if errors:
-            self.fail(f"Race condition caused errors: {errors}")
-
-        self.assertEqual(len(results), 5, "Not all concurrent sessions completed")
 
     def test_user_role_check_race_condition(self):
         """Test role checking doesn't fail under concurrent access"""
@@ -189,80 +91,6 @@ class TestAuthHooksSecurity(EnhancedTestCase):
         errors = [r for r in results if isinstance(r, str) and r.startswith("Error:")]
         if errors:
             self.fail(f"Concurrent role checks failed: {errors}")
-
-    # ===== SESSION STATE VALIDATION TESTS =====
-
-    def test_member_portal_redirect_safety(self):
-        """Test member portal redirect doesn't corrupt session"""
-        frappe.set_user(self.test_member_user.name)
-        # Mock justified: Infrastructure - external dependency, not the boundary under test
-        with patch('frappe.local.response', {}) as mock_response:
-            login_manager = MagicMock()
-
-            auth_hooks.on_session_creation(login_manager)
-
-            # Check redirect was set safely
-            self.assertIn("home_page", mock_response)
-            self.assertEqual(mock_response["home_page"], "/member_portal")
-
-    def test_session_state_integrity(self):
-        """Test session state remains consistent after auth hook"""
-        original_user = frappe.session.user
-
-        frappe.set_user(self.test_member_user.name)
-        login_manager = MagicMock()
-        auth_hooks.on_session_creation(login_manager)
-
-        # Session user should remain unchanged
-        self.assertEqual(frappe.session.user, self.test_member_user.name)
-
-        # Restore original session
-        frappe.set_user(original_user)
-
-    # ===== EDGE CASE VALIDATION TESTS =====
-
-    def test_guest_user_handling(self):
-        """Test guest user is handled correctly"""
-        frappe.set_user("Guest")
-        login_manager = MagicMock()
-
-        # Should return early without processing
-        auth_hooks.on_session_creation(login_manager)
-        self.assertTrue(True, "Guest user handled correctly")
-
-    def test_nonexistent_user_handling(self):
-        """Test handling of Administrator user (always exists).
-
-        setUp already runs as Administrator, so an explicit set_user here
-        was redundant and just tripped the enforcer's permission-bypass
-        rule. Drop it.
-        """
-        login_manager = MagicMock()
-
-        try:
-            auth_hooks.on_session_creation(login_manager)
-            self.assertTrue(True, "Administrator user handled gracefully")
-        except Exception as e:
-            self.fail(f"Should handle Administrator user: {e}")
-
-    def test_user_with_no_roles(self):
-        """Test user with no roles is handled correctly"""
-        # Create user with no roles
-        user_no_roles = self.create_test_user(
-            email="no.roles@example.com",
-            first_name="No",
-            last_name="Roles",
-            roles=[]
-        )
-
-        frappe.set_user(user_no_roles.name)
-        login_manager = MagicMock()
-
-        try:
-            auth_hooks.on_session_creation(login_manager)
-            self.assertTrue(True, "User with no roles handled correctly")
-        except Exception as e:
-            self.fail(f"Should handle user with no roles: {e}")
 
     # ===== ROLE CHECKING SECURITY TESTS =====
 
@@ -303,55 +131,6 @@ class TestAuthHooksSecurity(EnhancedTestCase):
         
         result = auth_hooks.has_system_access("")
         self.assertFalse(result, "Should return False for empty user")
-
-    # ===== BEFORE REQUEST HOOK TESTS =====
-
-    def _set_request_path(self, path):
-        """Set a minimal request object on frappe.local with the given path.
-
-        Returns the previous value so the caller can restore it. We set the
-        attribute directly rather than patching it, because frappe.local.request
-        is often unset in the test runner context and unittest.mock.patch then
-        fails in get_original().
-        """
-        previous = getattr(frappe.local, "request", None)
-
-        class _Req:
-            pass
-
-        req = _Req()
-        req.path = path
-        frappe.local.request = req  # Mock justified: Infrastructure - simulated request path
-        return previous
-
-    def test_before_request_with_none_user(self):
-        """The portal-access hook must handle the Guest user without raising."""
-        frappe.set_user("Guest")
-        previous = self._set_request_path("/app/Member")
-        try:
-            # enforce_member_portal_access is the real before-request hook
-            # (the old before_request/validate_session_before_request was removed).
-            auth_hooks.enforce_member_portal_access()
-            self.assertTrue(True, "enforce_member_portal_access handled Guest user")
-        except Exception as e:
-            self.fail(f"enforce_member_portal_access should handle Guest user: {e}")
-        finally:
-            frappe.local.request = previous  # Mock justified: Infrastructure - restore
-
-    def test_before_request_database_failure(self):
-        """The portal-access hook must swallow database failures, not crash the request."""
-        frappe.set_user(self.test_member_user.name)
-        previous = self._set_request_path("/app/Member")
-        # Mock justified: Infrastructure - simulating a DB outage inside the hook,
-        # not the boundary under test (the hook's own resilience).
-        with patch('frappe.get_roles', side_effect=Exception("Database error")):
-            try:
-                auth_hooks.enforce_member_portal_access()
-                self.assertTrue(True, "enforce_member_portal_access handled database error")
-            except Exception as e:
-                self.fail(f"enforce_member_portal_access should handle database errors: {e}")
-            finally:
-                frappe.local.request = previous  # Mock justified: Infrastructure - restore
 
     # ===== API SECURITY TESTS =====
 

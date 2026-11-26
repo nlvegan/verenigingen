@@ -104,7 +104,10 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         self.basic_role.save()
 
         # Board positions
-        self._add_board_position(self.chapter_fin.name, self.fin_volunteer.name, self.financial_role.name)
+        # Kept so the alias test can assert against the from_date this fixture wrote (#2832).
+        self.fin_board_position = self._add_board_position(
+            self.chapter_fin.name, self.fin_volunteer.name, self.financial_role.name
+        )
         self._add_board_position(self.chapter_basic.name, self.basic_volunteer.name, self.basic_role.name)
 
         frappe.db.commit()
@@ -433,7 +436,7 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         # Pin the documented output keys (from_date/to_date are aliased to
         # start_date/end_date); this fails if the alias is dropped/renamed.
         self.assertIn("start_date", pos)
-        self.assertEqual(str(pos["start_date"]), frappe.utils.today())
+        self.assertEqual(str(pos["start_date"]), str(frappe.utils.getdate(self.fin_board_position.from_date)))
         self.assertIn("end_date", pos)
 
     def test_get_user_board_positions_chapter_filter(self):
@@ -442,6 +445,30 @@ class TestChapterUtilsAccess(EnhancedTestCase):
         # Filter to a chapter the user has no position in -> empty
         positions = get_user_board_positions(self.fin_user.name, chapter_name=self.chapter_basic.name)
         self.assertEqual(positions, [])
+
+    def test_board_positions_ignore_member_email_without_user_link(self):
+        """#2206 ruling: a User whose email equals a Member's email but who is not linked by
+        Member.user holds none of that Member's board seats (is_chapter_board_member is
+        built on this). Control: the properly linked fin_user keeps theirs."""
+        from verenigingen.services.chapter.chapter_utils import (
+            get_user_board_positions,
+            is_chapter_board_member,
+        )
+
+        email_user = self.create_test_user(
+            email=f"cu-emailonly-{self.token}@test.com", roles=["Verenigingen Member"]
+        )
+        email_member = self.create_test_member(
+            first_name="Email", last_name="Only", email=email_user.name
+        )
+        email_volunteer = self.create_test_volunteer(email_member.name)
+        self.assertFalse(frappe.db.get_value("Member", email_member.name, "user"))
+        self._add_board_position(self.chapter_fin.name, email_volunteer.name, self.basic_role.name)
+
+        self.assertEqual(get_user_board_positions(email_user.name), [])
+        self.assertFalse(is_chapter_board_member(self.chapter_fin.name, email_user.name))
+        self.assertTrue(get_user_board_positions(self.fin_user.name))
+        self.assertTrue(is_chapter_board_member(self.chapter_fin.name, self.fin_user.name))
 
     def test_get_user_board_positions_no_member(self):
         from verenigingen.services.chapter.chapter_utils import get_user_board_positions

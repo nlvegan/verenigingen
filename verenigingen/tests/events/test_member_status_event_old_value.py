@@ -24,6 +24,10 @@ STATUS_MAIL = (
     "verenigingen.services.member.lifecycle.member_status_notification_service."
     "MemberStatusNotificationService._send_email"
 )
+STATUS_MAIL_JOB = (
+    "verenigingen.services.member.lifecycle.member_status_notification_service."
+    "send_status_change_notification_job"
+)
 
 
 class TestMemberStatusEventOldValue(VereningingenTestCase):
@@ -46,10 +50,6 @@ class TestMemberStatusEventOldValue(VereningingenTestCase):
         frappe.flags.bulk_member_operations = False
         frappe.flags.in_test = False
         frappe.flags.skip_volunteer_account_creation = True
-        self._had_throttle = "throttle_user_limit" in frappe.local.conf
-        self._throttle = frappe.local.conf.get("throttle_user_limit")
-        self.addCleanup(self._restore_throttle)
-        frappe.local.conf["throttle_user_limit"] = 1000000
 
         self.member = self.create_test_member(
             first_name="OldValue",
@@ -70,12 +70,6 @@ class TestMemberStatusEventOldValue(VereningingenTestCase):
         member = frappe.get_doc("Member", self.member.name)
         member.user = self.user.name
         member.save(ignore_permissions=True)
-
-    def _restore_throttle(self):
-        if self._had_throttle:
-            frappe.local.conf["throttle_user_limit"] = self._throttle
-        else:
-            frappe.local.conf.pop("throttle_user_limit", None)
 
     def tearDown(self):
         for k, v in self._saved_flags.items():
@@ -136,11 +130,24 @@ class TestMemberStatusEventOldValue(VereningingenTestCase):
 
     def test_status_mail_context_names_the_previous_status(self):
         sent = []
+        jobs = []
+        real_enqueue = frappe.enqueue
+
+        def capture_status_mail_job(*args, **kwargs):
+            # The mail is queued for after the commit (#2735); the job is run by hand below.
+            if kwargs.get("method") == STATUS_MAIL_JOB:
+                return jobs.append(kwargs)
+            return real_enqueue(*args, **kwargs)
+
         with patch(STATUS_MAIL, side_effect=lambda **kw: sent.append(kw["context"])):
-            self._save(status="Suspended")
+            with patch("frappe.enqueue", capture_status_mail_job):
+                self._save(status="Suspended")
+            for job in jobs:
+                frappe.call(job["method"], **{k: job[k] for k in ("member_name", "old_status", "new_status")})
         self.assertEqual(len(sent), 1, sent)
         self.assertEqual((sent[0]["old_status"], sent[0]["new_status"]), ("Active", "Suspended"))
 
+    # Mail delivery on status changes is pinned by TestStatusChangeMailsExactlyOnce (#2019 module).
     def test_suspension_through_the_event_path_leaves_the_user_enabled(self):
         """The user is disabled by the suspension/termination services, not by an event."""
         jobs = self._capture(status="Suspended")
@@ -149,6 +156,7 @@ class TestMemberStatusEventOldValue(VereningingenTestCase):
             self._run(jobs)
         self.assertEqual(frappe.db.get_value("User", self.user.name, "enabled"), 1)
 
+    # Mail delivery on status changes is pinned by TestStatusChangeMailsExactlyOnce (#2019 module).
     def test_reactivation_through_the_event_path_leaves_a_disabled_user_alone(self):
         self._save(status="Suspended")
         frappe.db.set_value("User", self.user.name, "enabled", 0)  # probe shortcut: staff disabled it
@@ -165,14 +173,6 @@ class TestMemberStatusEventOldValue(VereningingenTestCase):
         with patch(MAIL_FACTORY, return_value=service):
             self._run(jobs)
         service.send_notification.assert_not_called()
-
-    def test_control_suspension_still_mails_through_the_event_path(self):
-        """Control: the lifecycle job still mails for Suspended (real row for the guard)."""
-        jobs = self._capture(status="Suspended")
-        service = MagicMock(name="EmailService")
-        with patch(MAIL_FACTORY, return_value=service):
-            self._run(jobs)
-        service.send_notification.assert_called_once()
 
     def test_the_user_account_subscriber_is_gone(self):
         self.assertFalse(hasattr(member_subscribers, "handle_user_account_updates"))

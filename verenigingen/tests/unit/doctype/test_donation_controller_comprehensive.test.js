@@ -226,23 +226,17 @@ const customDonationTests = {
 	},
 
 	'Performance and Reliability': (getControllerTest) => {
-		it('should handle multiple rapid refresh events efficiently', () => {
+		it('repeated refresh events are synchronous and add no button', () => {
 			const controllerTest = getControllerTest();
 			controllerTest.mockForm.doc.docstatus = 1;
 			controllerTest.mockForm.doc.paid = 0;
 
-			const startTime = performance.now();
-
-			// Trigger multiple refresh events rapidly
+			// Each refresh must return synchronously (detects "became async", not "became
+			// slow"; no wall-clock budget, #2440).
 			for (let i = 0; i < 5; i++) {
-				controllerTest.testEvent('refresh');
+				const result = controllerTest.testEvent('refresh');
+				expect(result && typeof result.then).not.toBe('function');
 			}
-
-			const endTime = performance.now();
-			const executionTime = endTime - startTime;
-
-			// Should complete within reasonable time (less than 100ms)
-			expect(executionTime).toBeLessThan(100);
 
 			// ...and no refresh should have added a button
 			expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalled();
