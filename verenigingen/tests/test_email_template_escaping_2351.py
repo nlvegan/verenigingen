@@ -71,7 +71,7 @@ class TestSeededTemplateEscaping(VereningingenTestCase):
         body = self._render(
             "expense_approval_request",
             {
-                "doc": frappe._dict(name="EXP-1", description=RAW, organization_type="Chapter"),
+                "expense": frappe._dict(name="EXP-1", description=RAW),
                 "volunteer_name": RAW,
                 "category_name": RAW,
                 "organization_name": RAW,
@@ -85,12 +85,13 @@ class TestSeededTemplateEscaping(VereningingenTestCase):
             },
         )
         self._assert_escaped(body)
-        self.assertGreaterEqual(body.count(ESCAPED), 5)
+        # The live wording carries three typed values: description, volunteer and approver.
+        self.assertGreaterEqual(body.count(ESCAPED), 3)
 
     def test_expense_approved_and_rejected_escape_typed_values(self):
         self._seed_comprehensive(["expense_approved", "expense_rejected"])
         ctx = {
-            "doc": frappe._dict(name="EXP-1", description=RAW),
+            "expense": frappe._dict(name="EXP-1", description=RAW),
             "volunteer_name": RAW,
             "approved_by_name": RAW,
             "rejected_by_name": RAW,
@@ -155,14 +156,22 @@ class TestSeededTemplateEscaping(VereningingenTestCase):
         self._assert_escaped(contact)
         self.assertGreaterEqual(contact.count(ESCAPED), 2)
 
-    def test_control_system_html_still_renders_as_html(self):
-        """request_rows is HTML the sender builds from its own rows; it must stay markup."""
+    def test_overdue_termination_rows_escape_typed_values_and_keep_own_markup(self):
+        """The rows come from a loop in the template: typed values are escaped, while the
+        template's own table markup stays markup (control)."""
         self._seed_comprehensive(["termination_overdue_notification"])
         body = self._render(
             "termination_overdue_notification",
-            {"count": 1, "request_rows": "<tr><td>ROW-MARKER</td></tr>"},
+            {
+                "overdue_requests": [
+                    frappe._dict(name="T-1", member_name=RAW, request_date="d", days_overdue=3)
+                ]
+            },
         )
-        self.assertIn("<tr><td>ROW-MARKER</td></tr>", body)
+        self.assertNotIn("<i>x</i>", body)
+        self.assertIn(ESCAPED, body)
+        self.assertIn("<td", body)
+        self.assertIn("T-1", body)
 
     def test_rejection_templates_escape_reason_and_names(self):
         from verenigingen.api.membership_email_templates import create_default_email_templates

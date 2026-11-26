@@ -291,10 +291,11 @@ class TestRemainingSwallowersReachTheRunner(FrappeTestCase):
         self.assertIn("expense_approval_request", "; ".join(result["error"]["errors"]))
 
     def test_comprehensive_templates_report_a_failed_update(self):
-        from verenigingen.api.email_template_manager import create_comprehensive_email_templates
+        # The update branch now belongs to the explicit reset action (#1984); setup is create-only.
+        from verenigingen.api.email_template_manager import reset_stock_email_templates
 
         with mock.patch.object(Document, "save", side_effect=frappe.ValidationError("refused save (test)")):
-            result = create_comprehensive_email_templates()
+            result = reset_stock_email_templates()
         self.assertFalse(result["success"])
 
     def test_comprehensive_templates_healthy_twice(self):

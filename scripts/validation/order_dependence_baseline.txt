@@ -38,7 +38,7 @@ COMMIT services/billing/test_sales_invoice_hooks.py::4  # order-dependence
 COMMIT services/billing/test_template_services.py::6  # order-dependence
 COMMIT services/csv_import/test_member_import_service.py::3  # order-dependence
 COMMIT tests/api/test_check_account_types.py::4  # order-dependence
-COMMIT tests/api/test_email_template_manager.py::4  # order-dependence
+COMMIT tests/api/test_email_template_manager.py::3  # order-dependence
 COMMIT tests/api/test_membership_email_templates.py::2  # order-dependence
 COMMIT tests/api/test_schedule_maintenance.py::1  # order-dependence
 COMMIT tests/api/test_volunteer_application.py::1  # order-dependence

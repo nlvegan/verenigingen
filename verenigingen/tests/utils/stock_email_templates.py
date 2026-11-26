@@ -14,11 +14,24 @@ import frappe
 from verenigingen.tests.utils.paths import APP_ROOT
 
 FIXTURE_PATH = APP_ROOT / "verenigingen" / "fixtures" / "email_template.json"
+# Six stock rows are no longer fixtures (#1984: the fixture sync overwrote staff edits on every
+# migrate); they are seeded create-only from this file. "Stock" still means both sources.
+SEEDED_PATH = APP_ROOT / "verenigingen" / "setup" / "stock_email_templates.json"
 
 
 def _load_fixture_rows():
     with open(FIXTURE_PATH, encoding="utf-8") as f:
-        return {row["name"]: row for row in json.load(f)}
+        rows = {row["name"]: row for row in json.load(f)}
+    with open(SEEDED_PATH, encoding="utf-8") as f:
+        for row in json.load(f):
+            rows[row["name"]] = {
+                "doctype": "Email Template",
+                "enabled": 1,
+                "use_html": 1,
+                "response": row["response_html"],
+                **row,
+            }
+    return rows
 
 
 def ensure_stock_email_template(name):

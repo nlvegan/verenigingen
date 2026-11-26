@@ -21,6 +21,8 @@ leave duplicate/garbage template docs on the test site.
 from unittest.mock import MagicMock, patch
 
 import frappe
+from werkzeug.test import EnvironBuilder
+from werkzeug.wrappers import Request
 
 from verenigingen.api.email_template_manager import (
     create_comprehensive_email_templates,
@@ -33,13 +35,15 @@ from verenigingen.tests.utils.stock_email_templates import _cleanup_stock_email_
 from verenigingen.utils.operation_result import OperationResult
 
 # The exact set of Email Templates create_comprehensive_email_templates() manages.
+REFUSAL_1984 = "Access denied. You do not have permission for this operation."
+
 # Kept in sync with the module's `templates` list so cleanup is exhaustive.
 MANAGED_TEMPLATES = {
-    "expense_approval_request": "💰 Expense Approval Required - {{ doc.name }}",
-    "expense_approved": "✅ Expense Approved - {{ doc.name }}",
-    "expense_rejected": "❌ Expense Rejected - {{ doc.name }}",
-    "donation_confirmation": "Thank you for your donation - {{ donation_id }}",
-    "donation_payment_confirmation": "Payment Received - Donation {{ donation_id }}",
+    "expense_approval_request": "Expense Approval Required - {{ expense.name|e }}",
+    "expense_approved": "Expense Approved - {{ expense.name|e }}",
+    "expense_rejected": "Expense Rejected - {{ expense.name|e }}",
+    "donation_confirmation": "Thank you for your donation - {{ donation_id|e }}",
+    "donation_payment_confirmation": "Payment Received - Donation {{ donation_id|e }}",
     "anbi_tax_receipt": "Tax Deduction Receipt - {{ receipt_number }}",
     "termination_overdue_notification": "Overdue Termination Requests - {{ count }} items",
     "member_contact_request_received": "Contact Request Received - {{ doc.name }}",
@@ -113,13 +117,13 @@ class TestEmailTemplateManager(VereningingenTestCase):
         self.assertIn("{{ receipt_number }}", anbi.subject)
 
         donation = frappe.get_doc("Email Template", "donation_confirmation")
-        self.assertIn("{{ donor_name | e }}", donation.response)
+        self.assertIn("{{ donor_name|e }}", donation.response)
         # The donation send context (send_donation_confirmation_email) provides a
         # FLAT key, not a `doc`, so the template must use {{ donation_amount }}.
         self.assertIn("{{ donation_amount }}", donation.response)
 
         approval = frappe.get_doc("Email Template", "expense_approval_request")
-        self.assertIn("{{ approver_name | e }}", approval.response)
+        self.assertIn("{{ approver_name|e }}", approval.response)
         self.assertIn("{{ approval_url }}", approval.response)
 
     def test_donation_templates_render_with_real_send_context(self):
@@ -169,8 +173,9 @@ class TestEmailTemplateManager(VereningingenTestCase):
             self.assertIn("Jane Donor", rendered)
 
     def test_create_templates_is_idempotent(self):
-        """Calling twice must NOT duplicate docs. Second call updates the existing 8
-        (created=0, updated=8) and the doc count for each name stays exactly 1."""
+        """Calling twice must NOT duplicate docs. Second call creates nothing and
+        skips the existing 8 (#1984: setup is create-only), and the doc count for
+        each name stays exactly 1."""
         self._delete_managed_templates()
 
         first = create_comprehensive_email_templates()
@@ -180,9 +185,9 @@ class TestEmailTemplateManager(VereningingenTestCase):
 
         second = create_comprehensive_email_templates()
         self.assertTrue(second["success"])
-        # Idempotent: nothing new created, all 8 updated-in-place.
         self.assertEqual(second["data"]["created"], 0, "second run must not create duplicates")
-        self.assertEqual(second["data"]["updated"], 8)
+        self.assertEqual(second["data"]["updated"], 0, "create-only: existing rows are not rewritten")
+        self.assertEqual(second["data"]["skipped"], 8)
 
         # Email Template autoname=Prompt -> name is the literal; there can only ever
         # be one row per name. Assert no duplicates accumulated.
@@ -190,29 +195,234 @@ class TestEmailTemplateManager(VereningingenTestCase):
             count = frappe.db.count("Email Template", {"name": name})
             self.assertEqual(count, 1, f"expected exactly 1 '{name}', found {count}")
 
-    def test_update_path_overwrites_modified_content(self):
-        """If a managed template was hand-edited, a re-run restores the canonical
-        subject/response via the update branch (proves update actually writes)."""
+    def test_create_only_keeps_a_staff_edited_template_and_still_creates_a_missing_one(self):
+        """#1984 (maintainer ruling 2026-11-03): re-running setup must not overwrite a
+        staff-edited stock template. Control: a template that is MISSING is still created
+        in the same run (so 'skip everything' would fail this test)."""
         self._delete_managed_templates()
         create_comprehensive_email_templates()
 
-        # Mutate an existing template, then re-run.
+        edited = frappe.get_doc("Email Template", "expense_approved")
+        edited.subject = "STAFF EDITED SUBJECT"
+        edited.response = "<p>staff edited body</p>"
+        edited.response_html = "<p>staff edited body</p>"
+        edited.save()
+        frappe.delete_doc("Email Template", "expense_rejected", force=True)
+
+        result = create_comprehensive_email_templates()
+        self.assertTrue(result["success"], result)
+
+        kept = frappe.get_doc("Email Template", "expense_approved")
+        self.assertEqual(kept.subject, "STAFF EDITED SUBJECT")
+        self.assertEqual(kept.response_html, "<p>staff edited body</p>")
+        self.assertTrue(frappe.db.exists("Email Template", "expense_rejected"))
+        self.assertEqual(result["data"]["created"], 1)
+        self.assertEqual(result["data"]["updated"], 0)
+
+    def test_reset_stock_email_templates_restores_edited_and_creates_missing(self):
+        """The explicit reset action (#1984) is the one writer allowed to overwrite: it
+        restores subject/response/response_html of an edited row and creates a missing one."""
+        from verenigingen.api.email_template_manager import reset_stock_email_templates
+
+        self._delete_managed_templates()
+        create_comprehensive_email_templates()
+
         doc = frappe.get_doc("Email Template", "expense_approved")
         doc.subject = "TAMPERED SUBJECT"
         doc.response = "<p>tampered</p>"
+        doc.response_html = "<p>tampered</p>"
         doc.save()
-        frappe.db.commit()
+        frappe.delete_doc("Email Template", "expense_rejected", force=True)
 
-        result = create_comprehensive_email_templates()
-        self.assertTrue(result["success"])
-        # Everything already existed -> all updates, no creates.
-        self.assertEqual(result["data"]["created"], 0)
-        self.assertEqual(result["data"]["updated"], 8)
+        result = reset_stock_email_templates()
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["data"]["created"], 1)
+        self.assertEqual(result["data"]["updated"], 7)
 
         restored = frappe.get_doc("Email Template", "expense_approved")
         self.assertEqual(restored.subject, MANAGED_TEMPLATES["expense_approved"])
-        self.assertIn("✅ Expense Approved", restored.response)
+        self.assertIn("{{ approved_by_name|e }}", restored.response)
         self.assertNotIn("tampered", restored.response)
+        self.assertNotIn("tampered", restored.response_html)
+        self.assertTrue(frappe.db.exists("Email Template", "expense_rejected"))
+
+    def _setup_profiled_user_1984(self, profile, extra_roles=()):
+        email = f"tpl-1984-{frappe.generate_hash(length=6)}@example.org"
+        user = self.create_test_user(email, roles=list(extra_roles))
+        user.append("role_profiles", {"role_profile": profile})
+        user.save(ignore_permissions=True)
+        return email
+
+    def _dispatch_reset_1984(self, user):
+        """Real dispatch of reset_stock_email_templates (a werkzeug POST through
+        frappe.handler.execute_cmd, test-mode short-circuit off), as the web server does.
+        Returns (outcome, response). Probe shortcut: none; users get roles through the
+        real User.role_profiles save path."""
+        cmd = "verenigingen.api.email_template_manager.reset_stock_email_templates"
+        env = EnvironBuilder(path=f"/api/method/{cmd}", data={}, method="POST").get_environ()
+        original, in_test = frappe.session.user, frappe.flags.in_test
+        frappe.set_user(user)
+        frappe.flags.in_test = False
+        # Mock justified: Infrastructure - the request context the web server sets before
+        # execute_cmd; dispatch, the security wrapper and the endpoint body are all real.
+        frappe.local.request = Request(env)
+        frappe.local.form_dict = frappe._dict()
+        frappe.local.response = frappe._dict()
+        try:
+            result = None
+            try:
+                result = frappe.handler.execute_cmd(cmd)
+                outcome = ("ok", "")
+            except Exception as exc:
+                outcome = (type(exc).__name__, str(exc))
+            return outcome, result
+        finally:
+            # Mock justified: Infrastructure - restore the flag turned off for dispatch
+            frappe.flags.in_test = in_test
+            frappe.set_user(original)
+
+    @staticmethod
+    def _user_facing_message_1984(result):
+        """The text the caller is shown: meta.message on success, error.message on failure."""
+        return result["meta"]["message"] if result["success"] else result["error"]["message"]
+
+    def _edit_one_template_1984(self):
+        self._delete_managed_templates()
+        create_comprehensive_email_templates()
+        doc = frappe.get_doc("Email Template", "expense_approved")
+        doc.subject = "STAFF EDITED SUBJECT"
+        doc.save()
+
+    def test_reset_stock_email_templates_is_admin_gated_like_its_sibling(self):
+        """The reset endpoint is whitelisted and, over real dispatch, refused for Guest AND
+        for a Verenigingen Staff user (HIGH tier: it clears a high_security_api or
+        standard_api gate, so only the CRITICAL gate refuses it), with the framework's own
+        message. Controls: Administrator and a Verenigingen Administrator are allowed and
+        really overwrite the staff-edited row."""
+        from verenigingen.api.email_template_manager import reset_stock_email_templates
+
+        self.assertIn(reset_stock_email_templates, frappe.whitelisted)
+        staff = self._setup_profiled_user_1984("Verenigingen Staff")
+        for label, user in (("Guest", "Guest"), ("Staff", staff)):
+            with self.subTest(user=label):
+                self._edit_one_template_1984()
+                (kind, message), _ = self._dispatch_reset_1984(user)
+                self.assertEqual(kind, "PermissionError", f"{label}: {kind} {message}")
+                if label == "Staff":
+                    # Guest is stopped earlier by Frappe's own whitelist check; Staff clears
+                    # every earlier gate, so the framework's CRITICAL-tier message is what refuses.
+                    self.assertEqual(message, REFUSAL_1984, f"{label}: refused by something else")
+                self.assertEqual(
+                    frappe.db.get_value("Email Template", "expense_approved", "subject"),
+                    "STAFF EDITED SUBJECT",
+                )
+
+        admin = self._setup_profiled_user_1984("Verenigingen Administrator", ["System Manager"])
+        for label, user in (("Administrator", "Administrator"), ("Verenigingen Administrator", admin)):
+            with self.subTest(user=label):
+                self._edit_one_template_1984()
+                (kind, message), response = self._dispatch_reset_1984(user)
+                self.assertEqual((kind, message), ("ok", ""), label)
+                self.assertTrue(response["success"], response)
+                self.assertEqual(
+                    frappe.db.get_value("Email Template", "expense_approved", "subject"),
+                    MANAGED_TEMPLATES["expense_approved"],
+                )
+
+    def test_reset_refuses_a_treasurer_up_front_with_a_message_1984(self):
+        """A Treasurer clears the CRITICAL/ADMIN gate but holds no Email Template write, so the
+        overwrite used to fail per template with blank errors. Over real dispatch the reset is
+        now refused up front, with a non-empty message, and nothing is overwritten. Controls
+        (same flow, same edited row): the Verenigingen Administrator still resets it, and the
+        create endpoint's gate is untouched (the Treasurer still creates a missing row)."""
+        treasurer = self._setup_profiled_user_1984("Verenigingen Treasurer")
+        self.assertFalse(
+            frappe.has_permission("Email Template", "write", user=treasurer),
+            "premise: the Treasurer must lack Email Template write for this test to mean anything",
+        )
+        self._edit_one_template_1984()
+        (kind, message), response = self._dispatch_reset_1984(treasurer)
+        self.assertEqual(kind, "PermissionError", f"{kind} {message} {response}")
+        self.assertTrue(message.strip(), "the refusal must say something")
+        self.assertEqual(
+            frappe.db.get_value("Email Template", "expense_approved", "subject"), "STAFF EDITED SUBJECT"
+        )
+
+        admin = self._setup_profiled_user_1984("Verenigingen Administrator", ["System Manager"])
+        self._edit_one_template_1984()
+        (kind, message), response = self._dispatch_reset_1984(admin)
+        self.assertEqual((kind, message), ("ok", ""))
+        self.assertEqual(
+            frappe.db.get_value("Email Template", "expense_approved", "subject"),
+            MANAGED_TEMPLATES["expense_approved"],
+        )
+
+    def test_reset_failure_with_a_blank_exception_message_names_the_exception_type_1984(self):
+        """str(e) is empty for a bare PermissionError; the failure list must still say what
+        happened rather than read 'expense_approved: '."""
+        from verenigingen.api.email_template_manager import reset_stock_email_templates
+
+        self._edit_one_template_1984()
+        # Mock justified: fault injection - Document.save raising a message-less exception.
+        real_save = frappe.model.document.Document.save
+
+        def failing_save(doc, *args, **kwargs):
+            if doc.doctype == "Email Template" and doc.name == "expense_approved":
+                raise frappe.PermissionError()
+            return real_save(doc, *args, **kwargs)
+
+        self.expectErrorLog("PermissionError")
+        with patch.object(frappe.model.document.Document, "save", failing_save):
+            result = reset_stock_email_templates()
+        self.assertFalse(result["success"])
+        failures = [e for e in result["error"]["errors"] if e.startswith("expense_approved")]
+        self.assertEqual(len(failures), 1, result)
+        self.assertIn("PermissionError", failures[0])
+
+    def test_reset_result_message_describes_a_reset(self):
+        """The message the caller sees must say reset/restored, not 'Created: n, Updated: n'
+        (the create-only run's wording); the create endpoint keeps its own wording."""
+        from verenigingen.api.email_template_manager import reset_stock_email_templates
+
+        self._edit_one_template_1984()
+        message = self._user_facing_message_1984(reset_stock_email_templates())
+        self.assertIn("reset", message.lower())
+        self.assertNotIn("Updated", message)
+        self.assertNotIn("Created", message)
+        created = self._user_facing_message_1984(create_comprehensive_email_templates())
+        self.assertIn("Created", created)
+        self.assertNotIn("reset", created.lower())
+
+    def test_reset_failure_message_says_reset_and_names_the_template(self):
+        """A failing save on the reset path reports 'reset' (not 'create'), both in the
+        returned message and in the Error Log row an admin reads."""
+        from verenigingen.api.email_template_manager import reset_stock_email_templates
+
+        self._edit_one_template_1984()
+        # Mock justified: fault injection - Document.save raising for one template, so the
+        # reset body's own failure branch (message + Error Log) is what is read back.
+        real_save = frappe.model.document.Document.save
+
+        def failing_save(doc, *args, **kwargs):
+            if doc.doctype == "Email Template" and doc.name == "expense_approved":
+                raise frappe.ValidationError("boom-1984")
+            return real_save(doc, *args, **kwargs)
+
+        self.expectErrorLog("boom-1984")
+        errors_before = frappe.db.count("Error Log")
+        with patch.object(frappe.model.document.Document, "save", failing_save):
+            result = reset_stock_email_templates()
+        self.assertFalse(result["success"])
+        message = self._user_facing_message_1984(result)
+        self.assertIn("reset", message.lower())
+        self.assertNotIn("create", message.lower())
+        self.assertTrue(
+            any("expense_approved" in e and "boom-1984" in e for e in result["error"]["errors"]), result
+        )
+        logged = frappe.get_all(
+            "Error Log", fields=["error"], order_by="creation desc", limit=frappe.db.count("Error Log") - errors_before
+        )
+        self.assertTrue(any("boom-1984" in r.error and "reset" in r.error.lower() for r in logged), logged)
 
     # ------------------------------------------------------------------
     # get_email_template (helper: render + fallback)
@@ -269,14 +479,15 @@ class TestEmailTemplateManager(VereningingenTestCase):
         self._delete_managed_templates()
         create_comprehensive_email_templates()
 
-        result = test_email_template("expense_approval_request")
+        # The built-in sample context is `doc`-shaped (doc.name=TEST-001), which is the shape of
+        # the contact-request template; the expense templates take `expense` (#1984 moved their
+        # seed text to the wording live sites carry), so they do not render from it.
+        result = test_email_template("member_contact_request_received")
         self.assertIsInstance(result, dict)
         self.assertTrue(result["success"], f"render failed: {result.get('error')}")
         data = result["data"]
-        self.assertEqual(data["template_name"], "expense_approval_request")
-        # Built-in sample context sets doc.name=TEST-001 and approver_name=Test Approver.
+        self.assertEqual(data["template_name"], "member_contact_request_received")
         self.assertIn("TEST-001", data["subject"])
-        self.assertIn("Test Approver", data["message"])
         self.assertNotIn("{{ doc.name }}", data["subject"])
 
     def test_test_email_template_endpoint_custom_context(self):
@@ -342,7 +553,7 @@ class TestEmailTemplateManager(VereningingenTestCase):
         # collapse, auto-closed tags), so it won't be byte-identical to the TextEditor
         # `response`. What matters is that response_html carries the same real markup.
         self.assertIn("<div", doc.response_html, "response_html must carry the HTML body")
-        self.assertIn("{{ donor_name | e }}", doc.response_html, "response_html must carry the template content")
+        self.assertIn("{{ donor_name|e }}", doc.response_html, "response_html must carry the template content")
 
         # response_ (the property Frappe uses) returns response_html when use_html=1,
         # so it must be the real HTML body, not empty.
@@ -527,7 +738,7 @@ class TestEmailTemplateManager(VereningingenTestCase):
                     "company": "Org",
                     "formatted_amount": "€10.00",
                     "approved_on": "2026-06-16",
-                    "doc": frappe._dict({"name": "EXP-NOKEY", "description": "d"}),
+                    "expense": frappe._dict({"name": "EXP-NOKEY", "description": "d"}),
                 },
                 # notification_key intentionally omitted -> warning branch.
             )

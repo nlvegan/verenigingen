@@ -32,6 +32,11 @@ class TestEmailTemplateXSSProtection(EnhancedTestCase):
 
         with open(template_file, 'r') as f:
             self.templates = json.load(f)
+        # The six stock rows seeded create-only (#1984) are production templates too.
+        with open(template_file.parent.parent / "setup" / "stock_email_templates.json", 'r') as f:
+            self.templates += [
+                {**row, "use_html": 1, "response": row["response_html"]} for row in json.load(f)
+            ]
 
     def test_all_templates_loaded(self):
         """Verify templates are loaded correctly."""
