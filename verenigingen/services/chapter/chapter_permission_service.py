@@ -506,12 +506,17 @@ def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
 
     ChapterBoardMember = DocType("Chapter Board Member")
     Chapter = DocType("Chapter")
+    ChapterRole = DocType("Chapter Role")
 
     try:
+        # A seat on a deactivated Chapter Role confers nothing (#3315, #3183/#2958): the inner
+        # join drops it, and also a seat whose role row no longer exists (fail closed).
         query = (
             frappe.qb.from_(ChapterBoardMember)
             .inner_join(Chapter)
             .on(ChapterBoardMember.parent == Chapter.name)
+            .inner_join(ChapterRole)
+            .on(ChapterBoardMember.chapter_role == ChapterRole.name)
             .select(
                 ChapterBoardMember.parent.as_("chapter_name"),
                 Chapter.region,
@@ -520,7 +525,11 @@ def get_user_board_chapters(user: Optional[str] = None) -> List[dict]:
                 ChapterBoardMember.to_date,
                 ChapterBoardMember.is_active,
             )
-            .where((ChapterBoardMember.volunteer == volunteer) & (ChapterBoardMember.is_active == 1))
+            .where(
+                (ChapterBoardMember.volunteer == volunteer)
+                & (ChapterBoardMember.is_active == 1)
+                & (ChapterRole.is_active == 1)
+            )
             .orderby(ChapterBoardMember.from_date, order=Order.desc)
             .distinct()
         )
