@@ -11,7 +11,7 @@ import hashlib
 import json
 
 import frappe
-from frappe.utils import today
+from frappe.utils import flt, today
 
 # #1330: failed finalization attempts for ONE gateway payment id before finance staff are alerted.
 # Mollie's and Pay.nl's retry counts are not established here, so this is kept low.
@@ -19,15 +19,28 @@ PE_FAILURE_ALERT_THRESHOLD = 3
 
 ATTEMPT_LOG_TITLE = "Payment Plan Payment Webhook"
 ALERT_LOG_TITLE = "Payment Plan Payment Repeated Failure"
+MISMATCH_LOG_TITLE = "Payment Plan Payment Amount Mismatch"
 ALERT_NOTIFICATION_KEY = "payment_alert_failure"
 
 
-def finalize_payment_plan_installment(intent_name: str, payment_reference: str, status: str = "paid") -> dict:
+# Default of finalize_payment_plan_installment's paid_amount: the gateway did not offer an amount
+# to compare (Mollie's caller). Distinct from None, which means "the gateway reported none".
+AMOUNT_NOT_CHECKED = object()
+
+
+def finalize_payment_plan_installment(
+    intent_name: str, payment_reference: str, status: str = "paid", paid_amount=AMOUNT_NOT_CHECKED
+) -> dict:
     """Idempotently finalize the installment for a Payment Plan Payment intent.
 
     status: the gateway-neutral payment status ("paid" finalizes; "failed"/
     "expired" record and leave the installment payable; anything else is
     treated the same as an unrecognized non-paid status).
+
+    paid_amount: what the gateway says it collected, in EUR. When given (None included), a paid
+    status is booked only if it equals the intent's amount to the cent (#3076); otherwise the
+    intent stays unbooked, an Error Log row flags it for finance and the result is "refused"
+    (not "error": a mismatch is deterministic, so a gateway retry cannot fix it).
     """
     try:
         # Lock the intent row and read the fields we act on FROM THE LOCKED ROW
@@ -91,6 +104,11 @@ def finalize_payment_plan_installment(intent_name: str, payment_reference: str, 
             frappe.db.commit()
             return {"status": "skipped", "message": "installment already paid"}
 
+        if paid_amount is not AMOUNT_NOT_CHECKED and (
+            _cents(paid_amount) is None or _cents(paid_amount) != _cents(row.amount)
+        ):
+            return _refuse_amount_mismatch(intent_name, row, payment_reference, paid_amount)
+
         # Confirmed paid: finalize the installment FIRST, mark the intent Paid only
         # AFTER it returns (a mid-finalize failure must leave the intent
         # re-processable, not a Paid intent with an unfinalized installment).
@@ -130,6 +148,27 @@ def finalize_payment_plan_installment(intent_name: str, payment_reference: str, 
         if status == "paid":
             _alert_after_repeated_failure(intent_name, payment_reference, str(e))
         return {"status": "error", "message": str(e)}
+
+
+def _cents(amount):
+    """EUR as whole cents; None when there is no usable number."""
+    try:
+        return None if amount is None else round(flt(amount) * 100)
+    except (TypeError, ValueError):
+        return None
+
+
+def _refuse_amount_mismatch(intent_name, row, payment_reference, paid_amount):
+    """Do not book; flag a real payment of the wrong sum for manual review (#3076)."""
+    reported = "no amount" if paid_amount is None else f"EUR {flt(paid_amount):.2f}"
+    frappe.log_error(
+        title=MISMATCH_LOG_TITLE,
+        message=f"Gateway payment {_payment_id_display(payment_reference)} for intent {intent_name} "
+        f"(installment {row.installment_number} of {row.payment_plan}) reported {reported}, but the "
+        f"installment is EUR {flt(row.amount):.2f}. NOT BOOKED -> MANUAL REVIEW NEEDED.",
+    )
+    frappe.db.commit()  # release the row lock; the Error Log row is non-transactional anyway
+    return {"status": "refused", "message": "paid amount does not match the installment"}
 
 
 def _payment_id_line(payment_reference):

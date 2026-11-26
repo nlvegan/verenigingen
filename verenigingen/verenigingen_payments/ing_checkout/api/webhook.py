@@ -46,6 +46,17 @@ from verenigingen.verenigingen_payments.utils.payment_services.logging_utils imp
 from verenigingen.verenigingen_payments.utils.webhook_ack import message_log_length, webhook_ack
 
 
+def _paid_amount_from_payload(order_object: dict):
+    """The amount (EUR) the Pay.nl exchange reports, or None when absent or not a number."""
+    value = (order_object.get("amount") or {}).get("value")
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        return float(Decimal(str(value)) / Decimal(100))
+    except ArithmeticError:
+        return None
+
+
 @restores_session_user
 def _maybe_finalize_payment_plan(order_id: str, payload: dict) -> bool:
     """If this Pay.nl order references a Payment Plan Payment, finalize the
@@ -85,8 +96,15 @@ def _maybe_finalize_payment_plan(order_id: str, payload: dict) -> bool:
         finalize_payment_plan_installment,
     )
 
+    # What Pay.nl says it collected, in EUR; None when the exchange carries no usable amount.
+    # Passed on a paid webhook only, so the finalizer can refuse to book row.amount for a
+    # different sum (#3076). Exchange shape: object.amount.value in cents, as read by
+    # _process_payment_webhook; not measured against a live Pay.nl merchant.
     result = finalize_payment_plan_installment(
-        reference_name, payment_reference=order_id, status=gateway_status
+        reference_name,
+        payment_reference=order_id,
+        status=gateway_status,
+        paid_amount=_paid_amount_from_payload(order_object),
     )
 
     # Keep the ING Checkout Transaction status in sync for ops clarity (no PE).
