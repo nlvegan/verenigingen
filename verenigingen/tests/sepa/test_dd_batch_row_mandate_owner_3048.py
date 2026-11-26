@@ -118,6 +118,96 @@ class TestRowMandateMustBelongToRowMember(_DuplicateInvoiceBase):
             own_reference,
         )
 
+    # --- round 2: row.member is itself writable, so it must agree with the invoice ---
+
+    def _own_row_and_mandate(self, birth_date):
+        member = self._member_with_membership(birth_date)
+        mandate = self._sepa.create_test_sepa_mandate(member=member.name, status="Active")
+        invoice, row = self._invoice_row(member, mandate, 25.0)
+        return member, mandate, invoice, row
+
+    def _schedule_of(self, member_name):
+        return frappe.db.get_value(
+            "Membership Dues Schedule", {"member": member_name, "is_template": 0, "status": "Active"}, "name"
+        )
+
+    def _probe_set_invoice_links(self, invoice, member=None, schedule=None):
+        """Probe shortcut: direct writes of the invoice's two member-resolving links.
+        Setting both explicitly is the point; the control reads the unset state."""
+        frappe.db.set_value(
+            "Sales Invoice",
+            invoice.name,
+            {"member": member, "membership_dues_schedule_display": schedule},
+            update_modified=False,
+        )
+
+    def _row_naming_other_member_as_its_own(self, other_member, other_mandate, row):
+        """A's invoice, but row.member = B and B's own Active mandate: B passes the
+        mandate-owner leg, so only the invoice-member leg can refuse it."""
+        forged = dict(row)
+        forged["member"] = other_member.name
+        forged["member_name"] = other_member.full_name
+        forged["mandate_reference"] = other_mandate.mandate_id
+        forged["iban"] = other_mandate.iban
+        return forged
+
+    def test_row_member_swapped_to_the_mandate_owner_is_refused_via_dues_schedule(self):
+        member_a, _m, invoice, row = self._own_row_and_mandate("1990-01-01")
+        other = self._member_with_membership("1991-02-02")
+        other_mandate = self._sepa.create_test_sepa_mandate(member=other.name, status="Active")
+        self._probe_set_invoice_links(invoice, member=None, schedule=self._schedule_of(member_a.name))
+        forged = self._row_naming_other_member_as_its_own(other, other_mandate, row)
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._unsaved_batch([forged]).insert()
+
+        self.assertIn("does not belong", str(ctx.exception))
+        self.assertNotIn(other.name, str(ctx.exception))
+
+    def test_row_member_swapped_to_the_mandate_owner_is_refused_via_invoice_member(self):
+        member_a, _m, invoice, row = self._own_row_and_mandate("1990-01-01")
+        other = self._member_with_membership("1991-02-02")
+        other_mandate = self._sepa.create_test_sepa_mandate(member=other.name, status="Active")
+        self._probe_set_invoice_links(invoice, member=member_a.name, schedule=None)
+        forged = self._row_naming_other_member_as_its_own(other, other_mandate, row)
+
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._unsaved_batch([forged]).insert()
+
+        self.assertIn("does not belong", str(ctx.exception))
+
+    def test_dues_schedule_member_wins_over_a_differing_invoice_member(self):
+        """Shared customer: Sales Invoice.member (fetched from the customer) names B
+        while the invoice's dues schedule is A's. The schedule is authoritative, so A's
+        own row saves and a row naming B (with B's mandate) is refused."""
+        member_a, _m, invoice, row = self._own_row_and_mandate("1990-01-01")
+        other = self._member_with_membership("1991-02-02")
+        other_mandate = self._sepa.create_test_sepa_mandate(member=other.name, status="Active")
+        self._probe_set_invoice_links(
+            invoice, member=other.name, schedule=self._schedule_of(member_a.name)
+        )
+
+        own = self._unsaved_batch([row])
+        own.insert()
+        self._track("Direct Debit Batch", own.name)
+
+        forged = self._row_naming_other_member_as_its_own(other, other_mandate, row)
+        with self.assertRaises(frappe.ValidationError):
+            self._unsaved_batch([forged]).insert()
+
+    def test_control_invoice_with_no_resolvable_member_still_saves(self):
+        """veg11 has invoices with member NULL and no schedule; refusing them would
+        block real batches. Unknown means skip, not refuse."""
+        _member, _m, invoice, row = self._own_row_and_mandate("1990-01-01")
+        self._probe_set_invoice_links(invoice, member=None, schedule=None)
+        self.assertIsNone(frappe.db.get_value("Sales Invoice", invoice.name, "member"))
+
+        batch = self._unsaved_batch([row])
+        batch.insert()
+        self._track("Direct Debit Batch", batch.name)
+
+        self.assertEqual(len(batch.invoices), 1)
+
     # --- controls: rows that must keep saving ------------------------------------
 
     def test_control_members_own_active_mandate_saves(self):
