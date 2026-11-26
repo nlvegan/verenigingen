@@ -18,6 +18,7 @@ Uses the existing membership_duration_service utility functions for core calcula
 from typing import TYPE_CHECKING, Optional
 
 import frappe
+from frappe.exceptions import QueryDeadlockError
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.services.member.utils.membership_duration_service import (
@@ -152,7 +153,7 @@ class MemberDurationService(StatelessService):
 
             return result
 
-        except frappe.QueryDeadlockError:
+        except QueryDeadlockError:
             # 1213 rolled the whole transaction back; log_error below would write on the dead
             # transaction and the failure dict would read as an ordinary error (#3203). 1205 is
             # left to the handler below pending a maintainer ruling.

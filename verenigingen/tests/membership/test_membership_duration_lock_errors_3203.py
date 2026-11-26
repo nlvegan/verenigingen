@@ -77,6 +77,33 @@ class TestMembershipDurationLockErrors3203(VereningingenTestCase):
         self.assertTrue(hits, "the injected 2013 never fired inside update_member_duration")
         self.assertEqual(frappe.db.get_value("Membership", membership.name, "docstatus"), 1)
 
+    def test_1213_during_current_plan_update_aborts_the_submit(self):
+        membership = self._draft_membership()
+        hits = []
+        with _fault_inside_frame_3203("update_member_current_membership_plan", 1213, hits):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                membership.submit()
+        self.assertTrue(hits, "the injected 1213 never fired inside update_member_current_membership_plan")
+
+    def test_control_ordinary_error_during_current_plan_update_lets_submit_succeed(self):
+        membership = self._draft_membership()
+        self.expectErrorLog(DUPLICATE_MARKER)
+        hits = []
+        with _fault_inside_frame_3203("update_member_current_membership_plan", 2013, hits):
+            membership.submit()
+        self.assertTrue(hits, "the injected 2013 never fired inside update_member_current_membership_plan")
+        self.assertEqual(frappe.db.get_value("Membership", membership.name, "docstatus"), 1)
+
+    def test_1205_during_current_plan_update_is_swallowed_today(self):
+        """Characterisation of UNRULED behaviour (#3203): same ruling question as for 1205 above."""
+        membership = self._draft_membership()
+        self.expectErrorLog(DUPLICATE_MARKER)
+        hits = []
+        with _fault_inside_frame_3203("update_member_current_membership_plan", 1205, hits):
+            membership.submit()
+        self.assertTrue(hits)
+        self.assertEqual(frappe.db.get_value("Membership", membership.name, "docstatus"), 1)
+
     def test_1205_during_member_duration_update_is_swallowed_today(self):
         """Characterisation of UNRULED behaviour (#3203): a 1205 does not abort the submit today.
         If the maintainer rules that it should, flip this test together with the handler."""

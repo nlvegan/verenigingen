@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
+from frappe.exceptions import QueryDeadlockError
 from frappe.model.document import Document
 from frappe.utils import add_months, add_to_date, getdate, nowdate, today
 
@@ -761,8 +762,14 @@ class Membership(Document):
                 f"Updated current_membership_plan for member {self.member} to {self.name}"
                 + (f" and current_dues_schedule to {dues_schedule_name}" if dues_schedule_name else "")
             )
+        except QueryDeadlockError:
+            # Same reasoning as update_member_duration below (#3203): 1213 rolled everything back.
+            raise
         except Exception as e:
-            frappe.logger().error(f"Failed to update member fields for {self.member}: {str(e)}")
+            frappe.log_error(
+                title="Membership current plan update failed",
+                message=f"Failed to update member fields for {self.member}: {str(e)}",
+            )
             # Don't fail the membership submission if this update fails
 
     def update_member_duration(self):
@@ -784,7 +791,7 @@ class Membership(Document):
                 member_doc.save()
                 duration = result.data.get("duration") if result.data else None
                 frappe.logger().info(f"Updated membership duration for {self.member}: {duration}")
-        except frappe.QueryDeadlockError:
+        except QueryDeadlockError:
             # 1213 rolled the whole transaction back: submitting on top of that commits a
             # half-empty unit of work (#3203, rule from #2700). 1205 is deliberately left to the
             # handler below until the maintainer rules on it.
