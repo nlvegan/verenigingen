@@ -940,16 +940,35 @@ class TestCreateReconciliationMollieBranchProduction(MollieBase):
             r.name for r in frappe.get_all("Error Log", filters={"creation": [">=", marker]}, fields=["name"])
         }
         rows = []
-        yield rows
-        rows.extend(
-            r
-            for r in frappe.get_all(
-                "Error Log",
-                filters={"creation": [">=", marker]},
-                fields=["name", "method", "error"],
+        try:
+            yield rows
+        finally:
+            # Populate even if the block raised (#1178), so a caller that catches
+            # the exception can still inspect what was logged. Asserts nothing.
+            rows.extend(
+                r
+                for r in frappe.get_all(
+                    "Error Log",
+                    filters={"creation": [">=", marker]},
+                    fields=["name", "method", "error"],
+                )
+                if r.name not in before
             )
-            if r.name not in before
-        )
+
+    def test_capture_error_logs_collects_rows_even_when_the_block_raises(self):
+        """#1178: rows logged before an exception must still be collected."""
+        self.expectErrorLog("1178 captured")
+        with self.assertRaises(ValueError):
+            with self._capture_error_logs() as rows:
+                frappe.log_error(title="1178 captured", message="written inside the block")
+                raise ValueError("boom")
+        self.assertEqual([r.method for r in rows], ["1178 captured"])
+
+    def test_capture_error_logs_returns_nothing_for_a_clean_block(self):
+        """Control: a block that logs nothing collects nothing."""
+        with self._capture_error_logs() as rows:
+            pass
+        self.assertEqual(rows, [])
 
     def test_settlement_reconciles_and_persists_processing_status(self):
         """The happy path must actually reconcile -- and actually book the accounting.

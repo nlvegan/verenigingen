@@ -54,9 +54,23 @@ class TestChapterSubscribers(EnhancedTestCase):
         handler returns normally.
         """
         before = frappe.db.count("Error Log")
-        yield
-        after = frappe.db.count("Error Log")
-        self.assertEqual(after, before, msg)
+        body_exc = None
+        try:
+            yield
+        except BaseException as exc:
+            body_exc = exc
+            raise
+        finally:
+            # Checked even when the block raises (#1178), so nesting this inside
+            # assertRaises cannot hide a logged error. A violation replaces the
+            # body's exception, chained so both stay visible; a clean raise
+            # propagates unchanged.
+            after = frappe.db.count("Error Log")
+            if after != before:
+                failure = self.failureException(f"{after} != {before} : {msg}")
+                if body_exc is not None:
+                    raise failure from body_exc
+                raise failure
 
     @contextmanager
     def _no_import_flags(self):
@@ -187,6 +201,33 @@ class TestChapterSubscribers(EnhancedTestCase):
         return mock_service.send_templated_email.call_args.kwargs
 
     # ----------------------------------------------------- guard / no-op clauses
+    def test_guard_fires_when_the_block_raises_after_a_violation(self):
+        """#1178: the guard must still fire when the block raises after logging."""
+        self.expectErrorLog("1178 swallowed")
+        with self.assertRaises(AssertionError) as cm:
+            with self._assert_no_swallowed_error("guard fired"):
+                frappe.log_error(title="1178 swallowed", message="written inside the block")
+                raise ValueError("boom")
+        self.assertIn("guard fired", str(cm.exception))
+        self.assertIsInstance(cm.exception.__cause__, ValueError)
+
+    def test_assert_no_swallowed_error_lets_a_clean_raise_propagate(self):
+        """Control: nothing logged, so the body's own exception is not replaced."""
+        with self.assertRaises(ValueError):
+            with self._assert_no_swallowed_error():
+                raise ValueError("boom")
+
+    def test_guard_fires_on_a_violation_without_a_raise(self):
+        """Control: the pre-existing no-raise path still fails on a logged error."""
+        self.expectErrorLog("1178 swallowed")
+        with self.assertRaises(AssertionError):
+            with self._assert_no_swallowed_error():
+                frappe.log_error(title="1178 swallowed", message="written inside the block")
+
+    def test_assert_no_swallowed_error_passes_on_a_clean_block(self):
+        with self._assert_no_swallowed_error():
+            pass
+
     def test_board_role_assignments_missing_keys_returns(self):
         """Missing chapter/volunteer should no-op without raising (no error logged)."""
         with self._assert_no_swallowed_error():
