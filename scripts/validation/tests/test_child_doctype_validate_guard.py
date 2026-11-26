@@ -12,6 +12,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from snippet_parse_guard import write_py_snippet
+
 _MOD_PATH = Path(__file__).resolve().parents[1] / "child_doctype_validate_guard.py"
 _spec = importlib.util.spec_from_file_location("child_doctype_validate_guard", _MOD_PATH)
 guard = importlib.util.module_from_spec(_spec)
@@ -28,7 +30,7 @@ def _make_doctype_dir(root: Path, name: str, *, istable: bool, py_source: str):
         json.dumps({"doctype": "DocType", "name": name, "istable": 1 if istable else 0})
     )
     py_path = d / f"{name}.py"
-    py_path.write_text(py_source)
+    write_py_snippet(py_path, py_source)
     return json_path, py_path
 
 
@@ -107,7 +109,7 @@ class TestFindValidateDefs(unittest.TestCase):
     def test_finds_a_controller_validate(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "x.py"
-            p.write_text(CHILD_WITH_VALIDATE)
+            write_py_snippet(p, CHILD_WITH_VALIDATE)
             hits = guard.find_validate_defs(p)
             self.assertEqual(len(hits), 1)
             lineno, exempt = hits[0]
@@ -117,13 +119,13 @@ class TestFindValidateDefs(unittest.TestCase):
     def test_does_not_find_validate_when_absent(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "x.py"
-            p.write_text(CHILD_NO_VALIDATE)
+            write_py_snippet(p, CHILD_NO_VALIDATE)
             self.assertEqual(guard.find_validate_defs(p), [])
 
     def test_exempt_marker_is_honoured(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "x.py"
-            p.write_text(CHILD_WITH_EXEMPTED_VALIDATE)
+            write_py_snippet(p, CHILD_WITH_EXEMPTED_VALIDATE)
             hits = guard.find_validate_defs(p)
             self.assertEqual(len(hits), 1)
             _, exempt = hits[0]
@@ -135,7 +137,7 @@ class TestFindValidateDefs(unittest.TestCase):
         flagging it would just be noise unrelated to #596's mechanism."""
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "x.py"
-            p.write_text(CHILD_WITH_NESTED_VALIDATE_HELPER)
+            write_py_snippet(p, CHILD_WITH_NESTED_VALIDATE_HELPER)
             self.assertEqual(guard.find_validate_defs(p), [])
 
 
@@ -231,7 +233,7 @@ class TestMain(unittest.TestCase):
     def test_main_ignores_files_outside_a_doctype_directory(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "not_a_doctype_file.py"
-            p.write_text(CHILD_WITH_VALIDATE)
+            write_py_snippet(p, CHILD_WITH_VALIDATE)
             self.assertEqual(guard.main([str(p)]), 0)
 
 

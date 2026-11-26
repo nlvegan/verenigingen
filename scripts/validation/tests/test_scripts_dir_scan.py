@@ -25,6 +25,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from snippet_parse_guard import write_py_snippet
+
 _SECURITY_DIR = Path(__file__).resolve().parents[1] / "security"
 
 
@@ -70,13 +72,13 @@ class _ChdirToFakeAppTree(unittest.TestCase):
 
         api_dir = root / "verenigingen" / "api"
         api_dir.mkdir(parents=True)
-        (api_dir / "top_level.py").write_text(API_ENDPOINT_SRC)
+        write_py_snippet(api_dir / "top_level.py", API_ENDPOINT_SRC)
 
         scripts_dir = root / "scripts" / "nested"
         scripts_dir.mkdir(parents=True)
         (root / "scripts" / "__init__.py").write_text("")
         (scripts_dir / "__init__.py").write_text("")
-        (scripts_dir / "endpoint.py").write_text(SCRIPTS_ENDPOINT_SRC)
+        write_py_snippet(scripts_dir / "endpoint.py", SCRIPTS_ENDPOINT_SRC)
 
         os.chdir(root)
 

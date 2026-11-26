@@ -12,6 +12,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from snippet_parse_guard import write_py_snippet
+
 _MOD_PATH = Path(__file__).resolve().parents[1] / "dynamic_link_append_validator.py"
 _spec = importlib.util.spec_from_file_location("dynamic_link_append_validator", _MOD_PATH)
 validator = importlib.util.module_from_spec(_spec)
@@ -136,7 +138,7 @@ class TestFindOffendingAppends(unittest.TestCase):
     def _findings(self, source: str):
         with tempfile.TemporaryDirectory() as d:
             py_path = Path(d) / "site.py"
-            py_path.write_text(source)
+            write_py_snippet(py_path, source)
             return validator.find_offending_appends(py_path, self.table_fields, self.dynlink_fields)
 
     def test_flags_dynamic_link_value_without_companion(self):
@@ -165,7 +167,7 @@ class TestFindOffendingAppends(unittest.TestCase):
         table_fields = {"widgets": {"Widget Link", "Other Widget Link"}}
         with tempfile.TemporaryDirectory() as d:
             py_path = Path(d) / "site.py"
-            py_path.write_text(OFFENDING_SOURCE)
+            write_py_snippet(py_path, OFFENDING_SOURCE)
             findings = validator.find_offending_appends(py_path, table_fields, self.dynlink_fields)
         self.assertEqual(findings, [])
 

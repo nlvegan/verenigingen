@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from snippet_parse_guard import write_py_snippet
+
 _MOD_PATH = Path(__file__).resolve().parents[1] / "duplicate_helper_validator.py"
 _spec = importlib.util.spec_from_file_location("duplicate_helper_validator", _MOD_PATH)
 dhv = importlib.util.module_from_spec(_spec)
@@ -18,14 +20,17 @@ sys.modules[_spec.name] = dhv
 _spec.loader.exec_module(dhv)
 
 
-def _census(files: dict):
-    """Build a temp tree from {relative path: source} and return the census."""
+def _census(files: dict, invalid=()):
+    """Build a temp tree from {relative path: source} and return the census.
+
+    `invalid` names the relative paths whose source is DELIBERATELY unparseable
+    (the scanner's skip path); every other snippet must parse (#1181)."""
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
         for rel, src in files.items():
             p = root / rel
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(src)
+            write_py_snippet(p, src, intentionally_invalid=rel in invalid)
         return dhv.census(str(root))
 
 
@@ -36,7 +41,7 @@ def _drift(files: dict):
         for rel, src in files.items():
             p = root / rel
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(src)
+            write_py_snippet(p, src)
         return {
             f[4]: (f[6], f[3])
             for f in dhv.clone_families(str(root))
@@ -89,7 +94,7 @@ class DriftBandTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             for rel, src in files.items():
-                (root / rel).write_text(src)
+                write_py_snippet(root / rel, src)
             by_best = [
                 f[4] for f in dhv.clone_families(str(root)) if f[2] == 0 and f[3] >= dhv.CLONE_RATIO
             ]
@@ -170,7 +175,8 @@ class WhatCountsTest(unittest.TestCase):
     def test_an_unparseable_file_is_skipped_not_fatal(self):
         good = "def _shared():\n    pass\n"
         self.assertEqual(
-            {}, _census({"a.py": good, "b.py": "def ( this is not python\n"})
+            {},
+            _census({"a.py": good, "b.py": "def ( this is not python\n"}, invalid=("b.py",)),
         )
 
 
@@ -202,7 +208,7 @@ class DefinitionCountingTest(unittest.TestCase):
         src = "def _solo():\n    pass\n"
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            (root / "a.py").write_text(src)
+            write_py_snippet(root / "a.py", src)
             families = dhv._by_name(str(root))
         self.assertEqual(1, len(families.get("_solo", [])))
 
@@ -279,7 +285,7 @@ class BlockingRuleTest(unittest.TestCase):
             for rel, src in files.items():
                 q = root / rel
                 q.parent.mkdir(parents=True, exist_ok=True)
-                q.write_text(src)
+                write_py_snippet(q, src)
             families = dhv._by_name(str(root))
             counts = {n: len(v) for n, v in families.items() if len(v) > 1}
             new = dhv.regressions(counts, {})
@@ -440,7 +446,7 @@ class MonotonicityTest(unittest.TestCase):
             for rel, src in files.items():
                 q = root / rel
                 q.parent.mkdir(parents=True, exist_ok=True)
-                q.write_text(src)
+                write_py_snippet(q, src)
             families = dhv._by_name(str(root))
             counts = {n: len(v) for n, v in families.items() if len(v) > 1}
             blocking, advisory = dhv.split_regressions(dhv.regressions(counts, {}), families)
@@ -573,9 +579,9 @@ class DeterminismTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             for name in ("m.py", "a.py", "z.py"):
-                (root / name).write_text("def _h():\n    return 1\n")
+                write_py_snippet(root / name, "def _h():\n    return 1\n")
             (root / "sub").mkdir()
-            (root / "sub" / "b.py").write_text("def _h():\n    return 1\n")
+            write_py_snippet(root / "sub" / "b.py", "def _h():\n    return 1\n")
             walked = [Path(p).name for p in dhv._iter_python_files(str(root))]
             self.assertEqual(["a.py", "m.py", "z.py"], walked[:3])
 
@@ -602,7 +608,7 @@ class BaselineIOTest(unittest.TestCase):
             root, p = Path(d), Path(d) / "baseline.txt"
             body = "\n".join(f"    x{i} = {i}" for i in range(10))
             for i, c in enumerate("ab"):
-                (root / f"{c}.py").write_text(f"def _twin():\n{body}\n    return {i}\n")
+                write_py_snippet(root / f"{c}.py", f"def _twin():\n{body}\n    return {i}\n")
             families = dhv._by_name(str(root))
             dhv.write_baseline(p, {"_twin": 2}, families)
             self.assertIn(dhv.CLONE_MARK, p.read_text())
@@ -636,11 +642,11 @@ class ScanRootFlagTest(unittest.TestCase):
         # A private helper duplicated ONLY under scripts/ -- verenigingen/
         # holds an unrelated, singly-defined helper so the default scan has
         # something to find without tripping over this family.
-        (root / "verenigingen" / "only_here.py").write_text(
-            f"def _lonely_helper():\n{self._BODY}\n"
+        write_py_snippet(
+            root / "verenigingen" / "only_here.py", f"def _lonely_helper():\n{self._BODY}\n"
         )
-        (root / "scripts" / "a.py").write_text(f"def _scripts_only_clone():\n{self._BODY}\n")
-        (root / "scripts" / "b.py").write_text(f"def _scripts_only_clone():\n{self._BODY}\n")
+        write_py_snippet(root / "scripts" / "a.py", f"def _scripts_only_clone():\n{self._BODY}\n")
+        write_py_snippet(root / "scripts" / "b.py", f"def _scripts_only_clone():\n{self._BODY}\n")
         return root
 
     def _run_main(self, argv):
@@ -732,8 +738,8 @@ class ScanRootFlagTest(unittest.TestCase):
         """Control: the default population still prints the bare command."""
         with tempfile.TemporaryDirectory() as d:
             root = self._tree(d)
-            (root / "verenigingen" / "c.py").write_text(f"def _dflt_clone():\n{self._BODY}\n")
-            (root / "verenigingen" / "d.py").write_text(f"def _dflt_clone():\n{self._BODY}\n")
+            write_py_snippet(root / "verenigingen" / "c.py", f"def _dflt_clone():\n{self._BODY}\n")
+            write_py_snippet(root / "verenigingen" / "d.py", f"def _dflt_clone():\n{self._BODY}\n")
             baseline = root / "b.txt"
             dhv.write_baseline(baseline, {}, {})
             old_repo_root = dhv.REPO_ROOT
@@ -862,7 +868,7 @@ class NearPairEvidenceTest(unittest.TestCase):
         for rel, src in files.items():
             p = root / rel
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(src)
+            write_py_snippet(p, src)
 
     def test_clone_families_reports_the_actual_near_pair_paths(self):
         with tempfile.TemporaryDirectory() as d:
@@ -907,9 +913,9 @@ class NearPairEvidenceTest(unittest.TestCase):
             (root / "zzz_pair_one").mkdir(parents=True)
             (root / "zzz_pair_two").mkdir(parents=True)
             (root / "zzz_pair_three").mkdir(parents=True)
-            (root / "zzz_pair_one" / "a.py").write_text(self._near("1"))
-            (root / "zzz_pair_two" / "a.py").write_text(self._near("2"))
-            (root / "zzz_pair_three" / "a.py").write_text(self._near("3"))
+            write_py_snippet(root / "zzz_pair_one" / "a.py", self._near("1"))
+            write_py_snippet(root / "zzz_pair_two" / "a.py", self._near("2"))
+            write_py_snippet(root / "zzz_pair_three" / "a.py", self._near("3"))
             families = {f[4]: f for f in dhv.clone_families(str(root))}
 
         *_, near_pairs = families["_helper"]

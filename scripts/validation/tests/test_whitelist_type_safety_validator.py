@@ -20,6 +20,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from snippet_parse_guard import write_py_snippet
+
 _SCRIPT = Path(__file__).resolve().parents[1] / "security" / "whitelist_type_safety_validator.py"
 
 # Missing type annotation on `member_id` -- a real ERROR-severity finding.
@@ -63,11 +65,11 @@ class _FakeAppTree(unittest.TestCase):
 
         api_dir = self.root / "verenigingen" / "api"
         api_dir.mkdir(parents=True)
-        (api_dir / "typed.py").write_text(TYPED_ENDPOINT_SRC)
+        write_py_snippet(api_dir / "typed.py", TYPED_ENDPOINT_SRC)
 
         scripts_dir = self.root / "scripts"
         scripts_dir.mkdir(parents=True)
-        (scripts_dir / "untyped.py").write_text(UNTYPED_ENDPOINT_SRC)
+        write_py_snippet(scripts_dir / "untyped.py", UNTYPED_ENDPOINT_SRC)
 
     def tearDown(self):
         self._tmpdir.cleanup()
@@ -107,8 +109,9 @@ class DefaultScanCoversBothRootsTest(_FakeAppTree):
         are never read from (or written to) any baseline -- proven here
         without ever invoking --update-baseline, so this cannot mutate the
         real committed file."""
-        (self.root / "verenigingen" / "api" / "also_untyped.py").write_text(
-            UNTYPED_ENDPOINT_SRC.replace("get_untyped_member", "also_untyped_member")
+        write_py_snippet(
+            self.root / "verenigingen" / "api" / "also_untyped.py",
+            UNTYPED_ENDPOINT_SRC.replace("get_untyped_member", "also_untyped_member"),
         )
         rc, output = _run(self.root)
         self.assertNotEqual(

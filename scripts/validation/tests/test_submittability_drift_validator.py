@@ -15,6 +15,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from snippet_parse_guard import write_py_snippet
+
 _MOD_PATH = Path(__file__).resolve().parents[1] / "submittability_drift_validator.py"
 _spec = importlib.util.spec_from_file_location("submittability_drift_validator", _MOD_PATH)
 sdv = importlib.util.module_from_spec(_spec)
@@ -54,12 +56,15 @@ def _build(root: Path, doctypes: dict, hooks_src: str, files: dict):
 
     hooks_path = root / "verenigingen" / "hooks" / "doc_events.py"
     hooks_path.parent.mkdir(parents=True, exist_ok=True)
-    hooks_path.write_text(hooks_src)
+    write_py_snippet(hooks_path, hooks_src)
 
     for rel, src in files.items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(src)
+        if rel.endswith(".py"):
+            write_py_snippet(p, src)
+        else:
+            p.write_text(src)
 
 
 def _scan(doctypes: dict, hooks_src: str = _DEFAULT_HOOKS, files: dict = None):

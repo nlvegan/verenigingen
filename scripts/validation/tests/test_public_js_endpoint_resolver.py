@@ -21,6 +21,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from snippet_parse_guard import write_py_snippet
+
 _MOD_PATH = Path(__file__).resolve().parents[1] / "public_js_endpoint_resolver.py"
 _spec = importlib.util.spec_from_file_location("public_js_endpoint_resolver", _MOD_PATH)
 resolver = importlib.util.module_from_spec(_spec)
@@ -31,7 +33,10 @@ _spec.loader.exec_module(resolver)
 def _write(root: Path, rel: str, content: str) -> Path:
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
+    if rel.endswith(".py"):
+        write_py_snippet(p, content, encoding="utf-8")
+    else:
+        p.write_text(content, encoding="utf-8")
     return p
 
 
