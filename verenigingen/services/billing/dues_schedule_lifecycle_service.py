@@ -42,9 +42,10 @@ class DuesScheduleLifecycleService(StatelessService):
 
     # Define allowed status transitions.
     # Grace Period / Suspended are the SEPA payment-failure dunning states
-    # (sepa_batch_processor.handle_failed_payment): Active -> Grace Period on a
-    # failed collection, Grace Period -> Suspended after repeated failures, and
-    # either can recover to Active or be Cancelled.
+    # (formerly written by sepa_batch_processor.handle_failed_payment, deleted in
+    # #3010): Active -> Grace Period on a failed collection, Grace Period ->
+    # Suspended after repeated failures, and either can recover to Active or be
+    # Cancelled.
     ALLOWED_TRANSITIONS = {
         # "Payment Plan Active" pauses regular billing while a Payment Plan covers
         # the dues (see PaymentPlan.update_dues_schedule_for_payment_plan); it
