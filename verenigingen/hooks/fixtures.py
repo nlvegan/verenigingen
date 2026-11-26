@@ -9,7 +9,8 @@ created via execute_after_install() which only runs once on app install.
 CAUTION: the JSON files under fixtures/ (including email_template.json) are NOT
 protected that way: Frappe's sync_fixtures re-imports every one of them on install
 and on each migrate, so a row of the same name edited by hand on a site is
-overwritten.
+overwritten. The six stock templates staff may edit (#1984) therefore live in
+setup/stock_email_templates.json instead and are seeded create-only.
 
 Schema items (Property Setters, Custom Fields, etc.) are safe to
 include as fixtures since they define structure, not user data.
