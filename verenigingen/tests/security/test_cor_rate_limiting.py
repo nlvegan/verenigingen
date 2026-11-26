@@ -680,6 +680,46 @@ class TestGuestPerUserScopeKeysOnClientIp(EnhancedTestCase):
         self.assertTrue(blank.endswith(":Guest:unknown"), blank)
         self.assertTrue(no_request.endswith(":Guest:test_environment"), no_request)
 
+    def test_ipv6_guests_in_one_slash_64_share_one_counter_1766(self):
+        """#1766: a /128 key let a client holding a /64 rotate addresses for free. Real
+        requests from two addresses of one /64 must hit ONE counter through the real limiter."""
+        with _wsgi_request("2001:db8:1::1"):
+            self.assertEqual(self._check().current_count, 1)
+            first = self._key()
+        with _wsgi_request("2001:db8:1:0:ffff:ffff:ffff:ffff"):
+            second = self._check()
+            self.assertEqual(second.current_count, 2, "same /64 must share one counter")
+            self.assertEqual(self._key(), first)
+
+    def test_ipv6_guests_in_different_slash_64s_keep_separate_budgets_1766(self):
+        """Control: /64 neighbours (differing in the 4th hextet) must NOT collapse, which a
+        /48 or wider mask would do."""
+        with _wsgi_request("2001:db8:1:0::1"):
+            self.assertEqual(self._check().current_count, 1)
+            first = self._key()
+        with _wsgi_request("2001:db8:1:1::1"):
+            other = self._check()
+            self.assertEqual(other.current_count, 1)
+            self.assertNotEqual(self._key(), first)
+
+    def test_ipv6_normalisation_leaves_ipv4_keys_verbatim_1766(self):
+        """Control: IPv4 is not masked (a /24 mask would merge these two)."""
+        with _wsgi_request("198.51.100.1"):
+            first = self._key()
+        with _wsgi_request("198.51.100.2"):
+            second = self._key()
+        self.assertNotEqual(first, second)
+        self.assertTrue(first.endswith(":Guest:198.51.100.1"), first)
+
+    def test_ipv4_mapped_ipv6_guests_are_not_merged_into_one_bucket_1766(self):
+        """Control: ::ffff:a.b.c.d is an IPv4 client; masking it as a /64 would put every
+        mapped client in one bucket."""
+        with _wsgi_request("::ffff:198.51.100.1"):
+            first = self._key()
+        with _wsgi_request("::ffff:198.51.100.2"):
+            second = self._key()
+        self.assertNotEqual(first, second)
+
     def test_headers_read_the_same_key_the_check_writes(self):
         limit = self.engine._get_cor_config(self.OP)["rate_limit_calls"]
         with _wsgi_request("198.51.100.1"):
