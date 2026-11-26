@@ -78,7 +78,8 @@ def _read_endpoints(filepath):
     try:
         with open(filepath, "r") as f:
             return find_api_endpoints(f.read())
-    except (OSError, SyntaxError, UnicodeDecodeError):
+    # ValueError: Python 3.11 (CI) raises it for source containing a NUL byte; 3.12+ raises SyntaxError.
+    except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
         return None
 
 

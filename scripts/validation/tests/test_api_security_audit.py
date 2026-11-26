@@ -97,6 +97,34 @@ class TestRealEndpointsAreStillFound(unittest.TestCase):
         source = "class D:\n    @frappe.whitelist()\n    def m(self):\n        pass\n"
         self.assertEqual([e[3] for e in audit.find_api_endpoints(source)], [True])
 
+    def test_a_whitelist_that_is_not_frappes_is_not_an_endpoint(self):
+        # Review nit: "any X.whitelist" and "whitelist anywhere" mutants survived.
+        source = "@other.whitelist()\ndef o():\n    pass\n\n@cache_whitelist()\ndef w():\n    pass\n"
+        self.assertEqual(self._names(source), [])
+
+
+class TestUnreadableHighRiskFileFailsClosed(unittest.TestCase):
+    """Review nit: the fail-closed claim had no test, and a NUL byte raised ValueError."""
+
+    def _audit_tree(self, filename, payload):
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / filename).write_bytes(payload)
+            with mock.patch.object(audit, "SCAN_ROOTS", [root]):
+                return [Path(p).name for p, _name in audit.find_unprotected_high_risk()]
+
+    def test_unparseable_high_risk_file_is_reported(self):
+        self.assertEqual(self._audit_tree("payment_x.py", b"def (:\n"), ["payment_x.py"])
+
+    def test_nul_byte_high_risk_file_is_reported_not_a_crash(self):
+        self.assertEqual(self._audit_tree("payment_y.py", b"x = 1\x00\n"), ["payment_y.py"])
+
+    def test_control_parseable_protected_file_is_not_reported(self):
+        src = b"@critical_api()\n@frappe.whitelist()\ndef p():\n    pass\n"
+        self.assertEqual(self._audit_tree("payment_z.py", src), [])
+
 
 class TestWholeTreeAndWorkflow(unittest.TestCase):
     def test_tree_has_no_unprotected_high_risk_endpoint_and_no_baseline_needed(self):
