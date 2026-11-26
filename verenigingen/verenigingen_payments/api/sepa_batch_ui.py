@@ -13,6 +13,7 @@ from verenigingen.utils.security.api_security_framework import (
     critical_api,
     high_security_api,
 )
+from verenigingen.utils.security.permission_existence_guard import permission_allowed_without_oracle
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     log_ambiguous_mandate_refusal,
@@ -23,6 +24,19 @@ from verenigingen.verenigingen_payments.utils.sepa_constants import (
     stranded_batch_exclusion,
 )
 from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
+
+
+def require_batch_read_permission(batch_name):
+    """Refuse unless the caller holds READ on this Direct Debit Batch (#1090).
+
+    The security-tier decorators only say the caller is a SEPA-capable role profile; they
+    do not say the caller may read THIS batch's rows (member names, amounts, IBANs). An
+    unknown name and a forbidden one are refused with the same exception and message, so
+    the endpoint is not an existence oracle. Administrator short-circuits has_permission
+    and so still reaches the caller's own not-found handling.
+    """
+    if not permission_allowed_without_oracle("Direct Debit Batch", "read", batch_name):
+        frappe.throw(_("You do not have permission to access this batch."), frappe.PermissionError)
 
 
 def get_open_batch_invoice_names():
@@ -535,6 +549,7 @@ def validate_invoice_mandate(invoice: str, member: str):
 def get_batch_analytics(batch_name: str):
     """Get detailed analytics for a batch"""
 
+    require_batch_read_permission(batch_name)
     batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
     analytics = {
@@ -580,6 +595,7 @@ def get_batch_analytics(batch_name: str):
 def preview_sepa_xml(batch_name: str):
     """Preview SEPA XML content before generation"""
 
+    require_batch_read_permission(batch_name)
     batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
     # Generate preview data
