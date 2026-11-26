@@ -225,7 +225,9 @@ class TestAuthorityCanary1085(unittest.TestCase):
                 finally:
                     if saved is not None:
                         os.environ["BENCH_APPS"] = saved
-                self.assertEqual(found, v.BENCH_APPS)
+                # Not v.BENCH_APPS: that is computed at import time and honours an ambient
+                # BENCH_APPS override, which would make this test fail with the canary.
+                self.assertEqual(found, br.find_bench_root(Path(APP_ROOT)) / "apps")
             finally:
                 subprocess.run(
                     ["git", "worktree", "remove", "--force", str(outside_worktree)],
