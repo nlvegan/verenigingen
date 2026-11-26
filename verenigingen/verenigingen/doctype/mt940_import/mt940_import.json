@@ -76,7 +76,7 @@
       "fieldname": "import_status",
       "fieldtype": "Select",
       "label": "Import Status",
-      "options": "\nPending\nIn Progress\nCompleted\nFailed",
+      "options": "\nPending\nIn Progress\nCompleted\nCompleted With Errors\nCompleted With Warnings\nFailed",
       "read_only": 1
     },
     {

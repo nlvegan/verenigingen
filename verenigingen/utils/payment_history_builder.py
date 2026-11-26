@@ -72,10 +72,16 @@ class PaymentHistoryEntryBuilder:
         Returns:
             Dictionary with payment history entry data
         """
-        # Find linked payment entries
+        # Find linked payment entries. Only SUBMITTED ones are money received: a child row
+        # carries its parent's docstatus, so a cancelled (2) or draft (0) Payment Entry is
+        # excluded here and cannot inflate paid_amount (#3155).
         payment_entries = frappe.get_all(
             "Payment Entry Reference",
-            filters={"reference_doctype": "Sales Invoice", "reference_name": invoice_doc.name},
+            filters={
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice_doc.name,
+                "docstatus": 1,
+            },
             fields=["parent", "allocated_amount"],
         )
 
@@ -93,7 +99,7 @@ class PaymentHistoryEntryBuilder:
                 "Payment Entry",
                 filters={
                     "name": ["in", [pe.parent for pe in payment_entries]],
-                    "docstatus": ["!=", 2],
+                    "docstatus": 1,
                 },
                 fields=["name", "posting_date", "mode_of_payment"],
                 order_by="posting_date desc",
