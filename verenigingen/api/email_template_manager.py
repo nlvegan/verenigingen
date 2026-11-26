@@ -600,7 +600,7 @@ def _seed_comprehensive_email_templates(overwrite: bool = False) -> OperationRes
                 failures.append(f"{template_name}: {str(e)}")
                 frappe.log_error(
                     title="Email Template Error",
-                    message=f"Failed to create/update template '{template_name}': {str(e)}",
+                    message=f"Failed to {'reset' if overwrite else 'create'} template '{template_name}': {str(e)}",
                 )
 
         frappe.db.commit()
@@ -608,7 +608,14 @@ def _seed_comprehensive_email_templates(overwrite: bool = False) -> OperationRes
         if failures:
             # One bad template must not stop the others (they were committed above), but the
             # caller must not be told the run succeeded (#1880).
-            return OperationResult.fail(message=_("Failed to create email templates"), errors=failures)
+            return OperationResult.fail(
+                message=(
+                    _("Failed to reset email templates")
+                    if overwrite
+                    else _("Failed to create email templates")
+                ),
+                errors=failures,
+            )
 
         data = {
             "created": created_count,
@@ -617,12 +624,15 @@ def _seed_comprehensive_email_templates(overwrite: bool = False) -> OperationRes
             "total": created_count + updated_count,
         }
 
-        return OperationResult.ok(
-            data=data,
-            message=_("Email template setup completed. Created: {0}, Updated: {1}").format(
-                created_count, updated_count
-            ),
-        )
+        if overwrite:
+            message = _("Stock email templates reset. Restored: {0}, Newly added: {1}").format(
+                updated_count, created_count
+            )
+        else:
+            message = _(
+                "Email template setup completed. Created: {0}, Skipped (already present): {1}"
+            ).format(created_count, skipped_count)
+        return OperationResult.ok(data=data, message=message)
 
     except Exception as e:
         frappe.log_error(
