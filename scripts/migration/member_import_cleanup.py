@@ -239,7 +239,7 @@ def force_cleanup_orphaned_schedules_and_invoices(dry_run=True):
             return results
 
         # ACTUAL DELETION. No begin(): it raises ImplicitCommitError once the
-        # request has written anything (@critical_api's audit row), and the ambient
+        # request has written anything (any caller with pending writes), and the ambient
         # transaction is released by the commit()/rollback() below (#1169).
         try:
             # Delete orphaned invoices first (with proper GL cleanup)
@@ -1201,15 +1201,12 @@ def _execute_cleanup(sets, results, dry_run, label):
         # cleanup's own transaction.
         #
         # frappe.db.begin() issues START TRANSACTION, which Frappe treats as an
-        # implicit-commit statement and REFUSES when transaction_writes > 0. The
-        # @critical_api decorator on every entry point writes an API Audit Log row
-        # before the function body runs, so transaction_writes is always >= 1 by
-        # the time we get here -- meaning the live path raised ImplicitCommitError
-        # 100% of the time when invoked from the admin_tools UI, while dry runs
-        # (which never call begin) looked perfectly healthy.
+        # implicit-commit statement and REFUSES when transaction_writes > 0, i.e.
+        # for any caller arriving with pending writes (e.g. bench execute after
+        # other writes). Dry runs never call begin, so they looked healthy.
         #
-        # Committing here also keeps the audit row: it records that the operation
-        # was attempted, and must survive a rollback of the cleanup itself.
+        # Committing here also keeps whatever the caller already wrote (such as an
+        # audit row): it must survive a rollback of the cleanup itself.
         # No begin() afterwards: commit() already starts the next transaction.
         frappe.db.commit()
 
@@ -2013,7 +2010,7 @@ def nuclear_truncate_member_tables(confirm_nuclear_truncate=False, dry_run=True)
             return results
 
         # ========== ACTUAL TRUNCATE OPERATION ==========
-        # No begin(): raises ImplicitCommitError after @critical_api's audit write (#1169).
+        # No begin(): raises ImplicitCommitError for any caller with pending writes (#1169).
         # The ambient transaction ends at the commit()/rollback() below.
         try:
             # PHASE 1: Clear references in related tables first

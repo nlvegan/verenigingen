@@ -1,8 +1,8 @@
 """#1169: scripts/ entry points must not open their own transaction with frappe.db.begin().
 
 START TRANSACTION is refused (ImplicitCommitError) once the request has written anything,
-and `@critical_api` writes an API Audit Log row before every admin entry point's body runs.
-Each test dirties the transaction first (the decorator's audit write, stood in for by a
+so any caller with pending writes (e.g. bench execute after other writes) used to fail.
+Each test dirties the transaction first (the caller's pending write, stood in for by a
 `frappe.db.set_value`: a probe shortcut, stated here rather than hidden) and then drives the
 real function.
 
