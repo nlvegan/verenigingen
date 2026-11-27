@@ -20,17 +20,19 @@ from unittest.mock import patch
 
 import frappe
 
+from verenigingen.services.termination import termination_integration as ti
 from verenigingen.tests.support.termination_request import execute_real_termination
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 STAFF_TITLE = "Termination: staff user account NOT deactivated"
+SYNC_TITLE = "Termination: staff user role profile NOT recalculated"
 FAILED_CHECK_TITLE = "Termination: user account NOT deactivated, staff check failed"
 
 
 class TestTerminationStaffUserGuard3219(VereningingenTestCase):
     def setUp(self):
         super().setUp()
-        self.expectErrorLog(STAFF_TITLE, FAILED_CHECK_TITLE)
+        self.expectErrorLog(STAFF_TITLE, FAILED_CHECK_TITLE, SYNC_TITLE)
         self.member = self.create_test_member()
 
     def _make_linked_user_3219(self, role_profile=None, roles=()):
@@ -154,3 +156,70 @@ class TestTerminationStaffUserGuard3219(VereningingenTestCase):
         self.assertEqual(state["profiles"], [])
         self.assertNotIn("Verenigingen Staff", state["roles"])
         self.assertFalse(self._refusal_todos_3219(email))
+
+    # -- the role-profile sync that follows (#692) must not re-derive a staff user's roles --
+
+    def _make_active_volunteer_3219(self):
+        # Volunteer insert queues an Account Creation Request nothing here needs (#2338).
+        was_set = "skip_volunteer_account_creation" in frappe.flags
+        before = frappe.flags.get("skip_volunteer_account_creation")
+        frappe.flags.update({"skip_volunteer_account_creation": True})
+
+        def restore():
+            if was_set:
+                frappe.flags.update({"skip_volunteer_account_creation": before})
+            else:
+                frappe.flags.pop("skip_volunteer_account_creation", None)
+
+        self.addCleanup(restore)
+        return self.create_test_volunteer(member=self.member.name)
+
+    def test_a_staff_user_who_is_a_volunteer_keeps_roles_through_the_profile_sync(self):
+        """System Manager held DIRECTLY (no profile) + Active Volunteer: the refused deactivation
+        was followed by sync_user_role_profile, which swapped the roles for the volunteer profile's."""
+        email = self._make_linked_user_3219(roles=("System Manager",))
+        self._make_active_volunteer_3219()
+        before = self._account_state_3219(email)
+        self.assertEqual(before["profiles"], [])
+
+        request = self._expel_member_3219()
+
+        self.assertEqual(self._account_state_3219(email), before)
+        self.assertTrue(
+            any("NOT recalculated" in e for e in self._audit_errors_3219(request)),
+            self._audit_errors_3219(request),
+        )
+
+    def test_the_profile_sync_fails_closed_when_the_staff_check_errors(self):
+        """Fault injected: the classifier raises. Ordinary user + volunteer; the sync must not run."""
+        email = self._make_linked_user_3219(roles=("Verenigingen Member",))
+        self._make_active_volunteer_3219()
+        from verenigingen.services.member.account.member_role_service import MemberRoleService
+
+        with patch.object(MemberRoleService, "_is_staff_account", side_effect=RuntimeError("db hiccup")):
+            with patch(
+                "verenigingen.services.member.account.user_role_profile_calculator.sync_user_role_profile"
+            ) as sync:
+                self._expel_member_3219()
+        sync.assert_not_called()
+
+    def test_control_an_ordinary_volunteer_user_still_gets_the_profile_sync(self):
+        email = self._make_linked_user_3219(roles=("Verenigingen Member",))
+        self._make_active_volunteer_3219()
+        with patch(
+            "verenigingen.services.member.account.user_role_profile_calculator.sync_user_role_profile",
+            return_value={"success": True, "changed": False},
+        ) as sync:
+            self._expel_member_3219()
+        sync.assert_called_once()
+        self.assertEqual(sync.call_args.args[0], email)
+
+    # -- the ToDo audience fallback ------------------------------------------------------
+
+    def test_with_no_other_system_manager_the_alert_goes_to_administrator(self):
+        email = self._make_linked_user_3219(roles=("System Manager",))
+        with patch.object(ti, "_staff_alert_recipients", return_value=[]):
+            self._expel_member_3219()
+        todos = self._refusal_todos_3219(email)
+        self.assertTrue(todos)
+        self.assertEqual({t.allocated_to for t in todos}, {"Administrator"})

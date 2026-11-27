@@ -1780,6 +1780,30 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                     sync_user_role_profile,
                 )
 
+                # #3219: the sync REPLACES role_profiles and User.validate re-derives roles from
+                # them, so it must not run for a staff user (whose deactivation was refused), nor
+                # when the staff check itself errors (fail closed).
+                try:
+                    from verenigingen.services.member.account.member_role_service import (
+                        MemberRoleService,
+                    )
+
+                    skip_sync = MemberRoleService._is_staff_account(user_email)
+                    skip_cause = None
+                except NON_RESUMABLE_DB_ERRORS:
+                    raise
+                except Exception as staff_check_error:
+                    skip_sync, skip_cause = True, staff_check_error
+                if skip_sync:
+                    _record_termination_failure(
+                        results["errors"],
+                        "Termination: staff user role profile NOT recalculated",
+                        f"User {user_email} (member {member_name}): role profile sync skipped, "
+                        f"{'staff account' if skip_cause is None else f'staff check failed: {skip_cause}'}.",
+                        f"Role profile of {user_email} was NOT recalculated: staff account, left untouched",
+                    )
+                    return results
+
                 # #2597: a RAISE here used to reach the outer handler, which discards `results`
                 # and returns volunteers_terminated=0 although the volunteers above were already
                 # saved Inactive. Report it like a success=False return and keep the count.
