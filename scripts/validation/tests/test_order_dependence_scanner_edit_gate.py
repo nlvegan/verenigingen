@@ -145,6 +145,21 @@ class ScannerEditGateTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("failed closed", r.stdout)
 
+    def test_a_second_identical_finding_in_the_same_file_is_growth(self):
+        """Counts, not sets: the key (kind, file, snippet) is identical for both commits."""
+        self.repo.write("verenigingen/tests/test_b.py", BARE_COMMIT)
+        self.repo.regen_baseline()
+        self.base = self.repo.commit("base with one finding")
+        self._edit_scanner()
+        twice = BARE_COMMIT.replace(
+            "        pass\n", "        pass\n\n    def setUp2(self):\n        frappe.db.\x63ommit()\n"
+        ).replace("def setUp2", "def setUpClass")
+        self.repo.write("verenigingen/tests/test_b.py", twice)
+        self.repo.regen_baseline()
+        r = self._commit_and_gate()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("1 -> 2", r.stdout)
+
     def test_control_scanner_unchanged_growth_still_fails(self):
         self.repo.write("verenigingen/tests/test_b.py", BARE_COMMIT)
         self.repo.regen_baseline()

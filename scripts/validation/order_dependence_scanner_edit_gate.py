@@ -26,6 +26,11 @@ unrelated edit shifts lines, and a keyed diff on lines reports the same finding 
 added and one removed (#950 measured 29/29 on #943). COMMIT_EXEMPT is not gated, matching
 the baseline's own ``# order-dependence`` marker.
 
+KNOWN FALSE-RED (accepted on purpose, no override): editing the text of a line that carries a
+finding, or moving/renaming its file, reads as one removed plus one added. The base scanner also
+reads Single doctypes from its own (base) tree, so a scanner-editing PR that adds a Single doctype
+could false-red (rare).
+
 FAIL CLOSED: a scanner that crashes, writes no JSON, or cannot be extracted from the base
 sha fails the gate. Nothing here returns 0 because a comparison was impossible.
 """
