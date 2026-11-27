@@ -139,6 +139,8 @@ class TestWebhookUserCannotAuthenticate1680(VereningingenTestCase):
         frappe.clear_cache()
         with self.assertRaises(frappe.AuthenticationError):
             self._password_login_1680(email, "Zq9!set-by-an-admin-1680")
+        # the refusal also strips the late password, so it cannot linger
+        self.assertEqual(self._auth_rows_1680(email), ())
 
     def test_an_api_key_cannot_authenticate_the_webhook_user(self):
         email = self._webhook_user_after_setup()
