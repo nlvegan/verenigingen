@@ -680,6 +680,49 @@ class TestGuestPerUserScopeKeysOnClientIp(EnhancedTestCase):
         self.assertTrue(blank.endswith(":Guest:unknown"), blank)
         self.assertTrue(no_request.endswith(":Guest:test_environment"), no_request)
 
+    def test_ipv6_guests_in_one_slash_64_share_one_counter_1766(self):
+        """#1766: a /128 key let a client holding a /64 rotate addresses for free. Real
+        requests from two addresses of one /64 must hit ONE counter through the real limiter."""
+        with _wsgi_request("2001:db8:1::1"):
+            self.assertEqual(self._check().current_count, 1)
+            first = self._key()
+        with _wsgi_request("2001:db8:1:0:ffff:ffff:ffff:ffff"):
+            second = self._check()
+            self.assertEqual(second.current_count, 2, "same /64 must share one counter")
+            self.assertEqual(self._key(), first)
+
+    def test_ipv6_guests_in_different_slash_64s_keep_separate_budgets_1766(self):
+        """Control: /64 neighbours (differing in the 4th hextet) must NOT collapse, which a
+        /48 or wider mask would do."""
+        with _wsgi_request("2001:db8:1:0::1"):
+            self.assertEqual(self._check().current_count, 1)
+            first = self._key()
+        with _wsgi_request("2001:db8:1:1::1"):
+            other = self._check()
+            self.assertEqual(other.current_count, 1)
+            self.assertNotEqual(self._key(), first)
+
+    def test_ipv6_normalisation_leaves_ipv4_keys_verbatim_1766(self):
+        """Control: IPv4 is not masked (a /24 mask would merge these two)."""
+        with _wsgi_request("198.51.100.1"):
+            first = self._key()
+        with _wsgi_request("198.51.100.2"):
+            second = self._key()
+        self.assertNotEqual(first, second)
+        self.assertTrue(first.endswith(":Guest:198.51.100.1"), first)
+
+    def test_ipv4_mapped_guest_shares_the_plain_ipv4_bucket_but_distinct_ipv4s_stay_apart_1766(self):
+        """A dual-stack client seen as ::ffff:a.b.c.d and as a.b.c.d is ONE client (one budget);
+        a /64 mask applied to mapped addresses would instead merge every IPv4 client."""
+        with _wsgi_request("::ffff:198.51.100.1"):
+            mapped = self._key()
+        with _wsgi_request("198.51.100.1"):
+            plain = self._key()
+        with _wsgi_request("::ffff:198.51.100.2"):
+            other = self._key()
+        self.assertEqual(mapped, plain)
+        self.assertNotEqual(mapped, other)
+
     def test_headers_read_the_same_key_the_check_writes(self):
         limit = self.engine._get_cor_config(self.OP)["rate_limit_calls"]
         with _wsgi_request("198.51.100.1"):
@@ -725,7 +768,7 @@ class TestRetryPaymentRateLimitScope(EnhancedTestCase):
 
         add_missing_critical_operation_rules()
         frappe.cache().delete_value("critical_operation_rules")
-        for ip in ("203.0.113.10", "203.0.113.20"):
+        for ip in ("203.0.113.10", "203.0.113.20", "2001:db8:7::/64", "2001:db8:7:1::/64"):
             frappe.cache().delete(
                 f"cor_rate_limit:{frappe.local.site}:interactive:{self.OPERATION_KEY}:{ip}"
             )
@@ -786,6 +829,24 @@ class TestRetryPaymentRateLimitScope(EnhancedTestCase):
                 "A different Guest visitor (different IP) must not inherit IP 1's exhausted budget",
             )
             self.assertEqual(fresh.current_count, 1)
+
+    def test_per_ip_rule_buckets_ipv6_by_slash_64_1766(self):
+        """The per_ip scope shares the Guest bucket's /128 hole: two addresses of one /64 must hit
+        ONE counter on the real retry_payment per_ip rule; another /64 keeps its own."""
+        with _guest_request_from_ip("2001:db8:7::1"):
+            first = self.framework.rate_limiter.check_rate_limit(
+                self.OPERATION_KEY, context=ExecutionContext.INTERACTIVE, force_check=True
+            )
+        with _guest_request_from_ip("2001:db8:7:0:aaaa::2"):
+            second = self.framework.rate_limiter.check_rate_limit(
+                self.OPERATION_KEY, context=ExecutionContext.INTERACTIVE, force_check=True
+            )
+        with _guest_request_from_ip("2001:db8:7:1::1"):
+            other_64 = self.framework.rate_limiter.check_rate_limit(
+                self.OPERATION_KEY, context=ExecutionContext.INTERACTIVE, force_check=True
+            )
+        self.assertEqual((first.current_count, second.current_count), (1, 2))
+        self.assertEqual(other_64.current_count, 1)
 
 
 class TestInitiatePaymentRateLimitScope(EnhancedTestCase):

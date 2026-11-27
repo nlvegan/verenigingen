@@ -312,3 +312,22 @@ def get_client_ip_with_info() -> dict:
         "is_proxied": is_proxied,
         "trust_chain": trust_chain,
     }
+
+
+def bucket_client_ip(ip: str) -> str:
+    """The identity a per-caller counter or dedupe window is keyed on: the address, or the /64 for IPv6.
+
+    A holder of a /64 can source 2**64 addresses, so a per-/128 key gives it an unlimited budget
+    (#1766). An IPv4-mapped address (::ffff:a.b.c.d) is unwrapped to its IPv4, so the mapped and
+    plain forms of one client share a bucket and a /64 mask cannot merge every IPv4 client.
+    Anything that is not an address ("unknown", "test_environment") is returned verbatim, capped at 64 chars.
+    """
+    try:
+        address = ipaddress.ip_address(str(ip).strip())
+    except ValueError:
+        return str(ip)[:64]
+    if address.version == 6 and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    if address.version == 6:
+        return str(ipaddress.ip_network(f"{address}/64", strict=False))
+    return str(address)

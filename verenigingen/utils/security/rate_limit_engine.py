@@ -17,7 +17,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
-from verenigingen.utils.security.client_ip import get_client_ip
+from verenigingen.utils.security.client_ip import bucket_client_ip, get_client_ip
 from verenigingen.utils.security.types import ExecutionContext
 
 
@@ -297,8 +297,7 @@ class RateLimitEngine:
         if scope == "global":
             return prefix
         elif scope == "per_ip":
-            client_ip = self._get_client_ip()
-            return f"{prefix}:{client_ip}"
+            return f"{prefix}:{self._bucket_ip()}"
         else:  # per_user (default)
             return f"{prefix}:{self._per_user_bucket()}"
 
@@ -319,7 +318,14 @@ class RateLimitEngine:
         user = frappe.session.user
         if user != "Guest":
             return user
-        return f"Guest:{self._get_client_ip()}"
+        return f"Guest:{self._bucket_ip()}"
+
+    def _bucket_ip(self) -> str:
+        """The client IP a counter is keyed on: IPv6 collapses to its /64 (#1766).
+
+        Normalised here, not in get_client_ip, so logs keep the full address.
+        """
+        return bucket_client_ip(self._get_client_ip())
 
     def _get_client_ip(self) -> str:
         """
