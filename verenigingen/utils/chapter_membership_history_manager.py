@@ -37,6 +37,7 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
         start_date: str,
         reason: str = None,
         status: str = "Active",
+        end_date: str = None,
     ) -> bool:
         """
         Add membership to member history when starting a chapter relationship
@@ -48,6 +49,7 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
             start_date: Start date of membership
             reason: Reason for assignment (optional)
             status: Status of the membership ("Active", "Pending", etc.)
+            end_date: Close the entry on creation (e.g. a rejected join request, #2500)
 
         Returns:
             bool: Success status
@@ -97,6 +99,7 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
                     "chapter_name": chapter_name,
                     "assignment_type": assignment_type,
                     "start_date": start_date,
+                    "end_date": end_date,
                     "status": status,
                     "reason": reason or f"Assigned to {chapter_name} as {assignment_type}",
                 },

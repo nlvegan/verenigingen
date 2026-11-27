@@ -763,6 +763,73 @@ class TestMemberManager(VereningingenTestCase):
         )
         self.assertGreater(len(history), 0, "rejection should append an Inactive history row")
 
+    def _history_2500(self, member_name, chapter_name, status=None):
+        filters = {"parent": member_name, "parenttype": "Member", "chapter_name": chapter_name}
+        if status:
+            filters["status"] = status
+        return frappe.get_all(
+            "Chapter Membership History",
+            filters=filters,
+            fields=["name", "status", "start_date", "end_date", "creation"],
+            order_by="idx asc",
+        )
+
+    def test_reject_member_request_closes_inactive_history_row_2500(self):
+        """Real flow: request -> reject. The Inactive audit row must carry end_date = today (#2500)."""
+        self.manager.request_to_join(self.member.name, notify=False)
+        self._reload_chapter()
+        self.assertTrue(self.manager.reject_member_request(self.member.name, reason="no")["success"])
+
+        inactive = self._history_2500(self.member.name, self.chapter.name, "Inactive")
+        self.assertEqual(len(inactive), 1, "rejection must still write its audit row")
+        self.assertEqual(str(inactive[0].end_date), today(), "rejected request must not stay open")
+
+    def test_reject_closes_only_this_chapters_row_2500(self):
+        """Control: another chapter's open Active row of the same member is untouched."""
+        other = self.create_test_chapter(
+            chapter_name=f"MemberMgr Other {frappe.generate_hash(length=6)}",
+            postal_codes="1000-9999",
+            published=1,
+        )
+        other.member_manager.add_member(self.member.name, notify=False)
+        self.manager.request_to_join(self.member.name, notify=False)
+        self._reload_chapter()
+        self.manager.reject_member_request(self.member.name, reason="no")
+
+        other_rows = self._history_2500(self.member.name, other.name, "Active")
+        self.assertEqual(len(other_rows), 1, "fixture: the other chapter needs a real open Active row")
+        self.assertIsNone(other_rows[0].end_date)
+
+    def test_approved_request_still_leaves_open_active_row_2500(self):
+        """Control: the approve path is unchanged -- an Active row with no end date."""
+        self.manager.request_to_join(self.member.name, notify=False)
+        self._reload_chapter()
+        self.assertTrue(self.manager.approve_member_request(self.member.name)["success"])
+        active = self._history_2500(self.member.name, self.chapter.name, "Active")
+        self.assertEqual(len(active), 1)
+        self.assertIsNone(active[0].end_date)
+        self.assertEqual(self._history_2500(self.member.name, self.chapter.name, "Inactive"), [])
+
+    def test_rejoin_after_rejection_opens_new_row_and_keeps_closed_one_2500(self):
+        """Control: a second join does not reopen the closed rejection record."""
+        self.manager.request_to_join(self.member.name, notify=False)
+        self._reload_chapter()
+        self.manager.reject_member_request(self.member.name, reason="no")
+        closed = self._history_2500(self.member.name, self.chapter.name, "Inactive")
+        self.assertEqual(len(closed), 1)
+
+        self._reload_chapter()
+        self.manager.request_to_join(self.member.name, notify=False)
+        self._reload_chapter()
+        self.assertTrue(self.manager.approve_member_request(self.member.name)["success"])
+
+        again = self._history_2500(self.member.name, self.chapter.name, "Inactive")
+        self.assertEqual([r.name for r in again], [closed[0].name])
+        self.assertEqual(str(again[0].end_date), today())
+        active = self._history_2500(self.member.name, self.chapter.name, "Active")
+        self.assertEqual(len(active), 1)
+        self.assertIsNone(active[0].end_date)
+
     # ------------------------------------------------------------------ remove_member
 
     def test_remove_member_disable(self):
