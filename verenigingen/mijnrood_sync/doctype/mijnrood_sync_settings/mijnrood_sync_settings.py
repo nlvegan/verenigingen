@@ -780,15 +780,24 @@ class MijnRoodSyncSettings(Document):
                 ),
             }
 
-        frappe.enqueue(
-            "verenigingen.mijnrood_sync.services.document_import_service.import_all",
-            queue="long",
-            timeout=3600,
-            job_name="mijnrood_document_import",
-        )
-
+        # Status first, committed, THEN enqueue: a worker that fails fast writes "Import failed: ..." and
+        # a later "enqueued" write from this request would bury it. (enqueue_after_commit would not fix
+        # a status write placed after it.)
         self.db_set("document_import_status", _("Import job enqueued"))
         frappe.db.commit()
+
+        try:
+            frappe.enqueue(
+                "verenigingen.mijnrood_sync.services.document_import_service.import_all",
+                queue="long",
+                timeout=3600,
+                job_name="mijnrood_document_import",
+            )
+        except Exception as e:
+            # The status already says "enqueued"; without this it would say so forever.
+            self.db_set("document_import_status", _("Import failed to enqueue: {0}").format(e)[:1000])
+            frappe.db.commit()
+            raise
         return {
             "success": True,
             "message": _("Document import job enqueued. Check progress in the Import Status field."),

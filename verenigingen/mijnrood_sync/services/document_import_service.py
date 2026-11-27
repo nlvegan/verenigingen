@@ -14,6 +14,7 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from verenigingen.utils.service_logger import get_service_logger
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="document_import")
 
@@ -308,7 +309,25 @@ class DocumentImportService:
         return national_chapter
 
     def import_all(self, dry_run: bool = False) -> dict:
-        """Main entry point for document import.
+        """Main entry point for document import; any unexpected failure lands on the status field.
+
+        The enqueued job's return value is discarded, so an exception outside the guarded steps of
+        ``_import_all`` (client construction, folder-tree build) would otherwise leave the status at
+        "Import job enqueued".
+        """
+        try:
+            return self._import_all(dry_run)
+        except NON_RESUMABLE_DB_ERRORS as e:
+            # Record, then re-raise: a deadlock/lock-wait must reach the job runner, not become a dict.
+            self._record_import_failure(str(e)[:500], dry_run, log_traceback=True)
+            raise
+        except Exception as e:
+            error_msg = str(e)[:500]
+            self._record_import_failure(error_msg, dry_run, log_traceback=True)
+            return {"success": False, "imported": 0, "skipped": 0, "errors": [error_msg]}
+
+    def _import_all(self, dry_run: bool = False) -> dict:
+        """Body of ``import_all``.
 
         Args:
             dry_run: If True, compute counts without creating records or downloading files.
@@ -322,12 +341,9 @@ class DocumentImportService:
         # 1. Load folder mapping
         self._load_folder_mapping()
         if not self.folder_mapping:
-            return {
-                "success": False,
-                "imported": 0,
-                "skipped": 0,
-                "errors": ["No folder mappings configured. Fetch folders and configure mappings first."],
-            }
+            error_msg = "No folder mappings configured. Fetch folders and configure mappings first."
+            self._record_import_failure(error_msg, dry_run)
+            return {"success": False, "imported": 0, "skipped": 0, "errors": [error_msg]}
 
         # 2. Fetch folder tree + document list from MijnRood DB
         db_client = MijnRoodDatabaseClient(settings=self.settings)
@@ -337,6 +353,7 @@ class DocumentImportService:
                 documents = db_client.fetch_documents()
         except Exception as e:
             error_msg = str(e)[:500]
+            self._record_import_failure(error_msg, dry_run, log_traceback=True)
             return {"success": False, "imported": 0, "skipped": 0, "errors": [error_msg]}
 
         # 3. Build folder tree
@@ -397,6 +414,20 @@ class DocumentImportService:
             "skipped": skipped,
             "errors": errors,
         }
+
+    def _record_import_failure(self, error_msg: str, dry_run: bool, log_traceback: bool = False) -> None:
+        """Put an import that never started on the settings status, where staff look.
+
+        The enqueued job's return value is discarded and ``import_documents`` leaves the status at
+        "Import job enqueued", so without this a failure before the SFTP loop reads as a job that is
+        still waiting. A dry run is interactive: its caller gets the returned dict, so it is left alone.
+        """
+        if dry_run:
+            return
+        if log_traceback:
+            frappe.log_error(title="MijnRood Document Import Failed", message=frappe.get_traceback())
+        self.settings.db_set("document_import_status", _("Import failed: {0}").format(error_msg)[:1000])
+        frappe.db.commit()
 
     def _load_folder_mapping(self):
         """Load folder mapping from settings child table.

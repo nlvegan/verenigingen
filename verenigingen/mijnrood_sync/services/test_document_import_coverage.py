@@ -624,3 +624,171 @@ class TestReclassifyDocuments(EnhancedTestCase):
         # dry_run coerced from "true" -> no write, but a change is detected
         self.assertTrue(result["dry_run"])
         self.assertEqual(len(result["changes"]), 1)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# #2512: a failure BEFORE the SFTP loop must reach the status staff look at
+# ──────────────────────────────────────────────────────────────────────────
+class TestImportAllEarlyFailureReachesStatus(EnhancedTestCase):
+    """Drives the module-level ``import_all`` the enqueued job runs (its return value is discarded).
+
+    Probe shortcut, stated: ``document_import_status`` is set to what ``import_documents`` writes at enqueue
+    time instead of calling that endpoint, and ``_load_folder_mapping`` is patched to inject the mapping
+    (as the neighbouring tests do). Stubbed boundary: ``MijnRoodDatabaseClient`` (the SSH/DB connection).
+    """
+
+    FAILED_TITLE = "MijnRood Document Import Failed"
+
+    def setUp(self):
+        super().setUp()
+        self._orig_status = frappe.db.get_single_value("MijnRood Sync Settings", "document_import_status")
+        frappe.db.set_single_value("MijnRood Sync Settings", "document_import_status", "Import job enqueued")
+
+    def tearDown(self):
+        frappe.db.set_single_value("MijnRood Sync Settings", "document_import_status", self._orig_status)
+        super().tearDown()
+
+    def _status(self):
+        return frappe.db.get_single_value("MijnRood Sync Settings", "document_import_status")
+
+    def _failed_logs(self):
+        return frappe.get_all("Error Log", filters={"method": self.FAILED_TITLE}, pluck="name")
+
+    def _run_job(self, dry_run=False):
+        from verenigingen.mijnrood_sync.services import document_import_service as mod
+
+        return mod.import_all(dry_run=dry_run)
+
+    def test_unreachable_mijnrood_db_is_reported_on_the_status_and_error_log(self):
+        before = len(self._failed_logs())
+        with (
+            patch.object(
+                DocumentImportService,
+                "_load_folder_mapping",
+                lambda s: setattr(s, "folder_mapping", {1: {}}),
+            ),
+            _patch_db_client(_FakeDBClient(raise_on_enter=True)),
+        ):
+            result = self._run_job()
+        self.assertFalse(result["success"])
+        self.assertIn("DB unreachable", self._status())
+        self.assertNotEqual(self._status(), "Import job enqueued")
+        self.assertEqual(len(self._failed_logs()), before + 1)
+
+    def test_no_folder_mappings_is_reported_on_the_status(self):
+        with patch.object(
+            DocumentImportService, "_load_folder_mapping", lambda s: setattr(s, "folder_mapping", {})
+        ):
+            result = self._run_job()
+        self.assertFalse(result["success"])
+        self.assertIn("No folder mappings configured", self._status())
+
+    def test_dry_run_failure_leaves_the_status_alone(self):
+        """Control: a dry run is interactive (bench execute prints the dict); it must not stamp the status."""
+        before = len(self._failed_logs())
+        with (
+            patch.object(
+                DocumentImportService,
+                "_load_folder_mapping",
+                lambda s: setattr(s, "folder_mapping", {1: {}}),
+            ),
+            _patch_db_client(_FakeDBClient(raise_on_enter=True)),
+        ):
+            result = self._run_job(dry_run=True)
+        self.assertFalse(result["success"])
+        self.assertEqual(self._status(), "Import job enqueued")
+        self.assertEqual(len(self._failed_logs()), before)
+
+    # ---- round 2 -------------------------------------------------------
+
+    def test_a_job_that_fails_instantly_is_not_overwritten_by_the_enqueue_status(self):
+        """Simulates the job finishing synchronously AT enqueue time (no real worker: bench RQ workers run
+        develop's code). The request must have written "enqueued" BEFORE enqueueing, or its later write
+        would bury the job's "Import failed" and bring back the stuck-status symptom.
+        """
+        settings = frappe.get_single("MijnRood Sync Settings")
+        settings.document_folder_mapping = [frappe._dict(organization_type="Chapter", document_type="Other")]
+
+        def run_job_now(*args, **kwargs):
+            with (
+                patch.object(
+                    DocumentImportService,
+                    "_load_folder_mapping",
+                    lambda s: setattr(s, "folder_mapping", {1: {}}),
+                ),
+                _patch_db_client(_FakeDBClient(raise_on_enter=True)),
+            ):
+                self._run_job()
+
+        with patch.object(frappe, "enqueue", side_effect=run_job_now):
+            result = settings.import_documents()
+        self.assertTrue(result["success"])
+        self.assertIn("Import failed", self._status())
+
+    def test_exception_before_the_sftp_try_is_reported_on_the_status(self):
+        """SFTP client construction sits outside import_all's own try."""
+        folders = [{"id": 1, "name": "Landelijk", "parent_id": None}]
+        documents = [{"id": 10, "folder_id": 1, "name": "a.pdf", "upload_file_name": "a.pdf"}]
+        with (
+            patch.object(
+                DocumentImportService,
+                "_load_folder_mapping",
+                lambda s: setattr(s, "folder_mapping", {1: {}}),
+            ),
+            _patch_db_client(_FakeDBClient(folders=folders, documents=documents)),
+            patch(
+                "verenigingen.mijnrood_sync.sftp_client.MijnRoodSFTPClient",
+                side_effect=RuntimeError("sftp settings broken"),
+            ),
+        ):
+            result = self._run_job()
+        self.assertFalse(result["success"])
+        self.assertIn("sftp settings broken", self._status())
+        self.assertNotEqual(self._status(), "Import job enqueued")
+
+    def test_malformed_folder_row_is_reported_on_the_status(self):
+        """Folder-tree build (step 3) is also outside the try."""
+        with (
+            patch.object(
+                DocumentImportService,
+                "_load_folder_mapping",
+                lambda s: setattr(s, "folder_mapping", {1: {}}),
+            ),
+            _patch_db_client(_FakeDBClient(folders=[{"name": "no id"}], documents=[{"id": 1}])),
+        ):
+            result = self._run_job()
+        self.assertFalse(result["success"])
+        self.assertIn("Import failed", self._status())
+
+    # ---- round 3 -------------------------------------------------------
+
+    def test_a_deadlock_is_recorded_on_the_status_and_then_re_raised(self):
+        """A 1213 destroys the transaction state; swallowing it into a dict hides it from the job runner.
+        Fault injected at ``_import_all`` (the whole body), not at a real lock conflict.
+        """
+        before = len(self._failed_logs())
+        # Mock justified: injects a lock-wait fault; a real 1213 needs two contending connections.
+        with patch.object(
+            DocumentImportService, "_import_all", side_effect=frappe.QueryDeadlockError("1213")
+        ):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                self._run_job()
+        self.assertIn("Import failed", self._status())
+        self.assertNotEqual(self._status(), "Import job enqueued")
+        self.assertEqual(len(self._failed_logs()), before + 1)
+
+    def test_a_lock_wait_timeout_is_also_re_raised(self):
+        # Mock justified: injects a 1205 lock-wait fault (see the deadlock test).
+        with patch.object(DocumentImportService, "_import_all", side_effect=frappe.QueryTimeoutError("1205")):
+            with self.assertRaises(frappe.QueryTimeoutError):
+                self._run_job()
+        self.assertIn("Import failed", self._status())
+
+    def test_enqueue_failure_is_written_to_the_status_and_re_raised(self):
+        settings = frappe.get_single("MijnRood Sync Settings")
+        settings.document_folder_mapping = [frappe._dict(organization_type="Chapter", document_type="Other")]
+        # Mock justified: seam at the queue boundary; Redis being down cannot be provoked in a test.
+        with patch.object(frappe, "enqueue", side_effect=RuntimeError("redis is down")):
+            with self.assertRaises(RuntimeError):
+                settings.import_documents()
+        self.assertEqual(self._status(), "Import failed to enqueue: redis is down")
