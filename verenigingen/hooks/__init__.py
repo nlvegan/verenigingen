@@ -70,7 +70,7 @@ home_page = "verenigingen"
 # =============================================================================
 jinja = {
     "methods": ["verenigingen.utils.jinja_methods"],
-    "filters": ["verenigingen.utils.jinja_filters"],
+    "filters": ["verenigingen.utils.jinja_filters", "verenigingen.utils.jinja_safe_url"],
 }
 
 # =============================================================================

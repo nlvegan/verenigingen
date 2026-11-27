@@ -145,6 +145,65 @@ class TestScope(unittest.TestCase):
         self.assertEqual(len(found("{{ intro_html | safe }}", REL)), 1)
 
 
+class TestUrlAttributeSchemes(unittest.TestCase):
+    """#2884: |e does not stop a javascript: scheme; a value starting a URL attribute needs |safe_url."""
+
+    def test_escaped_but_unfiltered_url_attribute_is_flagged(self):
+        for attr in ("href", "src", "action"):
+            with self.subTest(attr=attr):
+                self.assertEqual(len(found(f'<a {attr}="{{{{ doc.document_file|e }}}}">x</a>')), 1)
+
+    def test_single_quoted_url_attribute_is_flagged(self):
+        self.assertEqual(len(found("<a href='{{ doc.document_file|e }}'>x</a>")), 1)
+
+    def test_safe_url_then_escape_passes(self):
+        self.assertEqual(found('<a href="{{ doc.document_file|safe_url|e }}">x</a>'), [])
+
+    def test_safe_url_without_escape_is_still_flagged(self):
+        self.assertEqual(len(found('<a href="{{ doc.document_file|safe_url }}">x</a>')), 1)
+
+    def test_a_variable_after_a_literal_prefix_cannot_set_the_scheme(self):
+        self.assertEqual(found('<a href="/files/{{ doc.name|e }}">x</a>'), [])
+
+    def test_leading_space_inside_the_quotes_is_flagged(self):
+        """Browsers strip leading whitespace from a URL attribute, so it still executes."""
+        self.assertEqual(len(found('<a href=" {{ y|e }}">x</a>')), 1)
+        self.assertEqual(found('<a href=" {{ y|safe_url|e }}">x</a>'), [])
+
+    def test_unquoted_url_attribute_is_flagged(self):
+        self.assertEqual(len(found("<a href={{ y|e }}>x</a>")), 1)
+        self.assertEqual(found("<a href={{ y|safe_url|e }}>x</a>"), [])
+
+    def test_a_filter_after_safe_url_that_can_restore_the_value_is_flagged(self):
+        self.assertEqual(len(found('<a href="{{ y|safe_url|default(z, true)|e }}">x</a>')), 1)
+        self.assertEqual(len(found('<a href="{{ y|safe_url|replace(\'a\', z)|e }}">x</a>')), 1)
+
+    def test_non_url_attribute_is_unaffected(self):
+        self.assertEqual(found('<a title="{{ doc.name|e }}" data-x="{{ doc.url|e }}">x</a>'), [])
+
+    def test_baselined_site_passes_only_at_its_own_file_and_expression(self):
+        rel, expr = next(iter(v.URL_ATTR_BASELINE))
+        source = f'<a href="{{{{ {expr} }}}}">x</a>'
+        self.assertEqual(found(source, rel), [])
+        self.assertEqual(len(found(source, REL)), 1)
+
+    def test_baseline_holds_no_user_settable_site(self):
+        """Control: the three user-settable sites must use the filter, never the baseline."""
+        for rel, expr in v.URL_ATTR_BASELINE:
+            self.assertNotIn("document_file", expr, rel)
+            self.assertNotIn("member.image", expr, rel)
+
+    def test_every_baseline_entry_still_matches_a_real_site(self):
+        """A stale entry would silently exempt a future site with the same expression."""
+        live = set()
+        for path in v.template_files():
+            rel = path.resolve().relative_to(v.REPO_ROOT).as_posix()
+            for _ln, inner, _ctx, url_start in v.variable_blocks(path.read_text(encoding="utf-8")):
+                if url_start:
+                    live.add((rel, v.normalise(inner)))
+        self.assertEqual(sorted(set(v.URL_ATTR_BASELINE) - live), [])
+
+
 class TestTree(unittest.TestCase):
     def test_whole_tree_is_clean(self):
         findings = [f for p in v.template_files() for f in v.check_file(p)]

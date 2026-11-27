@@ -47,10 +47,14 @@ is why this uses jinja2's own tokenizer rather than a regex.
 * Context: ``|e`` is HTML-escaping. Inside a JS string it blocks a ``</script>`` or a quote
   breakout but not a backslash; use ``|tojson`` for a value placed in JS source.
 
-## M4: URL schemes
+## URL schemes (#2884)
 
-``|e`` in an ``href``/``src`` does not stop a ``javascript:`` scheme (``member.image``,
-``doc.document_file``). That is a different defect from markup injection and is not checked.
+``|e`` in an ``href``/``src``/``action`` does not stop a ``javascript:`` scheme. When an expression
+BEGINS such an attribute value it must also pass through ``|safe_url``
+(``verenigingen/utils/jinja_safe_url.py``: http/https/mailto/relative allowlist), or be listed in
+``URL_ATTR_BASELINE`` with the reason its value cannot be set by a non-staff user. The baseline
+holds the sites traced to a server-built URL or a staff-only field (#2884); a NEW site is refused
+until it uses the filter or is traced and added.
 
 ## chapter_dashboard.html
 
@@ -139,6 +143,43 @@ ALLOWED_EXPRESSIONS = {
     ): "Door.intro_text, sanitised by word_lid._editor_html() as card_html (always_sanitize=True)",
 }
 
+# URL-attribute sites traced to a writer that is NOT a non-staff user (#2884). Keyed like
+# ALLOWED_EXPRESSIONS. A user-settable value must use ``|safe_url`` instead of being listed here.
+_EMAIL = "verenigingen/templates/emails/"
+_PAY_EMAIL = "verenigingen/verenigingen_payments/templates/emails/"
+URL_ATTR_BASELINE = {
+    # server-built: get_url()/f-string links assembled in Python
+    (_EMAIL + "amendment_rejected.html", "portal_link|default('#', true)|e"): "get_url()",
+    (_EMAIL + "mollie_sync_failed.html", "amendment_link|e"): "server-built amendment link",
+    (_EMAIL + "payment_retry_failed.html", "payment_link|e"): "server-built payment link",
+    (_EMAIL + "payment_retry_failed.html", "website_url|e"): "server-built get_url()",
+    (_EMAIL + "payment_retry_failed.html", "unsubscribe_link|default('#')|e"): "server-built",
+    (_EMAIL + "payment_retry_scheduled.html", "payment_link|e"): "server-built payment link",
+    (_EMAIL + "payment_retry_scheduled.html", "unsubscribe_link|default('#')|e"): "server-built",
+    (_EMAIL + "payment_success.html", "receipt_link|e"): "sepa_notifications: get_url() f-string",
+    (_EMAIL + "payment_success.html", "unsubscribe_link|default('#')|e"): "server-built",
+    (_PAY_EMAIL + "sepa_mandate_cancelled.html", "website_url|e"): "server-built get_url()",
+    (_PAY_EMAIL + "sepa_mandate_cancelled.html", "unsubscribe_link|default('#')|e"): "server-built",
+    (_PAY_EMAIL + "sepa_mandate_created.html", "website_url|e"): "server-built get_url()",
+    (_PAY_EMAIL + "sepa_mandate_created.html", "unsubscribe_link|default('#')|e"): "server-built",
+    (_PAY_EMAIL + "sepa_mandate_expiring.html", "renewal_link|e"): "sepa_notifications: get_url() f-string",
+    (_PAY_EMAIL + "sepa_mandate_expiring.html", "website_url|e"): "server-built get_url()",
+    (_PAY_EMAIL + "sepa_mandate_expiring.html", "unsubscribe_link|default('#')|e"): "server-built",
+    # Brand Settings / Mollie Settings: Verenigingen Administrator / System Manager only
+    ("verenigingen/templates/includes/portal_no_member_error.html", "organization_logo|e"): "Brand Settings (staff)",
+    ("verenigingen/templates/pages/apply_for_membership.html", "organization_logo|e"): "Brand Settings (staff)",
+    ("verenigingen/templates/pages/member_portal.html", "organization_logo|e"): "Brand Settings (staff)",
+    ("verenigingen/templates/pages/volunteer/skills.html", "organization_logo|e"): "Brand Settings (staff)",
+    ("verenigingen/templates/pages/brand_management.html", "active_settings.logo|e"): "Brand Settings (staff)",
+    ("verenigingen/verenigingen_payments/templates/pages/mollie_checkout.html", "header_image|e"): "Mollie Settings (staff)",
+    # Donation Campaign write is Verenigingen Administrator / Accounts User only
+    ("verenigingen/templates/pages/campaign.html", "campaign.campaign_image|e"): "Donation Campaign (staff)",
+    # server-built or already guarded
+    ("verenigingen/templates/pages/application_success.html", "payment_url|e"): "same-site check in application_success._same_site_payment_url (#2495)",
+    ("verenigingen/templates/pages/my_dues_schedule.html", "payment.invoice_link|e"): "f-string /app/sales-invoice/<name> built in my_dues_schedule.py",
+    ("verenigingen/templates/pages/payment_success.html", "step.action|e"): "literal paths / mailto in payment_success.py",
+}
+
 _ENV = Environment()
 _WS = re.compile(r"\s+")
 
@@ -223,6 +264,7 @@ def expression_nodes(inner):
 _SCRIPT_OPEN = re.compile(r"<script\b", re.I)
 _SCRIPT_CLOSE = re.compile(r"</script", re.I)
 _QUOTED_ATTR = re.compile(r"""\s[\w:-]+\s*=\s*("[^"]*|'[^']*)$""")
+_URL_ATTR_START = re.compile(r"""\s(?:href|src|action)\s*=\s*["']?\s*$""", re.I)
 _HANDLER_ATTR = re.compile(r"""\son\w+\s*=\s*("[^"]*|'[^']*)$""", re.I)
 
 
@@ -243,21 +285,43 @@ def output_context(prefix):
 
 
 def variable_blocks(source):
-    """Yield (lineno, text, context) for every ``{{ ... }}`` outside comments and raw blocks."""
-    lineno, parts, context = None, None, "html"
+    """Yield (lineno, text, context, url_start) for every ``{{ ... }}`` outside comments and raw blocks.
+
+    ``url_start`` is True when the expression begins an ``href``/``src``/``action`` value (#2884).
+    """
+    lineno, parts, context, url_start = None, None, "html", False
     prefix = []
     for ln, token, value in _ENV.lexer.tokeniter(source, "tpl"):
         if token == "variable_begin":
             lineno, parts = ln, []
-            context = output_context("".join(prefix))
+            emitted = "".join(prefix)
+            context = output_context(emitted)
+            url_start = bool(_URL_ATTR_START.search(emitted[-60:]))
         elif token == "variable_end":
-            yield lineno, "".join(parts), context
+            yield lineno, "".join(parts), context, url_start
             lineno, parts = None, None
             prefix.append("\0")
         elif parts is not None:
             parts.append(value)
         elif token == "data":
             prefix.append(value)
+
+
+def _uses_safe_url(node):
+    """True when ``|safe_url`` is the LAST filter before the escape (or every branch of a conditional).
+
+    A later filter (``|safe_url|default(z, true)|e``) can put an unchecked value back, so it must
+    be the outermost one apart from the escaping filter.
+    """
+    if isinstance(node, nodes.Filter) and node.name in {"e", "escape", "forceescape"}:
+        node = node.node
+    if isinstance(node, nodes.Filter):
+        return node.name == "safe_url"
+    if isinstance(node, nodes.CondExpr):
+        return _uses_safe_url(node.expr1) and (node.expr2 is None or _uses_safe_url(node.expr2))
+    if isinstance(node, (nodes.Or, nodes.And)):
+        return _uses_safe_url(node.left) and _uses_safe_url(node.right)
+    return isinstance(node, nodes.Const) or _static_translation(node)
 
 
 def normalise(inner):
@@ -267,16 +331,18 @@ def normalise(inner):
 def find_unescaped(source, relpath):
     """Return [(lineno, expression)] for each unescaped, non-allowlisted ``{{ }}``."""
     findings = []
-    for lineno, inner, context in variable_blocks(source):
+    for lineno, inner, context, url_start in variable_blocks(source):
         text = normalise(inner)
         try:
             exprs = expression_nodes(text)
         except Exception as exc:  # unparseable output is itself a finding: it cannot be proven safe
             findings.append((lineno, f"{text}  [unparseable: {exc}]"))
             continue
-        if all(is_safe_expression(n, context) for n in exprs):
-            continue
         if (relpath, text) in ALLOWED_EXPRESSIONS:
+            continue
+        if all(is_safe_expression(n, context) for n in exprs):
+            if url_start and not all(_uses_safe_url(n) for n in exprs) and (relpath, text) not in URL_ATTR_BASELINE:
+                findings.append((lineno, f"{text}  [URL attribute without |safe_url]"))
             continue
         findings.append((lineno, text if context == "html" else f"{text}  [in {context}]"))
     return findings

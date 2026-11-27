@@ -494,7 +494,7 @@
                     <div class="image-upload-section">
                         {% if member.image %}
                         <div class="current-image-container">
-                            <img src="{{ member.image|e }}" alt="{{ _('Current profile image') }}" class="current-image">
+                            <img src="{{ member.image|safe_url|e }}" alt="{{ _('Current profile image') }}" class="current-image">
                             <p>{{ _("Current profile image") }}</p>
                         </div>
                         {% endif %}
