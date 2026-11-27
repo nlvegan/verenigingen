@@ -22,6 +22,7 @@ from frappe.utils import today
 
 from verenigingen.services.volunteer.status_derivation_service import CURRENT_ASSIGNMENT_STATUSES
 from verenigingen.utils import append_to_text_field
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
@@ -1139,9 +1140,83 @@ def restore_team_memberships_safe(member_name, restoration_reason, failures=None
         return 0
 
 
-def deactivate_user_account_safe(member_name, termination_type, reason, suspend_only=False):
+def _staff_alert_recipients(excluded_user):
+    """Enabled System Users who can decide what happens to a staff account: System Manager
+    holders. A ToDo's ``role`` gates nothing (see held_reversals.treasurer_users), so each
+    recipient gets their own allocated ToDo."""
+    holders = frappe.get_all(
+        "Has Role", filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"}, pluck="parent"
+    )
+    holders = [user for user in holders if user != excluded_user]
+    if not holders:
+        return []
+    return frappe.get_all(
+        "User",
+        filters={"name": ["in", holders], "enabled": 1, "user_type": "System User"},
+        pluck="name",
+    )
+
+
+def _refuse_staff_deactivation(member_name, user_email, failures, cause=None):
+    """#3219: record a refused (or unclassifiable) user deactivation where a human sees it.
+
+    An Error Log row plus one ToDo per staff recipient; `failures` carries the operator line
+    into the termination's own audit trail. The ToDo is best effort: the refusal itself is
+    already in force, so a failure to raise it is logged, never allowed to undo the refusal.
+    """
+    if cause is None:
+        title = "Termination: staff user account NOT deactivated"
+        detail = (
+            f"User {user_email} (linked to member {member_name}) is a staff account "
+            "(Administrator or System Manager). Its roles, role profiles and enabled flag were "
+            "left untouched; decide by hand whether the account should be changed."
+        )
+    else:
+        title = "Termination: user account NOT deactivated, staff check failed"
+        detail = (
+            f"Could not tell whether {user_email} (linked to member {member_name}) is a staff "
+            f"account: {cause}. Failing closed: roles, role profiles and enabled flag were left "
+            "untouched; decide by hand whether the account should be changed."
+        )
+    _record_termination_failure(
+        failures,
+        title,
+        detail,
+        f"User account {user_email} was NOT deactivated: staff account, left untouched (see ToDo)",
+    )
+    try:
+        for recipient in _staff_alert_recipients(user_email) or ["Administrator"]:
+            todo = frappe.get_doc(
+                {
+                    "doctype": "ToDo",
+                    "description": detail,
+                    "priority": "High",
+                    "status": "Open",
+                    "allocated_to": recipient,
+                    "reference_type": "Member",
+                    "reference_name": member_name,
+                }
+            )
+            # Security: ignore_permissions is safe here: a system-generated alert for staff, its
+            # text built from ids above; the actor is a termination executor who may lack ToDo rights.
+            todo.insert(ignore_permissions=True)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception as e:
+        frappe.log_error(
+            title="Termination: staff-account ToDo not created",
+            message=f"Member {member_name}, user {user_email}: {e}\n{frappe.get_traceback()}",
+        )
+
+
+def deactivate_user_account_safe(member_name, termination_type, reason, suspend_only=False, failures=None):
     """
     Deactivate or suspend backend user account for terminated member
+
+    #3219: a staff user (Administrator, or holding System Manager) is NEVER touched -- no
+    roles, role profiles or enabled change. The refusal is recorded (Error Log, ToDo for
+    staff, a line in `failures`) and False is returned. The same happens, failing closed,
+    when the staff check itself errors.
     """
     try:
         # Get the user associated with this member
@@ -1154,6 +1229,19 @@ def deactivate_user_account_safe(member_name, termination_type, reason, suspend_
         if not frappe.db.exists("User", user_email):
             frappe.logger().info(f"User {user_email} does not exist")
             return True
+
+        try:
+            from verenigingen.services.member.account.member_role_service import MemberRoleService
+
+            is_staff = MemberRoleService._is_staff_account(user_email)
+        except NON_RESUMABLE_DB_ERRORS:
+            raise
+        except Exception as e:
+            _refuse_staff_deactivation(member_name, user_email, failures, cause=e)
+            return False
+        if is_staff:
+            _refuse_staff_deactivation(member_name, user_email, failures)
+            return False
 
         user_doc = frappe.get_doc("User", user_email)
 

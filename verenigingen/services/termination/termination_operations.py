@@ -301,14 +301,20 @@ class DeactivateUserAccountOperation(TerminationOperation):
             f"Request: {self.termination_request.name}"
         )
 
+        # #3219: a refused staff account explains itself through `failures`.
+        failures = []
         if deactivate_user_account_safe(
-            self.member_name, self.termination_request.termination_type, termination_reason
+            self.member_name,
+            self.termination_request.termination_type,
+            termination_reason,
+            failures=failures,
         ):
             results.user_deactivated = True
             results.record_action("Deactivated user account")
         else:
             results.user_deactivated = False
-            results.record_error("Failed to deactivate user account")
+            for failure in failures or ["Failed to deactivate user account"]:
+                results.record_error(failure)
 
 
 class TerminateVolunteerRecordsOperation(TerminationOperation):

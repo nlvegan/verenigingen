@@ -137,10 +137,13 @@ def execute_safe_termination(
         if request_name:
             termination_reason += f" - Request: {request_name}"
 
-        if deactivate_user_account_safe(member_name, termination_type, termination_reason):
+        user_failures = []
+        if deactivate_user_account_safe(
+            member_name, termination_type, termination_reason, failures=user_failures
+        ):
             results["actions_taken"].append("Deactivated user account")
         else:
-            results["errors"].append("Failed to deactivate user account")
+            results["errors"].extend(user_failures or ["Failed to deactivate user account"])
 
         # 6. Update member status
         if update_member_status_safe(member_name, termination_type, termination_date, request_name):
