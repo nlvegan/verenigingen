@@ -14,6 +14,7 @@ from frappe import _
 from frappe.utils import add_months, getdate
 
 FIXED_DATE = "Fixed date"
+ANNUAL = "Annual"  # the only frequency a Fixed date plan may have (maintainer ruling, #3450)
 DOOR = "Membership Application Door"
 DOOR_PLAN = "Membership Application Door Plan"
 # Not a leap year, so 29 February is refused as a fixed date (a day that exists only every fourth year).
@@ -21,11 +22,13 @@ _NON_LEAP_YEAR = 2001
 
 
 def validate_fixed_date_plan(row) -> None:
-    """Refuse a Fixed date plan without a real month/day, and a negative waiver."""
+    """Refuse a Fixed date plan without a real month/day or on a non-Annual template, and a negative waiver."""
     if (row.waive_final_months or 0) < 0:
         frappe.throw(_("Row {0}: waive final months cannot be negative.").format(row.idx))
     if row.period_anchor != FIXED_DATE:
         return
+    if frappe.db.get_value("Membership Dues Schedule", row.dues_template, "billing_frequency") != ANNUAL:
+        frappe.throw(_("Row {0}: a fixed date needs a template with Annual billing.").format(row.idx))
     try:
         date(_NON_LEAP_YEAR, int(row.anchor_month or 0), int(row.anchor_day or 0))
     except ValueError:
@@ -55,12 +58,17 @@ def door_plan_of_member(member_doc, template_name):
     door = getattr(member_doc, "application_door", None)
     if not (door and template_name):
         return None
-    return frappe.db.get_value(
+    plan = frappe.db.get_value(
         DOOR_PLAN,
         {"parent": door, "parenttype": DOOR, "dues_template": template_name, "period_anchor": FIXED_DATE},
         ["anchor_month", "anchor_day", "waive_final_months"],
         as_dict=True,
     )
+    # The door is validated when saved, not when its template changes: a template edited to another
+    # frequency since then makes the plan a Join date one (no anchor) rather than anchoring that cadence.
+    if plan and frappe.db.get_value("Membership Dues Schedule", template_name, "billing_frequency") != ANNUAL:
+        return None
+    return plan
 
 
 def anchor_for_member(member_doc, template_name, on_date) -> date | None:

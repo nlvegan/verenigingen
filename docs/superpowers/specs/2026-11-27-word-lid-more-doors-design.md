@@ -51,7 +51,7 @@ cannot express yet:
 |---|---|---|
 | `show_on_landing` | Check, **1** | `www/word_lid.py` lists only doors with this on. The door's own URL works either way. |
 | `preset_referral_source` | Link → Membership Referral Source, empty | When set, the "how did you find us" question is not rendered. The validator **stores the preset and drops any submitted `referral_source` and `referral_source_other`**, as it does for a hidden question. |
-| `access_codes` | Table → new child `Membership Application Door Code` (`code` Data, `label` Data, `enabled` Check), empty | With at least one enabled row, the form shows a required access-code field. See "Access codes". |
+| `access_codes` | Table → new child `Membership Application Door Code` (`code` Data, `label` Data, `enabled` Check), empty | With at least one row, the form shows a required access-code field. See "Access codes". |
 | `access_code_label` | Data, empty | Label of the access-code field on the form; empty → a translated default ("Access code"). |
 | `access_code_help` | Small Text, empty | Help text under the field. |
 | `require_iban` | Check, **0** | IBAN required for every plan on this door. Today only Monthly requires one. |
@@ -89,6 +89,7 @@ Paper delivery has no postal minimum on a no-payment door, because there is no a
 
 - A code is matched **trimmed and case-insensitively** against the door's **enabled** rows,
   with `hmac.compare_digest`.
+- A door with code rows whose rows are **all disabled refuses everyone** (maintainer ruling): having rows means the door is code-gated, and disabling every code closes it.
 - A wrong, disabled or missing code gets **one** translated refusal ("This access code is not
   valid."). The code is checked **before** every other validation, so that refusal is the same
   whatever else is wrong with the form.
@@ -111,7 +112,7 @@ New fields on `Membership Application Door Plan`:
 
 | Field | Type, default | Meaning |
 |---|---|---|
-| `period_anchor` | Select *Join date* / *Fixed date*, **Join date** | Join date = today's behaviour |
+| `period_anchor` | Select *Join date* / *Fixed date*, **Join date** | Join date = today's behaviour. *Fixed date* is allowed **only on a plan whose template bills Annual** (maintainer ruling): door validation refuses it otherwise. If the template's frequency is edited afterwards, approval treats the plan as *Join date* (no anchor). |
 | `anchor_month`, `anchor_day` | Int, empty | The day periods start on; required for *Fixed date*, validated as a real date (29 February refused) |
 | `waive_final_months` | Int, **0** | Joining within this many months before the next anchor starts the membership at the next anchor, with nothing billed until then |
 
@@ -204,6 +205,9 @@ old one. Read it before choosing where the rule goes.
 - Limitation, not fixed: with Verenigingen Settings `enable_sequential_coverage = 0` the coverage
   calculator takes its date-based branch and ignores `coverage_anchor_date`. The setting defaults to on, and
   the existing rejoin anchor has the same limitation.
+
+- **Ruled behaviour, type change before a future anchor:** the anchor is cleared and billing runs from the
+  change at the new type's rate (maintainer ruling, kept as built).
 
 **Configuration precondition** (no code): a Fixed plan whose rate is below the membership type's
 `minimum_amount` is dropped from the door (`door_plans.py:136-146`), and the door alert reports

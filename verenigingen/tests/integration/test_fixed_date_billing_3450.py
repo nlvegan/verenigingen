@@ -439,8 +439,8 @@ class TestFixedDateTypeChange(FixedDateCase):
 
 
 class TestFixedDatePlanValidation(FixedDateCase):
-    def _door_with_plan(self, **plan):
-        template = self._plan_template("Annual", mode="Fixed", dues_rate=60, minimum_amount=0)
+    def _door_with_plan(self, frequency="Annual", **plan):
+        template = self._plan_template(frequency, mode="Fixed", dues_rate=60, minimum_amount=0)
         return self._door(plans=[{"dues_template": template, "is_default": 1, **plan}])
 
     def test_a_fixed_date_plan_with_a_real_month_and_day_is_saved(self):
@@ -461,3 +461,29 @@ class TestFixedDatePlanValidation(FixedDateCase):
         door = self._door_with_plan()
         row = door.plans[0]
         self.assertEqual((row.period_anchor, row.waive_final_months), ("Join date", 0))
+
+    def test_fixed_date_is_refused_on_a_plan_whose_template_is_not_annual(self):
+        for frequency in ("Monthly", "Quarterly", "Semi-Annual", "Daily"):
+            with self.subTest(frequency=frequency):
+                with self.assertRaises(frappe.ValidationError) as refused:
+                    self._door_with_plan(
+                        frequency, period_anchor="Fixed date", anchor_month=11, anchor_day=3
+                    )
+                self.assertIn("Annual", str(refused.exception))
+
+    def test_a_join_date_plan_on_a_non_annual_template_is_still_accepted(self):
+        door = self._door_with_plan("Monthly")
+        self.assertEqual(door.plans[0].period_anchor, "Join date")
+
+    def test_a_template_edited_to_non_annual_after_the_door_was_saved_gives_no_anchor(self):
+        """Defensive: the door cannot be re-validated when a template changes under it, so approval treats
+        the plan as Join date rather than anchoring a Monthly/Quarterly cadence."""
+        anchor = self._anchor_in(45)
+        door, template = self._fixed_door(anchor)
+        frappe.db.set_value("Membership Dues Schedule", template, "billing_frequency", "Quarterly")
+
+        _application, result = self._apply_and_approve(door, template)
+
+        self.assertFalse(self._fixed_schedule(result["member"]).coverage_anchor_date)
+        [invoice] = self._fixed_invoices(result["member"])
+        self.assertEqual(getdate(invoice.custom_coverage_start_date), getdate(today()))
