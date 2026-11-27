@@ -171,7 +171,10 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 				},
 				callback(r) {
 					if (r.message && r.message.success) {
-						if (!r.message.anbi_consent) {
+						// get_donor_anbi_data returns an OperationResult: the fields are under
+						// r.message.data, never top level (#1485)
+						const anbi_data = unwrapOperationResult(r.message) || {};
+						if (!anbi_data.anbi_consent) {
 							frappe.msgprint({
 								title: __('ANBI Consent Missing'),
 								message: __(
@@ -181,7 +184,7 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 							});
 						}
 
-						if (!r.message.identification_verified) {
+						if (!anbi_data.identification_verified) {
 							frappe.msgprint({
 								title: __('Identification Not Verified'),
 								message: __(

@@ -638,7 +638,7 @@ function show_merge_dialog(source_name, target_name, listview) {
 			} else if (r.message && !r.message.success) {
 				frappe.msgprint({
 					title: __('Error'),
-					message: r.message.error || __('Failed to load merge preview'),
+					message: getErrorMessage(r.message, __('Failed to load merge preview')),
 					indicator: 'red'
 				});
 			}
@@ -817,7 +817,7 @@ function execute_merge(source_name, target_name, field_selections, listview) {
 			} else if (r.message && !r.message.success) {
 				frappe.msgprint({
 					title: __('Merge Failed'),
-					message: r.message.error || __('Failed to merge members'),
+					message: getErrorMessage(r.message, __('Failed to merge members')),
 					indicator: 'red'
 				});
 			}

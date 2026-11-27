@@ -467,15 +467,14 @@ function update_tax_identifiers(frm, values) {
 		callback(r) {
 			if (r.message && r.message.success) {
 				frappe.show_alert({
-					message: r.message.message || __('Tax identifiers updated successfully'),
+					// OperationResult nested schema: ok(message=...) lands in meta.message (#1485)
+					message: getSuccessMessage(r.message, __('Tax identifiers updated successfully')),
 					indicator: 'green'
 				});
 				frm.reload_doc();
 			} else {
-				const error_msg =
-					r.message && r.message.message
-						? r.message.message
-						: __('Failed to update tax identifiers. Please try again.');
+				// The failure text is error.message on the nested schema (#1485)
+				const error_msg = getErrorMessage(r.message, __('Failed to update tax identifiers. Please try again.'));
 				frappe.show_alert({
 					message: error_msg,
 					indicator: 'red'
@@ -499,10 +498,17 @@ function validate_bsn(bsn) {
 		},
 		callback(r) {
 			if (r.message) {
+				// validate_bsn returns an OperationResult: `valid` is under data, the text under
+				// meta.message (success) or error.message (failure) (#1485)
+				const result = unwrapOperationResult(r.message);
+				const valid = Boolean(result && result.valid);
+				const fallback = valid ? __('BSN is valid') : __('BSN is invalid');
 				frappe.msgprint({
 					title: __('BSN Validation Result'),
-					message: r.message.message || (r.message.valid ? __('BSN is valid') : __('BSN is invalid')),
-					indicator: r.message.valid ? 'green' : 'red'
+					message: r.message.success
+						? getSuccessMessage(r.message, fallback)
+						: getErrorMessage(r.message, fallback),
+					indicator: valid ? 'green' : 'red'
 				});
 			} else {
 				frappe.msgprint({
@@ -531,9 +537,16 @@ function validate_bsn_field(frm) {
 				bsn
 			},
 			callback(r) {
-				if (r.message && !r.message.valid) {
+				if (!r.message) {
+					return;
+				}
+				// Same envelope as validate_bsn above (#1485)
+				const result = unwrapOperationResult(r.message);
+				if (!(result && result.valid)) {
 					frappe.show_alert({
-						message: r.message.message,
+						message: r.message.success
+							? getSuccessMessage(r.message, __('BSN is invalid'))
+							: getErrorMessage(r.message, __('BSN is invalid')),
 						indicator: 'orange'
 					});
 				}
@@ -578,10 +591,11 @@ function generate_anbi_report(frm) {
 				callback(r) {
 					if (r.message && r.message.success) {
 						// Show report in a dialog or download as Excel
-						show_anbi_report(r.message);
+						// The report lives under r.message.data on the nested schema (#1485)
+						show_anbi_report(unwrapOperationResult(r.message));
 					} else {
 						frappe.show_alert({
-							message: r.message ? r.message.message : __('Error generating report'),
+							message: getErrorMessage(r.message, __('Error generating report')),
 							indicator: 'red'
 						});
 					}
