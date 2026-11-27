@@ -1124,7 +1124,6 @@ class TestGuestEndpointsGetPerVisitorRateLimitBuckets(EnhancedTestCase):
     # here on purpose.
     DELIBERATELY_GLOBAL = {
         "handle_payment_webhook",
-        "handle_refund_webhook",
         "handle_mollie_payment_webhook",
         "mollie_subscription_webhook",
     }
@@ -1199,11 +1198,15 @@ class TestGuestEndpointsGetPerVisitorRateLimitBuckets(EnhancedTestCase):
         # 72 since #2494 deleted the unused guest endpoint `payment_page` (no token minter, #1817).
         # 71 since #3046 dropped the inert allow_guest=True from `suggest_chapters_for_member`
         # (it is @standard_api, so a Guest was always refused).
+        # 68 since #638 deleted the unused guest endpoints `handle_unified_webhook`,
+        # `handle_chargeback_webhook` and `handle_refund_webhook` (maintainer ruling 2026-11-27).
         # Lower this only for an endpoint deliberately removed, never to absorb a scan regression.
-        self.assertGreaterEqual(len(names), 71)
+        self.assertGreaterEqual(len(names), 68)
         self.assertNotIn("suggest_chapters_for_member", names, "control: #3046 made this authenticated-only")
         self.assertNotIn("process_donation_form", names, "control: #813 deleted this guest endpoint")
         self.assertNotIn("payment_page", names, "control: #2494 deleted this guest endpoint")
+        for gone in ("handle_unified_webhook", "handle_chargeback_webhook", "handle_refund_webhook"):
+            self.assertNotIn(gone, names, "control: #638 deleted this guest endpoint")
         for webhook in ("mollie_payment_webhook", "handle_ponto_webhook", "handle_payment"):
             self.assertIn(webhook, names)
 

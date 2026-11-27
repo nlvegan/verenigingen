@@ -191,65 +191,17 @@ class TestMollieWebhookBodyIsAnAcknowledgement(
         self.expectErrorLog("Mollie", "Webhook")
         base = "verenigingen.verenigingen_payments.mollie.api.webhooks."
         inner = "verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_payment_webhook"
-        for endpoint in ("handle_mollie_payment_webhook",):
-            for exc in (
-                RuntimeError(secret),
-                exceptions.MollieSecurityError(secret),
-                exceptions.MollieWebhookError(secret),
-            ):
-                with self.subTest(endpoint=endpoint, exc=type(exc).__name__):
-                    # Mock justified: the inner handler is the boundary being made to fail.
-                    with patch(inner, side_effect=exc):
-                        frappe.local.response.pop("http_status_code", None)
-                        body = self._post_as_guest(base + endpoint, f"tr_{frappe.generate_hash(length=10)}")
-                    self.assertNotIn(secret, json.dumps(body, default=str))
-                    self.assertEqual(body, {"status": "error"})
-                    self.assertGreaterEqual(frappe.local.response.get("http_status_code"), 400)
-
-    def _post_json_as_guest(self, dotted, payload):
-        from frappe.handler import execute_cmd
-        from werkzeug.test import EnvironBuilder
-        from werkzeug.wrappers import Request
-
-        environ = EnvironBuilder(
-            method="POST",
-            path="/",
-            data=json.dumps(payload),
-            content_type="application/json",
-            environ_overrides={"REMOTE_ADDR": self._unique_remote_addr()},
-        ).get_environ()
-        old = (getattr(frappe.local, "request", None), frappe.local.form_dict, frappe.session.user)
-        self.addCleanup(self._restore_guest_dispatch_state, old)
-        frappe.local.request = Request(environ)
-        frappe.local.request.get_data(as_text=True)
-        frappe.set_user("Guest")
-        frappe.local.form_dict = frappe._dict()
-        frappe.local.response.pop("http_status_code", None)
-        # Mock justified: signature verification is an auth boundary with its own tests; this
-        # test is about what the body says AFTER a caller got through it.
-        with patch(
-            "verenigingen.verenigingen_payments.mollie.utils.webhook_security.authenticate_mollie_webhook"
+        endpoint = "handle_mollie_payment_webhook"
+        for exc in (
+            RuntimeError(secret),
+            exceptions.MollieSecurityError(secret),
+            exceptions.MollieWebhookError(secret),
         ):
-            return execute_cmd(dotted)
-
-    def test_refund_endpoint_answers_with_an_ack_only(self):
-        api = "verenigingen.verenigingen_payments.mollie.api.unified_payment_api."
-        service = (
-            "verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified."
-            "UnifiedWebhookWrapperService"
-        )
-        booked = {"status": "success", "member": self.member.name, "amount": 12.5, "payment_entry": "PE-1"}
-        failed = {"status": "error", "message": f"cannot book for {self.member.name}"}
-        cases = (
-            ("handle_refund_webhook", "process_reversal_webhook", {"payment_id": "tr_x", "refund": {"id": "re_x", "status": "refunded"}}),
-        )
-        for endpoint, method, payload in cases:
-            for result, expected_status, expected_body in ((booked, 200, "ok"), (failed, 500, "error")):
-                with self.subTest(endpoint=endpoint, outcome=expected_body):
-                    # Mock justified: the booking service is the boundary; it is given the
-                    # two outcomes (booked / could not book) the endpoint must shape.
-                    self.expectErrorLog("Mollie", "Webhook")
-                    with patch(f"{service}.{method}", return_value=dict(result)):
-                        body = self._post_json_as_guest(api + endpoint, payload)
-                    self.assertEqual(body, {"status": expected_body})
-                    self.assertEqual(frappe.local.response.get("http_status_code") or 200, expected_status)
+            with self.subTest(endpoint=endpoint, exc=type(exc).__name__):
+                # Mock justified: the inner handler is the boundary being made to fail.
+                with patch(inner, side_effect=exc):
+                    frappe.local.response.pop("http_status_code", None)
+                    body = self._post_as_guest(base + endpoint, f"tr_{frappe.generate_hash(length=10)}")
+                self.assertNotIn(secret, json.dumps(body, default=str))
+                self.assertEqual(body, {"status": "error"})
+                self.assertGreaterEqual(frappe.local.response.get("http_status_code"), 400)

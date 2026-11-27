@@ -36,10 +36,8 @@ from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhoo
 from ..services.complete_payment_service import CompletePaymentService
 from ..services.webhook_wrapper_service_unified import get_unified_webhook_service
 from ..utils.amount_helpers import extract_amount_value
-from ..utils.webhook_utilities import extract_refund_status
 
 _ERROR_LOG_DEDUPE_PREFIX = "mollie_webhook_failure:"
-_KNOWN_REFUND_STATUSES = ("queued", "pending", "processing", "failed", "canceled")
 
 
 def _ack_with_error_log(
@@ -93,34 +91,6 @@ def _log_exception_once(
     if with_traceback:
         message += f"\n{frappe.get_traceback()}"
     log_error_once(title, message, get_client_ip(), type(exc).__name__)
-
-
-def _refuse_unusable_payload(messages_before: int, reason: str) -> Dict[str, str]:
-    """A payload that lacks what we need never becomes valid on redelivery: 400, once.
-
-    The caller's own payload is neither echoed nor logged; ``reason`` says what was missing.
-    """
-    frappe.response.http_status_code = 400
-    # ``reason`` doubles as the dedupe key: these refusals have no id to key on.
-    return _ack_with_error_log(messages_before, {"status": "error", "message": reason}, reason)
-
-
-def _ack_refund_not_paid_out(messages_before: int, webhook_data: Dict[str, Any], ids: Dict[str, Any]):
-    """Ack a refund payload whose status is not `refunded`; one bounded Error Log row says why (#2138).
-
-    Deduped per caller IP and known-status bucket per hour (never per id or raw status: both are the caller's to choose),
-    with the caller-supplied status and ids cut short.
-    """
-    status = extract_refund_status(webhook_data)
-    message = (
-        f"Refund {short_id(ids['refund_id'])} on payment {short_id(ids['payment_id'])} not booked: "
-        f"status is {str(status)[:32]!r}, only 'refunded' counts as paid out"
-    )
-    # Status bucket in the key so an earlier pending delivery cannot hide a later failed one;
-    # the caller-chosen text never becomes a key (unknown statuses share "other").
-    bucket = status if status in _KNOWN_REFUND_STATUSES else "other"
-    log_error_once("Mollie Refund Not Paid Out", message, get_client_ip(), bucket)
-    return webhook_ack(messages_before)
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -380,115 +350,6 @@ def test_webhook_processing():
     except Exception as e:
         frappe.log_error(f"Test webhook error: {e}", "Test Webhook Error")
         return {"status": "test_error", "message": str(e)}
-
-
-@frappe.whitelist(allow_guest=True, methods=["POST"])
-@public_api(operation_type=OperationType.PUBLIC)
-@restores_session_user
-def handle_refund_webhook():
-    """
-    Handle Mollie refund webhooks.
-
-    Parses the payload and delegates to the unified reversal processor.
-
-    This endpoint used to book the refund itself, via create_refund_payment_entry.
-    That made the **artefact depend on the route**: a donation booked forward as a
-    Journal Entry was reversed here as a Payment Entry while the payment-webhook
-    sweep reversed the same donation as a Journal Entry, and neither route could
-    see the other's work (#370). A reversal has to mirror the artefact the forward
-    payment created, and only process_reversal_webhook knows what that was.
-
-    Returns:
-        Dict with refund processing results
-    """
-    messages_before = len(frappe.local.message_log or [])
-    try:
-        # Authenticate webhook: validates signature AND sets user context
-        from verenigingen.verenigingen_payments.mollie.utils.webhook_security import (
-            authenticate_mollie_webhook,
-        )
-
-        authenticate_mollie_webhook()
-
-        # Get the raw request body for webhook processing
-        webhook_payload = frappe.request.get_data(as_text=True)
-        if not webhook_payload:
-            frappe.throw(_("Empty webhook payload"))
-
-        frappe.logger().info(f"🔔 Refund webhook received, payload length: {len(webhook_payload)}")
-
-        # Parse webhook payload and extract data using utilities
-        import json
-
-        from ..services.webhook_wrapper_service_unified import UnifiedWebhookWrapperService
-        from ..utils.webhook_utilities import (
-            extract_webhook_ids,
-            refund_is_paid_out,
-            safe_extract_amount,
-            safe_extract_date,
-        )
-
-        webhook_data = json.loads(webhook_payload)
-        ids = extract_webhook_ids(webhook_data)
-
-        if not ids["payment_id"] or not ids["refund_id"]:
-            return _refuse_unusable_payload(
-                messages_before, "Missing payment_id or refund_id in webhook payload"
-            )
-
-        # #2138: a refund counts as booked only at status `refunded`. Acknowledge 2xx
-        # (Mollie sends a fresh delivery when the status changes, so a 5xx retry buys
-        # nothing) and book nothing.
-        if not refund_is_paid_out(webhook_data):
-            return _ack_refund_not_paid_out(messages_before, webhook_data, ids)
-
-        # Extract refund details using utilities
-        refund_amount = safe_extract_amount(webhook_data)
-        refund_date = safe_extract_date(webhook_data)
-
-        # Delegate. The ids come from extract_webhook_ids rather than the service's
-        # own refund_data.get("id"): Mollie's top-level `id` on this payload is the
-        # PAYMENT id, and extract_webhook_ids only reads it as a refund id when
-        # `resource` says refund or it starts with "re_".
-        #
-        # The service owns the rest -- what the forward payment booked, whether this
-        # reversal is already booked as ANY artefact, and refusing rather than
-        # guessing when the answer is ambiguous.
-        result = UnifiedWebhookWrapperService().process_reversal_webhook(
-            payment_id=ids["payment_id"],
-            reversal_id=ids["refund_id"],
-            amount=refund_amount,
-            reversal_type="refund",
-            reversal_date=refund_date,
-        )
-
-        # A booking failure must not go out as 200. Mollie retries on 5xx (~10 times
-        # over 26h), and that redelivery is the only second chance this refund gets:
-        # the reversal key is deliberately freed when a booking fails, which is worth
-        # nothing if nothing ever comes back to use it. `ignored` and
-        # `not_implemented` stay 2xx on purpose -- redelivering those changes nothing.
-        if result.get("status") == "error":
-            frappe.response.http_status_code = 500
-            frappe.logger().error(f"❌ Refund webhook could not book: {result.get('message')}")
-            return _ack_with_error_log(messages_before, result, ids["payment_id"], ids["refund_id"])
-        frappe.logger().info("✅ Refund webhook processed successfully")
-        return _ack_with_error_log(messages_before)
-
-    except WebhookRateLimitExceeded:
-        # Return 429 to signal Mollie to retry later
-        frappe.response.http_status_code = 429
-        del frappe.local.message_log[messages_before:]
-        return {"status": "rate_limited"}
-
-    except (MollieWebhookError, MolliePaymentError) as e:
-        _log_exception_once("Mollie Refund Webhook Error", e)
-        frappe.response.http_status_code = 400
-        return _ack_with_error_log(messages_before)
-
-    except Exception as e:
-        _log_exception_once("Refund Webhook Processing Error", e)
-        frappe.response.http_status_code = 500
-        return _ack_with_error_log(messages_before)
 
 
 @frappe.whitelist()

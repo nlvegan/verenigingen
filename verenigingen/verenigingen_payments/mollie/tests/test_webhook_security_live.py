@@ -9,8 +9,8 @@ signature-validation path that the production webhook entry points actually use:
         -> verenigingen_payments/utils/webhook_security.verify_mollie_webhook_signature()
 
 verify_mollie_webhook_signature is the single real trust anchor for webhook
-authenticity. unified_payment_api.handle_payment_webhook / handle_refund_webhook
-both call mollie/utils authenticate_mollie_webhook, which
+authenticity. unified_payment_api.handle_payment_webhook
+calls mollie/utils authenticate_mollie_webhook, which
 delegates here. We exercise the genuine HMAC-SHA256 comparison, the constant-time
 behaviour, and every accept/reject branch with NO mocking of the logic under test.
 

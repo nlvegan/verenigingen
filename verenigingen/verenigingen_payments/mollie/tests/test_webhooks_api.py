@@ -55,10 +55,11 @@ class TestHandleMolliePaymentWebhook(EnhancedTestCase):
             self.assertEqual(webhooks.mollie_payment_webhook(), expected)
             self.assertEqual(webhooks.mollie_subscription_webhook(), expected)
 
+
 class TestDeadWebhookEndpointsAreGone(EnhancedTestCase):
-    """#638: Mollie announces a chargeback by calling the PAYMENT's webhookUrl
-    (docs.mollie.com/reference/webhooks), so a separate chargeback endpoint is never called,
-    and ``handle_unified_webhook`` had no caller. Both were guest-reachable and are deleted.
+    """#638: Mollie announces a chargeback or a refund by calling the PAYMENT's webhookUrl
+    (docs.mollie.com/reference/webhooks), so separate chargeback/refund endpoints are never
+    called, and ``handle_unified_webhook`` had no caller. All were guest-reachable and are deleted.
 
     The check is dispatch-level: ``frappe.whitelisted`` is what ``/api/method/...`` consults.
     """
@@ -66,11 +67,11 @@ class TestDeadWebhookEndpointsAreGone(EnhancedTestCase):
     DELETED = (
         (webhooks, "handle_unified_webhook"),
         (unified_payment_api, "handle_chargeback_webhook"),
+        (unified_payment_api, "handle_refund_webhook"),
     )
     STILL_LIVE = (
         (webhooks, "handle_mollie_payment_webhook"),
         (unified_payment_api, "handle_payment_webhook"),
-        (unified_payment_api, "handle_refund_webhook"),
     )
 
     def test_the_dead_endpoints_are_not_whitelisted(self):
