@@ -219,7 +219,9 @@ class TestApplicationRecord(ApplicationRecordCase):
     def test_existing_member_and_new_email_differ_by_exactly_the_staged_row(self):
         """#1961 (ruling: accept and pin): the one write a member's email skips is the staged row.
 
-        Anything else that differs, or any extra write on either path, is a new timing oracle.
+        Pins the WRITES and the guest-visible channels (response, message_log, Error Log,
+        Email Queue). Read-only queries and wall-clock timing are NOT pinned: the timing
+        evidence is the maintainer's measurement on the issue, not this test.
         """
         email = self._unused_email()
         member = self.create_test_member(email=email)
