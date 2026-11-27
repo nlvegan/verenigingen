@@ -1271,12 +1271,15 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         # account_holder_name is a reqd field on SEPA Mandate
         member = frappe.get_doc("Member", member_name)
 
+        # `mandate_id` is the real field; `mandate_reference` was not a SEPA Mandate
+        # field and was silently dropped, so the id was auto-generated (#3367).
+        expected_mandate_id = f"MNDTEST{random_string(8)}"
         sepa_mandate = frappe.get_doc({
             "doctype": "SEPA Mandate",
             "member": member_name,
             "iban": iban,
             "status": status,
-            "mandate_reference": f"MNDTEST{random_string(8)}",
+            "mandate_id": expected_mandate_id,
             "account_holder_name": member.full_name,
             "sign_date": getdate(),
             # mandate_type must be one of CORE/RCUR/FNAL/OOFF (controller validates)
@@ -1286,6 +1289,9 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
             "scheme": "SEPA"
         })
         sepa_mandate.insert()
+        self.assertEqual(
+            frappe.db.get_value("SEPA Mandate", sepa_mandate.name, "mandate_id"), expected_mandate_id
+        )
         return sepa_mandate
     
     def _get_member_sepa_mandate(self, member_name):
