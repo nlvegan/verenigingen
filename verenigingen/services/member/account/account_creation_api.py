@@ -1360,7 +1360,9 @@ def upgrade_member_to_volunteer_user(member_name: str) -> OperationResult[Dict[s
             # Modules volunteers should have access to
             volunteer_modules = ["HRMS", "HR"]  # For expense claims
 
-            # Remove HRMS/HR from blocked modules
+            # Remove HRMS/HR from blocked modules. This is saved even when the user turns out
+            # not to be a desk user (we fail below): harmless, because it is the same module
+            # allow-list the scheduled role profile sync grants a volunteer anyway.
             user_doc.set("block_modules", [])
             all_modules = frappe.get_all("Module Def", fields=["name"])
 

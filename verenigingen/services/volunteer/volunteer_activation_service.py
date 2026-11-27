@@ -16,13 +16,16 @@ from verenigingen.utils.member_utils import get_orphan_volunteer_for_email, get_
 from verenigingen.utils.safe_error_logging import safe_log_error
 from verenigingen.utils.secure_operations import authorised_follow_on_steps, follow_on_ignore_permissions
 
+UPGRADE_FAILED_TITLE = "Volunteer user upgrade refused"
 
-def _log_upgrade_result(upgrade_result, context_label):
+
+def _log_upgrade_result(upgrade_result, context_label, member_name=None):
     """Log the result of a volunteer user account upgrade.
 
     Args:
         upgrade_result: Dict from @critical_api-decorated upgrade_member_to_volunteer_user
         context_label: Description for log messages (e.g. "volunteer", "new volunteer")
+        member_name: Member being activated; a failure is recorded once per member
     """
     if upgrade_result.get("success"):
         message = upgrade_result.get("meta", {}).get("message", "") if upgrade_result.get("meta") else ""
@@ -30,7 +33,26 @@ def _log_upgrade_result(upgrade_result, context_label):
     else:
         error_obj = upgrade_result.get("error", {})
         errors = error_obj.get("errors", []) if isinstance(error_obj, dict) else []
-        frappe.logger().warning(f"Could not upgrade user account for {context_label}: {'; '.join(errors)}")
+        detail = "; ".join(errors)
+        frappe.logger().warning(f"Could not upgrade user account for {context_label}: {detail}")
+        _record_upgrade_failure(context_label, member_name, detail)
+
+
+def _record_upgrade_failure(context_label, member_name, detail):
+    """Write a readable Error Log row (frappe.logger() output is never read), once per member.
+
+    Since #2860 this is the normal outcome for a member-only volunteer: the account stays a
+    Website User until the scheduled role profile sync grants the volunteer roles.
+    """
+    if member_name and frappe.db.exists(
+        "Error Log", {"method": UPGRADE_FAILED_TITLE, "error": ["like", f"%{member_name}%"]}
+    ):
+        return
+    frappe.log_error(
+        title=UPGRADE_FAILED_TITLE,
+        message=f"Member {member_name} ({context_label}): {detail or 'no detail'}. "
+        "The account stays a Website User until the scheduled role profile sync.",
+    )
 
 
 def activate_volunteer_record(member):
@@ -102,7 +124,7 @@ def _activate_volunteer_record_authorised(member):
                     )
 
                     upgrade_result = upgrade_member_to_volunteer_user(member.name)
-                    _log_upgrade_result(upgrade_result, "volunteer")
+                    _log_upgrade_result(upgrade_result, "volunteer", member.name)
                 except Exception as e:
                     frappe.logger().error(f"Error upgrading user account to System User: {str(e)}")
                     # Non-critical - continue with volunteer activation
@@ -133,7 +155,7 @@ def _activate_volunteer_record_authorised(member):
                         )
 
                         upgrade_result = upgrade_member_to_volunteer_user(member.name)
-                        _log_upgrade_result(upgrade_result, "new volunteer")
+                        _log_upgrade_result(upgrade_result, "new volunteer", member.name)
                     except Exception as e:
                         frappe.logger().error(f"Error upgrading user account to System User: {str(e)}")
                         # Non-critical - continue with volunteer activation

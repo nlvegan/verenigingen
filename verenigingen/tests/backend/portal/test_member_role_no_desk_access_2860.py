@@ -295,8 +295,12 @@ class TestUpgradeMemberToVolunteerUser2860(EnhancedTestCase):
         from verenigingen.services.volunteer.volunteer_activation_service import activate_volunteer_record
 
         member, user = self._converted_member_with_volunteer(volunteer_status="New")
+        self.expectErrorLog("Volunteer user upgrade refused")
 
         activate_volunteer_record(member)
+        self._assert_upgrade_refusal_recorded_once(member.name)
+        activate_volunteer_record(member)  # a second activation must not add a second row
+        self._assert_upgrade_refusal_recorded_once(member.name)
 
         self.assertEqual(frappe.db.get_value("Volunteer", {"member": member.name}, "status"), "Active")
         self.assertEqual(frappe.db.get_value("User", user.name, "user_type"), "Website User")
@@ -319,6 +323,14 @@ class TestUpgradeMemberToVolunteerUser2860(EnhancedTestCase):
         self.assertTrue(result.get("success"), result)
         self.assertEqual(frappe.db.get_value("User", user.name, "user_type"), "System User")
 
+    def _assert_upgrade_refusal_recorded_once(self, member_name):
+        rows = frappe.get_all(
+            "Error Log",
+            filters={"method": "Volunteer user upgrade refused", "error": ["like", f"%{member_name}%"]},
+            pluck="name",
+        )
+        self.assertEqual(len(rows), 1, rows)
+
     @staticmethod
     def _add_role(user_name, role):
         user = frappe.get_doc("User", user_name)
@@ -339,17 +351,17 @@ class TestUpgradeMemberToVolunteerUser2860(EnhancedTestCase):
 
 
 class TestMemberDonationWithoutDonor2860(EnhancedTestCase):
-    """Behaviour change to pin, not a defect: Donation.validate and DonationDonorService branch on
-    user_type == "Website User" ("web form" donor auto-creation), and a member-only user now IS a
-    Website User, so a member who gives without choosing a Donor no longer hits "Please select a
-    Donor" but the auto-creation branch. Measured: that branch's secure insert then refuses, because
-    a member-only user holds no role in ESCALATION_ALLOWED_ROLES and has no Donor create permission,
-    so the donation is still refused and NO Donor is created (fails closed). If a member were ever
-    granted Donor create or escalation, this test reddens and the auto-creation becomes real."""
+    """Behaviour change to pin, not a defect: Donation.validate branches on user_type == "Website
+    User" ("web form" donor auto-creation), and a member-only user now IS a Website User, so a member
+    who gives without choosing a Donor no longer hits "Please select a Donor" but the auto-creation
+    branch (Donation.create_donor_for_website_user, the live path). Measured: its secure insert then
+    refuses, because a member-only user holds no role in ESCALATION_ALLOWED_ROLES and has no Donor
+    create permission, so the donation is still refused and NO Donor is created (fails closed).
+    If a member were ever granted Donor create or escalation, this reddens and auto-creation is real.
+    (DonationDonorService.ensure_donor_exists has the same branch but no production caller, so it is
+    not pinned.)"""
 
     def test_a_member_only_user_donating_without_a_donor_is_refused_and_no_donor_is_created(self):
-        from verenigingen.services.donation.donor_service import get_donation_donor_service
-
         email = f"donor2860-{frappe.generate_hash(length=6)}@test.invalid"
         user = self.create_test_user(email, roles=[ROLE])
         self.track_doc("User", user.name)
@@ -357,15 +369,15 @@ class TestMemberDonationWithoutDonor2860(EnhancedTestCase):
         self.assertFalse(frappe.db.exists("Donor", {"donor_email": email}), "fixture: no donor yet")
         donation = frappe.new_doc("Donation")
         donation.amount = 10
+        donation.donation_date = frappe.utils.today()
 
         with self.as_user(user.name):
             with self.assertRaises(frappe.ValidationError) as caught:
-                get_donation_donor_service(donation).ensure_donor_exists()
+                donation.validate()  # the live hook; insert(ignore_permissions) is a test-quality violation
 
         # the auto-creation branch (not the "Please select a Donor" one) is what refused
-        self.assertIn("Failed to create donor", str(caught.exception))
+        self.assertIn("Failed to create donor record", str(caught.exception))
         self.assertFalse(frappe.db.exists("Donor", {"donor_email": email}))
-        self.assertFalse(donation.donor)
 
 
 WSGI_SCRIPT = textwrap.dedent(
