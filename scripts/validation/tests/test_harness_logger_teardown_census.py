@@ -106,7 +106,12 @@ BASELINE = Path(__file__).resolve().parents[1] / "harness_logger_teardown_baseli
 # and calls each gain one, and it enters AT ERROR (a surviving schedule leaks into later
 # modules and the mirror exists to carry exactly that to a CI log), so MRO_ERRORS moves
 # too and RESIDUAL_BELOW_ERROR (24-5) stays 19.
-MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 24, 5, 13
+# 24, 5, 13 -> 25, 6, 14 (#2209): tests/utils/force_delete.py's delete_side_rows logs a side row
+# (Cost Center/Department/Account Creation Request/Contact) that survived its parent's delete. It is
+# reached from VereningingenTestCase.tearDownClass, so it is a NEW class-teardown route and site, and it
+# is `.error()` (a WARNING would be lost below the gate), so MRO_ERRORS moves too and
+# RESIDUAL_BELOW_ERROR (25-6) stays 19.
+MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 25, 6, 14
 # 35, 7 -> 36, 8 (#392): this branch replaced a silent `except Exception: pass`
 # in test_rest_migration_payments.py's tearDown with a get_harness_logger
 # `.error()` call, so name-mode gains one site and it is an ERROR one. The
@@ -145,7 +150,8 @@ MRO_CALLS, MRO_ERRORS, MRO_TEARDOWNS = 24, 5, 13
 # (EnhancedTestCase._member_has_blocked_schedule). It enters at WARNING, so
 # NAME_ERRORS does NOT move -- only the call count.
 # 43, 13 -> 44, 14 (#2271): the same single route as the MRO note above, at ERROR.
-NAME_CALLS, NAME_ERRORS = 44, 14
+# 44, 14 -> 45, 15 (#2209): the same single route as the MRO note above, at ERROR.
+NAME_CALLS, NAME_ERRORS = 45, 15
 RESIDUAL_BELOW_ERROR = 19  # 17 -> 18 (#1154's WARNING success-path sweep, dropped by the
 # mirror knowingly); UNCHANGED at 18 when its ERROR failure-path sibling landed, because
 # that one entered at ERROR and moved MRO_ERRORS with it. 18 -> 19 (#1306 round 5):
@@ -191,19 +197,19 @@ class TestHarnessLoggerTeardownCensus(unittest.TestCase):
         self.assertEqual(
             len(errors),
             MRO_ERRORS,
-            "harness_logger.py says exactly five class-teardown records are at ERROR, "
+            "harness_logger.py says exactly six class-teardown records are at ERROR, "
             f"and that this is why the mirror gate sits there. Now: {sorted(errors)}",
         )
 
     def test_the_residual_limit_is_still_the_documented_size(self):
-        """19 of 23 records are below ERROR and are LOST. The docstring says so."""
+        """19 of 25 records are below ERROR and are LOST. The docstring says so."""
         _routes, sites, _fns = v.census("mro")
         below = [s for s in sites if s[2] not in ("error", "critical", "exception")]
         self.assertEqual(
             len(below),
             RESIDUAL_BELOW_ERROR,
             "harness_logger.py's 'residual limit' paragraph says nineteen of the "
-            f"twenty-three class-teardown records are below ERROR and lost. Now {len(below)}. "
+            f"twenty-five class-teardown records are below ERROR and lost. Now {len(below)}. "
             "Update the paragraph, not just the baseline.",
         )
 

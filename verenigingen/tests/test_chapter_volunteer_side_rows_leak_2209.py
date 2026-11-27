@@ -155,6 +155,24 @@ class TestChapterSideRowsWithoutLinks(VereningingenTestCase):
         self.assertFalse(frappe.db.exists("Cost Center", cost_center), "unlinked Cost Center survived")
         self.assertFalse(frappe.db.exists("Department", department), "unlinked Department survived")
 
+    def test_a_dangling_link_does_not_stop_the_chapter_being_drained(self):
+        """A link to a row that no longer exists must not make the age check raise (round 3).
+
+        Probe shortcut: the dangling link is written by ``db.set_value``, standing in for a Cost
+        Center deleted out from under its Chapter. Without the exists check the lookup compares
+        ``None >= datetime`` and the TypeError keeps the Chapter itself from being deleted.
+        """
+        chapter = self.create_test_chapter(chapter_name=f"Dangling2209 {frappe.generate_hash(length=6)}")
+        cost_center, department = frappe.db.get_value("Chapter", chapter.name, ["cost_center", "department"])
+        self.assertTrue(cost_center and department, "Chapter.after_insert built no Cost Center/Department")
+        frappe.db.set_value("Chapter", chapter.name, "cost_center", f"Gone2209 {frappe.generate_hash(length=6)}")
+
+        self._cleanup_document_with_retry({"doctype": "Chapter", "name": chapter.name})
+
+        self.assertFalse(frappe.db.exists("Chapter", chapter.name), "a dangling link kept the Chapter")
+        self.assertFalse(frappe.db.exists("Department", department), "the real Department survived")
+        self.assertFalse(frappe.db.exists("Cost Center", cost_center), "the real (unlinked) Cost Center survived")
+
     def test_class_level_drain_removes_the_side_rows_too(self):
         """The classmethod drain (``_cleanup_tracked_docs``) is a second delete site."""
         chapter = self.create_test_chapter(chapter_name=f"ClassDrain2209 {frappe.generate_hash(length=6)}")

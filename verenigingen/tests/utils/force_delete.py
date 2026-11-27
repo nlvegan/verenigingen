@@ -82,7 +82,7 @@ def side_rows_of(doctype: str, name: str) -> list:
             (dt, n)
             for dt, names in (("Cost Center", cost_centers), ("Department", departments))
             for n in names
-            if n and created and frappe.db.get_value(dt, n, "creation") >= created
+            if n and created and frappe.db.exists(dt, n) and frappe.db.get_value(dt, n, "creation") >= created
         ]
     if doctype == "Volunteer":
         created, user = frappe.db.get_value("Volunteer", name, ["creation", "user"]) or (None, None)
@@ -125,7 +125,7 @@ def delete_side_rows(rows, attempts: int = 3, pause: float = 0.5) -> None:
                 if attempt + 1 < attempts and isinstance(error, frappe.QueryTimeoutError):
                     time.sleep(pause)
                     continue
-                get_harness_logger("force_delete").warning(
+                get_harness_logger("force_delete").error(
                     f"#2209 side row {doctype} {name} survived its parent's delete: {error!r}"
                 )
                 break

@@ -158,14 +158,15 @@ class _StderrHandler(logging.StreamHandler):
     Read that script's module docstring before trusting any number here: the figure in
     this paragraph was wrong twice (#564, #571), both times because it could not be
     re-run. What follows is what the walk currently reports:
-    **twelve** ``tearDownClass`` bodies reach this logger -- ten through
+    **fourteen** ``tearDownClass`` bodies reach this logger (the two added since the count of twelve are the
+    fifth and sixth ERROR sites below) -- ten through
     ``SingletonBackup.restore()`` -> ``_restore_singleton``, one through
     ``TestWebhookUserSetup._sweep_webhook_users``, and one through
     ``cls._test_instance.tearDown()`` (``test_chapter_permission_service_integration.py:182``),
     the only place in the repo where a class teardown invokes a per-test ``tearDown`` on a
     stashed instance -- which binds to ``EnhancedTestCase.tearDown`` and so drags the whole
-    drain onto a class-teardown path. Between them they reach TWENTY-FOUR logging calls at
-    three levels, of which FIVE are at ERROR: ``_restore_singleton``'s "Failed to restore
+    drain onto a class-teardown path. Between them they reach TWENTY-FIVE logging calls at
+    three levels, of which SIX are at ERROR: ``_restore_singleton``'s "Failed to restore
     %s: %s" (``singleton_backup.py:292``), ``ErrorLogGuardMixin._capture_test_error_logs``'
     "Error Log guard capture failed" (``error_log_guard.py:194``) -- both tracked precisely
     because a failure that said so nowhere is #433 -- and
@@ -179,7 +180,12 @@ class _StderrHandler(logging.StreamHandler):
     validating rows nothing will now remove -- the same "a failure that said so nowhere"
     argument as the first two. The fifth is ``TestContributionAmendmentRequestCoverage.tearDownClass``'s
     "could not delete Membership Dues Schedule" (#2271): a schedule that survives leaks its
-    Membership Type link into later modules, so it is kept at ERROR rather than lost below the gate.
+    Membership Type link into later modules, so it is kept at ERROR rather than lost below the gate. The sixth is
+    ``delete_side_rows``'s "side row ... survived its parent's delete" in
+    ``tests/utils/force_delete.py`` (#2209): reached from ``VereningingenTestCase.tearDownClass``
+    through ``_cleanup_tracked_docs``, and a Cost Center, Department, Account Creation Request or
+    Contact that survives a Chapter/Volunteer delete is exactly the leak that issue is about, so it
+    is ERROR rather than lost below the gate.
 
     (The first two figures in this paragraph read TWENTY and THREE until 2026-09-18, after
     #1154's first sweep had already moved the census to 21/3. Nothing asserts the PROSE --
@@ -229,7 +235,7 @@ class _StderrHandler(logging.StreamHandler):
 
     **The residual limit:** anything below ERROR from class teardown is still lost -- a
     ``.warning()``, ``.info()`` or ``.debug()``. Measured, that is nineteen of the
-    twenty-three: eighteen WARNING and one DEBUG. No INFO site is class-teardown-reachable
+    twenty-five: eighteen WARNING and one DEBUG. No INFO site is class-teardown-reachable
     today, so the gate's INFO behaviour is untested by that census rather than confirmed
     by it. Fixing the loss properly means draining the buffer in ``stopTestRun``, which is
     ``frappe/``'s to do, not this app's.
