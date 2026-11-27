@@ -248,6 +248,9 @@ class AccountOrganizationService:
             label_lookup: If True, filter_dict carries no account_name and the group is
                 found by its name label (see find_account_by_label).
         """
+        if not label_lookup and not {"account_name", "account_number"} & set(filter_dict):
+            # a filter with no name/number would match ANY group of the root_type
+            raise ValueError("_ensure_account_group needs account_name/account_number or label_lookup=True")
         if label_lookup:
             # Resolve by name label: exact beats substring, ambiguity raises (#1398)
             existing = find_account_by_label(

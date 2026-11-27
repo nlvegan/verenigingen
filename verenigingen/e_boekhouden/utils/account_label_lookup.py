@@ -23,7 +23,8 @@ def find_account_by_label(label, filters, exact_names=None):
     label, that matches anything) wins over substring matches. Without an exact
     match, an escaped substring match is used if it is unique. Returns None when
     nothing matches; raises AmbiguousAccountLabel when the winning tier has
-    more than one row.
+    more than one row. Disabled accounts are ignored so a stale one cannot turn
+    a unique match into a refusal.
     """
     for exact in exact_names or [label]:
         rows = _account_names(filters, exact)
@@ -34,7 +35,9 @@ def find_account_by_label(label, filters, exact_names=None):
 
 
 def _account_names(filters, account_name):
-    return frappe.get_all("Account", filters={**filters, "account_name": account_name}, pluck="name", limit=5)
+    return frappe.get_all(
+        "Account", filters={"disabled": 0, **filters, "account_name": account_name}, pluck="name", limit=5
+    )
 
 
 def _single_or_refuse(label, rows):

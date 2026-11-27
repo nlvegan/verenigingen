@@ -523,7 +523,11 @@ class AccountMigrationService:
         try:
             return find_account_by_label(label, filters)
         except AmbiguousAccountLabel as e:
-            frappe.log_error(title="E-Boekhouden ambiguous parent account label", message=str(e))
+            # once per (label, company): this runs for every migrated account
+            seen = self.__dict__.setdefault("_ambiguous_labels_logged", set())
+            if (label, filters.get("company")) not in seen:
+                seen.add((label, filters.get("company")))
+                frappe.log_error(title="E-Boekhouden ambiguous parent account label", message=str(e))
             return None
 
     def get_parent_account(self, account_type: str, root_type: str, company: str = None) -> Optional[str]:
