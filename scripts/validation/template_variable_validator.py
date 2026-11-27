@@ -1103,8 +1103,12 @@ class ModernTemplateValidator:
         
         return issues
     
-    def run_validation(self) -> Tuple[List[TemplateIssue], bool]:
-        """Run comprehensive template validation"""
+    def run_validation(self, only_files: List[str] = None) -> Tuple[List[TemplateIssue], bool]:
+        """Run comprehensive template validation.
+
+        only_files (what pre-commit passes) narrows the scan to those of the tree's templates
+        that were named; None validates them all (#3117).
+        """
         print("🔍 Running Modernized Template Variable Validation...")
         
         # Find all templates
@@ -1118,6 +1122,10 @@ class ModernTemplateValidator:
         all_templates = []
         for pattern in template_patterns:
             all_templates.extend(self.app_path.rglob(pattern))
+        
+        if only_files is not None:
+            named = {Path(f).resolve() for f in only_files}
+            all_templates = [t for t in all_templates if t.resolve() in named]
         
         print(f"📋 Found {len(all_templates)} templates to validate")
         
@@ -1147,7 +1155,7 @@ class ModernTemplateValidator:
         if failed_templates > 0:
             print(f"⚠️  Warning: {failed_templates} templates failed to process")
             
-        if self.verbose:
+        if self.verbose and all_templates:
             success_rate = (len(all_templates) - failed_templates) / len(all_templates) * 100
             print(f"📊 Template processing success rate: {success_rate:.1f}%")
         
@@ -1258,6 +1266,7 @@ def main():
     
     # Parse arguments
     verbose = '--verbose' in sys.argv
+    named_files = [a for a in sys.argv[1:] if not a.startswith('-')]
     
     print("🚀 Modernized Template Variable Validator")
     print("   Enhanced critical issue detection")
@@ -1265,7 +1274,7 @@ def main():
     print("")
     
     validator = ModernTemplateValidator(app_path, verbose=verbose)
-    issues, success = validator.run_validation()
+    issues, success = validator.run_validation(named_files or None)
     
     print("\n" + "=" * 80)
     report = validator.generate_report(issues)
