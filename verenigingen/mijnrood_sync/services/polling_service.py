@@ -17,8 +17,9 @@ from contextlib import contextmanager
 from typing import Any, Optional
 
 import frappe
+import pymysql
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import now_datetime, today
 
 from verenigingen.mijnrood_sync.client import MijnRoodDatabaseClient
 from verenigingen.mijnrood_sync.field_mapping import (
@@ -120,6 +121,14 @@ def compute_change_tags(event_type: str, table: str, changed_fields: list | None
     return ",".join(t for t in TAG_ORDER if t in tags)
 
 
+MYSQL_ER_NO_SUCH_TABLE = 1146
+
+
+def _is_missing_table_error(exc: Exception) -> bool:
+    """True for pymysql's "table doesn't exist" (error code 1146), by code not message."""
+    return isinstance(exc, pymysql.err.Error) and bool(exc.args) and exc.args[0] == MYSQL_ER_NO_SUCH_TABLE
+
+
 class MijnRoodPollingService(StatefulService):
     """Polls MijnRood DB for changes and creates Sync Events for review."""
 
@@ -150,6 +159,26 @@ class MijnRoodPollingService(StatefulService):
             rollback_to_savepoint(sp)
             self.logger.warning("Table %s row %s skipped: %s", table, row_id, exc)
             stats["errors"] = stats.get("errors", 0) + 1
+            self._log_row_failure_once_per_day(table, row_id)
+
+    def _log_row_failure_once_per_day(self, table: str, row_id) -> None:
+        """Record why a row keeps failing, once per row per day (#3391).
+
+        The row is rolled back and retried every run, so an unchanged fault would
+        write an Error Log every 15 minutes.
+        """
+        self._log_once_per_day(f"MijnRood row skipped: {table} {row_id}")
+
+    def _log_once_per_day(self, title: str) -> None:
+        """Error Log (current traceback) unless one with this exact title exists today.
+
+        Error Log is MyISAM, so the row survives a savepoint rollback, and its own
+        rows are the dedup record. Deliberately NOT wrapped in try/except: if the Error
+        Log write itself fails the scan aborts loudly rather than skipping silently.
+        """
+        if frappe.db.exists("Error Log", {"method": title, "creation": (">=", today())}):
+            return
+        frappe.log_error(title=title, message=frappe.get_traceback())
 
     def run_sync(self) -> dict:
         """Main entry point. Called by scheduler or manual trigger.
@@ -354,6 +383,10 @@ class MijnRoodPollingService(StatefulService):
         # bad row (validation error, link mismatch, etc.) doesn't poison the
         # whole table's batch.
         for row_id in new_ids:
+            if row_id not in row_data_by_id:
+                # Deleted between the checksum query and the fetch (#3391): write
+                # nothing, so the next run sees it as it really is.
+                continue
             with self._row_savepoint(row_id, table, stats):
                 new_data = row_data_by_id.get(row_id, {})
                 linked_member = self._find_linked_member(table, row_id, row_data=new_data)
@@ -381,6 +414,10 @@ class MijnRoodPollingService(StatefulService):
 
         # 6. Process CHANGED rows
         for row_id in changed_ids:
+            if row_id not in row_data_by_id:
+                # Deleted between the checksum query and the fetch (#3391): write
+                # nothing, so the next run sees it as it really is.
+                continue
             with self._row_savepoint(row_id, table, stats):
                 new_data = row_data_by_id.get(row_id, {})
                 state = state_by_id[row_id]
@@ -475,6 +512,10 @@ class MijnRoodPollingService(StatefulService):
             current = client.fetch_division_contacts()
         except Exception as e:
             self.logger.warning("Failed to fetch division_member table (may not exist): %s", e)
+            # A missing table (MySQL 1146) is benign absence: stay quiet. Anything else
+            # is a real fault (#3391), logged once per day for this table.
+            if not _is_missing_table_error(e):
+                self._log_once_per_day("MijnRood table fetch failed: division_member")
             return 0
 
         # Load previous state
