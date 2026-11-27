@@ -188,6 +188,7 @@ class Suppressed(NamedTuple):
 class ScanResult(NamedTuple):
     findings: list[Finding]
     suppressed: list[Suppressed]
+    unscannable: list[Path] = []
 
 
 def _rel(path: Path) -> str:
@@ -238,10 +239,13 @@ def _extract_reason(line: str) -> str:
     return line[idx + len(_PRAGMA) :].strip() if idx != -1 else ""
 
 
-def _scan_text_file(path: Path) -> tuple[list[Finding], list[Suppressed]]:
+def _scan_text_file(path: Path, unscannable: list | None = None) -> tuple[list[Finding], list[Suppressed]]:
     try:
         lines = path.read_text(encoding="utf-8", errors="strict").splitlines()
     except (OSError, UnicodeDecodeError):
+        # A file the scan never examined must not count as clean (#2815).
+        if unscannable is not None:
+            unscannable.append(path)
         return [], []
 
     findings: list[Finding] = []
@@ -344,11 +348,14 @@ def _call_sets_target(call: ast.Call) -> bool:
     return False
 
 
-def _scan_python_file(path: Path) -> tuple[list[Finding], list[Suppressed]]:
+def _scan_python_file(path: Path, unscannable: list | None = None) -> tuple[list[Finding], list[Suppressed]]:
     try:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(path))
     except (OSError, SyntaxError, UnicodeDecodeError):
+        # A file the scan never examined must not count as clean (#2815).
+        if unscannable is not None:
+            unscannable.append(path)
         return [], []
 
     lines = source.splitlines()
@@ -385,19 +392,20 @@ def _iter_files(paths: list[str]):
 def scan(paths: list[str]) -> ScanResult:
     findings: list[Finding] = []
     suppressed: list[Suppressed] = []
+    unscannable: list[Path] = []
     for path in _iter_files(paths):
         resolved = path.resolve()
         if resolved == _SELF_PATH:
             continue
         if resolved.suffix == ".py":
-            f, s = _scan_python_file(path)
+            f, s = _scan_python_file(path, unscannable)
         elif resolved.suffix in _TEXT_EXTENSIONS or resolved.name.endswith(".disabled"):
-            f, s = _scan_text_file(path)
+            f, s = _scan_text_file(path, unscannable)
         else:
             continue
         findings.extend(f)
         suppressed.extend(s)
-    return ScanResult(findings, suppressed)
+    return ScanResult(findings, suppressed, unscannable)
 
 
 def default_paths() -> list[str]:
@@ -419,6 +427,13 @@ def main(argv: list[str]) -> int:
     result = scan(paths)
     findings = result.findings
     suppressed = result.suppressed
+
+    if result.unscannable:
+        # Fails --stats too: its counts would silently omit these files (#2815).
+        print(f"\n\U0001f6d1 Cannot scan these file(s) for a setting of {TARGET_VAR} (#2815):\n")
+        for path in result.unscannable:
+            print(f"  {_rel(path)}")
+        return 1
 
     if args.stats:
         print(f"real settings of {TARGET_VAR}: {len(findings)}")

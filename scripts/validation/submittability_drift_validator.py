@@ -165,7 +165,9 @@ def _iter_doctype_jsons(app_dir: Path):
                     yield Path(dirpath) / fn
 
 
-def build_submittable_map(scan_root: Path, extra_app_dirs: list[Path] | None = None) -> tuple:
+def build_submittable_map(
+    scan_root: Path, extra_app_dirs: list[Path] | None = None, unscannable: list | None = None
+) -> tuple:
     """Return (submittable, child_tables).
 
     `submittable`: doctype name -> is_submittable (bool). `scan_root` (this
@@ -194,7 +196,11 @@ def build_submittable_map(scan_root: Path, extra_app_dirs: list[Path] | None = N
     for path in _iter_doctype_jsons(app_dir):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            # This app's own DocType JSON: an unreadable one leaves its doctype
+            # out of the map, which silently turns rule findings into "unresolved".
+            if unscannable is not None:
+                unscannable.append(path)
             continue
         _record(data, data.get("name") or path.stem)
 
@@ -229,10 +235,15 @@ def _find_bench_apps(start: Path) -> Path | None:
 # ---------------------------------------------------------------------------
 
 
-def _parse(path: Path):
+def _parse(path: Path, unscannable: list | None = None):
+    """Parse `path`, or return None. A file that cannot be read or parsed is
+    appended to `unscannable` so the gate can fail on it (#2815): returning None
+    alone makes a file the scan never examined count as clean."""
     try:
         return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     except (SyntaxError, UnicodeDecodeError, OSError):
+        if unscannable is not None:
+            unscannable.append(path)
         return None
 
 
@@ -296,14 +307,14 @@ def _extract_doc_events_dict(tree):
     return None
 
 
-def scan_hooks(hooks_file: Path, submittable: dict):
+def scan_hooks(hooks_file: Path, submittable: dict, unscannable: list | None = None):
     """Return (violations, unresolved) for hooks/doc_events.py.
 
     `unresolved` entries are (doctype, sorted(events), lineno) for a doctype
     with submit/cancel-family hooks that this run could not resolve at all
     (not in `submittable` -- e.g. an app not on this bench)."""
     violations, unresolved = [], []
-    tree = _parse(hooks_file)
+    tree = _parse(hooks_file, unscannable)
     if tree is None:
         return violations, unresolved
     outer = _extract_doc_events_dict(tree)
@@ -725,10 +736,10 @@ def _scan_sql_text(tree, file_path: Path, submittable: dict, child_tables: set, 
 SELF_TEST_FIXTURE_FILES = {Path("verenigingen/tests/test_donation_docstatus_filters.py")}
 
 
-def scan_file(path: Path, rel_path: Path, submittable: dict, child_tables: set):
+def scan_file(path: Path, rel_path: Path, submittable: dict, child_tables: set, unscannable: list | None = None):
     if rel_path in SELF_TEST_FIXTURE_FILES:
         return ScopeFindings()
-    tree = _parse(path)
+    tree = _parse(path, unscannable)
     if tree is None:
         return ScopeFindings()
     in_test = _is_test_path(rel_path)
@@ -759,6 +770,7 @@ class ScanResult:
     docstatus_unresolved: int
     submittable_map: dict
     bench_resolved: bool
+    unscannable: list = field(default_factory=list)
 
 
 def scan(scan_root: Path, extra_app_dirs: list | None = None) -> ScanResult:
@@ -767,10 +779,11 @@ def scan(scan_root: Path, extra_app_dirs: list | None = None) -> ScanResult:
     `extra_app_dirs` are sibling app roots (frappe/erpnext/hrms/payments) to
     resolve doctypes this app does not define; pass None/[] to scan this app
     alone (what CI's standalone checkout gets)."""
-    submittable, child_tables = build_submittable_map(scan_root, extra_app_dirs)
+    unscannable: list = []
+    submittable, child_tables = build_submittable_map(scan_root, extra_app_dirs, unscannable)
 
     hooks_file = scan_root / HOOKS_FILE_REL
-    hook_violations, hook_unresolved = scan_hooks(hooks_file, submittable)
+    hook_violations, hook_unresolved = scan_hooks(hooks_file, submittable, unscannable)
 
     submit_cancel_violations = []
     submit_cancel_unresolved = 0
@@ -780,7 +793,7 @@ def scan(scan_root: Path, extra_app_dirs: list | None = None) -> ScanResult:
     app_dir = scan_root / SCAN_ROOT_NAME
     for path in _iter_python_files(app_dir):
         rel = path.relative_to(scan_root)
-        findings = scan_file(path, rel, submittable, child_tables)
+        findings = scan_file(path, rel, submittable, child_tables, unscannable)
         submit_cancel_violations.extend(findings.submit_cancel)
         submit_cancel_unresolved += findings.submit_cancel_unresolved
         docstatus_violations.extend(findings.docstatus)
@@ -795,6 +808,7 @@ def scan(scan_root: Path, extra_app_dirs: list | None = None) -> ScanResult:
         docstatus_unresolved=docstatus_unresolved,
         submittable_map=submittable,
         bench_resolved=bool(extra_app_dirs),
+        unscannable=unscannable,
     )
 
 
@@ -892,6 +906,14 @@ def main(argv=None) -> int:
 
     result = scan(root, extra_app_dirs)
     counts = _counts_from_result(result, root)
+
+    # Before the baseline write too: a baseline regenerated without a skipped
+    # file's entries would silently drop them (#2815).
+    if result.unscannable:
+        print("Submittability Drift Guard: cannot scan these file(s), so the gate cannot vouch for the tree (#2815):")
+        for path in result.unscannable:
+            print(f"  {_rel(path, root)}")
+        return 1
 
     if args.update_baseline:
         write_baseline(args.baseline, counts)

@@ -253,5 +253,132 @@ class TestQualityEnforcerUpdateBaselineRefusalTest(unittest.TestCase):
         self.assertNotIn(ctx.exception.code, (0, None))
 
 
+class VacuousErrorLogUnscannableTest(_PathArgScanMixin, unittest.TestCase):
+    # Gates at 0 with NO baseline, so a skipped file hides a finding for good.
+    script = "vacuous_error_log_test_validator.py"
+    filename = "test_target_module.py"
+
+    def test_undecodable_file_fails_and_names_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _write_unscannable_tree(tmp, self.filename, UNDECODABLE_SRC)
+            result = _run_validator_cli(self.script, [str(root)])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(self.filename, result.stdout + result.stderr)
+
+    def test_stats_mode_also_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _write_unscannable_tree(tmp, self.filename, UNPARSEABLE_SRC)
+            result = _run_validator_cli(self.script, ["--stats", str(root)])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_unparseable_file_outside_the_scan_is_not_reported(self):
+        # Control for "fail on files the scan never selects": not a test_*.py file.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _write_unscannable_tree(tmp, "helper_module.py", UNPARSEABLE_SRC)
+            result = _run_validator_cli(self.script, [str(root)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class ErrorLogFlagCiSetterUnscannableTest(_PathArgScanMixin, unittest.TestCase):
+    script = "error_log_flag_ci_setter_validator.py"
+
+    def test_undecodable_file_fails_and_names_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _write_unscannable_tree(tmp, self.filename, UNDECODABLE_SRC)
+            result = _run_validator_cli(self.script, [str(root)])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(self.filename, result.stdout + result.stderr)
+
+    def test_undecodable_text_file_fails_and_names_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _write_unscannable_tree(tmp, "ci_step.sh", UNDECODABLE_SRC)
+            result = _run_validator_cli(self.script, [str(root)])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("ci_step.sh", result.stdout + result.stderr)
+
+    def test_stats_mode_also_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _write_unscannable_tree(tmp, self.filename, UNPARSEABLE_SRC)
+            result = _run_validator_cli(self.script, ["--stats", str(root)])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_unscannable_file_of_an_unscanned_type_is_not_reported(self):
+        # Control: a binary blob the scan never opens (no .py / text suffix).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _write_unscannable_tree(tmp, "blob.bin", UNDECODABLE_SRC)
+            result = _run_validator_cli(self.script, [str(root)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class SubmittabilityDriftUnscannableTest(unittest.TestCase):
+    """The scan root is REPO_ROOT, so main() is driven in-process with it pointed at a
+    synthetic tree shaped like the repo (a `verenigingen/` package with hooks)."""
+
+    HOOKS = "doc_events = {}\n"
+
+    def _tree(self, tmp, extra=None, hooks=None):
+        root = Path(tmp).resolve()
+        (root / "verenigingen" / "hooks").mkdir(parents=True)
+        (root / "verenigingen" / "hooks" / "doc_events.py").write_text(hooks or self.HOOKS)
+        for rel, payload in (extra or {}).items():
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+        return root
+
+    def _main(self, root, *flags):
+        module = _load_validator_module("submittability_drift_validator.py")
+        baseline = root / "baseline.txt"
+        baseline.write_bytes(SENTINEL_BASELINE)
+        out = io.StringIO()
+        with mock.patch.object(module, "REPO_ROOT", root), mock.patch.object(
+            module, "_find_bench_apps", lambda _start: None
+        ), contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            rc = module.main(["--baseline", str(baseline), *flags])
+        self.assertEqual(baseline.read_bytes(), SENTINEL_BASELINE)
+        return rc, out.getvalue()
+
+    def test_clean_tree_exits_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rc, output = self._main(self._tree(tmp, {"verenigingen/mod.py": CLEAN_SRC}))
+        self.assertEqual(rc, 0, output)
+
+    def test_unparseable_python_file_fails_and_names_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(tmp, {"verenigingen/broken_mod.py": UNPARSEABLE_SRC})
+            rc, output = self._main(root)
+        self.assertNotEqual(rc, 0, output)
+        self.assertIn("broken_mod.py", output)
+
+    def test_unparseable_hooks_file_fails_and_names_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(tmp, hooks="doc_events = {\n")
+            rc, output = self._main(root)
+        self.assertNotEqual(rc, 0, output)
+        self.assertIn("doc_events.py", output)
+
+    def test_unparseable_doctype_json_fails_and_names_it(self):
+        rel = "verenigingen/verenigingen/doctype/widget/widget.json"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(tmp, {rel: b"{not json"})
+            rc, output = self._main(root)
+        self.assertNotEqual(rc, 0, output)
+        self.assertIn("widget.json", output)
+
+    def test_update_baseline_refuses_and_leaves_baseline_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(tmp, {"verenigingen/broken_mod.py": UNPARSEABLE_SRC})
+            rc, output = self._main(root, "--update-baseline")
+        self.assertNotEqual(rc, 0, output)
+        self.assertIn("broken_mod.py", output)
+
+    def test_unparseable_file_outside_the_app_package_is_not_reported(self):
+        # Control for "fail on files outside the scan root".
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._tree(tmp, {"elsewhere/broken_mod.py": UNPARSEABLE_SRC})
+            rc, output = self._main(root)
+        self.assertEqual(rc, 0, output)
+
+
 if __name__ == "__main__":
     unittest.main()
