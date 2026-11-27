@@ -880,6 +880,10 @@ def process_sepa_return_file(file_content, file_type="csv"):
         for result in processed_returns:
             status = result.get("status")
             status_counts[status] = status_counts.get(status, 0) + 1
+        # A "processed" row can still carry dunning_failed: the reversal stands but the
+        # dues schedule was not dunned (#3347). Counted here so the file-level answer
+        # cannot be a lying success; the per-row flag alone is easy to miss.
+        dunning_failed = sum(1 for result in processed_returns if result.get("dunning_failed"))
 
         return {
             # "success" means every return in this file was actually APPLIED -- not
@@ -892,7 +896,9 @@ def process_sepa_return_file(file_content, file_type="csv"):
             # (log_ambiguous_refusal); "not_found" records nothing anywhere, which is
             # exactly why it may not be counted as a success. status_counts is what tells
             # the operator which of the four they are looking at.
-            "success": set(status_counts) <= {"processed"},
+            # A processed row whose dunning failed also needs a human (dunning_failed).
+            "success": set(status_counts) <= {"processed"} and not dunning_failed,
+            "dunning_failed": dunning_failed,
             "processed_returns": processed_returns,
             "total_processed": len(processed_returns),
             "status_counts": status_counts,

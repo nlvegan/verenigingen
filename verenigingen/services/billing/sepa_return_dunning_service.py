@@ -40,11 +40,11 @@ SUSPEND_AFTER_FAILURES = 3
 DEFAULT_GRACE_PERIOD_DAYS = 30
 
 # Return reason codes (ISO 20022 / SEPA, ``SEPA_RETURN_REASON_CODES``) that are the DEBTOR's
-# fault and therefore dun (maintainer ruling, #3347 part 4). Every other code (bank,
+# fault and therefore dun (maintainer ruling, #3347 parts 4 and 5). Every other code (bank,
 # creditor, mandate and technical reasons) is logged and never dunned; a code that cannot
 # be classified confidently stays out of this set. Classification of all 35 codes is in the
 # PR body.
-DEBTOR_FAULT_RETURN_CODES = frozenset({"AC04", "AC06", "AM04", "MS02", "MS03"})
+DEBTOR_FAULT_RETURN_CODES = frozenset({"AC04", "AC06", "AM04", "MS02", "MS03", "MD06", "AG01", "SL01"})
 
 COUNTED = "counted"
 DUPLICATE = "duplicate"
@@ -221,6 +221,7 @@ def _reset_schedule(schedule_name: str) -> int:
             frappe.db.release_savepoint(savepoint)
             return 0
         schedule.consecutive_failures = 0
+        # counted_returns is intentionally never cleared here: it is the dedupe history.
         if schedule.status == "Grace Period":
             _set_status(schedule, "Active")
             schedule.grace_period_until = None

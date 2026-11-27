@@ -2679,24 +2679,29 @@ def process_sepa_return_file(file_content=None, file_type="pain.002", file_url=N
         frappe.throw(_("File type {0} not yet supported").format(file_type))
 
     processed_count = 0
+    dunning_failed = 0
 
     for return_item in return_data:
         if return_item["status"] == "Rejected":
             # Handle rejection
-            handle_payment_rejection(
+            rejection = handle_payment_rejection(
                 return_item["end_to_end_id"],
                 return_item["reason_code"],
                 return_item["reason_text"],
                 file_key=hashlib.sha256(str(file_content).encode("utf-8")).hexdigest()[:16],
             )
             processed_count += 1
+            dunning_failed += 1 if rejection.get("dunning_failed") else 0
 
         elif return_item["status"] == "Accepted":
             # Mark as successfully processed
             mark_payment_successful(return_item["end_to_end_id"])
             processed_count += 1
 
-    return {"processed": processed_count, "total": len(return_data)}
+    summary = {"processed": processed_count, "total": len(return_data)}
+    if dunning_failed:
+        summary["dunning_failed"] = dunning_failed
+    return summary
 
 
 def _read_uploaded_return_file(file_url):
@@ -2868,21 +2873,31 @@ def handle_payment_rejection(end_to_end_id, reason_code, reason_text, file_key=N
     # Extract invoice number from end-to-end ID
     invoice_match = re.search(r"E2E-(.+)", end_to_end_id)
     if not invoice_match:
-        return
+        return {}
 
     invoice_name = invoice_match.group(1)
+    result = {}
 
     # Dunning (#3347); the file hash makes re-processing the same file count once.
     if file_key:
-        from verenigingen.services.billing.sepa_return_dunning_service import record_failed_collection
+        from verenigingen.services.billing.sepa_return_dunning_service import (
+            FAILED,
+            record_failed_collection,
+        )
 
-        record_failed_collection(invoice_name, f"pain002-{file_key}-{invoice_name}", reason_text, reason_code)
+        outcome = record_failed_collection(
+            invoice_name, f"pain002-{file_key}-{invoice_name}", reason_text, reason_code
+        )
+        if outcome == FAILED:
+            # Otherwise visible only in the Error Log 'SEPA Return Dunning Failed'.
+            result["dunning_failed"] = True
 
     # Schedule retry
     from verenigingen.verenigingen_payments.utils.payment_retry import PaymentRetryManager
 
     retry_manager = PaymentRetryManager()
     retry_manager.schedule_retry(invoice_name, reason_code, reason_text)
+    return result
 
 
 def mark_payment_successful(end_to_end_id):

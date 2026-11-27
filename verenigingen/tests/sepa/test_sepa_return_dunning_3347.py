@@ -289,14 +289,14 @@ class TestSepaReturnDunning3347(ReconBase):
 
     def test_classification_of_every_return_code(self):
         """The debtor-fault set is exactly the ruled one; every other code in the app's table is out."""
-        expected = {"AC04", "AC06", "AM04", "MS02", "MS03"}
+        expected = {"AC04", "AC06", "AM04", "MS02", "MS03", "MD06", "AG01", "SL01"}
         self.assertEqual(set(dunning.DEBTOR_FAULT_RETURN_CODES), expected)
         self.assertTrue(expected <= set(SEPA_RETURN_REASON_CODES))
         for code in set(SEPA_RETURN_REASON_CODES) - expected:
             self.assertNotIn(code, dunning.DEBTOR_FAULT_RETURN_CODES)
 
     def test_non_debtor_fault_return_is_reversed_logged_and_never_dunned(self):
-        for code in ("MD01", "FF01", "AM05"):
+        for code in ("MD01", "FF01", "AM05", "AC01"):
             self.expectErrorLog("SEPA Return Not Dunned")
             self._collect()
             result = self._return(self._amount, code=code)
@@ -306,6 +306,20 @@ class TestSepaReturnDunning3347(ReconBase):
         self.assertEqual(sched.status, "Active")
         self.assertEqual(cint(sched.consecutive_failures), 0)
         self.assertTrue(frappe.db.exists("Error Log", {"method": "SEPA Return Not Dunned"}))
+
+    def test_part5_codes_dun(self):
+        """MD06, AG01 and SL01 (ruling part 5) count as failed collections, one each."""
+        for count, code in enumerate(("MD06", "AG01", "SL01"), start=1):
+            self._collect()
+            result = self._return(self._amount, code=code)
+            self.assertEqual(result["status"], "processed", msg=result)
+            self.assertEqual(cint(self._schedule().consecutive_failures), count, msg=code)
+
+    def test_ac01_is_the_control_that_still_does_not_dun(self):
+        self.expectErrorLog("SEPA Return Not Dunned")
+        self._collect()
+        self.assertEqual(self._return(self._amount, code="AC01")["status"], "processed")
+        self.assertEqual(cint(self._schedule().consecutive_failures), 0)
 
     def test_a_return_without_a_reason_code_is_not_dunned(self):
         self.expectErrorLog("SEPA Return Not Dunned")
@@ -412,3 +426,53 @@ class TestSepaReturnDunning3347(ReconBase):
         self.assertEqual(frappe.db.get_value("Payment Entry", pe.name, "docstatus"), 2)
         self.assertEqual(cint(self._schedule().consecutive_failures), 0)
         self.assertTrue(frappe.db.exists("Error Log", {"method": "SEPA Return Dunning Failed"}))
+
+    def test_a_dunning_failure_reddens_the_file_level_result(self):
+        """process_sepa_return_file may not report success while a row's dunning failed."""
+        from unittest.mock import patch
+
+        self.expectErrorLog("SEPA Return Dunning Failed")
+        self._collect()
+        member_id = self.member_id
+        csv_text = (
+            "Member_ID,Amount,Return_Reason,Return_Code\n"
+            f"{member_id},{self._amount},{SEPA_RETURN_REASON_CODES['AM04']},AM04\n"
+        )
+        # Mock justified: fault injected at the schedule save; no real input makes it raise here.
+        with patch(
+            "verenigingen.verenigingen.doctype.membership_dues_schedule."
+            "membership_dues_schedule.MembershipDuesSchedule.save",
+            side_effect=RuntimeError("boom-3347"),
+        ):
+            response = recon.process_sepa_return_file(csv_text, file_type="csv")
+        self.assertEqual(response["status_counts"], {"processed": 1}, msg=response)
+        self.assertEqual(response["dunning_failed"], 1, msg=response)
+        self.assertFalse(response["success"], msg=response)
+
+    def test_a_clean_file_stays_a_success_with_no_dunning_failures(self):
+        """Control: the new aggregate does not redden a file whose dunning worked."""
+        self._collect()
+        csv_text = (
+            "Member_ID,Amount,Return_Reason,Return_Code\n"
+            f"{self.member_id},{self._amount},{SEPA_RETURN_REASON_CODES['AM04']},AM04\n"
+        )
+        response = recon.process_sepa_return_file(csv_text, file_type="csv")
+        self.assertEqual(response["dunning_failed"], 0, msg=response)
+        self.assertTrue(response["success"], msg=response)
+
+    def test_pain002_dunning_failure_is_surfaced_in_the_result(self):
+        from unittest.mock import patch
+
+        self.expectErrorLog("Mollie Account Configuration")
+        self.expectErrorLog("SEPA Return Dunning Failed")
+        invoice = self._unpaid_linked_invoice()
+        # Mock justified: fault injected at the schedule save; no real input makes it raise here.
+        with patch(
+            "verenigingen.verenigingen.doctype.membership_dues_schedule."
+            "membership_dues_schedule.MembershipDuesSchedule.save",
+            side_effect=RuntimeError("boom-3347"),
+        ):
+            response = btr.process_sepa_return_file(self._pain002(invoice.name, "x"), file_type="pain.002")
+            direct = btr.handle_payment_rejection(f"E2E-{invoice.name}", "AM04", "x", file_key="k3347")
+        self.assertEqual(response.get("dunning_failed"), 1, msg=response)
+        self.assertEqual(direct, {"dunning_failed": True})
