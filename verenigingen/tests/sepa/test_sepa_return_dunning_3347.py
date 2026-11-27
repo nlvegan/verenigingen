@@ -448,6 +448,9 @@ class TestSepaReturnDunning3347(ReconBase):
         self.assertEqual(response["status_counts"], {"processed": 1}, msg=response)
         self.assertEqual(response["dunning_failed"], 1, msg=response)
         self.assertFalse(response["success"], msg=response)
+        # The dashboard shows this key; without it the user reads "Error: Unknown error".
+        self.assertIn("SEPA Return Dunning Failed", response.get("message", ""), msg=response)
+        self.assertIn("1 returns were reversed", response["message"], msg=response)
 
     def test_a_clean_file_stays_a_success_with_no_dunning_failures(self):
         """Control: the new aggregate does not redden a file whose dunning worked."""
@@ -459,6 +462,7 @@ class TestSepaReturnDunning3347(ReconBase):
         response = recon.process_sepa_return_file(csv_text, file_type="csv")
         self.assertEqual(response["dunning_failed"], 0, msg=response)
         self.assertTrue(response["success"], msg=response)
+        self.assertNotIn("message", response)
 
     def test_pain002_dunning_failure_is_surfaced_in_the_result(self):
         from unittest.mock import patch
@@ -475,4 +479,5 @@ class TestSepaReturnDunning3347(ReconBase):
             response = btr.process_sepa_return_file(self._pain002(invoice.name, "x"), file_type="pain.002")
             direct = btr.handle_payment_rejection(f"E2E-{invoice.name}", "AM04", "x", file_key="k3347")
         self.assertEqual(response.get("dunning_failed"), 1, msg=response)
+        self.assertIn("SEPA Return Dunning Failed", response.get("message", ""), msg=response)
         self.assertEqual(direct, {"dunning_failed": True})

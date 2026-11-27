@@ -885,7 +885,15 @@ def process_sepa_return_file(file_content, file_type="csv"):
         # cannot be a lying success; the per-row flag alone is easy to miss.
         dunning_failed = sum(1 for result in processed_returns if result.get("dunning_failed"))
 
+        # Read by the dashboard (getErrorMessage -> "message") to show a PARTIAL result.
+        partial = {}
+        if dunning_failed:
+            from verenigingen.services.billing.sepa_return_dunning_service import dunning_failed_message
+
+            partial["message"] = dunning_failed_message(dunning_failed)
+
         return {
+            **partial,
             # "success" means every return in this file was actually APPLIED -- not
             # merely that nothing threw, which is what it used to mean and is how #576
             # stayed invisible. Any row that is not "processed" is money the bank has

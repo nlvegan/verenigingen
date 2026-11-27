@@ -103,6 +103,14 @@ def record_failed_collection(
         return FAILED
 
 
+def dunning_failed_message(count: int) -> str:
+    """Human text for a file whose reversals stood but whose dues schedules were not dunned."""
+    return frappe._(
+        "{0} returns were reversed, but the dues schedule could not be updated; "
+        "see Error Log 'SEPA Return Dunning Failed'"
+    ).format(count)
+
+
 def _count_failure(schedule_name: str, return_key: str, reason: str) -> str:
     schedule = frappe.get_doc("Membership Dues Schedule", schedule_name, for_update=True)
     if any(row.return_key == return_key for row in schedule.counted_returns):

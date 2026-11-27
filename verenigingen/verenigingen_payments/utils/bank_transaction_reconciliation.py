@@ -2691,7 +2691,8 @@ def process_sepa_return_file(file_content=None, file_type="pain.002", file_url=N
                 file_key=hashlib.sha256(str(file_content).encode("utf-8")).hexdigest()[:16],
             )
             processed_count += 1
-            dunning_failed += 1 if rejection.get("dunning_failed") else 0
+            # None unless dunning ran and failed.
+            dunning_failed += 1 if rejection and rejection.get("dunning_failed") else 0
 
         elif return_item["status"] == "Accepted":
             # Mark as successfully processed
@@ -2700,7 +2701,10 @@ def process_sepa_return_file(file_content=None, file_type="pain.002", file_url=N
 
     summary = {"processed": processed_count, "total": len(return_data)}
     if dunning_failed:
+        from verenigingen.services.billing.sepa_return_dunning_service import dunning_failed_message
+
         summary["dunning_failed"] = dunning_failed
+        summary["message"] = dunning_failed_message(dunning_failed)
     return summary
 
 
@@ -2873,10 +2877,10 @@ def handle_payment_rejection(end_to_end_id, reason_code, reason_text, file_key=N
     # Extract invoice number from end-to-end ID
     invoice_match = re.search(r"E2E-(.+)", end_to_end_id)
     if not invoice_match:
-        return {}
+        return
 
     invoice_name = invoice_match.group(1)
-    result = {}
+    result = None
 
     # Dunning (#3347); the file hash makes re-processing the same file count once.
     if file_key:
@@ -2890,7 +2894,7 @@ def handle_payment_rejection(end_to_end_id, reason_code, reason_text, file_key=N
         )
         if outcome == FAILED:
             # Otherwise visible only in the Error Log 'SEPA Return Dunning Failed'.
-            result["dunning_failed"] = True
+            result = {"dunning_failed": True}
 
     # Schedule retry
     from verenigingen.verenigingen_payments.utils.payment_retry import PaymentRetryManager

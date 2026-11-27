@@ -314,6 +314,54 @@ describe('sepa_reconciliation_dashboard.html', () => {
 		expect(document.getElementById('pending-review-items').textContent).toContain(PAYLOAD.slice(0, 20));
 	});
 
+	test('return file with dunning_failed is a PARTIAL result: orange warning, escaped, dashboard refreshed (#3347)', () => {
+		load();
+		document.body.insertAdjacentHTML(
+			'beforeend',
+			'<div id="returnFileModal"></div><input id="returnFile" type="file">'
+		);
+		const fileInput = document.getElementById('returnFile');
+		Object.defineProperty(fileInput, 'files', { value: [{ name: 'r.csv' }] });
+		window.FileReader = class {
+			readAsText() {
+				this.onload({ target: { result: 'x' } });
+			}
+		};
+		window.processReturnFile();
+		const call = window.frappe.calls.find((c) => /process_sepa_return_file$/.test(c.method));
+		const before = window.frappe.calls.length;
+		call.callback({
+			message: { success: false, dunning_failed: 1, message: `1 reversed ${PAYLOAD}` }
+		});
+		expect(window.frappe.msgprint).toHaveBeenCalledTimes(1);
+		const arg = window.frappe.msgprint.mock.calls[0][0];
+		expect(arg.indicator).toBe('orange');
+		expectNoInjection(arg.message);
+		expect(String(arg.message)).not.toMatch(/^Error/);
+		// loadDashboardData() ran again: it issued at least one more frappe.call.
+		expect(window.frappe.calls.length).toBeGreaterThan(before);
+	});
+
+	test('return file that failed outright (no dunning_failed) is still an Error and does not refresh', () => {
+		load();
+		document.body.insertAdjacentHTML(
+			'beforeend',
+			'<div id="returnFileModal"></div><input id="returnFile" type="file">'
+		);
+		Object.defineProperty(document.getElementById('returnFile'), 'files', { value: [{ name: 'r.csv' }] });
+		window.FileReader = class {
+			readAsText() {
+				this.onload({ target: { result: 'x' } });
+			}
+		};
+		window.processReturnFile();
+		const call = window.frappe.calls.find((c) => /process_sepa_return_file$/.test(c.method));
+		const before = window.frappe.calls.length;
+		call.callback({ message: { success: false, error: 'Unsupported file type' } });
+		expect(window.frappe.msgprint.mock.calls[0][0]).toMatch(/^Error: Unsupported file type/);
+		expect(window.frappe.calls.length).toBe(before);
+	});
+
 	test('View Task button: a task name with a quote cannot run script', () => {
 		load();
 		window.updateTabContent({
