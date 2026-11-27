@@ -36,6 +36,8 @@ EMAIL BOUNDARY:
     asserted.
 """
 
+import unittest
+
 import frappe
 from frappe.utils import add_days, add_months, add_years, get_datetime, getdate, today
 from freezegun import freeze_time
@@ -79,9 +81,10 @@ class TestDuesScheduleAutoCreator(EnhancedTestCase):
     def _make_membership_type(self, minimum_amount=12.0, with_template=True):
         """Create an active Membership Type. By default its after_insert hook
         auto-creates a dues-schedule template aligned to minimum_amount."""
-        role_profile = frappe.db.get_value(
-            "Role Profile", {"name": "Verenigingen Member"}
-        ) or frappe.db.get_value("Role Profile", {}, "name")
+        # Own the shipped profile or skip; never adopt whichever Role Profile exists (#3318).
+        role_profile = frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
+        if not role_profile:
+            raise unittest.SkipTest("Role Profile 'Verenigingen Member' (shipped fixture) is missing")
         mt = frappe.new_doc("Membership Type")
         mt.membership_type_name = f"DSAC-Type-{frappe.generate_hash(length=8)}"
         mt.description = "Dues auto-creator test type"

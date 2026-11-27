@@ -21,6 +21,8 @@ tracked, and force-deleted in tearDown (create_from_template commits via
 db.set_value on the member).
 """
 
+import unittest
+
 import frappe
 from frappe.utils import today
 
@@ -94,9 +96,10 @@ class TestTemplateServices(EnhancedTestCase):
     # Fixtures
     # ------------------------------------------------------------------
     def _make_membership_type(self, minimum_amount=12.0, with_template=True, suggested=None):
-        role_profile = frappe.db.get_value(
-            "Role Profile", {"name": "Verenigingen Member"}
-        ) or frappe.db.get_value("Role Profile", {}, "name")
+        # Own the shipped profile or skip; never adopt whichever Role Profile exists (#3318).
+        role_profile = frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
+        if not role_profile:
+            raise unittest.SkipTest("Role Profile 'Verenigingen Member' (shipped fixture) is missing")
         mt = frappe.new_doc("Membership Type")
         mt.membership_type_name = f"TSVC-Type-{frappe.generate_hash(length=8)}"
         mt.description = "Template service test type"

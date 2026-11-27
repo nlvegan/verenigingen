@@ -187,10 +187,10 @@ class TrackedDocCleanupLedgerAndDanglingLinkSafetyTest(unittest.TestCase):
             if frappe.db.get_value("Membership Type", name, "minimum_amount") != 5.0:
                 frappe.db.set_value("Membership Type", name, "minimum_amount", 5.0, update_modified=False)
             return name
-        role_profile = (
-            frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
-            or frappe.db.get_value("Role Profile", {}, "name")
-        )
+        # Own the shipped profile or skip; never adopt whichever Role Profile exists (#3318).
+        role_profile = frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
+        if not role_profile:
+            raise unittest.SkipTest("Role Profile 'Verenigingen Member' (shipped fixture) is missing")
         frappe.get_doc(
             {
                 "doctype": "Membership Type",

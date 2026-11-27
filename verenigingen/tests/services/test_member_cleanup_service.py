@@ -26,6 +26,14 @@ from verenigingen.tests.support.dues_schedule_invoice_fixtures import (
 from verenigingen.tests.utils.ledger_rows import purge_ledger_rows
 
 
+def _shipped_member_role_profile():
+    """The shipped "Verenigingen Member" profile, or skip; never adopt whichever Role Profile exists (#3318)."""
+    role_profile = frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
+    if not role_profile:
+        raise unittest.SkipTest("Role Profile 'Verenigingen Member' (shipped fixture) is missing")
+    return role_profile
+
+
 class TestMemberCleanupService(EnhancedTestCase):
     """Test suite for MemberCleanupService"""
 
@@ -40,10 +48,7 @@ class TestMemberCleanupService(EnhancedTestCase):
                     "membership_type_name": "Test Type 001",
                     "is_active": 1,
                     "minimum_amount": 5.0,
-                    "role_profile": frappe.db.get_value(
-                        "Role Profile", "Verenigingen Member", "name"
-                    )
-                    or frappe.db.get_value("Role Profile", {}, "name"),
+                    "role_profile": _shipped_member_role_profile(),
                 }
             ).insert()
 
@@ -246,10 +251,7 @@ class TestMemberCleanupService(EnhancedTestCase):
                     "membership_type_name": "Standard Test",
                     "is_active": 1,
                     "minimum_amount": 5.0,
-                    "role_profile": frappe.db.get_value(
-                        "Role Profile", "Verenigingen Member", "name"
-                    )
-                    or frappe.db.get_value("Role Profile", {}, "name"),
+                    "role_profile": _shipped_member_role_profile(),
                 }
             )
             membership_type.insert()

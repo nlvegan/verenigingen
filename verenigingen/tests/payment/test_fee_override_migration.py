@@ -4,6 +4,8 @@ Test suite for fee override migration and new dues schedule architecture
 Tests the migration from legacy override fields to child DocType approach
 """
 
+import unittest
+
 import frappe
 from frappe.utils import flt, today
 from verenigingen.tests.support.sepa_test_company import ensure_sepa_payment_terms_template
@@ -322,9 +324,11 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         membership_type.membership_type_name = f"Test Migration Type {frappe.generate_hash(length=6)}"
         membership_type.minimum_amount = 5.0
         membership_type.is_active = 1
-        membership_type.role_profile = frappe.db.get_value(
-            "Role Profile", "Verenigingen Member", "name"
-        ) or frappe.db.get_value("Role Profile", {}, "name")
+        # Own the shipped profile or skip; never adopt whichever Role Profile exists (#3318).
+        role_profile = frappe.db.get_value("Role Profile", "Verenigingen Member", "name")
+        if not role_profile:
+            raise unittest.SkipTest("Role Profile 'Verenigingen Member' (shipped fixture) is missing")
+        membership_type.role_profile = role_profile
         membership_type.save()
         self.track_doc("Membership Type", membership_type.name)
         return membership_type
