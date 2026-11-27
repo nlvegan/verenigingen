@@ -739,9 +739,9 @@ def test_security_integration():
     from verenigingen.utils.security.security_monitoring import get_security_monitor
     monitor = get_security_monitor()
 
-    # Test business rule monitoring
-    alerts = monitor.detect_business_rule_anomalies()
-    print(f"✓ Security monitoring working, {len(alerts)} alerts detected")
+    # Test the security dashboard
+    dashboard = monitor.get_security_dashboard()
+    print(f"✓ Security monitoring working, {len(dashboard['active_incidents'])} active incidents")
 
     print("All integration tests passed!")
 

@@ -10,8 +10,7 @@ and ``get_security_dashboard``). Here we target the still-uncovered branches:
   * the threat-classification thresholds (HIGH user vs CRITICAL IP brute force)
   * incident lifecycle: _create_incident, _auto_resolve_incident, resolve_incident
   * the security-score computation and the metrics snapshot (p95, active users)
-  * the business-rule anomaly detectors (real DB) and detect_business_rule_anomalies
-  * run_business_rule_monitoring + analyze_security_trends background jobs
+  * the analyze_security_trends background job
   * SecurityTester + module-level singletons / setup
   * the @high_security_api whitelist endpoints (admin success + non-admin deny)
 
@@ -40,7 +39,6 @@ from verenigingen.utils.security.security_monitoring import (
     get_security_monitor,
     get_security_tester,
     resolve_security_incident,
-    run_business_rule_monitoring,
     run_security_tests,
     setup_security_monitoring,
 )
@@ -432,101 +430,8 @@ class TestSecurityDashboard(VereningingenTestCase):
         self.assertIn(aged_incident.incident_id, self.monitor.active_threats)
 
 
-class TestBusinessRuleMonitoring(VereningingenTestCase):
-    """The DB-backed business-rule anomaly detectors run against the real schema."""
-
-    def setUp(self):
-        super().setUp()
-        self.monitor = SecurityMonitor()
-
-    def test_check_high_value_payments_returns_alert_shape(self):
-        """With a very low threshold any recent Payment Entry surfaces; the alert
-        shape and severity must be correct regardless of how many exist."""
-        alerts = self.monitor.check_high_value_payments(threshold=0.01)
-        for a in alerts:
-            self.assertEqual(a["type"], "HIGH_VALUE_PAYMENT")
-            self.assertEqual(a["severity"], "CRITICAL")
-            self.assertIn("payment_name", a)
-            self.assertIn("amount", a)
-
-    def test_check_high_value_payments_high_threshold_empty(self):
-        """An astronomically high threshold yields no alerts (query/filter works)."""
-        alerts = self.monitor.check_high_value_payments(threshold=10**12)
-        self.assertEqual(alerts, [])
-
-    def test_check_unusual_member_operations_runs(self):
-        alerts = self.monitor.check_unusual_member_operations()
-        self.assertIsInstance(alerts, list)
-        for a in alerts:
-            self.assertEqual(a["type"], "BULK_MEMBER_UPDATE")
-            self.assertEqual(a["severity"], "HIGH")
-
-    def test_check_financial_pattern_anomalies_runs(self):
-        alerts = self.monitor.check_financial_pattern_anomalies()
-        self.assertIsInstance(alerts, list)
-        for a in alerts:
-            self.assertIn(a["type"], {"ROUND_AMOUNT_PATTERN", "HIGH_DISCOUNT_PATTERN"})
-
-    def test_monitor_policy_changes_runs(self):
-        alerts = self.monitor.monitor_policy_changes()
-        self.assertIsInstance(alerts, list)
-        for a in alerts:
-            self.assertEqual(a["type"], "POLICY_CHANGE")
-            self.assertEqual(a["severity"], "CRITICAL")
-            self.assertIn("rule_name", a)
-
-    def test_check_sepa_operation_anomalies_runs(self):
-        alerts = self.monitor.check_sepa_operation_anomalies()
-        self.assertIsInstance(alerts, list)
-        for a in alerts:
-            self.assertEqual(a["type"], "RAPID_SEPA_CREATION")
-            self.assertEqual(a["severity"], "HIGH")
-
-    def test_detect_business_rule_anomalies_aggregates_all(self):
-        """The aggregate detector combines all five detectors without raising."""
-        with self.assertNoErrorLog():
-            alerts = self.monitor.detect_business_rule_anomalies()
-        self.assertIsInstance(alerts, list)
-        # Each member detector returns alerts of its own known types.
-        known_types = {
-            "HIGH_VALUE_PAYMENT",
-            "BULK_MEMBER_UPDATE",
-            "ROUND_AMOUNT_PATTERN",
-            "HIGH_DISCOUNT_PATTERN",
-            "POLICY_CHANGE",
-            "RAPID_SEPA_CREATION",
-        }
-        for a in alerts:
-            self.assertIn(a["type"], known_types)
-
-
 class TestBackgroundJobs(VereningingenTestCase):
-    """run_business_rule_monitoring + analyze_security_trends."""
-
-    def test_run_business_rule_monitoring_handles_missing_security_alert_doctype(self):
-        """``Security Alert`` doctype is NOT shipped on this site. The job swallows
-        the resulting insert failure and logs an error rather than crashing.
-
-        This characterises the known dead alert-persistence path: if any alert is
-        produced, the insert into the nonexistent doctype fails and is logged.
-        """
-        if frappe.db.exists("DocType", "Security Alert"):
-            self.skipTest("Security Alert doctype exists; dead-path assumption invalid")
-
-        monitor = get_security_monitor()
-        alerts = monitor.detect_business_rule_anomalies()
-
-        if alerts:
-            # An alert exists -> the per-alert insert into the missing "Security
-            # Alert" doctype fails and is logged (a known dead persistence path).
-            # Tolerate those rows in the automatic tearDown Error Log check.
-            self.expectErrorLog("Business rule monitoring", "Security Alert", "DoesNotExistError")
-            # Must not raise: the job wraps each insert in try/except.
-            run_business_rule_monitoring()
-        else:
-            # No alerts on this clean site -> no error should be logged.
-            with self.assertNoErrorLog():
-                run_business_rule_monitoring()
+    """analyze_security_trends."""
 
     def test_analyze_security_trends_returns_summary(self):
         with self.assertNoErrorLog():

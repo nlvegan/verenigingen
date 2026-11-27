@@ -1182,7 +1182,6 @@
  "verenigingen.tests.security.test_security_monitor_dedupe_2621": 1,
  "verenigingen.tests.security.test_security_monitor_singleton_isolation": 1,
  "verenigingen.tests.security.test_security_monitoring_coverage": 1,
- "verenigingen.tests.security.test_security_monitoring_db_clock_window": 1,
  "verenigingen.tests.security.test_security_penetration": 2,
  "verenigingen.tests.security.test_security_profile_isolation": 1,
  "verenigingen.tests.security.test_security_response_headers_2732": 1,
