@@ -86,7 +86,7 @@ _run::5
 _run_gate::3
 _run_main::2
 _same::2
-_scan::12  # clone family, 7 near-identical pair(s)
+_scan::12  # clone family, 6 near-identical pair(s)
 _scan_file::3
 _scan_python_file::2
 _should_skip::2
