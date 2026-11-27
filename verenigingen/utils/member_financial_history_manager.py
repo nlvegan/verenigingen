@@ -393,16 +393,22 @@ class MemberFinancialHistoryManager:
         return kept or None
 
     def _trim_history(self):
-        """Trim history to max entries, keeping newest entries."""
+        """Trim history to max entries, keeping newest entries.
+
+        With a date_field the persisted order is also made deterministic:
+        newest first by (date, id), whatever order rows were drained in (#3240).
+        """
         history_list = getattr(self.doc, self.history_field, [])
 
-        if len(history_list) > self.max_entries:
-            trimmed_history = self._newest_entries(history_list)
+        if self.date_field or len(history_list) > self.max_entries:
+            kept = self._newest_entries(history_list)
 
-            # Clear and rebuild
+            # Clear and rebuild. Appending an existing child keeps its old idx
+            # while a new row gets len+1, so renumber or two rows share an idx.
             setattr(self.doc, self.history_field, [])
-            for entry in trimmed_history:
-                self.doc.append(self.history_field, entry)
+            for position, entry in enumerate(kept, start=1):
+                row = self.doc.append(self.history_field, entry)
+                row.idx = position
 
     def _newest_entries(self, history_list):
         """The `max_entries` rows to keep.
@@ -414,7 +420,7 @@ class MemberFinancialHistoryManager:
         column, so a date tie never depends on which row was drained first.
         """
         if not self.date_field:
-            return history_list[: self.max_entries]
+            return list(history_list[: self.max_entries])
 
         def rank(entry):
             return (
