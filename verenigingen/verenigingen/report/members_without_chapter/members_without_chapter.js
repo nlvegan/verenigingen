@@ -84,7 +84,7 @@ function assignMemberToChapter(memberName, chapterName, report) {
 				}
 			} else {
 				frappe.msgprint({
-					message: r.message?.error || 'Failed to assign member to chapter',
+					message: getErrorMessage(r.message, 'Failed to assign member to chapter'),
 					indicator: 'red'
 				});
 			}
