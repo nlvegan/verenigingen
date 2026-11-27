@@ -14,8 +14,9 @@ Only the Mollie HTTP client is stubbed. Discovery
 (``_book_dues_reversals`` / ``_process_pending_refunds``) are the real code, and
 assertions are on the Journal Entry / Payment Entry rows they leave behind.
 
-Not covered on purpose (accounting policy, not settled): what a REVERSED chargeback
-(``reversedAt`` set) or an already-booked-then-failed refund should do.
+A REVERSED chargeback (``reversedAt`` set, a won dispute) is covered at the bottom (#638
+ruling); what an already-booked-then-failed refund should do is not (accounting policy,
+not settled).
 
 Run:
     bench --site test_site_12 run-tests --app verenigingen \\
@@ -186,6 +187,75 @@ class TestDuesReversalDiscovery(_DuesReversalFixture):
         names = self._je("refund", refund_id)
         self.assertEqual(len(names), 1)
         assert_written_today(self, frappe.db.get_value("Journal Entry", names[0], "posting_date"))
+
+
+class TestReversedChargebackDues638(_DuesReversalFixture):
+    """#638 ruling: a chargeback Mollie reports as reversed is not booked; one booked earlier
+    is countered, once. Through ``_book_dues_reversals``, the seam the payment webhook's DUES
+    branch calls, with only the Mollie client stubbed. (The forward DUES routing is not
+    driven here; the fixture books the forward Payment Entry directly.)"""
+
+    REVERSED_AT = "2025-05-02T09:00:00+00:00"
+
+    def _sweep_638(self, chargeback_id, reversed_at, charged_back="0.00"):
+        payment = {"amountChargedBack": {"value": charged_back, "currency": "EUR"}}
+        chargebacks = [
+            _chargeback_row_for_1806(chargeback_id, amount=f"{self.INVOICE_AMOUNT:.2f}", reversed_at=reversed_at)
+        ]
+        with patch(CLIENT, return_value=_FakeMollieClient(payment=_FakePayment((), chargebacks))):
+            return UnifiedWebhookWrapperService()._book_dues_reversals(
+                self.payment_id, payment, {"status": "success"}
+            )
+
+    def _counters(self, chargeback_id):
+        return frappe.get_all(
+            "Journal Entry",
+            filters={
+                "cheque_no": build_reversal_key(self.payment_id, "chargeback", f"{chargeback_id}_reversed"),
+                "docstatus": 1,
+            },
+            pluck="name",
+        )
+
+    def test_a_chargeback_reversed_at_first_sight_is_not_booked(self):
+        chargeback_id = f"chb_won_{frappe.generate_hash(length=6)}"
+        # amountChargedBack is still non-zero here so the sweep reaches discovery at all.
+        result = self._sweep_638(chargeback_id, self.REVERSED_AT, charged_back="50.00")
+        self.assertEqual(result["status"], "success", result)
+        self.assertEqual(frappe.get_all("Journal Entry", filters={"cheque_no": ["like", f"{self.payment_id}_chargeback_%"]}), [])
+        self.assertEqual(self._outstanding(), 0.0)
+
+    def test_a_booked_chargeback_that_is_later_reversed_restores_the_invoice_once(self):
+        chargeback_id = f"chb_won_{frappe.generate_hash(length=6)}"
+        first = self._sweep_638(chargeback_id, None, charged_back="50.00")
+        self.assertEqual(first["status"], "success", first)
+        self.assertEqual(len(self._journal_entries_for(chargeback_id, "chargeback")), 1)
+        self.assertEqual(self._outstanding(), self.INVOICE_AMOUNT, "precondition: chargeback re-opened the invoice")
+
+        # The dispute is won: Mollie now reports amountChargedBack 0.00 AND reversedAt.
+        second = self._sweep_638(chargeback_id, self.REVERSED_AT)
+
+        self.assertEqual(second["status"], "success", second)
+        counters = self._counters(chargeback_id)
+        self.assertEqual(len(counters), 1, f"expected one counter-entry, got {counters}")
+        self.assertEqual(self._outstanding(), 0.0, "the counter-entry must close the invoice again")
+        rows = self._gl_rows(counters[0])
+        receivable = [r for r in rows if r["account"] == self.receivable]
+        clearing = [r for r in rows if r["account"] == self.clearing_account]
+        self.assertEqual(flt(receivable[0]["credit"]), self.INVOICE_AMOUNT, rows)
+        self.assertEqual(receivable[0]["against_voucher"], self.invoice, rows)
+        self.assertEqual(flt(clearing[0]["debit"]), self.INVOICE_AMOUNT, rows)
+        self.assertEqual(
+            frappe.db.get_value("Journal Entry", self._journal_entries_for(chargeback_id, "chargeback")[0], "docstatus"),
+            1,
+            "the chargeback entry must be countered, not cancelled",
+        )
+
+        third = self._sweep_638(chargeback_id, self.REVERSED_AT)
+
+        self.assertEqual(third["status"], "success", third)
+        self.assertEqual(self._counters(chargeback_id), counters, "a redelivery booked another counter-entry")
+        self.assertEqual(self._outstanding(), 0.0)
 
 
 class TestDonationReversalDiscovery(_RefundFixtureMixin, EnhancedTestCase):

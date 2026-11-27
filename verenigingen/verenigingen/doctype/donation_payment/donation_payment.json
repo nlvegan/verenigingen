@@ -110,7 +110,7 @@
       "fieldtype": "Select",
       "in_list_view": 1,
       "label": "Payment Status",
-      "options": "Pending\nPaid\nFailed\nCancelled\nRefunded\nChargeback",
+      "options": "Pending\nPaid\nFailed\nCancelled\nRefunded\nChargeback\nChargeback Reversed",
       "reqd": 1
     },
     {
@@ -159,7 +159,7 @@
   "index_web_pages_for_search": 1,
   "istable": 1,
   "links": [],
-  "modified": "2025-12-11 12:00:00.000000",
+  "modified": "2026-11-27 12:00:00.000000",
   "modified_by": "Administrator",
   "module": "Verenigingen",
   "name": "Donation Payment",

@@ -40,6 +40,7 @@ from ..exceptions import MolliePaymentError, MollieSecurityError, MollieWebhookE
 from ..utils import subscription_activation_reasons
 from ..utils.logging import MollieLogger, log_payment_processing, log_webhook_received
 from ..utils.monitoring import record_operation_performance
+from ..utils.reversal_idempotency import has_booked_chargeback
 
 # REMOVED: Old payment_webhook functions archived to break hybrid system
 # These functions were causing duplicate Payment Entries by competing with unified idempotency
@@ -71,6 +72,16 @@ def _respond_service_unavailable() -> None:
     frappe.local.response_headers.set("Retry-After", "60")
 
 
+# Donation Payment.payment_status per reversal type. "chargeback_reversed" is the counter-entry for a
+# chargeback Mollie reports as reversed (#638): its own status, so a Chargeback row is never offset
+# by another "Chargeback" row, and its amount is POSITIVE (the money came back) so the rows net to 0.
+_REVERSAL_ROW_STATUS = {
+    "refund": "Refunded",
+    "chargeback": "Chargeback",
+    "chargeback_reversed": "Chargeback Reversed",
+}
+
+
 def _reversal_history_row(
     doctype: str, name: str, amount: float, payment_date, reversal_id: str, reversal_type: str = "refund"
 ) -> dict:
@@ -84,7 +95,7 @@ def _reversal_history_row(
         "amount": -float(amount),  # negative: this is a reversal
         "payment_date": payment_date,
         "mollie_payment_id": reversal_id,
-        "payment_status": "Refunded" if reversal_type == "refund" else "Chargeback",
+        "payment_status": _REVERSAL_ROW_STATUS.get(reversal_type, "Chargeback"),
         "payment_method": "Mollie",
     }
     row["journal_entry" if doctype == "Journal Entry" else "payment_entry"] = name
@@ -761,7 +772,11 @@ class UnifiedWebhookWrapperService:
         turns the response into an error for the same reason, instead of a 200 that
         would stop Mollie delivering it again.
         """
-        if forward_result.get("status") == "error" or not self._payment_reports_reversal(payment):
+        if forward_result.get("status") == "error":
+            return forward_result
+        # A won dispute leaves amountChargedBack at 0, so the payment no longer "reports" the
+        # chargeback that was booked earlier; its counter-entry is still owed (#638).
+        if not (self._payment_reports_reversal(payment) or has_booked_chargeback(payment_id)):
             return forward_result
 
         state = self.idempotency_manager.check_payment_processing_state(payment_id, include_mollie_api=True)
@@ -809,7 +824,16 @@ class UnifiedWebhookWrapperService:
                 reversal_date=refund.get("refund_date"),
             )
             for refund in state.pending_refunds
-        ] + [
+        ] + self.book_pending_chargebacks(payment_id, state)
+
+    def book_pending_chargebacks(self, payment_id: str, state) -> list:
+        """Book every chargeback ``state`` found pending, through ``process_reversal_webhook``.
+
+        Shared by the dues path (``book_pending_reversals``) and the donation path of the
+        payment webhook (#638): ``process_reversal_webhook`` reads what the forward payment
+        booked and reverses it in kind, and is idempotent per chargeback id.
+        """
+        return [
             self.process_reversal_webhook(
                 payment_id=payment_id,
                 reversal_id=chargeback["chargeback_id"],
@@ -819,7 +843,104 @@ class UnifiedWebhookWrapperService:
                 reason=chargeback.get("reason") or None,
             )
             for chargeback in state.pending_chargebacks
+        ] + [
+            self.process_chargeback_reversed(
+                payment_id=payment_id,
+                chargeback_id=chargeback["chargeback_id"],
+                amount=chargeback["amount"],
+                reversed_at=chargeback.get("reversed_at"),
+            )
+            for chargeback in state.pending_chargeback_reversals
         ]
+
+    def process_chargeback_reversed(
+        self, payment_id: str, chargeback_id: str, amount: float, reversed_at=None
+    ) -> Dict[str, Any]:
+        """Undo a booked chargeback that Mollie now reports as reversed (the dispute was won, #638).
+
+        A counter-entry, not a cancel: ERPNext's own ``map_reverse_journal_entry`` mirrors the
+        chargeback's reversal Journal Entry (donation: Dr clearing / Cr income; dues: credit the
+        receivable against the invoice again, restoring what the chargeback re-opened), and
+        the original stays submitted. Keyed ``{payment}_chargeback_{id}_reversed``, so a
+        redelivery finds it and books nothing. A donation also records it: a positive "Chargeback Reversed" row.
+
+        Only a Journal Entry booking is countered. No Bank Transaction is written for the
+        returned money: the chargeback's own bank line stays and the money's return arrives
+        with Mollie's settlement.
+        """
+        from ..utils.reversal_idempotency import build_reversal_key, find_booked_reversal
+
+        start_time = time.time()
+        result = {"payment_id": payment_id, "chargeback_id": chargeback_id}
+        try:
+            original = find_booked_reversal(
+                build_reversal_key(payment_id, "chargeback", chargeback_id), amount
+            )
+            if not original:
+                return {**result, "status": "success", "message": "Reversed chargeback was never booked"}
+            if original[0] != "Journal Entry":
+                message = (
+                    f"Chargeback {chargeback_id} of {payment_id} was booked as {original[0]} {original[1]}; "
+                    f"countering a reversed chargeback is only implemented for Journal Entries"
+                )
+                frappe.log_error(title="Mollie Reversed Chargeback Not Countered", message=message)
+                return {**result, "status": "not_implemented", "message": message}
+
+            counter_key = build_reversal_key(payment_id, "chargeback", f"{chargeback_id}_reversed")
+            posting_date = self._reversal_date_or_today(reversed_at, "chargeback", chargeback_id)
+            counter = find_booked_reversal(counter_key, amount)
+            if counter is None:
+                counter = ("Journal Entry", self._book_counter_entry(original[1], counter_key, posting_date))
+
+            repaired, failure = self._repair_reversal_history(
+                payment_id=payment_id,
+                reversal_ref=counter,
+                amount=-flt(amount),  # the history row stores reversals negative; a counter is positive
+                reversal_date=reversed_at,
+                reversal_id=f"{chargeback_id}_reversed",
+                reversal_type="chargeback_reversed",
+            )
+            if not repaired:
+                return {
+                    **result,
+                    "status": "error",
+                    "message": f"Counter-entry {counter[1]} booked, but its history row failed ({failure})",
+                }
+            return {
+                **result,
+                "status": "success",
+                "message": f"Chargeback {chargeback_id} reversed: counter Journal Entry {counter[1]}",
+                "counter_journal_entry": counter[1],
+                "duration_seconds": time.time() - start_time,
+            }
+        except Exception as err:
+            frappe.log_error(
+                title="Mollie Reversed Chargeback Counter-Entry Failed",
+                message=f"{payment_id} {chargeback_id}: {err}",
+            )
+            return {
+                **result,
+                "status": "error",
+                "message": f"Counter-entry for chargeback {chargeback_id} failed: {err}",
+            }
+
+    @staticmethod
+    def _book_counter_entry(original_journal_entry: str, counter_key: str, posting_date) -> str:
+        """ERPNext's standard reverse-journal-entry mapping, keyed and submitted."""
+        from erpnext.accounts.doctype.journal_entry.journal_entry import map_reverse_journal_entry
+
+        # Security: system booking driven by a Mollie webhook the gateway already authenticated; no session user to check
+        counter = map_reverse_journal_entry(original_journal_entry, ignore_permissions=True)
+        counter.cheque_no = counter_key
+        counter.cheque_date = posting_date
+        counter.posting_date = posting_date
+        counter.user_remark = (
+            f"Counter-entry: {counter_key} reverses {original_journal_entry} (chargeback reversed by Mollie)"
+        )
+        # Security: same system booking as above, same as every other Mollie reversal entry
+        counter.insert(ignore_permissions=True)
+        counter.submit()
+        return counter.name
 
     def _handle_fully_processed_payment(
         self, payment_id: str, processing_state, start_time: float
@@ -890,10 +1011,12 @@ class UnifiedWebhookWrapperService:
         chargeback_results = []
         if processing_state.has_pending_chargebacks():
             self.logger.info(f"Processing {len(processing_state.pending_chargebacks)} pending chargebacks")
-            # TODO: Implement chargeback processing when needed
+            chargeback_results = self.book_pending_chargebacks(payment_id, processing_state)
 
         # CRITICAL FIX: Determine overall success based on refund processing results
-        failed_refunds = [r for r in refund_results if r.get("status") == "error"]
+        # A chargeback that could not be booked is a failure like a failed refund: an error
+        # answer makes Mollie re-deliver (#638).
+        failed_refunds = [r for r in refund_results + chargeback_results if r.get("status") == "error"]
         succeeded_refunds = [r for r in refund_results if r.get("status") == "success"]
 
         overall_success = len(failed_refunds) == 0
@@ -1135,6 +1258,14 @@ class UnifiedWebhookWrapperService:
                 if len(booking_failures) != len(failed_refunds):
                     history_failures.append("refund payment history")
 
+            # Chargebacks: Mollie re-posts the same payment id for them, exactly as for refunds,
+            # so they are discovered here and booked through process_reversal_webhook (#638).
+            chargeback_results = self.book_pending_chargebacks(payment_id, processing_state)
+            failed_chargebacks = [r for r in chargeback_results if r.get("status") == "error"]
+            if failed_chargebacks:
+                self.logger.error(f"{len(failed_chargebacks)} chargeback booking(s) failed for {payment_id}")
+                history_failures.append(f"{len(failed_chargebacks)} chargeback booking(s)")
+
             # A history write that failed must not be reported as success: the
             # financial entries are already booked and idempotent, so a non-2xx buys
             # a re-delivery that cannot double-book (measured: one JE, one Bank
@@ -1161,6 +1292,7 @@ class UnifiedWebhookWrapperService:
                     "donation_id": donation.name,
                     "history_failures": history_failures,
                     "refund_failures": failed_refunds,
+                    "chargeback_failures": failed_chargebacks,
                     "duration_seconds": time.time() - start_time,
                 }
 
@@ -1180,6 +1312,9 @@ class UnifiedWebhookWrapperService:
                 result["refunds_processed"] = refund_results
                 # Failures are detected and reported above, before the early return;
                 # reaching here means there were none.
+
+            if chargeback_results:
+                result["chargebacks_processed"] = chargeback_results
 
             if activation:
                 result["subscription_activation"] = activation
