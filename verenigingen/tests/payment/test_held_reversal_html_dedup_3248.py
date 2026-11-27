@@ -79,6 +79,55 @@ class TestHeldReversalHtmlDedup3248(_BankTxnFixtureMixin, EnhancedTestCase):
             self._desk_edit(name)
         return names
 
+    def _desk_edit_single_paragraph(self, key_suffix, after_key):
+        """The shape Frappe's quill produces on a plain load: the whole description collapsed
+        into ONE <p>, with whatever the Treasurer typed after the key on the same line."""
+        names = frappe.get_all("ToDo", filters={"description": ["like", f"%{key_suffix}"]}, pluck="name")
+        self.assertTrue(names)
+        for name in names:
+            todo = frappe.get_doc("ToDo", name)
+            flat = todo.description.replace("\n", " ")
+            todo.description = f'<div class="ql-editor read-mode"><p>{flat}{after_key}</p></div>'
+            todo.save()
+            stored = frappe.db.get_value("ToDo", name, "description")
+            self.assertTrue(stored.rstrip().endswith(f"{after_key}</p></div>"), stored)
+        return names
+
+    def _assert_redelivery_dedups_after(self, reversal_id, after_key):
+        self._hold(reversal_id)
+        edited = self._desk_edit_single_paragraph(reversal_id, after_key)
+        before = sorted(self._todos_for_payment())
+        self.assertIn(self._hold(reversal_id), edited)
+        self.assertEqual(sorted(self._todos_for_payment()), before)
+
+    def test_note_appended_on_the_keys_line(self):
+        self._assert_redelivery_dedups_after("re_note", " done")
+
+    def test_trailing_space_after_the_key(self):
+        self._assert_redelivery_dedups_after("re_space", " ")
+
+    def test_nbsp_after_the_key(self):
+        self._assert_redelivery_dedups_after("re_nbsp", " &nbsp;")
+
+    def test_a_longer_held_id_with_a_note_is_not_the_shorter_key(self):
+        """re_12 held and edited with a note on its line; re_1's alert must still be raised."""
+        self._hold("re_12")
+        edited = self._desk_edit_single_paragraph("re_12", " done")
+        self.assertNotIn(self._hold("re_1"), edited)
+
+    def test_a_key_differing_only_at_an_underscore_is_a_different_payment(self):
+        """Real rows for a payment id that differs from ours only where ours has `_`."""
+        lookalike = self.payment_id.replace("tr_", "trX", 1)
+        hold_unmatched_reversal(lookalike, "refund", "re_u", 25.0, self.bank_transaction)
+        lookalike_todos = frappe.get_all(
+            "ToDo", filters={"description": ["like", f"%{lookalike}_refund_re_u%"]}, pluck="name"
+        )
+        self.assertTrue(lookalike_todos)
+        for name in lookalike_todos:
+            self._desk_edit(name)
+        mine = self._hold("re_u")
+        self.assertNotIn(mine, lookalike_todos)
+
     def _desk_edit(self, todo_name):
         """Re-save the description the way the desk Text Editor stores it: every line a <p>,
         the whole wrapped in the editor's div."""

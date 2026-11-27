@@ -7,6 +7,8 @@ Maintainer ruling (2026-11-25): hold it and alert staff. Nothing is auto-booked;
 staff reconcile the Bank Transaction and book the reversal by hand.
 """
 
+import re
+
 import frappe
 from frappe import _
 
@@ -44,14 +46,19 @@ def treasurer_users() -> list:
 
 
 def _existing_alert(key: str):
-    # The key follows a fixed label and ends the description: either the very end (as written
-    # here), or just before a `<` once a desk edit of the Text Editor field wrapped it in HTML
-    # (`...Reference: key</p></div>`, #3248). Ids contain no `<`, so both anchors are exact:
-    # holding re_12 must not suppress re_1, and `_` in an id is not a wildcard.
-    pattern = f"%{_LABEL}{escape_sql_like_wildcards(key)}"
-    return frappe.db.get_value("ToDo", {"description": ["like", pattern]}, "name") or frappe.db.get_value(
-        "ToDo", {"description": ["like", f"{pattern}<%"]}, "name"
-    )
+    # LIKE only narrows to candidates; the boundary is confirmed in Python. A desk edit of the
+    # Text Editor field wraps the description in HTML and may append text on the key's own line
+    # (`Reference: key done</p>`, `key </p>`, `key &nbsp;</p>`), so no fixed suffix is a safe
+    # anchor (#3248). A key must not be followed by an id character: holding re_12 must not
+    # suppress re_1.
+    pattern = f"%{_LABEL}{escape_sql_like_wildcards(key)}%"
+    boundary = re.compile(re.escape(f"{_LABEL}{key}") + r"(?![A-Za-z0-9_])")
+    for row in frappe.get_all(
+        "ToDo", filters={"description": ["like", pattern]}, fields=["name", "description"]
+    ):
+        if boundary.search(row.description or ""):
+            return row.name
+    return None
 
 
 _LABEL = "Reference: "
