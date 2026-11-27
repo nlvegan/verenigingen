@@ -147,7 +147,7 @@ _create_test_member::2
 _create_test_members::2
 _create_test_payment::2
 _create_test_run::2
-_create_test_sepa_mandate::4  # clone family, 1 near-identical pair(s)
+_create_test_sepa_mandate::4
 _create_test_user::2
 _create_test_volunteer::2
 _create_thread_context::2  # clone family, 1 near-identical pair(s)
