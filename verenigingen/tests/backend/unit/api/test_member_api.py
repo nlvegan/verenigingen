@@ -124,11 +124,14 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
         member = test_data["member"]
 
         # Create SEPA mandate
+        # `mandate_id` is the real field; the old `mandate_reference` key is not
+        # a SEPA Mandate field and was silently dropped (#3367).
+        expected_mandate_id = f"TEST-{random_string(8)}"
         mandate = frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
                 "member": member.name,
-                "mandate_reference": f"TEST-{random_string(8)}",
+                "mandate_id": expected_mandate_id,
                 "iban": member.iban,
                 "account_holder_name": member.bank_account_name,
                 "status": "Active",
@@ -137,6 +140,9 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
         mandate.insert()
         self.track_doc("SEPA Mandate", mandate.name)
         self.track_doc("SEPA Mandate", mandate.name)
+        self.assertEqual(
+            frappe.db.get_value("SEPA Mandate", mandate.name, "mandate_id"), expected_mandate_id
+        )
 
         # Test via API call: signature takes `member` (name).
         active_mandate = frappe.call(
