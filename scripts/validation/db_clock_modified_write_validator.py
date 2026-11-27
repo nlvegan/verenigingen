@@ -12,6 +12,7 @@ documented in the bench test's docstring; nothing about WHAT is checked changed 
     python scripts/validation/db_clock_modified_write_validator.py [files ...]
 """
 
+import argparse
 import ast
 import os
 import re
@@ -104,7 +105,11 @@ def scan_db_clock_modified_writes(paths=None, root=REPO_ROOT):
 
 
 def main(argv):
-    findings = scan_db_clock_modified_writes(argv[1:] or None)
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
+    ap.add_argument("paths", nargs="*", help="files to check (default: whole tree)")
+    ap.add_argument("--root", default=REPO_ROOT, help="tree to scan (default: this repo)")
+    args = ap.parse_args(argv[1:])
+    findings = scan_db_clock_modified_writes(args.paths or None, root=args.root)
     if findings:
         print("\n\U0001f6d1 Hand-written `modified` from the database clock (#453)\n")
         for f in findings:

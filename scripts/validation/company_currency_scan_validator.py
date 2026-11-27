@@ -12,6 +12,7 @@ nothing about WHAT is checked changed here.
     python scripts/validation/company_currency_scan_validator.py [files ...]
 """
 
+import argparse
 import ast
 import os
 import sys
@@ -119,7 +120,11 @@ def scan_company_currency_scans(paths=None, root=APP_ROOT):
 
 
 def main(argv):
-    found = scan_company_currency_scans(argv[1:] or None)
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
+    ap.add_argument("paths", nargs="*", help="files to check (default: whole tree)")
+    ap.add_argument("--root", default=APP_ROOT, help="tree to scan (default: this repo)")
+    args = ap.parse_args(argv[1:])
+    found = scan_company_currency_scans(args.paths or None, root=args.root)
     if found:
         print("\n\U0001f6d1 Company resolved by scanning for a currency (#394)\n")
         for rel, lines in sorted(found.items()):

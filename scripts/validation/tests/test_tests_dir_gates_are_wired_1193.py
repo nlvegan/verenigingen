@@ -44,6 +44,26 @@ def _pre_commit_entries():
     return re.findall(r"^\s*entry:\s*python\s+(\S+\.py)\b", PRE_COMMIT, re.MULTILINE)
 
 
+def _hook_block(script):
+    """The text of the pre-commit hook whose `entry:` runs ``script``."""
+    for block in re.split(r"^\s*- id: ", PRE_COMMIT, flags=re.MULTILINE):
+        if re.search(rf"entry:\s*python\s+{re.escape(script)}\b", block):
+            return block
+    return ""
+
+
+def _hook_field(block, name):
+    match = re.search(rf"^\s*{name}:\s*(.+)$", block, re.MULTILINE)
+    return match.group(1).strip() if match else None
+
+
+# A real path each scan covers, which the hook's `files:` regex must match.
+COVERED_PATHS = {
+    "scripts/validation/db_clock_modified_write_validator.py": ["verenigingen/services/x.py", "scripts/x.py"],
+    "scripts/validation/company_currency_scan_validator.py": ["verenigingen/services/x.py"],
+}
+
+
 def _workflow_runs():
     return re.findall(r"^\s*run:\s*python\s+(\S+\.py)\b", WORKFLOW, re.MULTILINE)
 
@@ -59,6 +79,22 @@ class TestTestsDirGatesAreWired(unittest.TestCase):
         for script in GATES:
             with self.subTest(script=script):
                 self.assertIn(script, entries, f"no pre-commit `entry: python {script}`")
+
+    def test_each_hook_is_live_and_selects_the_paths_its_scan_covers(self):
+        for script, paths in COVERED_PATHS.items():
+            with self.subTest(script=script):
+                block = _hook_block(script)
+                self.assertTrue(block, f"no hook block for {script}")
+                stages = _hook_field(block, "stages") or "[pre-commit]"
+                self.assertIn("pre-commit", stages)
+                self.assertNotIn("manual", stages)
+                pattern = (_hook_field(block, "files") or "").strip("'\"")
+                exclude = (_hook_field(block, "exclude") or "").strip("'\"")
+                self.assertTrue(pattern, "hook has no files: pattern")
+                for path in paths:
+                    self.assertTrue(re.search(pattern, path), f"files: {pattern!r} misses {path}")
+                    if exclude:
+                        self.assertFalse(re.search(exclude, path), f"exclude: {exclude!r} drops {path}")
 
     def test_each_gate_runs_in_a_named_ci_job(self):
         runs = _workflow_runs()
@@ -88,14 +124,21 @@ class TestTestsDirGatesAreWired(unittest.TestCase):
                 bad.write_text(offending, encoding="utf-8")
                 good = pkg / "clean.py"
                 good.write_text("x = 1\n", encoding="utf-8")
-                self.assertEqual(self._run_gate_cli(script, good).returncode, 0)
-                # Outside the real tree the scanners' roots do not cover `tmp`, so drive
-                # the scan function directly with the planted root instead of the CLI.
+                clean_root = tmp if "db_clock" in script else str(pkg)
+                self.assertEqual(self._run_gate_cli(script, good, "--root", clean_root).returncode, 0)
+                # The CLI itself, as pre-commit invokes it, must exit 1 on the offender.
+                root = tmp if "db_clock" in script else str(pkg)
+                result = self._run_gate_cli(script, bad, "--root", root)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("planted.py", result.stdout)
                 self.assertTrue(self._planted_is_found(script, tmp))
 
-    def _run_gate_cli(self, script, path):
+    def _run_gate_cli(self, script, path, *extra):
         return subprocess.run(
-            [sys.executable, "-I", str(REPO / script), str(path)], capture_output=True, text=True, check=False
+            [sys.executable, "-I", str(REPO / script), str(path), *extra],
+            capture_output=True,
+            text=True,
+            check=False,
         )
 
     def _planted_is_found(self, script, tmp):
