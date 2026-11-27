@@ -448,22 +448,6 @@ class Membership(Document):
                         _("Cancellation is only allowed after a minimum membership period of 1 year")
                     )
 
-    def _renewal_base_date(self):
-        """The date the renewal period is counted from: start_date, or a LATER coverage anchor of this
-        membership's dues schedule (#3450: a member approved shortly before a fixed billing date is billed
-        from that date, so renewing a year after approval would expire the membership before the period
-        it paid for ends). A past anchor never counts: the date from start_date already lies beyond it."""
-        if not (self.name and self.start_date):
-            return self.start_date
-        anchor = frappe.db.get_value(
-            "Membership Dues Schedule",
-            {"membership": self.name, "is_template": 0, "status": ["!=", "Cancelled"]},
-            "coverage_anchor_date",
-        )
-        if anchor and getdate(anchor) > getdate(self.start_date):
-            return anchor
-        return self.start_date
-
     def set_renewal_date(self):
         """Calculate renewal date based on membership type and start date"""
         if self.membership_type and self.start_date:
@@ -497,7 +481,7 @@ class Membership(Document):
                 if months:
                     # For CSV imports with historic start_date, calculate renewal from today
                     # to ensure Active status rather than Expired
-                    reference_date = self._renewal_base_date()
+                    reference_date = self.start_date
                     if getattr(self, "_is_csv_import", False) and getdate(self.start_date) < getdate(today()):
                         reference_date = today()
                         frappe.logger().info(
@@ -510,7 +494,7 @@ class Membership(Document):
                     # Handle daily period
                     if enforce_minimum:
                         # Even for daily, enforce 1 year minimum
-                        self.renewal_date = add_to_date(self._renewal_base_date(), months=12)
+                        self.renewal_date = add_to_date(self.start_date, months=12)
                         message_key = f"daily_minimum_message_{self.name or 'new'}"
                         if not frappe.flags.get(message_key):
                             frappe.msgprint(
@@ -531,7 +515,7 @@ class Membership(Document):
                     # For lifetime memberships, still set a minimum 1-year initial period
                     # This allows the 1-year cancellation rule to be enforced
                     # For CSV imports with historic start_date, calculate from today
-                    reference_date = self._renewal_base_date()
+                    reference_date = self.start_date
                     if getattr(self, "_is_csv_import", False) and getdate(self.start_date) < getdate(today()):
                         reference_date = today()
 

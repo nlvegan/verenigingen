@@ -181,11 +181,12 @@ old one. Read it before choosing where the rule goes.
 
 **Build findings (#3450, 2026-11-28).**
 - `renewal_date` is not cosmetic: `process_expired_memberships` expires an Active membership whose
-  `renewal_date` is past, and the renewal reminders key on it. It is recomputed from `start_date` on every
-  Membership validate, so it is carried by `Membership._renewal_base_date`: a coverage anchor of the
-  membership's schedule that lies **after** `start_date` replaces `start_date` as the base. A past anchor
-  does not (a year from approval already lies beyond the period it paid for). Nothing in the app extends
-  `renewal_date` when later periods are paid; that is true for every member and is not changed here.
+  `renewal_date` is past, and the renewal reminders key on it. It is computed from `start_date` when the
+  Membership is created (`set_renewal_date`) and is not recomputed by later saves. For a **future** anchor
+  approval therefore moves it to the anchor plus the same number of months it already spans
+  (`MembershipCreationService._move_renewal_date_to_anchor`), so a year from approval does not end the
+  membership before the period that starts at the anchor is over. A past anchor leaves it alone. Nothing
+  extends `renewal_date` when later periods are paid; that is true for every member and is tracked in #3461.
 - The type-change amendment **edits the existing schedule** in place (`update_schedule_for_type_change`);
   it creates a new one only when the member has none. The rule is therefore implemented there: an anchor
   that is still **in the future** is cleared and `next_invoice_date` becomes today. A reached anchor is left
@@ -197,6 +198,10 @@ old one. Read it before choosing where the rule goes.
   `create_invoice` off for it: no invoice, no #1900 failure marker, and the approval mail goes out without
   a payment link. The retry path uses the schedule's anchor as `period_start` when it is on or before the
   membership start.
+
+- Limitation, not fixed: with Verenigingen Settings `enable_sequential_coverage = 0` the coverage
+  calculator takes its date-based branch and ignores `coverage_anchor_date`. The setting defaults to on, and
+  the existing rejoin anchor has the same limitation.
 
 **Configuration precondition** (no code): a Fixed plan whose rate is below the membership type's
 `minimum_amount` is dropped from the door (`door_plans.py:136-146`), and the door alert reports

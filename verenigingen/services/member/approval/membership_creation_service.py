@@ -38,7 +38,7 @@ import contextlib
 
 import frappe
 from frappe import _
-from frappe.utils import date_diff, getdate, today
+from frappe.utils import add_months, date_diff, getdate, today
 
 from verenigingen.services.infrastructure.base_service import StatelessService
 from verenigingen.utils.service_error_handler import create_service_result, handle_service_error
@@ -630,9 +630,18 @@ class MembershipCreationService(StatelessService):
             values["next_invoice_date"] = anchor
         frappe.db.set_value("Membership Dues Schedule", schedule_name, values, update_modified=False)
         if anchor > getdate(membership.start_date):  # only a LATER anchor moves the renewal date
-            membership.set_renewal_date()
-            membership.db_set("renewal_date", membership.renewal_date, update_modified=False)
+            self._move_renewal_date_to_anchor(membership, anchor)
         return anchor
+
+    @staticmethod
+    def _move_renewal_date_to_anchor(membership, anchor):
+        """Count the renewal period from the anchor instead of the start date: the same number of months
+        the membership's own renewal_date already spans, so every Membership Type rule (minimum year,
+        lifetime) keeps applying. renewal_date drives the expiry job and the reminders, and a year from
+        approval would end the membership before the period that starts at the anchor is over."""
+        start, renewal = getdate(membership.start_date), getdate(membership.renewal_date)
+        months = (renewal.year - start.year) * 12 + renewal.month - start.month
+        membership.db_set("renewal_date", add_months(anchor, months), update_modified=False)
 
     @staticmethod
     def _follow_on_privileges(system_follow_on):

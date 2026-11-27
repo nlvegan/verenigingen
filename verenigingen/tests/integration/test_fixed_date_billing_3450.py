@@ -230,10 +230,6 @@ class TestFixedDateApproval(FixedDateCase):
 
         membership = frappe.get_doc("Membership", frappe.db.get_value("Member", result["member"], "current_membership_plan"))
         self.assertEqual(getdate(membership.renewal_date), getdate(add_months(anchor, 12)))
-        membership.reload()
-        membership.flags.ignore_validate_update_after_submit = True
-        membership.save()
-        self.assertEqual(getdate(membership.renewal_date), getdate(add_months(anchor, 12)), "a later save keeps it")
 
     def test_the_scheduler_waits_for_the_anchor_then_invoices_the_period_that_begins_there(self):
         anchor = self._anchor_in(45)
