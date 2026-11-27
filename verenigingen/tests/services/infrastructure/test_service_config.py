@@ -5,19 +5,14 @@
 Real-DB coverage tests for verenigingen/services/infrastructure/service_config.py.
 
 Covers ServiceConfig (validation, env overrides, validate_and_set rollback,
-merge, type/choice validators), ConfigurationManager (registration, settings
-loading, file save/load round-trip, validation aggregation, summary) and
-EnvironmentConfig (environment-specific config loading).
+merge, type/choice validators), ConfigurationManager (registration, file save/load round-trip, validation
+aggregation, summary) and EnvironmentConfig (environment-specific config
+loading).
 
-These are pure-logic infra modules; the only DB touch point is
-ConfigurationManager.load_from_settings() which reads the real
-"Verenigingen Settings" Single. We exercise that against the real doctype and
-derive expectations from its actual fields. load_from_settings maps the REAL
-field (member_id_start) onto the member_services config - see
-test_load_from_settings_reads_real_member_fields. A minimum_membership_age ->
-minimum_age mapping used to live there too; removed in #673 (dead, no
-consumer, and it silently accepted the exact missing/zero setting
-AgeValidator._get_configurable_min_age deliberately refuses on).
+These are pure-logic infra modules. ConfigurationManager used to snapshot
+Verenigingen Settings (load_from_settings); that never-invalidated cache was
+deleted in #927 and the singleton holds no settings value (see
+test_singleton_holds_no_verenigingen_settings_value).
 """
 
 import json
@@ -222,78 +217,66 @@ class TestConfigurationManager(EnhancedTestCase):
         self.assertEqual(mgr.get_global_config("cache_timeout"), 60)
         self.assertEqual(mgr.get_global_config("absent", "dflt"), "dflt")
 
-    def test_load_from_settings_reads_real_member_fields(self):
-        """load_from_settings maps the REAL Verenigingen Settings field onto the
-        member_services config:
+    def test_singleton_holds_no_verenigingen_settings_value(self):
+        """#927: the module singleton is never invalidated, so it must not hold
+        any Verenigingen Settings value (maintainer ruling 2026-11-27: delete the
+        cache, do not add invalidation).
 
-            member_id_start -> id_start_number
-
-        Previously this referenced a stale name (member_id_start_number) that
-        never matched, so the configured value silently fell through to the
-        hardcoded default. Here we set a non-default value (non-committed,
-        rolled back) and assert it flows into the config.
-
-        `id_length` and `default_status` have NO backing field on the doctype, so
-        they keep their hardcoded defaults.
+        Drives a REAL settings save (get_doc + save, not a direct field write)
+        twice around building the singleton, and asserts neither the value that
+        was current when it was built nor the one saved afterwards is held
+        anywhere in it. On develop the first value is snapshotted and the second
+        is never seen (stale).
         """
-        orig_start = frappe.db.get_single_value("Verenigingen Settings", "member_id_start")
-        try:
-            frappe.db.set_single_value(
-                "Verenigingen Settings", "member_id_start", 5000, update_modified=False
-            )
+        import verenigingen.services.infrastructure.service_config as sc
 
-            mgr = ConfigurationManager()
-            mgr.load_from_settings()  # real Single read; must not raise
+        settings = frappe.get_doc("Verenigingen Settings")
+        orig_start = settings.member_id_start
+        first, second = 7345, 7346
+        prev_singleton = sc._global_config_manager
+        self.addCleanup(setattr, sc, "_global_config_manager", prev_singleton)
+        self.addCleanup(self._restore_member_id_start_927, orig_start)
 
-            member_cfg = mgr.get_service_config("member_services")
-            # Real configured value flows through (NOT the 1000 default):
-            self.assertEqual(member_cfg.get("id_start_number"), 5000)
-            # No backing field -> hardcoded defaults retained:
-            self.assertEqual(member_cfg.get("id_length"), 6)
-            self.assertEqual(member_cfg.get("default_status"), "Active")
-        finally:
-            frappe.db.set_single_value(
-                "Verenigingen Settings", "member_id_start", orig_start, update_modified=False
-            )
+        self._save_member_id_start_927(first)
+        sc._global_config_manager = None
+        mgr = get_config_manager()  # built while `first` is the saved value
+        self._save_member_id_start_927(second)
 
-    def test_load_from_settings_no_longer_maps_a_minimum_age(self):
-        """A `minimum_membership_age -> minimum_age` mapping used to live in
-        `_load_member_service_settings`, with a hardcoded default of 16 and
-        min_val=0 -- silently accepting the exact missing/zero setting
-        `AgeValidator._get_configurable_min_age` deliberately refuses on (#673).
-        It had no consumer, so it is removed rather than reconciled with a
-        policy it never enforced. Pin the setting to that refused value (0) and
-        confirm member_services carries no `minimum_age` key at all -- age
-        minimums for actual validation come solely from
-        AgeValidator._get_configurable_min_age.
+        held = self._held_values_927(mgr)
+        self.assertNotIn(first, held, "singleton snapshotted a settings value")
+        self.assertNotIn(second, held)
+        self.assertIsNone(mgr.get_service_config("member_services").get("id_start_number"))
+        # Control: the live read the settings consumers use sees the new value.
+        self.assertEqual(frappe.db.get_single_value("Verenigingen Settings", "member_id_start"), second)
 
-        `get_service_config()` auto-creates an empty ServiceConfig for an unknown
-        service name, and `load_from_settings()`'s outer `except Exception` (this
-        module, `load_from_settings`) swallows a total loader failure silently --
-        so a bare "minimum_age is absent" assertion would also pass if the loader
-        never ran at all. Assert `id_length` alongside it: that key is set
-        unconditionally by `_load_member_service_settings` whenever it runs, so
-        its presence proves the loader actually executed rather than died upstream.
-        """
-        orig_age = frappe.db.get_single_value("Verenigingen Settings", "minimum_membership_age")
-        try:
-            frappe.db.set_single_value(
-                "Verenigingen Settings", "minimum_membership_age", 0, update_modified=False
-            )
+    def test_singleton_keeps_its_non_settings_values(self):
+        """Control for the test above: environment-derived globals are not
+        settings-derived and stay, so "nothing is held" cannot pass by the
+        singleton being empty."""
+        import verenigingen.services.infrastructure.service_config as sc
 
-            mgr = ConfigurationManager()
-            mgr.load_from_settings()  # real Single read; must not raise
+        prev_singleton = sc._global_config_manager
+        self.addCleanup(setattr, sc, "_global_config_manager", prev_singleton)
+        sc._global_config_manager = None
+        mgr = get_config_manager()
+        keys = mgr.get_configuration_summary()["global_config_keys"]
+        for key in ("debug_logging", "cache_timeout", "strict_validation"):
+            self.assertIn(key, keys)
+        self.assertNotIn("member_id_prefix", keys)
 
-            member_cfg = mgr.get_service_config("member_services")
-            self.assertIsNone(member_cfg.get("minimum_age"))
-            # Proves the loader actually ran (see docstring) rather than the
-            # negative assertion above passing because of a silently swallowed
-            # loader failure leaving member_cfg empty.
-            self.assertEqual(member_cfg.get("id_length"), 6)
-        finally:
-            frappe.db.set_single_value(
-                "Verenigingen Settings", "minimum_membership_age", orig_age, update_modified=False
-            )
+    def _save_member_id_start_927(self, value):
+        settings = frappe.get_doc("Verenigingen Settings")
+        settings.member_id_start = value
+        settings.save()
+
+    def _restore_member_id_start_927(self, value):
+        self._save_member_id_start_927(value)
+
+    def _held_values_927(self, mgr):
+        held = set(mgr._global_config.to_dict().values())
+        for cfg in mgr._service_configs.values():
+            held.update(v for v in cfg.to_dict().values() if isinstance(v, (int, str, bool)))
+        return held
 
     def test_save_and_load_file_roundtrip(self):
         mgr = ConfigurationManager()
