@@ -115,9 +115,10 @@ class TestMemberRoleServiceSweep(VereningingenTestCase):
 
         refreshed = frappe.get_doc("User", user.name)
         roles_after = {r.role for r in refreshed.roles}
-        # Both member roles exist on this site and were added.
+        # The member role exists on this site and was added.
         self.assertIn("Verenigingen Member", roles_after)
-        self.assertIn("All", roles_after)
+        # #2860: no stored "All" row (it carries desk_access=1 and would keep the account a System User).
+        self.assertNotIn("All", roles_after)
         # Pre-existing privileged role was cleared.
         self.assertNotIn("System Manager", roles_after)
         # Only roles that actually exist as Role docs are present.
@@ -200,7 +201,8 @@ class TestMemberRoleServiceSweep(VereningingenTestCase):
         self.assertEqual(result, user.name)
         roles_after = {r.role for r in frappe.get_doc("User", user.name).roles}
         self.assertIn("Verenigingen Member", roles_after)
-        self.assertIn("All", roles_after)
+        # #2860: no stored "All" row (it carries desk_access=1 and would keep the account a System User).
+        self.assertNotIn("All", roles_after)
         # No role profile was assigned (fallback path doesn't touch role_profiles).
         self.assertNotIn("No Such Role Profile ZZZ", self._profile_names(user.name))
 

@@ -89,12 +89,13 @@ class TestVolunteerActivationServiceCoverage(EnhancedTestCase):
     # success + meta-None + plain failure. These add the two uncovered shapes.
     def test_log_upgrade_result_failure_non_dict_error(self):
         """error that is not a dict -> errors defaults to [] (no crash)."""
-        with self.assertNoErrorLog():
+        # a failed upgrade is recorded in the Error Log since #2860 (asserted in test_member_role_no_desk_access_2860)
+        with self.assertNoErrorLog(ignore=["Volunteer user upgrade refused"]):
             _log_upgrade_result({"success": False, "error": "a bare string"}, "ctx")
 
     def test_log_upgrade_result_failure_with_error_list(self):
         """error dict with an 'errors' list -> joined into the warning."""
-        with self.assertNoErrorLog():
+        with self.assertNoErrorLog(ignore=["Volunteer user upgrade refused"]):
             _log_upgrade_result(
                 {"success": False, "error": {"errors": ["role missing", "user gone"]}},
                 "ctx",
@@ -154,6 +155,11 @@ class TestVolunteerActivationServiceCoverage(EnhancedTestCase):
         member, _ = self._make_member("upg")
         volunteer = self._make_volunteer(member, status="New")
         user = self._make_website_user_for_member(member)
+        # user_type is derived from the roles on save. Since #2860 the member role carries no desk
+        # access, so the user needs a desk role (the volunteer one) for the upgrade to stick; a
+        # member-only user is covered by test_member_role_no_desk_access_2860.
+        user.add_roles("Verenigingen Volunteer")
+        user.db_set("user_type", "Website User", update_modified=False)
         self.assertEqual(
             frappe.db.get_value("User", user.name, "user_type"),
             "Website User",

@@ -1075,8 +1075,8 @@ class TestVolunteerActivationService(EnhancedTestCase):
         )
 
         result = {"success": False, "error": {"errors": ["Role not found"]}}
-        # Should not raise
-        _log_upgrade_result(result, "test volunteer")
+        with self.assertErrorLog("Volunteer user upgrade refused"):
+            _log_upgrade_result(result, "test volunteer")
 
     def test_log_upgrade_result_empty_error(self):
         """_log_upgrade_result handles missing error details."""
@@ -1085,7 +1085,8 @@ class TestVolunteerActivationService(EnhancedTestCase):
         )
 
         result = {"success": False}
-        _log_upgrade_result(result, "test volunteer")
+        with self.assertErrorLog("Volunteer user upgrade refused"):
+            _log_upgrade_result(result, "test volunteer")
 
     def test_log_upgrade_result_none_meta(self):
         """_log_upgrade_result handles None meta gracefully."""

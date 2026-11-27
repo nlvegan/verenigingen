@@ -126,7 +126,7 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
 
     def test_add_nonexistent_profile_falls_back_to_individual_roles(self):
         # When the requested Role Profile does not exist, the method falls back to
-        # _assign_individual_member_roles, which adds Verenigingen Member + All
+        # _assign_individual_member_roles, which adds Verenigingen Member
         # directly (no role profile written). Still skipped pre-v16 because the
         # final assertion reads the User Role Profile child doctype.
         self._require_role_profiles()
@@ -138,7 +138,8 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
         refreshed = frappe.get_doc("User", user.name)
         roles_after = [r.role for r in refreshed.roles]
         self.assertIn("Verenigingen Member", roles_after)
-        self.assertIn("All", roles_after)
+        # #2860: no stored "All" row (it carries desk_access=1 and would keep the account a System User).
+        self.assertNotIn("All", roles_after)
         # No role profile was assigned in the fallback path.
         self.assertNotIn("NoSuchProfile-XYZ", self._profile_names(user.name))
 
@@ -158,7 +159,8 @@ class TestMemberRoleServiceExtended(VereningingenTestCase):
         refreshed = frappe.get_doc("User", user.name)
         roles_after = [r.role for r in refreshed.roles]
         self.assertIn("Verenigingen Member", roles_after)
-        self.assertIn("All", roles_after)
+        # #2860: no stored "All" row (it carries desk_access=1 and would keep the account a System User).
+        self.assertNotIn("All", roles_after)
         # Pre-existing System Manager role is cleared.
         self.assertNotIn("System Manager", roles_after)
 

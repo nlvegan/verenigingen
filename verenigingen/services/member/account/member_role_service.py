@@ -170,9 +170,11 @@ class MemberRoleService(StatelessService):
         """
         try:
             # Define the roles that members need for portal access
+            # No explicit "All" (#2860): it is an automatic role every user already has, and a
+            # stored Has Role row for it carries desk_access=1, which alone makes the account a
+            # System User again on its next save.
             member_roles = [
                 "Verenigingen Member",  # Primary member role for all member access
-                "All",  # Standard role for basic system access
             ]
 
             # Check if Verenigingen Member role exists, create if not

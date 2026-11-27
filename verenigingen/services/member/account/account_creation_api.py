@@ -1360,7 +1360,9 @@ def upgrade_member_to_volunteer_user(member_name: str) -> OperationResult[Dict[s
             # Modules volunteers should have access to
             volunteer_modules = ["HRMS", "HR"]  # For expense claims
 
-            # Remove HRMS/HR from blocked modules
+            # Remove HRMS/HR from blocked modules. This is saved even when the user turns out
+            # not to be a desk user (we fail below): harmless, because it is the same module
+            # allow-list the scheduled role profile sync grants a volunteer anyway.
             user_doc.set("block_modules", [])
             all_modules = frappe.get_all("Module Def", fields=["name"])
 
@@ -1384,6 +1386,18 @@ def upgrade_member_to_volunteer_user(member_name: str) -> OperationResult[Dict[s
             # Non-critical - continue with user type upgrade
 
         user_doc.save()
+
+        # user_type is derived from the roles on save, so the assignment above only sticks when the user
+        # holds a desk role. A member-only user has none since #2860 (the volunteer role normally arrives
+        # with the Active volunteer status, through the role profile sync): do not report an upgrade
+        # that did not happen.
+        user_doc.reload()
+        if user_doc.user_type != "System User":
+            return OperationResult.fail(
+                _("User has no volunteer role that grants desk access"),
+                errors=[f"User {member.user} is still a {user_doc.user_type}: no desk-access role"],
+                context={"operation": "upgrade_to_volunteer", "params": {"member_name": member_name}},
+            )
 
         frappe.logger().info(f"Successfully upgraded user {member.user} to System User for volunteer access")
 
