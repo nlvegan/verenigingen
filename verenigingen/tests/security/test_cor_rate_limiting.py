@@ -711,14 +711,17 @@ class TestGuestPerUserScopeKeysOnClientIp(EnhancedTestCase):
         self.assertNotEqual(first, second)
         self.assertTrue(first.endswith(":Guest:198.51.100.1"), first)
 
-    def test_ipv4_mapped_ipv6_guests_are_not_merged_into_one_bucket_1766(self):
-        """Control: ::ffff:a.b.c.d is an IPv4 client; masking it as a /64 would put every
-        mapped client in one bucket."""
+    def test_ipv4_mapped_guest_shares_the_plain_ipv4_bucket_but_distinct_ipv4s_stay_apart_1766(self):
+        """A dual-stack client seen as ::ffff:a.b.c.d and as a.b.c.d is ONE client (one budget);
+        a /64 mask applied to mapped addresses would instead merge every IPv4 client."""
         with _wsgi_request("::ffff:198.51.100.1"):
-            first = self._key()
+            mapped = self._key()
+        with _wsgi_request("198.51.100.1"):
+            plain = self._key()
         with _wsgi_request("::ffff:198.51.100.2"):
-            second = self._key()
-        self.assertNotEqual(first, second)
+            other = self._key()
+        self.assertEqual(mapped, plain)
+        self.assertNotEqual(mapped, other)
 
     def test_headers_read_the_same_key_the_check_writes(self):
         limit = self.engine._get_cor_config(self.OP)["rate_limit_calls"]
@@ -765,7 +768,7 @@ class TestRetryPaymentRateLimitScope(EnhancedTestCase):
 
         add_missing_critical_operation_rules()
         frappe.cache().delete_value("critical_operation_rules")
-        for ip in ("203.0.113.10", "203.0.113.20"):
+        for ip in ("203.0.113.10", "203.0.113.20", "2001:db8:7::/64", "2001:db8:7:1::/64"):
             frappe.cache().delete(
                 f"cor_rate_limit:{frappe.local.site}:interactive:{self.OPERATION_KEY}:{ip}"
             )
@@ -826,6 +829,24 @@ class TestRetryPaymentRateLimitScope(EnhancedTestCase):
                 "A different Guest visitor (different IP) must not inherit IP 1's exhausted budget",
             )
             self.assertEqual(fresh.current_count, 1)
+
+    def test_per_ip_rule_buckets_ipv6_by_slash_64_1766(self):
+        """The per_ip scope shares the Guest bucket's /128 hole: two addresses of one /64 must hit
+        ONE counter on the real retry_payment per_ip rule; another /64 keeps its own."""
+        with _guest_request_from_ip("2001:db8:7::1"):
+            first = self.framework.rate_limiter.check_rate_limit(
+                self.OPERATION_KEY, context=ExecutionContext.INTERACTIVE, force_check=True
+            )
+        with _guest_request_from_ip("2001:db8:7:0:aaaa::2"):
+            second = self.framework.rate_limiter.check_rate_limit(
+                self.OPERATION_KEY, context=ExecutionContext.INTERACTIVE, force_check=True
+            )
+        with _guest_request_from_ip("2001:db8:7:1::1"):
+            other_64 = self.framework.rate_limiter.check_rate_limit(
+                self.OPERATION_KEY, context=ExecutionContext.INTERACTIVE, force_check=True
+            )
+        self.assertEqual((first.current_count, second.current_count), (1, 2))
+        self.assertEqual(other_64.current_count, 1)
 
 
 class TestInitiatePaymentRateLimitScope(EnhancedTestCase):

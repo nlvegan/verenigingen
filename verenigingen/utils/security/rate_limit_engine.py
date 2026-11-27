@@ -10,7 +10,6 @@ DEPENDENCY RULES:
 - MUST NOT import from api_security_framework.py (to avoid circular imports)
 """
 
-import ipaddress
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -18,7 +17,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
-from verenigingen.utils.security.client_ip import get_client_ip
+from verenigingen.utils.security.client_ip import bucket_client_ip, get_client_ip
 from verenigingen.utils.security.types import ExecutionContext
 
 
@@ -324,19 +323,9 @@ class RateLimitEngine:
     def _bucket_ip(self) -> str:
         """The client IP a counter is keyed on: IPv6 collapses to its /64 (#1766).
 
-        A client holding a /64 can source 2**64 addresses, so a per-/128 key gives it an
-        unlimited budget. IPv4 and non-address labels ("unknown", "test_environment") are
-        returned verbatim. Normalised here, not in get_client_ip, so logs keep the full address.
+        Normalised here, not in get_client_ip, so logs keep the full address.
         """
-        client_ip = self._get_client_ip()
-        try:
-            address = ipaddress.ip_address(client_ip)
-        except ValueError:
-            return client_ip
-        if address.version != 6 or address.ipv4_mapped:
-            # An IPv4-mapped address (::ffff:a.b.c.d) is an IPv4 client; a /64 mask would merge them all.
-            return client_ip
-        return str(ipaddress.ip_network(f"{client_ip}/64", strict=False))
+        return bucket_client_ip(self._get_client_ip())
 
     def _get_client_ip(self) -> str:
         """

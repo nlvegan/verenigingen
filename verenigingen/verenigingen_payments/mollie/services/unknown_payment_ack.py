@@ -13,12 +13,11 @@ caller is keyed on its /64, since one subscriber holds the whole prefix).
 """
 
 import hashlib
-import ipaddress
 
 import frappe
 from frappe.utils import escape_html
 
-from verenigingen.utils.security.client_ip import get_client_ip
+from verenigingen.utils.security.client_ip import bucket_client_ip, get_client_ip
 from verenigingen.verenigingen_payments.utils.webhook_ack import ERROR_LOG_DEDUPE_SECONDS, short_id
 
 ALERT_KEY = "mollie_payment_not_found"
@@ -40,16 +39,7 @@ def acknowledge_unknown_payment(payment_id: str) -> dict:
 
 def caller_bucket(ip: str) -> str:
     """The dedupe identity of a caller: the address, or the /64 for IPv6."""
-    try:
-        address = ipaddress.ip_address(str(ip).strip())
-    except ValueError:
-        return str(ip)[:64]
-    if address.version == 6 and address.ipv4_mapped:
-        # IPv4 seen through a dual-stack socket: without this every IPv4 caller lands in ::/64.
-        address = address.ipv4_mapped
-    if address.version == 6:
-        return str(ipaddress.ip_network(f"{address}/64", strict=False))
-    return str(address)
+    return bucket_client_ip(ip)
 
 
 def _window_key(ip: str) -> str:
