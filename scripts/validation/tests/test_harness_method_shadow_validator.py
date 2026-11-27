@@ -208,5 +208,72 @@ class TransitiveInheritanceTest(unittest.TestCase):
         self.assertEqual(["TestGrandchild"], [v.class_name for v in violations])
 
 
+class UnscannableFileTest(unittest.TestCase):
+    """#2815 / #1094: a file the scan cannot read or parse must FAIL the gate, not count
+    as clean. This guard has no baseline, so a skipped file hides a finding forever.
+
+    Driven through the CLI (`--root`, the way CI runs it) over a temp tree that carries
+    the harness plus one subclass file. Controls: the same tree with a parseable file
+    exits 0; a parseable SHADOW exits 1 (so exit codes are distinguishable). Also a
+    shadow planted under `scripts/` is seen (#1094: the scan covers the whole repo root,
+    SCAN_ROOT was a dead constant)."""
+
+    SHADOW = (
+        "from verenigingen.harness import EnhancedTestCase\n"
+        "class TestX(EnhancedTestCase):\n"
+        "    def _ensure_company_cost_center(self):\n"
+        "        pass\n"
+    )
+
+    def _cli(self, extra_files):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            files = {"verenigingen/tests/fixtures/enhanced_test_factory.py": _HARNESS_SRC}
+            files.update(extra_files)
+            for rel, src in files.items():
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                if isinstance(src, bytes):
+                    p.write_bytes(src)
+                else:
+                    p.write_text(src)
+            return subprocess.run(
+                [sys.executable, str(_MOD_PATH), "--root", str(root)],
+                capture_output=True,
+                text=True,
+            )
+
+    def test_clean_tree_exits_zero(self):
+        r = self._cli({"scripts/ok.py": "VALUE = 1\n"})
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+
+    def test_shadow_under_scripts_is_seen(self):
+        files = {
+            "scripts/test_x.py": self.SHADOW.replace(
+                "verenigingen.harness", "verenigingen.tests.fixtures.enhanced_test_factory"
+            )
+        }
+        r = self._cli(files)
+        self.assertEqual(1, r.returncode, r.stdout + r.stderr)
+        self.assertIn("scripts/test_x.py", r.stdout)
+
+    def test_unparseable_file_fails_and_names_it(self):
+        r = self._cli({"scripts/broken_mod.py": b"def (\n"})
+        self.assertNotEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertIn("broken_mod.py", r.stdout + r.stderr)
+
+    def test_undecodable_file_fails_and_names_it(self):
+        r = self._cli({"verenigingen/bad_bytes.py": b"\xff\xfe\x00not utf-8\n"})
+        self.assertNotEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertIn("bad_bytes.py", r.stdout + r.stderr)
+
+    def test_unparseable_harness_file_fails(self):
+        r = self._cli({"verenigingen/tests/fixtures/enhanced_test_factory.py": b"class (\n"})
+        self.assertNotEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertIn("enhanced_test_factory.py", r.stdout + r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -63,9 +63,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCAN_ROOT = "verenigingen"
+# The scan covers the WHOLE repo root (scripts/ included; #1094 -- an old SCAN_ROOT
+# constant here was dead code and implied otherwise).
 
-# (harness file relative to SCAN_ROOT's parent, harness class name)
+# (harness file relative to the repo root, harness class name)
 HARNESS_SPECS = [
     ("verenigingen/tests/fixtures/enhanced_test_factory.py", "EnhancedTestCase"),
     ("verenigingen/tests/utils/base.py", "VereningingenTestCase"),
@@ -136,16 +137,22 @@ def _base_name(node):
     return None
 
 
-def _parse(path: Path):
+def _parse(path: Path, unscannable: list | None = None):
     try:
         return parse(path.read_text(encoding="utf-8"), filename=str(path))
-    except (SyntaxError, UnicodeDecodeError, OSError):
+    except (SyntaxError, UnicodeDecodeError, OSError) as exc:
+        # #2815: a file we cannot examine must fail the gate, not count as clean (this
+        # guard has no baseline, so a skipped file hides a finding forever).
+        if unscannable is not None:
+            unscannable.append(f"{path}: {type(exc).__name__}: {exc}")
         return None
 
 
-def _extract_harness_info(harness_file: Path, class_name: str) -> HarnessInfo:
+def _extract_harness_info(
+    harness_file: Path, class_name: str, unscannable: list | None = None
+) -> HarnessInfo:
     info = HarnessInfo(class_name=class_name, file_path=harness_file)
-    tree = _parse(harness_file)
+    tree = _parse(harness_file, unscannable)
     if tree is None:
         return info
 
@@ -190,7 +197,7 @@ def _module_dotted_to_path(repo_root: Path, dotted: str) -> Path:
     return repo_root / (dotted.replace(".", "/") + ".py")
 
 
-def _collect_classes_and_imports(root: Path, repo_root: Path):
+def _collect_classes_and_imports(root: Path, repo_root: Path, unscannable: list | None = None):
     """Return (classes_by_file, imports_by_file).
 
     classes_by_file[file][class_name] -> ClassInfo, for every class DEFINED in
@@ -206,7 +213,7 @@ def _collect_classes_and_imports(root: Path, repo_root: Path):
     imports_by_file: dict = {}
 
     for path in _iter_python_files(root):
-        tree = _parse(path)
+        tree = _parse(path, unscannable)
         if tree is None:
             continue
 
@@ -322,7 +329,7 @@ def _call_binds(sig: inspect.Signature, call: CallSite) -> tuple:
         return False, str(e)
 
 
-def scan(root: Path, harness_specs=HARNESS_SPECS):
+def scan(root: Path, harness_specs=HARNESS_SPECS, unscannable: list | None = None):
     """Return a list of Violations found under `root`.
 
     `harness_specs` is a list of (path-relative-to-root, class_name) pairs, so tests
@@ -332,13 +339,13 @@ def scan(root: Path, harness_specs=HARNESS_SPECS):
     mirrors the app's own package layout under it.
     """
     violations = []
-    classes_by_file, imports_by_file = _collect_classes_and_imports(root, root)
+    classes_by_file, imports_by_file = _collect_classes_and_imports(root, root, unscannable)
 
     for rel_path, harness_class_name in harness_specs:
         harness_file = root / rel_path
         if not harness_file.exists():
             continue
-        info = _extract_harness_info(harness_file, harness_class_name)
+        info = _extract_harness_info(harness_file, harness_class_name, unscannable)
         # Only methods the harness invokes on itself are dangerous to shadow --
         # matches #496's finding that most of the census was otherwise inert.
         self_invoked = {name for name in info.methods if name in info.self_calls}
@@ -386,10 +393,20 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--report", action="store_true", help="Print every violation found (default: same output)."
     )
+    parser.add_argument("--root", type=Path, default=REPO_ROOT, help="Tree to scan (default: the repo).")
     args = parser.parse_args(argv)
 
-    root = REPO_ROOT
-    violations = scan(root, HARNESS_SPECS)
+    root = args.root
+    unscannable: list = []
+    violations = scan(root, HARNESS_SPECS, unscannable)
+    if unscannable:
+        print(
+            "Harness Method Shadow Guard SCAN FAILED: could not examine "
+            f"{len(set(unscannable))} file(s), so the result would understate the tree:\n  "
+            + "\n  ".join(sorted(set(unscannable))),
+            file=sys.stderr,
+        )
+        return 1
 
     if not violations:
         print("Harness Method Shadow Guard: no shadowed harness methods with an incompatible arity.")
