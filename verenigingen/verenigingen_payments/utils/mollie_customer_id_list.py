@@ -26,6 +26,21 @@ def split_mollie_customer_ids(value: Optional[str]) -> List[str]:
     return seen
 
 
+def field_value_after_resolving(stored: Optional[str], resolved_id: str) -> str:
+    """What a writer that resolved ``resolved_id`` should leave in the field (#3251).
+
+    A listed id leaves the list untouched; an unlisted id is appended when the field holds a list
+    (so the other listed ids are not lost, as #2675's donor webhook does); a field with at most one
+    id (or none) is replaced, which is the long-standing "stale single id -> fresh customer" behaviour.
+    """
+    listed = split_mollie_customer_ids(stored)
+    if resolved_id in listed:
+        return stored
+    if len(listed) > 1:
+        return ", ".join(listed + [resolved_id])
+    return resolved_id
+
+
 def index_rows_by_customer_id(rows: Iterable) -> Dict[str, list]:
     """Map every individual id to the rows listing it (a row with N ids appears under all N)."""
     by_id: Dict[str, list] = {}

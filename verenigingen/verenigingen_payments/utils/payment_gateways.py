@@ -46,6 +46,9 @@ from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     cancel_active_mandates,
     carry_forward_purposes,
 )
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    split_mollie_customer_ids,
+)
 from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
     refuse_staff_cancelled_forward_payment,
 )
@@ -2936,18 +2939,22 @@ def update_mollie_subscription_amount(subscription_id, new_amount):
             allow_admin=True,
         )
 
-        customer_id = member_data["mollie_customer_id"]
+        customer_ids = split_mollie_customer_ids(member_data["mollie_customer_id"])
 
-        if not customer_id:
+        if not customer_ids:
             return create_error_response("No Mollie customer ID found")
 
         # Get Mollie gateway
         gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
 
-        # Update subscription amount via Mollie API
-        result = gateway.update_subscription(
-            customer_id, subscription_id, {"amount": format_mollie_amount(new_amount)}
-        )
+        # The field may hold a comma-separated list (#3251, #2675): the subscription lives under
+        # exactly one listed customer, so try each id and keep the first success (else the last error).
+        for customer_id in customer_ids:
+            result = gateway.update_subscription(
+                customer_id, subscription_id, {"amount": format_mollie_amount(new_amount)}
+            )
+            if result.get("status") == "success":
+                break
 
         if result.get("status") == "success":
             # Update related donation records.

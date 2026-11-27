@@ -18,6 +18,10 @@ import frappe
 from frappe.query_builder import DocType
 
 from verenigingen.utils.error_codes import log_operation_error
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    field_value_after_resolving,
+    split_mollie_customer_ids,
+)
 from verenigingen.verenigingen_payments.utils.payment_data_extractor import get_payment_data_extractor
 
 from ..core.client import MollieClient
@@ -295,15 +299,18 @@ class CompletePaymentService:
             # provisioned. Both ids must be present: a subscription id is only
             # usable together with its customer id.
             if stored_subscription_id and stored_customer_id:
-                existing = self._get_active_subscription(stored_customer_id, stored_subscription_id)
-                if existing is not None:
-                    frappe.db.commit()
-                    frappe.logger().info(
-                        f"{owner_doctype} {owner_name} already has subscription {existing.id}"
-                    )
-                    return self._subscription_result(
-                        stored_customer_id, existing, message="Subscription already exists"
-                    )
+                # The field may hold a comma-separated list (#3251, #2675); the subscription
+                # lives under at most one listed customer.
+                for listed_id in split_mollie_customer_ids(stored_customer_id):
+                    existing = self._get_active_subscription(listed_id, stored_subscription_id)
+                    if existing is not None:
+                        frappe.db.commit()
+                        frappe.logger().info(
+                            f"{owner_doctype} {owner_name} already has subscription {existing.id}"
+                        )
+                        return self._subscription_result(
+                            listed_id, existing, message="Subscription already exists"
+                        )
             elif stored_subscription_id:
                 # Subscription id without a customer id - the stored
                 # subscription cannot be looked up. Surface it and provision
@@ -322,7 +329,7 @@ class CompletePaymentService:
 
             # The service owns the owning-DocType update.
             owner_values = {
-                "mollie_customer_id": customer_id,
+                "mollie_customer_id": field_value_after_resolving(stored_customer_id, customer_id),
                 "mollie_subscription_id": mollie_subscription.id,
                 "subscription_status": mollie_subscription.status,
                 "next_payment_date": getattr(mollie_subscription, "next_payment_date", None),
@@ -503,12 +510,13 @@ class CompletePaymentService:
         reuse the stored id if it still resolves at Mollie, otherwise create a
         fresh customer. No transaction control - the caller owns the lock.
         """
-        if stored_customer_id:
+        # The stored value may be a comma-separated list (#3251, #2675): first listed id that resolves.
+        for listed_id in split_mollie_customer_ids(stored_customer_id):
             try:
-                return self.client.get_customer(stored_customer_id).id
+                return self.client.get_customer(listed_id).id
             except Exception as e:
-                frappe.logger().warning(f"Stored Mollie customer {stored_customer_id} not retrievable: {e}")
-                # Stale id - fall through and create a fresh customer.
+                frappe.logger().warning(f"Stored Mollie customer {listed_id} not retrievable: {e}")
+                # Stale id - try the next, else fall through and create a fresh customer.
         return self.client.create_customer(self._mollie_customer_payload(customer_data)).id
 
     def _get_active_subscription(self, customer_id: Optional[str], subscription_id: str) -> Optional[Any]:
@@ -803,22 +811,27 @@ class CompletePaymentService:
                 return self._create_mollie_customer_only(customer_data)
 
             existing_customer_id = locked_row[0].get("mollie_customer_id")
-            if existing_customer_id:
+            # The field may be a comma-separated list (#3251, #2675): first listed id that resolves.
+            for listed_id in split_mollie_customer_ids(existing_customer_id):
                 try:
-                    customer = self.client.get_customer(existing_customer_id)
+                    customer = self.client.get_customer(listed_id)
                     frappe.db.commit()  # Release lock
                     frappe.logger().info(
                         f"Found existing Mollie customer {customer.id} for donor {donor_name}"
                     )
                     return {"status": "found", "customer_id": customer.id}
                 except Exception as e:
-                    frappe.logger().warning(
-                        f"Existing customer ID {existing_customer_id} not found in Mollie: {e}"
-                    )
-                    # Stale id - fall through and create a fresh customer.
+                    frappe.logger().warning(f"Existing customer ID {listed_id} not found in Mollie: {e}")
+                    # Stale id - try the next, else fall through and create a fresh customer.
 
             customer = self.client.create_customer(self._mollie_customer_payload(customer_data))
-            frappe.db.set_value("Donor", donor_name, "mollie_customer_id", customer.id, update_modified=False)
+            frappe.db.set_value(
+                "Donor",
+                donor_name,
+                "mollie_customer_id",
+                field_value_after_resolving(existing_customer_id, customer.id),
+                update_modified=False,
+            )
             frappe.db.commit()  # Commit and release lock
             frappe.logger().info(f"Saved customer ID {customer.id} to donor {donor_name}")
             return {"status": "created", "customer_id": customer.id}
