@@ -170,3 +170,88 @@ class TestChapterSideRowsWithoutLinks(VereningingenTestCase):
         self.assertFalse(frappe.db.exists("Chapter", chapter.name))
         self.assertFalse(frappe.db.exists("Cost Center", cost_center))
         self.assertFalse(frappe.db.exists("Department", department))
+
+
+class TestChapterSideRowsOverDeletion(VereningingenTestCase):
+    """Rows that merely look like a Chapter's must survive its drain (reviewer finding, round 2)."""
+
+    def _settings_company(self):
+        from verenigingen.tests.utils.force_delete import _chapter_side_row_company
+
+        return _chapter_side_row_company()
+
+    def _other_company(self, settings_company):
+        other = frappe.db.get_value("Company", {"name": ["!=", settings_company]}, "name")
+        self.assertTrue(other, "this control needs a second Company on the site")
+        return other
+
+    def _department(self, name, company):
+        doc = frappe.get_doc(
+            {
+                "doctype": "Department",
+                "department_name": name,
+                "parent_department": "All Departments",
+                "company": company,
+            }
+        ).insert()
+        self.track_doc("Department", doc.name)
+        return doc.name
+
+    def _cost_center(self, name, company):
+        parent = frappe.db.get_value(
+            "Cost Center", {"company": company, "is_group": 1, "parent_cost_center": ["in", ["", None]]}
+        )
+        self.assertTrue(parent, f"no root Cost Center in {company}")
+        doc = frappe.get_doc(
+            {"doctype": "Cost Center", "cost_center_name": name, "parent_cost_center": parent, "company": company}
+        ).insert()
+        self.track_doc("Cost Center", doc.name)
+        return doc.name
+
+    def _drain_chapter_named(self, chapter_name):
+        chapter = self.create_test_chapter(chapter_name=chapter_name)
+        self._cleanup_document_with_retry({"doctype": "Chapter", "name": chapter.name})
+        self.assertFalse(frappe.db.exists("Chapter", chapter.name))
+        return chapter
+
+    def test_same_named_rows_in_another_company_survive(self):
+        company = self._settings_company()
+        other = self._other_company(company)
+        chapter_name = f"Ctl2209 {frappe.generate_hash(length=6)}"
+        department = self._department(chapter_name, other)
+        cost_center = self._cost_center(f"{chapter_name} - Chapter", other)
+        self._drain_chapter_named(chapter_name)
+        self.assertTrue(frappe.db.exists("Department", department), "another company's Department was deleted")
+        self.assertTrue(frappe.db.exists("Cost Center", cost_center), "another company's Cost Center was deleted")
+
+    def test_same_named_rows_in_another_company_made_after_the_chapter_survive(self):
+        """Newer than the Chapter, so only the company scope (not the age check) can spare them."""
+        company = self._settings_company()
+        other = self._other_company(company)
+        chapter_name = f"Newer2209 {frappe.generate_hash(length=6)}"
+        chapter = self.create_test_chapter(chapter_name=chapter_name)
+        department = self._department(chapter_name, other)
+        cost_center = self._cost_center(f"{chapter_name} - Chapter", other)
+        self._cleanup_document_with_retry({"doctype": "Chapter", "name": chapter.name})
+        self.assertTrue(frappe.db.exists("Department", department), "another company's Department was deleted")
+        self.assertTrue(frappe.db.exists("Cost Center", cost_center), "another company's Cost Center was deleted")
+
+    def test_same_company_rows_older_than_the_chapter_survive(self):
+        company = self._settings_company()
+        chapter_name = f"Older2209 {frappe.generate_hash(length=6)}"
+        department = self._department(chapter_name, company)
+        cost_center = self._cost_center(f"{chapter_name} - Chapter", company)
+        self._drain_chapter_named(chapter_name)
+        self.assertTrue(frappe.db.exists("Department", department), "a pre-existing Department was deleted")
+        self.assertTrue(frappe.db.exists("Cost Center", cost_center), "a pre-existing Cost Center was deleted")
+
+    def test_a_fixture_department_survives_a_chapter_of_the_same_name(self):
+        company = self._settings_company()
+        fixture = frappe.db.get_value(
+            "Department",
+            {"company": company, "is_group": 0, "department_name": ["in", ["Sales", "Accounts", "Marketing"]]},
+        )
+        self.assertTrue(fixture, "this control needs a standard fixture Department in the settings company")
+        fixture_name = frappe.db.get_value("Department", fixture, "department_name")
+        self._drain_chapter_named(fixture_name)
+        self.assertTrue(frappe.db.exists("Department", fixture), "a standard fixture Department was deleted")
