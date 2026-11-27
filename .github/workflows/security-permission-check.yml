@@ -5,10 +5,14 @@ on:
     branches: [main, develop]
     paths:
       - 'verenigingen/**/*.py'
+      - 'scripts/*.py'
+      - 'scripts/**/*.py'
   push:
     branches: [main, develop]
     paths:
       - 'verenigingen/**/*.py'
+      - 'scripts/*.py'
+      - 'scripts/**/*.py'
 
 concurrency:
   # A per-REF group, unlike server-tests.yml's per-COMMIT group for trunk pushes.
