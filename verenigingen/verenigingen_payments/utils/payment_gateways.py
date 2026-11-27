@@ -71,22 +71,41 @@ class PaymentGateway(ABC):
         """Get payment status from gateway"""
 
 
-def _is_subscription_not_found(message):
-    """True for the answer a customer gives when the subscription is not theirs (a Mollie 404)."""
-    text = str(message).lower()
-    return "404" in text or "not found" in text
+def _is_mollie_not_found(error):
+    """True when ``error`` (or anything it wraps) is a Mollie 404, decided on the exception object.
+
+    Real Mollie words a 404 'The resource with the token "sub_x" could not be found.' (the SDK
+    builds the message from the response ``detail`` only), so the status code and "not found" never
+    appear in the text and a text match cannot classify it (#3251 round 3). The repo wrappers keep
+    the SDK error as ``original_error`` (and as ``__cause__`` when re-raised), so walk both.
+    """
+    from mollie.api.error import NotFoundError
+
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, NotFoundError) or getattr(error, "status", None) == 404:
+            return True
+        error = getattr(error, "original_error", None) or error.__cause__ or error.__context__
+    return False
 
 
-def _first_real_error(errors, message=str):
+def _first_real_error(errors, is_not_found=_is_mollie_not_found):
     """The first error that is NOT a 404 "not this customer's subscription", else the first error.
 
     Trying each listed customer id (#3251) yields a 404 from every non-owner; a real failure on the
-    owning id (outage, 5xx) must not be masked by a later non-owner's 404.
+    owning id (outage, 5xx) must not be masked by a later non-owner's 404. ``errors`` are
+    exceptions, or gateway error dicts with ``is_not_found=lambda failure: failure.get("not_found")``.
     """
     for error in errors:
-        if not _is_subscription_not_found(message(error)):
+        if not is_not_found(error):
             return error
     return errors[0]
+
+
+def _failure_is_not_found(failure):
+    """A gateway error dict's flag, set from the exception where it was caught."""
+    return bool(failure.get("not_found"))
 
 
 def _refuse_sales_invoice(ref_doc):
@@ -878,7 +897,9 @@ class MollieGateway(PaymentGateway):
                 f"Error updating Mollie subscription {subscription_id}: {str(e)}",
                 "Mollie Subscription Update",
             )
-            return create_error_response(f"Error updating subscription: {str(e)}")
+            return create_error_response(
+                f"Error updating subscription: {str(e)}", {"not_found": _is_mollie_not_found(e)}
+            )
 
 
 class SEPAGateway(PaymentGateway):
@@ -2856,7 +2877,7 @@ def get_member_subscription_status(member_id: str):
             if result.get("status") == "success":
                 return result
             failures.append(result)
-        return _first_real_error(failures, lambda failure: failure.get("message", ""))
+        return _first_real_error(failures, _failure_is_not_found)
 
     except Exception as e:
         frappe.log_error(
@@ -2990,7 +3011,7 @@ def update_mollie_subscription_amount(subscription_id, new_amount):
                 break
             failures.append(result)
         else:
-            result = _first_real_error(failures, lambda failure: failure.get("message", ""))
+            result = _first_real_error(failures, _failure_is_not_found)
 
         if result.get("status") == "success":
             # Update related donation records.

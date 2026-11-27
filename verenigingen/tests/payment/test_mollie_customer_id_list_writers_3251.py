@@ -22,12 +22,28 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
+from mollie.api.error import NotFoundError, ResponseError
 
 from verenigingen.tests.payment.test_mollie_multi_id_customer_lists_2675 import MultiIdBase
 from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import (
     CompletePaymentService,
 )
 from verenigingen.verenigingen_payments.utils import payment_gateways as pg
+
+
+def _real_not_found_3251(subscription_id):
+    """The error mollie-api-python raises for a 404: message is the response ``detail`` ONLY.
+
+    The status code and the words "not found" are NOT in the text (measured by the delta review of
+    2337d20cf against SDK 4.0.0), so only the exception type / ``.status`` can classify it.
+    """
+    return NotFoundError(
+        {
+            "status": 404,
+            "title": "Not Found",
+            "detail": f'The resource with the token "{subscription_id}" could not be found.',
+        }
+    )
 
 
 class _FakeSubscription:
@@ -48,9 +64,9 @@ class _FakeSubscriptions:
 
     def get(self, subscription_id):
         if self.owner.fail:
-            raise RuntimeError(self.owner.fail)
+            raise self.owner.fail
         if subscription_id not in self.held:
-            raise RuntimeError(f"404 Not Found: subscription {subscription_id} not under {self.owner.id}")
+            raise _real_not_found_3251(subscription_id)
         return _FakeSubscription(self.owner, subscription_id)
 
     def delete(self, subscription_id):
@@ -86,8 +102,9 @@ class FakeMollieSdk:
     def all_deleted(self):
         return [d for c in self._customers.values() for d in c.deleted]
 
-    def fail_customer(self, customer_id, message):
-        self._customers[customer_id].fail = message
+    def fail_customer(self, customer_id, detail):
+        """Make every subscription call on this customer raise a real Mollie 503."""
+        self._customers[customer_id].fail = ResponseError.factory({"status": 503, "detail": detail})
 
     def create(self, data):
         fresh = _FakeCustomer(f"cst_new{frappe.generate_hash(length=8)}", set(), self.updates)
@@ -153,13 +170,14 @@ class TestUpdateSubscriptionAmountPerId(Writers3251Base):
         self.assertEqual(result["status"], "error", result)
         self.assertEqual(sdk.updates, [])
 
-    def test_a_real_error_on_the_owning_id_is_not_masked_by_a_later_404(self):
+    def test_a_real_error_on_the_owning_id_is_not_masked_by_a_non_owners_404(self):
+        # The owner is listed SECOND: the non-owner's 404 comes first, so pick-first would return it.
         self._member_with_3251(self.id_a, self.id_b)
-        sdk = self._sdk_3251({self.id_a: {self.sub_id}, self.id_b: set()})
-        sdk.fail_customer(self.id_a, "503 Service Unavailable")
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: {self.sub_id}})
+        sdk.fail_customer(self.id_b, "Service Unavailable")
         result = pg.update_mollie_subscription_amount(self.sub_id, 12.5)
         self.assertEqual(result["status"], "error", result)
-        self.assertIn("503", result["message"])
+        self.assertIn("Service Unavailable", result["message"])
         self.assertEqual(sdk.updates, [])
 
 
@@ -187,13 +205,13 @@ class TestCancelAndStatusPerId(Writers3251Base):
         self.assertEqual(pg.cancel_member_subscription(member.name)["status"], "success")
         self.assertEqual(sdk.all_deleted(), [(self.id_a, self.sub_id)])
 
-    def test_a_real_cancel_error_on_the_owning_id_is_not_masked_by_a_later_404(self):
+    def test_a_real_cancel_error_on_the_owning_id_is_not_masked_by_a_non_owners_404(self):
         member = self._member_with_3251(self.id_a, self.id_b)
-        sdk = self._sdk_3251({self.id_a: {self.sub_id}, self.id_b: set()})
-        sdk.fail_customer(self.id_a, "503 Service Unavailable")
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: {self.sub_id}})
+        sdk.fail_customer(self.id_b, "Service Unavailable")
         result = pg.cancel_member_subscription(member.name)
         self.assertEqual(result["status"], "error", result)
-        self.assertIn("503", result["message"])
+        self.assertIn("Service Unavailable", result["message"])
 
     def test_status_reads_a_subscription_under_the_second_listed_id(self):
         member = self._member_with_3251(self.id_a, self.id_b)
