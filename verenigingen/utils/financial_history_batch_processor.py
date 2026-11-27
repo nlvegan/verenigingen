@@ -117,6 +117,13 @@ class FinancialHistoryBatchProcessor:
         callbacks = frappe.db.before_commit
         if cls._drain_before_commit not in getattr(callbacks, "_functions", ()):
             callbacks.add(cls._drain_before_commit)
+        # #3223: a rollback drops the drain callback above but not the in-memory entries,
+        # which would then drain under an unrelated transaction and name rows the
+        # rolled-back one created. Frappe runs before_rollback on every full rollback
+        # (a rollback to a savepoint does not fire it) and resets it on commit.
+        rollbacks = frappe.db.before_rollback
+        if cls.reset_queues not in getattr(rollbacks, "_functions", ()):
+            rollbacks.add(cls.reset_queues)
 
     @classmethod
     def _drain_before_commit(cls):
