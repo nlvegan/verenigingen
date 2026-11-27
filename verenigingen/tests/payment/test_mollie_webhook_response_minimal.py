@@ -184,14 +184,14 @@ class TestMollieWebhookBodyIsAnAcknowledgement(
         self.assertNotIn(secret, json.dumps(body))
 
     def test_the_wrapper_endpoints_do_not_echo_exception_text(self):
-        """handle_mollie_payment_webhook / handle_unified_webhook put ``str(e)`` in the body."""
+        """handle_mollie_payment_webhook puts ``str(e)`` in the body."""
         from verenigingen.verenigingen_payments.mollie import exceptions
 
         secret = f"wrapper secret {self.member.name}"
         self.expectErrorLog("Mollie", "Webhook")
         base = "verenigingen.verenigingen_payments.mollie.api.webhooks."
         inner = "verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_payment_webhook"
-        for endpoint in ("handle_mollie_payment_webhook", "handle_unified_webhook"):
+        for endpoint in ("handle_mollie_payment_webhook",):
             for exc in (
                 RuntimeError(secret),
                 exceptions.MollieSecurityError(secret),
@@ -232,7 +232,7 @@ class TestMollieWebhookBodyIsAnAcknowledgement(
         ):
             return execute_cmd(dotted)
 
-    def test_refund_and_chargeback_endpoints_answer_with_an_ack_only(self):
+    def test_refund_endpoint_answers_with_an_ack_only(self):
         api = "verenigingen.verenigingen_payments.mollie.api.unified_payment_api."
         service = (
             "verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified."
@@ -242,7 +242,6 @@ class TestMollieWebhookBodyIsAnAcknowledgement(
         failed = {"status": "error", "message": f"cannot book for {self.member.name}"}
         cases = (
             ("handle_refund_webhook", "process_reversal_webhook", {"payment_id": "tr_x", "refund": {"id": "re_x", "status": "refunded"}}),
-            ("handle_chargeback_webhook", "process_chargeback_webhook", {"id": "tr_x"}),
         )
         for endpoint, method, payload in cases:
             for result, expected_status, expected_body in ((booked, 200, "ok"), (failed, 500, "error")):

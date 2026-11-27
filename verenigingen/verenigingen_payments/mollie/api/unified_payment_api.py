@@ -101,8 +101,7 @@ def _refuse_unusable_payload(messages_before: int, reason: str) -> Dict[str, str
     The caller's own payload is neither echoed nor logged; ``reason`` says what was missing.
     """
     frappe.response.http_status_code = 400
-    # ``reason`` doubles as the dedupe key: refund and chargeback refusals have no id, and
-    # must not silence each other.
+    # ``reason`` doubles as the dedupe key: these refusals have no id to key on.
     return _ack_with_error_log(messages_before, {"status": "error", "message": reason}, reason)
 
 
@@ -390,8 +389,7 @@ def handle_refund_webhook():
     """
     Handle Mollie refund webhooks.
 
-    Parses the payload and delegates to the unified reversal processor, exactly as
-    handle_chargeback_webhook does.
+    Parses the payload and delegates to the unified reversal processor.
 
     This endpoint used to book the refund itself, via create_refund_payment_entry.
     That made the **artefact depend on the route**: a donation booked forward as a
@@ -489,92 +487,6 @@ def handle_refund_webhook():
 
     except Exception as e:
         _log_exception_once("Refund Webhook Processing Error", e)
-        frappe.response.http_status_code = 500
-        return _ack_with_error_log(messages_before)
-
-
-@frappe.whitelist(allow_guest=True, methods=["POST"])
-@public_api(operation_type=OperationType.PUBLIC)
-@restores_session_user
-def handle_chargeback_webhook():
-    """
-    Handle Mollie chargeback webhooks.
-
-    This endpoint processes chargeback notifications from Mollie and creates
-    appropriate reverse Payment Entries with donation history updates.
-
-    Returns:
-        Dict with chargeback processing results
-    """
-    messages_before = len(frappe.local.message_log or [])
-    try:
-        # Authenticate webhook: validates signature AND sets user context
-        from verenigingen.verenigingen_payments.mollie.utils.webhook_security import (
-            authenticate_mollie_webhook,
-        )
-
-        authenticate_mollie_webhook()
-
-        # Get the raw request body for webhook processing
-        webhook_payload = frappe.request.get_data(as_text=True)
-        if not webhook_payload:
-            frappe.throw(_("Empty webhook payload"))
-
-        frappe.logger().info(f"🔔 Chargeback webhook received, payload length: {len(webhook_payload)}")
-
-        # Parse the JSON payload and extract the payment id. The chargeback
-        # processor needs (payment_id, chargeback_data) — the payment id is the
-        # opaque resource id Mollie sends in the body.
-        import json
-
-        chargeback_data = json.loads(webhook_payload)
-        payment_id = (
-            chargeback_data.get("payment_id") or chargeback_data.get("paymentId") or chargeback_data.get("id")
-        )
-        if not payment_id:
-            return _refuse_unusable_payload(
-                messages_before, "Missing payment_id in chargeback webhook payload"
-            )
-
-        # Import the unified webhook wrapper service
-        from ..services.webhook_wrapper_service_unified import UnifiedWebhookWrapperService
-
-        # Process chargeback webhook using unified service layer
-        service = UnifiedWebhookWrapperService()
-        result = service.process_chargeback_webhook(payment_id, chargeback_data)
-
-        # A booking failure must not go out as 200 -- the same guard the refund
-        # endpoint carries. `ignored` and `not_implemented` stay 2xx on purpose:
-        # redelivering those changes nothing.
-        #
-        # Scope, honestly: this endpoint is NOT currently reachable from Mollie.
-        # Payments are created with the payment webhook URL only
-        # (mollie/services/payment_service.py), nothing registers this route, and
-        # Mollie posts form-encoded while this handler json.loads() the body -- so a
-        # genuine Mollie chargeback body would die in the outer `except` before it
-        # got here. The guard is correct and cheap, and it is what makes the route
-        # safe to wire up; it is not today rescuing live money. Wiring it up, and
-        # the chargeback booking behind it, is tracked separately.
-        if result.get("status") == "error":
-            frappe.response.http_status_code = 500
-            frappe.logger().error(f"❌ Chargeback webhook could not book: {result.get('message')}")
-            return _ack_with_error_log(messages_before, result, payment_id)
-        frappe.logger().info("✅ Chargeback webhook processed successfully")
-        return _ack_with_error_log(messages_before)
-
-    except WebhookRateLimitExceeded:
-        # Return 429 to signal Mollie to retry later
-        frappe.response.http_status_code = 429
-        del frappe.local.message_log[messages_before:]
-        return {"status": "rate_limited"}
-
-    except (MollieWebhookError, MolliePaymentError) as e:
-        _log_exception_once("Mollie Chargeback Webhook Error", e)
-        frappe.response.http_status_code = 400
-        return _ack_with_error_log(messages_before)
-
-    except Exception as e:
-        _log_exception_once("Chargeback Webhook Processing Error", e)
         frappe.response.http_status_code = 500
         return _ack_with_error_log(messages_before)
 

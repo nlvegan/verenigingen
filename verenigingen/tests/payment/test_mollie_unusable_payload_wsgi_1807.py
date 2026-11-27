@@ -1,5 +1,5 @@
 """
-A Mollie refund/chargeback notification with no usable ids is refused with a real HTTP 400
+A Mollie refund notification with no usable ids is refused with a real HTTP 400
 and the bare ack, and never echoes the caller's payload (#1807).
 
 Driven through the REAL WSGI app (``werkzeug.test.Client(frappe.app.application)``) in a
@@ -64,14 +64,13 @@ SCRIPT = textwrap.dedent(
 
     out = {{
         "refund": post("handle_refund_webhook", {{"resource": "refund", "note": MARKER}}, "198.51.100.71"),
-        "chargeback": post("handle_chargeback_webhook", {{"status": "charged_back", "note": MARKER}}, "198.51.100.72"),
         "control": post(
             "handle_refund_webhook",
             {{"resource": "refund", "id": "re_1807", "status": "refunded", "payment_id": "tr_1807", "note": MARKER}},
             "198.51.100.73",
         ),
     }}
-    # The two refusals each leave an Error Log row (committed by the real request): remove them.
+    # The refusal leaves an Error Log row (committed by the real request): remove them.
     frappe.init(site=SITE); frappe.connect()
     frappe.db.delete("Error Log", {{"method": "Mollie Webhook Processing Error", "creation": [">=", started]}})
     frappe.db.commit()
@@ -101,12 +100,10 @@ class TestUnusablePayloadIsRefusedOverHttp(EnhancedTestCase):
         cls.out = json.loads(lines[-1][len("RESULT") :])
 
     def test_missing_ids_are_a_400_with_only_the_ack(self):
-        for endpoint in ("refund", "chargeback"):
-            with self.subTest(endpoint=endpoint):
-                resp = self.out[endpoint]
-                self.assertEqual(resp["code"], 400, resp["body"])
-                self.assertEqual(_ack(resp), {"status": "error"})
-                self.assertNotIn("echo-1807-marker", resp["body"])
+        resp = self.out["refund"]
+        self.assertEqual(resp["code"], 400, resp["body"])
+        self.assertEqual(_ack(resp), {"status": "error"})
+        self.assertNotIn("echo-1807-marker", resp["body"])
 
     def test_control_a_well_formed_refund_is_still_a_200_ok(self):
         resp = self.out["control"]

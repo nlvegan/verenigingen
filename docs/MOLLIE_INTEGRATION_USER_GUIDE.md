@@ -214,7 +214,6 @@ The system automatically configures webhook URLs when you save Mollie Settings:
 - **Payment Webhook**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_payment_webhook`
 - **Subscription Webhook**: `/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_subscription_webhook`
 - **Refund Webhook**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_refund_webhook`
-- **Chargeback Webhook**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_chargeback_webhook`
 
 **Mollie Dashboard Configuration**
 
@@ -731,7 +730,6 @@ encryption_key: Encryption key for secure data storage (encrypted)
 - **Payment Webhook**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_payment_webhook`
 - **Subscription Webhook**: `/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_subscription_webhook`
 - **Refund Webhook**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_refund_webhook`
-- **Chargeback Webhook**: `/api/method/verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_chargeback_webhook`
 
 **Payment Operations**
 

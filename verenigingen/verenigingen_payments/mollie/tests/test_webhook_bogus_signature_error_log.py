@@ -74,7 +74,7 @@ def _run_requests() -> dict:
             return rows
 
         out = {{"scenarios": {{}}}}
-        for endpoint in ("handle_payment_webhook", "handle_refund_webhook", "handle_chargeback_webhook"):
+        for endpoint in ("handle_payment_webhook", "handle_refund_webhook"):
             mark = None
             frappe.init(site=SITE); frappe.connect()
             mark = frappe.utils.now_datetime()
@@ -140,7 +140,7 @@ class TestBogusSignatureErrorLog(EnhancedTestCase):
                 self.assertLessEqual(len(got["titles"]), 3, f"{endpoint}: {got['titles']}")
                 # The ids differ per request, so a dedupe keyed on the id would pass the cap
                 # above; the handler's own row must be written once for the three requests.
-                word = {"handle_refund_webhook": "refund", "handle_chargeback_webhook": "chargeback"}.get(
+                word = {"handle_refund_webhook": "refund"}.get(
                     endpoint, "processing error"
                 )
                 own = [t for t in got["titles"] if word in t.lower() and "error" in t.lower()]

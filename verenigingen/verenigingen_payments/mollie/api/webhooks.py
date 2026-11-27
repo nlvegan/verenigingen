@@ -11,7 +11,6 @@ from verenigingen.utils.security.api_security_framework import OperationType, pu
 from verenigingen.utils.security.client_ip import get_client_ip
 
 from ...utils.webhook_ack import log_error_once
-from ..exceptions import MollieSecurityError, MollieWebhookError
 
 
 def _log_wrapper_error_once(title: str, what: str, exc: Exception) -> None:
@@ -40,43 +39,6 @@ def handle_mollie_payment_webhook():
 
     except Exception as e:
         _log_wrapper_error_once("Mollie Webhook API", "Webhook endpoint error", e)
-        frappe.response.http_status_code = 500
-        return {"status": "error"}
-
-
-@frappe.whitelist(allow_guest=True, methods=["POST", "GET"])
-@public_api(operation_type=OperationType.WEBHOOK_PROCESSING)
-def handle_unified_webhook():
-    """
-    Unified webhook handler for all Mollie events.
-    Routes to appropriate handlers based on event type.
-    """
-    try:
-        # Handle GET requests as health checks
-        if frappe.local.request.method == "GET":
-            return {
-                "status": "healthy",
-                "service": "Mollie Webhook Handler",
-                "version": "2.0.0",
-                "timestamp": frappe.utils.now_datetime(),
-            }
-
-        # Process webhook using unified API
-        from .unified_payment_api import handle_payment_webhook
-
-        result = handle_payment_webhook()
-        return result
-
-    except MollieSecurityError:
-        frappe.response.http_status_code = 403
-        return {"status": "error"}
-
-    except MollieWebhookError:
-        frappe.response.http_status_code = 400
-        return {"status": "error"}
-
-    except Exception as e:
-        _log_wrapper_error_once("Mollie Webhook Error", "Unexpected error in unified webhook", e)
         frappe.response.http_status_code = 500
         return {"status": "error"}
 

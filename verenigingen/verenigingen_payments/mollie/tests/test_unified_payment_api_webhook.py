@@ -220,7 +220,7 @@ class TestHandleRefundWebhook(EnhancedTestCase):
 
         The reversal must mirror the artefact the forward payment created, and only
         `process_reversal_webhook` knows what that was. So the endpoint parses and
-        delegates -- exactly as `handle_chargeback_webhook` already did.
+        delegates.
 
         The ids are passed from `extract_webhook_ids`, NOT from the service's own
         `refund_data.get("id")`: Mollie's top-level `id` on this payload is the
@@ -455,148 +455,9 @@ class TestHandleRefundWebhook(EnhancedTestCase):
         self.assertEqual(out, {"status": "ok"})
 
 
-class TestHandleChargebackWebhook(EnhancedTestCase):
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
-        frappe.local.response = frappe._dict()
-        _forget_logged_failures()
-
-    def test_empty_payload_returns_500(self):
-        """Empty body after auth => caught by except Exception => 500 dict."""
-        with install_fake_request(""):
-            with patch(AUTH_PATH):
-                out = unified_payment_api.handle_chargeback_webhook()
-        self.assertEqual(out["status"], "error")
-        self.assertEqual(frappe.local.response.http_status_code, 500)
-
-    def test_missing_payment_id_is_refused_with_400_and_an_ack_only(self):
-        """Same class as the refund endpoint (#1807): a payload that carries no payment id
-        never becomes valid on redelivery, so it is refused explicitly with a 400 (as the
-        refund endpoint now does, rather than the generic 500), the ack only, and an Error
-        Log row."""
-        marker = f"echo-{frappe.generate_hash(length=8)}"
-        before = frappe.db.count("Error Log", {"method": "Mollie Webhook Processing Error"})
-        self.expectErrorLog("Mollie", "Webhook")
-        with install_fake_request(json.dumps({"status": "charged_back", "note": marker})):
-            with patch(AUTH_PATH):
-                out = unified_payment_api.handle_chargeback_webhook()
-        self.assertEqual(out, {"status": "error"})
-        self.assertNotIn(marker, json.dumps(out))
-        self.assertEqual(frappe.local.response.http_status_code, 400)
-        after = frappe.db.count("Error Log", {"method": "Mollie Webhook Processing Error"})
-        self.assertEqual(after, before + 1)
-
-    def test_rate_limit_returns_429(self):
-        payload = '{"id":"tr_cb_1"}'
-        with install_fake_request(payload):
-            with patch(AUTH_PATH, side_effect=WebhookRateLimitExceeded("slow down")):
-                out = unified_payment_api.handle_chargeback_webhook()
-        self.assertEqual(out["status"], "rate_limited")
-        self.assertEqual(frappe.local.response.http_status_code, 429)
-
-    def test_service_result_returned(self):
-        """A normal chargeback payload delegates to the unified service and the
-        service result is returned verbatim.
-
-        REGRESSION GUARD: handle_chargeback_webhook previously imported a class
-        name that does not exist (WebhookWrapperServiceUnified) and called
-        process_chargeback_webhook with a single positional arg, so every
-        chargeback webhook hit an ImportError caught by `except Exception` and
-        silently returned a 500 — no chargeback was ever recorded. This test
-        patches the REAL class name (UnifiedWebhookWrapperService) and asserts the
-        method is invoked with (payment_id, chargeback_data); it fails (AttributeError
-        on the patch target, or wrong-arity call) against the pre-fix code."""
-        payload = '{"id":"tr_cb_2","status":"charged_back","reason":"fraud"}'
-        service_result = {"status": "success", "message": "chargeback recorded"}
-        SVC = (
-            "verenigingen.verenigingen_payments.mollie.services."
-            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
-        )
-        captured = {}
-
-        def process_chargeback_webhook(payment_id, chargeback_data):
-            captured["payment_id"] = payment_id
-            captured["chargeback_data"] = chargeback_data
-            return service_result
-
-        fake = types.SimpleNamespace(process_chargeback_webhook=process_chargeback_webhook)
-        with install_fake_request(payload):
-            with patch(AUTH_PATH):
-                with patch(SVC, return_value=fake):
-                    out = unified_payment_api.handle_chargeback_webhook()
-        # #1781: the service result is no longer echoed; the ack is.
-        self.assertEqual(out, {"status": "ok"})
-        self.assertNotIn("chargeback recorded", str(out))
-        # The payment id must be extracted from the body and passed positionally,
-        # alongside the full parsed chargeback dict.
-        self.assertEqual(captured["payment_id"], "tr_cb_2")
-        self.assertEqual(captured["chargeback_data"]["reason"], "fraud")
-
-    def test_a_booking_failure_returns_500_so_mollie_retries(self):
-        """A chargeback that could not be booked must not go out as 200.
-
-        This is the refund endpoint's guard, which this endpoint did not have --
-        2 of 3 webhook endpoints had it. Mollie retries on 5xx (~10 times over
-        26h), and the reversal key is deliberately freed when a booking fails, so
-        a 200 spends the redelivery that failure was meant to buy.
-
-        Scope, honestly: that sequence cannot run today. This endpoint is not
-        registered with Mollie (payments carry the payment webhook URL only), and
-        Mollie posts form-encoded while the handler json.loads() the body, so a
-        real chargeback body dies in the outer `except` before reaching here. An
-        earlier version of this docstring claimed the guard was "load-bearing
-        because of this PR" -- that was reasoning about a path that is dark. The
-        guard is correct and is what makes the route safe to wire up; it is not
-        today rescuing live money.
-        """
-        payload = '{"id":"tr_cb_fail","status":"charged_back"}'
-        SVC = (
-            "verenigingen.verenigingen_payments.mollie.services."
-            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
-        )
-        fake = types.SimpleNamespace(
-            process_chargeback_webhook=lambda *a, **kw: {
-                "status": "error",
-                "message": "Failed to book chargeback",
-            }
-        )
-        with install_fake_request(payload):
-            with patch(AUTH_PATH):
-                with patch(SVC, return_value=fake):
-                    out = unified_payment_api.handle_chargeback_webhook()
-
-        self.assertEqual(out["status"], "error")
-        self.assertEqual(frappe.local.response.http_status_code, 500)
-
-    def test_an_ignored_result_stays_2xx(self):
-        """Control: redelivering something deliberately ignored changes nothing.
-
-        Without this, setting 500 on any non-success would satisfy the test above
-        while making Mollie retry ~10 times for a chargeback that will be ignored
-        identically every time.
-        """
-        payload = '{"id":"tr_cb_ign","status":"charged_back"}'
-        SVC = (
-            "verenigingen.verenigingen_payments.mollie.services."
-            "webhook_wrapper_service_unified.UnifiedWebhookWrapperService"
-        )
-        fake = types.SimpleNamespace(
-            process_chargeback_webhook=lambda *a, **kw: {"status": "ignored", "message": "nothing to do"}
-        )
-        with install_fake_request(payload):
-            with patch(AUTH_PATH):
-                with patch(SVC, return_value=fake):
-                    out = unified_payment_api.handle_chargeback_webhook()
-
-        # #1781: HTTP status is the property ("stays 2xx"), not the leaked ``ignored`` body.
-        self.assertLess(frappe.local.response.get("http_status_code") or 200, 400)
-        self.assertEqual(out, {"status": "ok"})
-
-
 class TestKnownErrorsAreRefusedWith400AndAnAckOnly(EnhancedTestCase):
-    """MollieWebhookError / MolliePaymentError map to HTTP 400 and a bare error ack on ALL
-    three handlers (#1781). Both halves are asserted: the 400 is what a ``>= 500`` threshold in
+    """MollieWebhookError / MolliePaymentError map to HTTP 400 and a bare error ack on BOTH
+    handlers (#1781). Both halves are asserted: the 400 is what a ``>= 500`` threshold in
     ``_ack_with_error_log`` would silently turn into ``ok``."""
 
     SVC = (
@@ -609,7 +470,7 @@ class TestKnownErrorsAreRefusedWith400AndAnAckOnly(EnhancedTestCase):
         self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
         frappe.local.response = frappe._dict()
 
-    def test_payment_refund_and_chargeback_handlers(self):
+    def test_payment_and_refund_handlers(self):
         from verenigingen.verenigingen_payments.mollie.exceptions import MolliePaymentError
 
         refund_payload = '{"resource":"refund","id":"re_k_1","status":"refunded","payment_id":"tr_k_1","amount":{"value":"1.00"}}'
@@ -633,16 +494,6 @@ class TestKnownErrorsAreRefusedWith400AndAnAckOnly(EnhancedTestCase):
                 ),
                 unified_payment_api.handle_refund_webhook,
                 refund_payload,
-            ),
-            "chargeback": (
-                lambda exc: patch(
-                    self.SVC,
-                    return_value=types.SimpleNamespace(
-                        process_chargeback_webhook=lambda *a, **kw: (_ for _ in ()).throw(exc)
-                    ),
-                ),
-                unified_payment_api.handle_chargeback_webhook,
-                '{"id":"tr_k_1","status":"charged_back"}',
             ),
         }
         self.expectErrorLog("Mollie", "Webhook")
@@ -723,20 +574,6 @@ class TestNon2xxErrorLogRowIsDedupedAndBounded(EnhancedTestCase):
         )[0]
         self.assertIn(long_id[:64], row.error)
         self.assertNotIn(long_id[:65], row.error)
-
-    def test_a_refund_and_a_chargeback_refusal_in_one_hour_each_get_a_row(self):
-        """The id-less refusals share no id, so the dedupe key must still tell the endpoints
-        apart: an anonymous refund refusal must not silence the chargeback one."""
-        self.expectErrorLog("Mollie", "Webhook")
-        before = self._processing_error_rows()
-        for handler, payload in (
-            (unified_payment_api.handle_refund_webhook, '{"resource":"refund"}'),
-            (unified_payment_api.handle_chargeback_webhook, '{"status":"charged_back"}'),
-        ):
-            with install_fake_request(payload), patch(AUTH_PATH):
-                frappe.local.response = frappe._dict()
-                handler()
-        self.assertEqual(self._processing_error_rows(), before + 2)
 
     def test_two_long_ids_sharing_a_prefix_are_not_one_failure(self):
         """Control for the dedupe key: it hashes the WHOLE id. Cutting the id to the logged
