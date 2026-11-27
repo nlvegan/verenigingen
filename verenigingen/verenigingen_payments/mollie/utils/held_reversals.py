@@ -44,10 +44,13 @@ def treasurer_users() -> list:
 
 
 def _existing_alert(key: str):
-    # The key is the LAST thing in the description, after a fixed label, so an anchored match is
-    # exact: holding re_12 must not suppress re_1, and `_` in an id is not a wildcard.
-    return frappe.db.get_value(
-        "ToDo", {"description": ["like", f"%{_LABEL}{escape_sql_like_wildcards(key)}"]}, "name"
+    # The key follows a fixed label and ends the description: either the very end (as written
+    # here), or just before a `<` once a desk edit of the Text Editor field wrapped it in HTML
+    # (`...Reference: key</p></div>`, #3248). Ids contain no `<`, so both anchors are exact:
+    # holding re_12 must not suppress re_1, and `_` in an id is not a wildcard.
+    pattern = f"%{_LABEL}{escape_sql_like_wildcards(key)}"
+    return frappe.db.get_value("ToDo", {"description": ["like", pattern]}, "name") or frappe.db.get_value(
+        "ToDo", {"description": ["like", f"{pattern}<%"]}, "name"
     )
 
 
