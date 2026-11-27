@@ -135,6 +135,10 @@ _KNOWN_SCRIPTS_FILES_IMPORTED_UNDER_TESTS = {
     "scripts/migration/migrate_fee_overrides_to_dues_schedules.py",
     "scripts/validation/non_resumable_ast.py",
     "scripts/validation/savepoint_rollback_validator.py",
+    # #1193: imported by tests/test_no_db_clock_modified_writes.py and
+    # tests/test_no_company_scan_by_currency.py
+    "scripts/validation/db_clock_modified_write_validator.py",
+    "scripts/validation/company_currency_scan_validator.py",
     # #1528/#1539: added by
     # verenigingen/tests/unit/test_performance_profiler_current_chapter_display.py
     "scripts/performance/performance_profiler.py",

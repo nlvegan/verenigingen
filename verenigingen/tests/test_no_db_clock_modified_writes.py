@@ -46,62 +46,15 @@ explanation to appease the guard.
 
 import ast
 import os
-import re
 import unittest
 
 import verenigingen
-
-# Paths are relative to the REPO root. Each entry needs a reason, and the reason has to
-# say why a DB-clock stamp is right there -- or, for a test fixture, why it has to be
-# written that way rather than with a Python-side now().
-ALLOWED: dict[str, str] = {}
-
-# Test code is excluded: hand-rolled fixture SQL is deliberate there, and no sensible
-# ALLOWED reason exists for it. Excluded BOTH ways, because this app splits the
-# difference: most tests live under `verenigingen/tests/`, but Frappe's own convention
-# puts them next to the code (`verenigingen/verenigingen/doctype/volunteer/
-# test_volunteer.py`, `verenigingen/services/billing/test_sales_invoice_hooks.py` --
-# both real, both currently using the INSERT form this guard does not match anyway).
-# A directory-only exclusion would redden on the first doctype-local fixture that uses
-# the assignment form, with no honest ALLOWED entry available.
-_EXCLUDED_DIRS = frozenset({"tests", "node_modules", "__pycache__", "env", "sites", "logs"})
-
-
-def _is_test_file(filename: str) -> bool:
-    return filename.startswith("test_") or filename.endswith("_test.py")
-
-_DB_CLOCK = re.compile(
-    r"\bmodified\s*=\s*(?:NOW|CURRENT_TIMESTAMP|LOCALTIME|LOCALTIMESTAMP|SYSDATE|UTC_TIMESTAMP)\s*\(",
-    re.IGNORECASE,
+from scripts.validation.db_clock_modified_write_validator import (
+    ALLOWED,
+    _db_clock_writes,
+    scan_db_clock_modified_writes,
+    walk_production_modules,
 )
-
-
-def _docstring_nodes(tree: ast.AST) -> set[int]:
-    """Ids of the string Constants that are docstrings, so prose is not scanned."""
-    ids = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            body = getattr(node, "body", None)
-            if (
-                body
-                and isinstance(body[0], ast.Expr)
-                and isinstance(body[0].value, ast.Constant)
-                and isinstance(body[0].value.value, str)
-            ):
-                ids.add(id(body[0].value))
-    return ids
-
-
-def _db_clock_writes(tree: ast.AST):
-    """Yield line numbers of string literals assigning `modified` from the DB clock."""
-    skip = _docstring_nodes(tree)
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
-            continue
-        if id(node) in skip:
-            continue
-        if _DB_CLOCK.search(node.value):
-            yield node.lineno
 
 
 class TestNoDbClockModifiedWrites(unittest.TestCase):
@@ -113,34 +66,13 @@ class TestNoDbClockModifiedWrites(unittest.TestCase):
         cls.root = os.path.dirname(os.path.dirname(os.path.abspath(verenigingen.__file__)))
 
     def _walk_production_modules(self):
-        for dirpath, dirnames, filenames in os.walk(self.root):
-            # Skip dot-directories outright: .git, and .claude/worktrees, which holds
-            # whole copies of this repo that would otherwise be scanned as if they were
-            # the app.
-            dirnames[:] = [
-                d for d in dirnames if not d.startswith(".") and d not in _EXCLUDED_DIRS
-            ]
-            for filename in filenames:
-                if not filename.endswith(".py") or _is_test_file(filename):
-                    continue
-                path = os.path.join(dirpath, filename)
-                yield os.path.relpath(path, self.root), path
+        return walk_production_modules(self.root)
 
     def test_no_module_writes_modified_from_the_database_clock(self):
-        offenders = []
-        for relative, path in self._walk_production_modules():
-            if relative in ALLOWED:
-                continue
-            with open(path, encoding="utf-8") as handle:
-                source = handle.read()
-            try:
-                tree = ast.parse(source, filename=path)
-            except SyntaxError:  # pragma: no cover - a broken file is another test's problem
-                continue
-            offenders.extend(f"{relative}:{line}" for line in _db_clock_writes(tree))
+        offenders = scan_db_clock_modified_writes(root=self.root)
 
         self.assertEqual(
-            sorted(offenders),  # os.walk order is not stable across machines
+            offenders,
             [],
             msg=(
                 "these sites hand-write `modified` from the database server's clock at "

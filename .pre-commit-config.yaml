@@ -715,6 +715,35 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|verenigingen/tests/)'
 
+      - id: db-clock-modified-write-validator
+        name: 🕒 Hand-written `modified` From The Database Clock (ratchet)
+        description: >-
+          A raw `SET modified = NOW()` stamps the DB server's clock at second precision
+          instead of the site clock (#453), which defeats the optimistic lock. Until #1193
+          this lived ONLY in verenigingen/tests/test_no_db_clock_modified_writes.py, inside
+          the sharded bench job. Same scan, imported by that test, run standalone. No
+          baseline: the tolerated population is zero.
+        entry: python scripts/validation/db_clock_modified_write_validator.py
+        language: system
+        pass_filenames: true
+        files: '\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/)'
+
+      - id: company-currency-scan-validator
+        name: 🏢 Company Resolved By Scanning For A Currency (ratchet)
+        description: >-
+          `db.get_value("Company", {"default_currency": "EUR"}, ...)` returns the NEWEST
+          match, i.e. whichever EUR company a co-tenant suite created last (#394, regrown
+          three times). Until #1193 this lived ONLY in
+          verenigingen/tests/test_no_company_scan_by_currency.py, inside the sharded bench
+          job. Same scan, imported by that test, run standalone. No baseline.
+        entry: python scripts/validation/company_currency_scan_validator.py
+        language: system
+        pass_filenames: true
+        files: '^verenigingen/.*\.py$'
+        stages: [pre-commit]
+
       - id: db-clock-date-window-validator
         name: 🕒 SQL Date Window Built From The Database Clock (ratchet)
         description: >-

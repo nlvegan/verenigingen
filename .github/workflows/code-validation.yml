@@ -688,6 +688,38 @@ jobs:
     - name: Savepoint rollback check (whole tree)
       run: python scripts/validation/savepoint_rollback_validator.py
 
+  # Two more zero-tolerance whole-tree AST gates lived ONLY inside the sharded bench
+  # Tests job (#1193, the class sweep of #1189): hand-written `modified = NOW()` SQL
+  # (#453) and resolving a Company by scanning for a currency (#394, regrown three
+  # times). Same recipe as the savepoint job above: the scans moved to stdlib-only
+  # modules under scripts/validation/ that the bench tests import, so this job runs the
+  # SAME scan without a bench or a site. The contract test below fails if a hook or a
+  # step here is removed or points at a renamed script.
+  tests-dir-ast-gates:
+    name: 🧱 Zero-tolerance AST Gates (db clock modified, company-by-currency)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Unit-test the wiring contract
+      run: |
+        python -m unittest discover -s scripts/validation/tests \
+          -p 'test_tests_dir_gates_are_wired_1193.py' -v
+
+    - name: Hand-written modified from the DB clock (whole tree)
+      run: python scripts/validation/db_clock_modified_write_validator.py
+
+    - name: Company resolved by scanning for a currency (whole tree)
+      run: python scripts/validation/company_currency_scan_validator.py
+
   # frappe.log_error is (title, message) -- frappe/utils/error.py:44. This app calls
   # it the other way round positionally at roughly 1100 sites (#602): the swapped
   # "title" (the real, dynamic message) gets truncated to 140 chars, and the real
