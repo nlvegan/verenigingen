@@ -304,6 +304,8 @@ class ChapterJoinRequest(Document):
             # Save the updated request
             self.save()
 
+            self.add_rejection_history()
+
             # Send rejection notification to member (non-critical)
             notification_success = False
             try:
@@ -431,6 +433,27 @@ class ChapterJoinRequest(Document):
             )
         except Exception as e:
             frappe.log_error(f"Failed to send member rejection notification: {str(e)}")
+
+    def add_rejection_history(self):
+        """Keep a CLOSED Inactive history row as the audit record of a rejected request (#2500).
+
+        Written here, not by MemberManager.reject_member_request: this is the desk/API reject path
+        and it never touches that method, so exactly one row is written per rejection.
+        """
+        try:
+            from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+
+            ChapterMembershipHistoryManager.add_membership_history(
+                member_id=self.member,
+                chapter_name=self.chapter,
+                assignment_type="Member",
+                start_date=today(),
+                end_date=today(),
+                reason=f"Membership request rejected: {self.rejection_reason or 'No reason provided'}",
+                status="Inactive",
+            )
+        except Exception as e:
+            frappe.log_error(title="Chapter join rejection history failed", message=str(e))
 
     def add_membership_history(self):
         """Add entry to chapter membership history"""

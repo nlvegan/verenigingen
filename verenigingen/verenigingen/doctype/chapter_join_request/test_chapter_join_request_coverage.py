@@ -31,6 +31,9 @@ class TestChapterJoinRequestCoverage(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         frappe.set_user("Administrator")
+        # The history manager dedupes per request via frappe.local; a test process is ONE request, so
+        # an earlier test's (member, chapter, status, date) key would make a later write a silent no-op.
+        frappe.local.chapter_history_cache = set()
 
         self.test_member = self.create_test_member(
             first_name="Cover", last_name="Member", birth_date="1990-01-01", status="Active"
@@ -142,6 +145,42 @@ class TestChapterJoinRequestCoverage(EnhancedTestCase):
         self.assertEqual(getdate(req.review_date), getdate(today()))
         self.assertEqual(req.rejection_reason, "Not a fit")
         self.assertFalse(self._chapter_member_exists(self.test_member))
+
+    def _history_rows_2500(self, member, status=None):
+        filters = {"parent": member.name, "parenttype": "Member", "chapter_name": self.test_chapter.name}
+        if status:
+            filters["status"] = status
+        return frappe.get_all(
+            "Chapter Membership History", filters=filters, fields=["status", "start_date", "end_date"]
+        )
+
+    def test_desk_reject_writes_one_closed_inactive_history_row_2500(self):
+        """Real flow: submitted request (no Chapter Member row ever created) -> reject_join_request API.
+        Exactly one closed Inactive row, end_date = today (#2500 part 2)."""
+        req = self._make_request(self.test_member)
+        self.assertEqual(self._history_rows_2500(self.test_member), [], "fixture: no history before")
+
+        result = reject_join_request(req.name, reason="api reject 2500")
+        self.assertTrue(result["success"], result)
+
+        rows = self._history_rows_2500(self.test_member)
+        self.assertEqual([r.status for r in rows], ["Inactive"])
+        self.assertEqual(str(rows[0].end_date), today())
+
+    def test_desk_reject_does_not_double_write_via_member_manager_2500(self):
+        """One rejection, one row, even though MemberManager.reject_member_request also writes one."""
+        req = self._make_request(self.test_member)
+        req.reject_request(reason="single")
+        self.assertEqual(len(self._history_rows_2500(self.test_member, "Inactive")), 1)
+
+    def test_desk_approve_still_leaves_one_open_active_row_2500(self):
+        """Control: approval writes one open Active row and no Inactive row."""
+        req = self._make_request(self.test_member)
+        req.approve_request()
+        active = self._history_rows_2500(self.test_member, "Active")
+        self.assertEqual(len(active), 1)
+        self.assertIsNone(active[0].end_date)
+        self.assertEqual(self._history_rows_2500(self.test_member, "Inactive"), [])
 
     def test_reject_request_defaults_reviewer_to_session_user(self):
         req = self._make_request(self.test_member2)
