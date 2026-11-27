@@ -13,9 +13,11 @@ Tests cover:
 """
 
 import json
+import uuid
 from unittest.mock import MagicMock, call, patch
 
 import frappe
+from frappe.utils import add_days, now_datetime
 
 from verenigingen.mijnrood_sync.services.polling_service import (
     MijnRoodPollingService,
@@ -882,3 +884,47 @@ class TestRowSavepoint(EnhancedTestCase):
         with self.service._row_savepoint(2, "admin_member", stats):
             raise ValueError("bad row")
         self.assertEqual(stats["errors"], 1)
+
+    # --- #3391: a row that keeps failing leaves ONE Error Log per row per day ---
+
+    def _fail_row(self, row_id, table="admin_member"):
+        with self.service._row_savepoint(row_id, table, {"errors": 0}):
+            raise ValueError(f"cause-{row_id}")
+
+    def _row_error_logs(self, row_id, table="admin_member"):
+        return frappe.get_all(
+            "Error Log",
+            filters={"method": f"MijnRood row skipped: {table} {row_id}"},
+            fields=["name", "error"],
+        )
+
+    def _new_row_id(self):
+        row_id = f"t3391-{uuid.uuid4().hex[:8]}"
+        self.addCleanup(
+            lambda: frappe.db.delete("Error Log", {"method": ("like", f"%{row_id}")}),
+        )
+        return row_id
+
+    def test_failing_row_logged_once_per_day_with_cause(self):
+        row_id = self._new_row_id()
+        self._fail_row(row_id)
+        self._fail_row(row_id)  # the next 15-minute run, same day
+        logs = self._row_error_logs(row_id)
+        self.assertEqual(len(logs), 1)
+        self.assertIn(f"cause-{row_id}", logs[0].error)
+
+    def test_failing_row_logged_again_on_a_later_day(self):
+        row_id = self._new_row_id()
+        self._fail_row(row_id)
+        frappe.db.set_value(
+            "Error Log", self._row_error_logs(row_id)[0].name, "creation", add_days(now_datetime(), -1)
+        )
+        self._fail_row(row_id)
+        self.assertEqual(len(self._row_error_logs(row_id)), 2)
+
+    def test_a_different_failing_row_gets_its_own_log(self):
+        first, second = self._new_row_id(), self._new_row_id()
+        self._fail_row(first)
+        self._fail_row(second)
+        self.assertEqual(len(self._row_error_logs(first)), 1)
+        self.assertEqual(len(self._row_error_logs(second)), 1)

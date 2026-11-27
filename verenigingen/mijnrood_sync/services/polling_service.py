@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import now_datetime, today
 
 from verenigingen.mijnrood_sync.client import MijnRoodDatabaseClient
 from verenigingen.mijnrood_sync.field_mapping import (
@@ -150,6 +150,19 @@ class MijnRoodPollingService(StatefulService):
             rollback_to_savepoint(sp)
             self.logger.warning("Table %s row %s skipped: %s", table, row_id, exc)
             stats["errors"] = stats.get("errors", 0) + 1
+            self._log_row_failure_once_per_day(table, row_id)
+
+    def _log_row_failure_once_per_day(self, table: str, row_id) -> None:
+        """Record why a row keeps failing, once per row per day (#3391).
+
+        The row is rolled back and retried every run, so an unchanged fault would
+        write an Error Log every 15 minutes. Error Log is MyISAM, so the row survives
+        the savepoint rollback above, and its own rows are the dedup record.
+        """
+        title = f"MijnRood row skipped: {table} {row_id}"
+        if frappe.db.exists("Error Log", {"method": title, "creation": (">=", today())}):
+            return
+        frappe.log_error(title=title, message=frappe.get_traceback())
 
     def run_sync(self) -> dict:
         """Main entry point. Called by scheduler or manual trigger.
