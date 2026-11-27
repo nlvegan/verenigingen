@@ -230,10 +230,11 @@ def _flatten_operation_result(func):
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
 def send_overdue_payment_reminders(
-    reminder_type="Friendly Reminder",
-    include_payment_link=True,
-    custom_message=None,
-    send_to_chapters=False,
+    reminder_type: str = "Friendly Reminder",
+    # Flags stay scalar-permissive: Check fields arrive as 0/1 or "0"/"1"/"true"; cbool() decides below.
+    include_payment_link: bool | int | str = True,
+    custom_message: str | None = None,
+    send_to_chapters: bool | int | str = False,
     filters: dict | str | None = None,
 ) -> OperationResult[Dict[str, Any]]:
     """
@@ -439,7 +440,7 @@ def send_overdue_payment_reminders(
 @handle_api_error
 @performance_monitor(threshold_ms=5000)
 def export_overdue_payments(
-    filters: dict | str | None = None, format="CSV"
+    filters: dict | str | None = None, format: str = "CSV"
 ) -> OperationResult[Dict[str, Any]]:
     """Export overdue payments data for external processing"""
     try:
@@ -545,7 +546,7 @@ def export_overdue_payments(
 @handle_api_error
 @performance_monitor(threshold_ms=10000)
 def execute_bulk_payment_action(
-    action, apply_to="All Visible Records", filters: dict | str | None = None
+    action: str, apply_to: str = "All Visible Records", filters: dict | str | None = None
 ) -> OperationResult[Dict[str, Any]]:
     """Execute bulk actions on overdue payments"""
     try:
