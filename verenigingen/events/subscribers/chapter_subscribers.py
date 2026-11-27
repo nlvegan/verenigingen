@@ -173,6 +173,9 @@ def handle_membership_notifications(event_name, event_data, is_bulk_import=False
                 _send_member_welcome_notification(chapter, member_doc)
         elif action == "left":
             _send_member_farewell_notification(chapter, member_doc, reason)
+        else:
+            _report_unknown_chapter_action("Chapter Membership Notification", action, chapter_name, member)
+            return
 
         frappe.logger("events").info(f"Sent membership notifications for {member} in {chapter_name}")
 
@@ -222,6 +225,9 @@ def handle_member_role_updates(event_name, event_data, is_bulk_import=False, **k
             _grant_chapter_member_permissions(chapter_name, member_doc)
         elif action == "left":
             _revoke_chapter_member_permissions(chapter_name, member_doc)
+        else:
+            _report_unknown_chapter_action("Chapter Member Role Update", action, chapter_name, member)
+            return
 
         frappe.logger("events").info(f"Updated member roles for {member} in {chapter_name}")
 
@@ -355,6 +361,14 @@ def handle_website_updates(event_name, event_data, is_bulk_import=False, **kwarg
 
 
 # Helper functions for specific operations
+
+
+def _report_unknown_chapter_action(handler_label, action, chapter_name, member):
+    """Record a job whose action no branch handles, instead of logging it as done (#680)."""
+    frappe.log_error(
+        title=f"{handler_label}: Unknown Action",
+        message=f"Unhandled action {action!r} for {member} in {chapter_name}; nothing was done.",
+    )
 
 
 def _membership_event_still_holds(chapter_name, member, action):

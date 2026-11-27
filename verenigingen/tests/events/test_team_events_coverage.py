@@ -624,3 +624,23 @@ class TestTeamEventsCoverage(EnhancedTestCase):
         with self.assertNoErrorLog():
             ts.handle_team_lead_permissions("e", {"team": team.name})  # no new_lead
             ts.handle_team_lead_permissions("e", {"new_lead": "x@example.invalid"})  # no team
+
+    # ===================================== #680: an unknown action is not "done"
+    def test_unknown_action_is_reported_not_logged_as_done_680(self):
+        """A job whose ``action`` no branch handles used to fall through to the unconditional
+        "Updated ... / Sent ..." log and do nothing. It must leave an Error Log row instead.
+        The team and volunteer are real, so every guard before the dispatch passes."""
+        member, _ = self._make_member_with_email("unk-act")
+        volunteer = self._make_volunteer(member)
+        team, _ = self._make_team_with_member(volunteer)
+        event = {"team": team.name, "volunteer": volunteer.name, "action": "frobnicate", "role": "Team Member"}
+        for handler, title in (
+            (ts.handle_assignment_history_updates, "Team Assignment History: Unknown Action"),
+            (ts.handle_membership_notifications, "Team Membership Notification: Unknown Action"),
+        ):
+            self.expectErrorLog(title)
+            before = frappe.db.count("Error Log", {"method": title})
+            with self._patch_email_service() as svc:
+                handler("team_membership_changed", dict(event))
+                svc.send_templated_email.assert_not_called()
+            self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1, handler.__name__)
