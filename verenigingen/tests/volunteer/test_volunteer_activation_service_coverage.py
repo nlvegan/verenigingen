@@ -296,10 +296,11 @@ class TestVolunteerActivationServiceCoverage(EnhancedTestCase):
         )
 
     # ===================================================== outer swallow-and-log contract
-    def test_activate_swallows_and_logs_on_save_failure(self):
+    def test_activate_logs_and_reraises_on_save_failure(self):
         """The whole body is wrapped in a try/except that routes failures to
-        ``safe_log_error`` and SWALLOWS them, so a volunteer-activation hiccup
-        never blocks membership approval (lines 122-123).
+        ``safe_log_error`` and RE-RAISES them (#3051): the approval caller turns the
+        error into a warning on its response, so the failure is no longer invisible.
+        (This test used to assert the swallow, which was the defect.)
 
         Trigger a *real* save failure with no mock: point the volunteer's
         ``member`` link at a deleted Member, then activate. The activation's
@@ -331,9 +332,10 @@ class TestVolunteerActivationServiceCoverage(EnhancedTestCase):
         # error"); register it so the automatic tearDown check tolerates it.
         self.expectErrorLog("Volunteer activation error")
 
-        # Must NOT raise regardless of the internal mandatory-field failure.
+        # Logged AND raised (#3051): the mandatory-field failure reaches the caller.
         with self.assertErrorLog("Volunteer activation error"):
-            activate_volunteer_record(member)
+            with self.assertRaises(frappe.ValidationError):
+                activate_volunteer_record(member)
 
         # The volunteer was NOT activated (the relink save failed before the
         # status flip), proving the failure path really fired.

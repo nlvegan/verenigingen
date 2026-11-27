@@ -919,6 +919,15 @@ class MembershipApplicationReview {
 						});
 						this.load_applications();
 						this.load_statistics();
+					} else if (response.message?.success && response.message.volunteer_activation_failed) {
+						// Approved, but the volunteer could not be activated (#3051): the message says what to do.
+						frappe.msgprint({
+							title: __('Approved, volunteer not activated'),
+							message: frappe.utils.escape_html(response.message.message),
+							indicator: 'orange'
+						});
+						this.load_applications();
+						this.load_statistics();
 					} else if (response.message?.success) {
 						frappe.show_alert({
 							message: __('Application approved for {0}', [frappe.utils.escape_html(app.applicant_name)]),

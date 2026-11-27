@@ -15,6 +15,7 @@ from frappe import _
 from verenigingen.utils.member_utils import get_orphan_volunteer_for_email, get_volunteer_for_member
 from verenigingen.utils.safe_error_logging import safe_log_error
 from verenigingen.utils.secure_operations import authorised_follow_on_steps, follow_on_ignore_permissions
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 
 def _log_upgrade_result(upgrade_result, context_label):
@@ -137,8 +138,13 @@ def _activate_volunteer_record_authorised(member):
                     except Exception as e:
                         frappe.logger().error(f"Error upgrading user account to System User: {str(e)}")
                         # Non-critical - continue with volunteer activation
+    except NON_RESUMABLE_DB_ERRORS:
+        # A 1213 rolled the whole transaction back: logging here would write on a dead transaction.
+        raise
     except Exception as e:
         safe_log_error(
             "Volunteer activation error",
             f"Error activating volunteer record for member {member.name}: {str(e)}",
         )
+        # Re-raise (#3051): the approval caller turns this into a warning on the response.
+        raise
