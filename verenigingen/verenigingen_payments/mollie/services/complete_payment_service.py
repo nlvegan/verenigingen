@@ -329,7 +329,9 @@ class CompletePaymentService:
 
             # The service owns the owning-DocType update.
             owner_values = {
-                "mollie_customer_id": field_value_after_resolving(stored_customer_id, customer_id),
+                "mollie_customer_id": field_value_after_resolving(
+                    stored_customer_id, customer_id, owner_doctype
+                ),
                 "mollie_subscription_id": mollie_subscription.id,
                 "subscription_status": mollie_subscription.status,
                 "next_payment_date": getattr(mollie_subscription, "next_payment_date", None),
@@ -829,7 +831,7 @@ class CompletePaymentService:
                 "Donor",
                 donor_name,
                 "mollie_customer_id",
-                field_value_after_resolving(existing_customer_id, customer.id),
+                field_value_after_resolving(existing_customer_id, customer.id, "Donor"),
                 update_modified=False,
             )
             frappe.db.commit()  # Commit and release lock

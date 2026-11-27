@@ -34,6 +34,7 @@ class _FakeSubscription:
     def __init__(self, owner, subscription_id):
         self.owner, self.id = owner, subscription_id
         self.status, self.next_payment_date, self.mandate_id, self.amount = "active", None, None, None
+        self.interval, self.created_at = "1 month", None
 
     def update(self, data):
         self.owner.updates.append((self.owner.id, self.id, data))
@@ -46,9 +47,15 @@ class _FakeSubscriptions:
         self.owner, self.held = owner, held
 
     def get(self, subscription_id):
+        if self.owner.fail:
+            raise RuntimeError(self.owner.fail)
         if subscription_id not in self.held:
-            raise RuntimeError(f"subscription {subscription_id} not under {self.owner.id}")
+            raise RuntimeError(f"404 Not Found: subscription {subscription_id} not under {self.owner.id}")
         return _FakeSubscription(self.owner, subscription_id)
+
+    def delete(self, subscription_id):
+        self.get(subscription_id)
+        self.owner.deleted.append((self.owner.id, subscription_id))
 
     def create(self, data):
         subscription_id = f"sub_new{frappe.generate_hash(length=8)}"
@@ -58,7 +65,7 @@ class _FakeSubscriptions:
 
 class _FakeCustomer:
     def __init__(self, customer_id, held, updates):
-        self.id, self.updates = customer_id, updates
+        self.id, self.updates, self.deleted, self.fail = customer_id, updates, [], None
         self.subscriptions = _FakeSubscriptions(self, held)
 
 
@@ -76,6 +83,12 @@ class FakeMollieSdk:
             raise RuntimeError(f"Mollie: no customer {customer_id!r}")
         return self._customers[customer_id]
 
+    def all_deleted(self):
+        return [d for c in self._customers.values() for d in c.deleted]
+
+    def fail_customer(self, customer_id, message):
+        self._customers[customer_id].fail = message
+
     def create(self, data):
         fresh = _FakeCustomer(f"cst_new{frappe.generate_hash(length=8)}", set(), self.updates)
         self._customers[fresh.id] = fresh
@@ -86,7 +99,12 @@ class FakeMollieSdk:
 class Writers3251Base(MultiIdBase):
     def setUp(self):
         super().setUp()
-        self.expectErrorLog("Mollie Client", "Mollie Subscription Update")
+        self.expectErrorLog(
+            "Mollie Client",
+            "Mollie Subscription Update",
+            "Subscription Cancellation Error",
+            "Mollie Subscription Fetch",
+        )
         self.sub_id = f"sub_{frappe.generate_hash(length=10)}"
 
     def _sdk_3251(self, customers):
@@ -99,17 +117,18 @@ class Writers3251Base(MultiIdBase):
         self.addCleanup(patcher.stop)
         return sdk
 
+    def _member_with_3251(self, *ids):
+        member = self.members[0]
+        self._set("Member", member.name, "mollie_customer_id", ", ".join(ids))
+        self._set("Member", member.name, "mollie_subscription_id", self.sub_id)
+        self._set("Member", member.name, "subscription_status", "active")
+        return member
+
     def _field_3251(self, doctype, name):
         return frappe.db.get_value(doctype, name, "mollie_customer_id")
 
 
 class TestUpdateSubscriptionAmountPerId(Writers3251Base):
-    def _member_with_3251(self, *ids):
-        member = self.members[0]
-        self._set("Member", member.name, "mollie_customer_id", ", ".join(ids))
-        self._set("Member", member.name, "mollie_subscription_id", self.sub_id)
-        return member
-
     def test_subscription_under_the_second_listed_id_is_updated(self):
         self._member_with_3251(self.id_a, self.id_b)
         sdk = self._sdk_3251({self.id_a: set(), self.id_b: {self.sub_id}})
@@ -133,6 +152,61 @@ class TestUpdateSubscriptionAmountPerId(Writers3251Base):
         result = pg.update_mollie_subscription_amount(self.sub_id, 12.5)
         self.assertEqual(result["status"], "error", result)
         self.assertEqual(sdk.updates, [])
+
+    def test_a_real_error_on_the_owning_id_is_not_masked_by_a_later_404(self):
+        self._member_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({self.id_a: {self.sub_id}, self.id_b: set()})
+        sdk.fail_customer(self.id_a, "503 Service Unavailable")
+        result = pg.update_mollie_subscription_amount(self.sub_id, 12.5)
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("503", result["message"])
+        self.assertEqual(sdk.updates, [])
+
+
+class TestCancelAndStatusPerId(Writers3251Base):
+    def test_cancel_reaches_a_subscription_under_the_second_listed_id(self):
+        member = self._member_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: {self.sub_id}})
+        result = pg.cancel_member_subscription(member.name)
+        self.assertEqual(result["status"], "success", result)
+        self.assertEqual(sdk.all_deleted(), [(self.id_b, self.sub_id)])
+        self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "canceled")
+        self.assertNotIn(f"{self.id_a}, {self.id_b}", sdk.asked)
+
+    def test_control_cancel_of_a_subscription_under_an_unlisted_customer_cancels_nothing(self):
+        member = self._member_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: set(), self.id_c: {self.sub_id}})
+        result = pg.cancel_member_subscription(member.name)
+        self.assertEqual(result["status"], "error", result)
+        self.assertEqual(sdk.all_deleted(), [])
+        self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "active")
+
+    def test_control_cancel_with_a_single_id_still_works(self):
+        member = self._member_with_3251(self.id_a)
+        sdk = self._sdk_3251({self.id_a: {self.sub_id}})
+        self.assertEqual(pg.cancel_member_subscription(member.name)["status"], "success")
+        self.assertEqual(sdk.all_deleted(), [(self.id_a, self.sub_id)])
+
+    def test_a_real_cancel_error_on_the_owning_id_is_not_masked_by_a_later_404(self):
+        member = self._member_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({self.id_a: {self.sub_id}, self.id_b: set()})
+        sdk.fail_customer(self.id_a, "503 Service Unavailable")
+        result = pg.cancel_member_subscription(member.name)
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("503", result["message"])
+
+    def test_status_reads_a_subscription_under_the_second_listed_id(self):
+        member = self._member_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: {self.sub_id}})
+        result = pg.get_member_subscription_status(member.name)
+        self.assertEqual(result["status"], "success", result)
+        self.assertEqual(result["subscription"]["id"], self.sub_id)
+        self.assertNotIn(f"{self.id_a}, {self.id_b}", sdk.asked)
+
+    def test_control_status_of_a_subscription_under_an_unlisted_customer_is_an_error(self):
+        member = self._member_with_3251(self.id_a, self.id_b)
+        self._sdk_3251({self.id_a: set(), self.id_b: set(), self.id_c: {self.sub_id}})
+        self.assertEqual(pg.get_member_subscription_status(member.name)["status"], "error")
 
 
 class TestOwnerSubscriptionPerId(Writers3251Base):
@@ -186,6 +260,19 @@ class TestOwnerSubscriptionPerId(Writers3251Base):
         self.assertEqual(
             self._field_3251("Member", member.name), f"{self.id_a}, {self.id_b}, {result['customer_id']}"
         )
+
+    def test_append_that_would_overflow_the_field_replaces_instead_of_raising(self):
+        h = frappe.generate_hash(length=8)
+        # 8 ids of 14 characters ("cst_" + 10) fill 126 of the Data field's 140; the fresh id
+        # would push the appended list past it.
+        stale = [f"cst_{i}{h}{i}x" for i in range(8)]
+        member = self._owner_with_3251(*stale)
+        limit = frappe.get_meta("Member").get_field("mollie_customer_id").length or frappe.db.VARCHAR_LEN
+        self.assertLess(len(", ".join(stale)), limit)
+        sdk = self._sdk_3251({})
+        result = self._create_sub_3251("Member", member)
+        self.assertEqual(self._field_3251("Member", member.name), result["customer_id"])
+        self.assertEqual(sdk.created, [result["customer_id"]])
 
     def test_control_single_stale_id_is_still_replaced_by_the_fresh_customer(self):
         member = self._owner_with_3251(self.id_a)
