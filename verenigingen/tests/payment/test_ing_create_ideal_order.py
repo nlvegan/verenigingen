@@ -48,9 +48,17 @@ class TestINGCreateIdealOrder(VereningingenTestCase):
                 amount=40.0,
                 description="Payment plan installment",
             )
-            # Reference passed to Pay.nl uses the PPP code.
+            # Reference passed to Pay.nl uses the PPP code. Separator is '-', not ':' (#2057:
+            # Pay.nl answered 422 "reference: Deze waarde is niet geldig" for a ':').
             order_data = get_client.return_value.create_order.call_args[0][0]
-            self.assertEqual(order_data["reference"], f"PPP:{intent.name}")
+            self.assertEqual(order_data["reference"], f"PPP-{intent.name}")
+            self.assertRegex(order_data["reference"], r"^[A-Za-z0-9-]+$")
+            # The webhook must resolve exactly what we sent, to the real document.
+            from verenigingen.verenigingen_payments.ing_checkout.api.webhook import _parse_reference
+
+            self.assertEqual(
+                _parse_reference(order_data["reference"]), ("Payment Plan Payment", intent.name)
+            )
 
         self.assertTrue(result["success"])
         self.assertEqual(result["transaction_id"], "EX-1234-5678")

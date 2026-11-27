@@ -575,7 +575,10 @@ def _parse_reference(reference: str) -> tuple:
     Parse Pay.nl reference to extract DocType and document name.
 
     Supports formats:
-    - New format: "DOCTYPE_CODE:DOCUMENT_NAME" (e.g., "SINV:ACC-SINV-2025-00001")
+    - Current format: "DOCTYPE_CODE-DOCUMENT_NAME" (e.g., "SINV-ACC-SINV-2025-00001"); Pay.nl
+      refuses ':' in a reference (#2057)
+    - Previous format: "DOCTYPE_CODE:DOCUMENT_NAME" (e.g., "SINV:ACC-SINV-2025-00001"), kept
+      readable for orders created before #2057
     - Legacy format: Direct document name (e.g., "ACC-SINV-2025-00001")
 
     Args:
@@ -595,7 +598,14 @@ def _parse_reference(reference: str) -> tuple:
         "PPP": "Payment Plan Payment",
     }
 
-    # New format: DOCTYPE_CODE:DOCUMENT_NAME
+    # Current format: DOCTYPE_CODE-DOCUMENT_NAME. A legacy bare name that merely starts with a
+    # code ("MEM-00001") reads as code MEM + "00001", so a miss falls through to legacy lookup.
+    code, _sep, doc_name = reference.partition("-")
+    dash_doctype = DOCTYPE_MAP.get(code.upper())
+    if dash_doctype and doc_name and frappe.db.exists(dash_doctype, doc_name):
+        return dash_doctype, doc_name
+
+    # Previous format: DOCTYPE_CODE:DOCUMENT_NAME
     if ":" in reference:
         parts = reference.split(":", 1)
         if len(parts) == 2:

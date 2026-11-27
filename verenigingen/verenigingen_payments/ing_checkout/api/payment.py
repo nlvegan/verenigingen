@@ -210,7 +210,7 @@ def create_ideal_order(
             - success: bool
             - transaction_id: Pay.nl order ID
             - redirect_url: URL to redirect user for payment
-            - reference: Structured reference (DOCTYPE_CODE:DOCUMENT_NAME)
+            - reference: Structured reference (DOCTYPE_CODE-DOCUMENT_NAME; Pay.nl refuses ":" with a 422, #2057)
             - message: Status message
     """
     try:
@@ -257,7 +257,8 @@ def create_ideal_order(
         )
 
         # Create structured reference for reliable parsing
-        # Format: DOCTYPE_CODE:DOCUMENT_NAME
+        # Format: DOCTYPE_CODE-DOCUMENT_NAME. Not ':' (#2057): Pay.nl Order:Create answers 422
+        # "reference: Deze waarde is niet geldig" for a colon; '-' and digits were accepted.
         DOCTYPE_CODES = {
             "Sales Invoice": "SINV",
             "Member": "MEM",
@@ -265,7 +266,7 @@ def create_ideal_order(
             "Payment Plan Payment": "PPP",
         }
         doctype_code = DOCTYPE_CODES.get(reference_doctype, reference_doctype[:4].upper())
-        reference = f"{doctype_code}:{reference_name}"
+        reference = f"{doctype_code}-{reference_name}"
 
         # Convert amount to cents using Decimal to avoid float precision issues
         # e.g., 19.99 * 100 = 1998.9999... with floats, but 1999 with Decimal

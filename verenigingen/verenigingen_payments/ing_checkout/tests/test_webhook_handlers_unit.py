@@ -49,6 +49,32 @@ class TestParseReference(FrappeTestCase):
             self.assertEqual(doctype, "Purchase Invoice")
             self.assertEqual(name, "ACC-PINV-2025-00001")
 
+    def test_dash_format_sales_invoice_2057(self):
+        """#2057: Pay.nl refuses ':' in reference, so orders now carry 'SINV-<name>'."""
+        with patch("frappe.db.exists", return_value=True):
+            self.assertEqual(
+                _parse_reference("SINV-ACC-SINV-2025-00001"), ("Sales Invoice", "ACC-SINV-2025-00001")
+            )
+
+    def test_dash_format_payment_plan_payment_2057(self):
+        with patch("frappe.db.exists", return_value=True):
+            self.assertEqual(
+                _parse_reference("PPP-PPP-2515"), ("Payment Plan Payment", "PPP-2515")
+            )
+
+    def test_dash_format_missing_document_falls_through_to_legacy_2057(self):
+        """A legacy bare name that merely STARTS with a code ('MEM-00001') must still resolve.
+
+        Control: the dash parse reads it as code MEM + name '00001' (no such Member); it must
+        fall through to the legacy direct lookup instead of returning (None, None).
+        """
+
+        def exists_only_legacy_member(doctype, name):
+            return (doctype, name) == ("Member", "MEM-00001")
+
+        with patch("frappe.db.exists", side_effect=exists_only_legacy_member):
+            self.assertEqual(_parse_reference("MEM-00001"), ("Member", "MEM-00001"))
+
     def test_new_format_document_not_found(self):
         """Test new format with non-existent document."""
         with patch("frappe.db.exists", return_value=False):
