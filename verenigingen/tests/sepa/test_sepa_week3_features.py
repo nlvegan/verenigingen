@@ -227,30 +227,22 @@ class TestSEPAWeek3Features(EnhancedTestCase):
 
         # Test real race condition protection business logic instead of mocking
         # This tests the core SEPA batch processing logic that prevents data races
-        try:
-            # Test actual race condition protection with real business logic
-            result = manager.create_batch_with_race_protection(self.test_batch_data)
+        # Test actual race condition protection with real business logic
+        result = manager.create_batch_with_race_protection(self.test_batch_data)
 
-            # Real business logic validation - catches actual race condition bugs
-            self.assertIsInstance(result, dict, "Race condition manager should return dict result")
+        # Real business logic validation - catches actual race condition bugs
+        self.assertIsInstance(result, dict, "Race condition manager should return dict result")
 
-            if "success" in result:
-                self.assertIsInstance(result["success"], bool)
+        if "success" in result:
+            self.assertIsInstance(result["success"], bool)
 
-            # Test that real race condition logic handles conflicts appropriately
-            if result.get("success"):
-                if "batch_name" in result:
-                    self.assertIsInstance(result["batch_name"], str)
-                if "invoice_count" in result:
-                    self.assertIsInstance(result["invoice_count"], int)
+        # Test that real race condition logic handles conflicts appropriately
+        if result.get("success"):
+            if "batch_name" in result:
+                self.assertIsInstance(result["batch_name"], str)
+            if "invoice_count" in result:
+                self.assertIsInstance(result["invoice_count"], int)
 
-        except Exception as e:
-            # Real race condition exceptions provide valuable system feedback
-            print(f"SEPA race condition protection real behavior: {e}")
-            # Test that system handles real race conditions appropriately
-            self.assertIsInstance(str(e), str)
-            # Real race condition testing may reveal actual concurrency issues
-            print(f"This exception reveals real system behavior - valuable for debugging: {type(e).__name__}")
 
     # ========================================================================
     # Conflict Detection Tests
@@ -558,40 +550,31 @@ class TestSEPAWeek3Features(EnhancedTestCase):
         manager = SEPARollbackManager()
 
         # Test real SEPA rollback business logic instead of mocking critical financial recovery
-        try:
-            # Test actual rollback initiation with real business logic
-            # This tests critical SEPA financial recovery workflows that must work
-            result = manager.initiate_batch_rollback(
-                "TEST-BATCH-ROLLBACK",
-                RollbackReason.BATCH_PROCESSING_FAILED,
-                RollbackScope.FULL_BATCH
-            )
+        # Test actual rollback initiation with real business logic
+        # This tests critical SEPA financial recovery workflows that must work
+        result = manager.initiate_batch_rollback(
+            "TEST-BATCH-ROLLBACK",
+            RollbackReason.BATCH_PROCESSING_FAILED,
+            RollbackScope.FULL_BATCH
+        )
 
-            # Real rollback business logic validation - catches actual financial recovery bugs
-            self.assertIsInstance(result, dict, "Rollback manager should return dict result")
+        # Real rollback business logic validation - catches actual financial recovery bugs
+        self.assertIsInstance(result, dict, "Rollback manager should return dict result")
 
-            if "success" in result:
-                self.assertIsInstance(result["success"], bool)
+        if "success" in result:
+            self.assertIsInstance(result["success"], bool)
 
-            # Test that real rollback logic handles failures appropriately
-            if result.get("success"):
-                if "batch_name" in result:
-                    self.assertIsInstance(result["batch_name"], str)
-                if "rollback_id" in result:
-                    self.assertIsInstance(result["rollback_id"], str)
+        # Test that real rollback logic handles failures appropriately
+        if result.get("success"):
+            if "batch_name" in result:
+                self.assertIsInstance(result["batch_name"], str)
+            if "rollback_id" in result:
+                self.assertIsInstance(result["rollback_id"], str)
 
-            # Test real error handling in rollback scenarios
-            if "errors" in result:
-                self.assertIsInstance(result["errors"], list)
+        # Test real error handling in rollback scenarios
+        if "errors" in result:
+            self.assertIsInstance(result["errors"], list)
 
-        except Exception as e:
-            # Real rollback exceptions reveal critical financial recovery behavior
-            print(f"SEPA rollback real behavior: {e}")
-            # Test that system handles real rollback scenarios appropriately
-            self.assertIsInstance(str(e), str)
-            # Real financial rollback testing catches actual recovery issues
-            print(f"This exception reveals real financial recovery behavior: {type(e).__name__}")
-            self.assertIn("operation_id", result)
 
     # ========================================================================
     # Notification Manager Tests

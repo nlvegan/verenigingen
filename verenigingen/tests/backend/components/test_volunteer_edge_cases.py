@@ -61,12 +61,10 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
 
         # Test very long name
         long_name = f"Very Long Volunteer Name That Exceeds Normal Limits {self.test_run_id} " + "X" * 100
-        try:
-            volunteer = self.create_test_volunteer(volunteer_name=long_name[:140])
-            self.assertTrue(volunteer.name, "Long name should be handled gracefully")
-            print("✅ Long name handled")
-        except Exception as e:
-            print(f"✅ Long name properly rejected: {str(e)}")
+        volunteer = self.create_test_volunteer(volunteer_name=long_name[:140])
+        self.assertTrue(volunteer.name, "Long name should be handled gracefully")
+        print("✅ Long name handled")
+
 
         # Test name with special characters
         # Note: The factory may prepend "TEST " to names, so check that special chars are preserved
@@ -83,12 +81,10 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
 
         # Test name with emoji
         emoji_chars = "Test Volunteer 🌟📝"
-        try:
-            volunteer = self.create_test_volunteer(volunteer_name=f"{emoji_chars} {self.test_run_id}")
-            self.assertIn("🌟", volunteer.volunteer_name, "Emoji in name should be preserved")
-            print("✅ Emoji in name handled")
-        except Exception as e:
-            print(f"⚠️ Emoji in name caused issues: {str(e)}")
+        volunteer = self.create_test_volunteer(volunteer_name=f"{emoji_chars} {self.test_run_id}")
+        self.assertIn("🌟", volunteer.volunteer_name, "Emoji in name should be preserved")
+        print("✅ Emoji in name handled")
+
 
     def test_email_validation_edge_cases(self):
         """Test email validation with edge cases"""
@@ -646,22 +642,20 @@ class TestVolunteerEdgeCases(EnhancedTestCase):
         print("\n🧪 Testing validation edge cases...")
 
         # Test creating volunteer with minimal required data
-        try:
-            minimal_volunteer = frappe.get_doc(
-                {
-                    "doctype": "Volunteer",
-                    "volunteer_name": f"Minimal Volunteer {self.test_run_id}",
-                    "email": f"minimal{self.test_run_id.lower()}@organization.org"
-                    # Only required fields
-                }
-            )
-            minimal_volunteer.insert()
-            self.track_test_record("Volunteer", minimal_volunteer.name)
+        minimal_volunteer = frappe.get_doc(
+            {
+                "doctype": "Volunteer",
+                "volunteer_name": f"Minimal Volunteer {self.test_run_id}",
+                "email": f"minimal{self.test_run_id.lower()}@organization.org"
+                # Only required fields
+            }
+        )
+        minimal_volunteer.insert()
+        self.track_test_record("Volunteer", minimal_volunteer.name)
 
-            self.assertEqual(minimal_volunteer.volunteer_name, f"Minimal Volunteer {self.test_run_id}")
-            print("✅ Minimal volunteer creation handled")
-        except Exception as e:
-            print(f"⚠️ Minimal volunteer creation failed: {str(e)}")
+        self.assertEqual(minimal_volunteer.volunteer_name, f"Minimal Volunteer {self.test_run_id}")
+        print("✅ Minimal volunteer creation handled")
+
 
         # Test invalid data scenarios
         invalid_scenarios = [
