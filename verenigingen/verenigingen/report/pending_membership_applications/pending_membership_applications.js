@@ -71,9 +71,6 @@
  *
  * // Filter by custom aging period
  * /app/query-report/Pending%20Membership%20Applications?preset=days&days=30
- *
- * // Bulk process applications
- * show_bulk_actions_dialog(report);
  * ```
  *
  * @version 1.3.0
@@ -184,49 +181,5 @@ frappe.query_reports['Pending Membership Applications'] = {
 				}
 			}
 		});
-
-		// Add button to bulk approve
-		report.page.add_inner_button(__('Bulk Actions'), () => {
-			show_bulk_actions_dialog(report);
-		});
 	}
 };
-
-function show_bulk_actions_dialog(report) {
-	// Get selected rows or all visible rows
-	const data = report.data || [];
-
-	if (data.length === 0) {
-		frappe.msgprint(__('No applications to process'));
-		return;
-	}
-
-	const d = new frappe.ui.Dialog({
-		title: __('Bulk Actions'),
-		fields: [
-			{
-				fieldname: 'action',
-				label: __('Action'),
-				fieldtype: 'Select',
-				options: ['Approve Selected', 'Send Reminders'],
-				reqd: 1
-			},
-			{
-				fieldname: 'membership_type',
-				label: __('Default Membership Type'),
-				fieldtype: 'Link',
-				options: 'Membership Type',
-				depends_on: "eval:doc.action=='Approve Selected'",
-				description: __("Used if application doesn't specify a type")
-			}
-		],
-		primary_action_label: __('Execute'),
-		primary_action(_values) {
-			// Implementation would go here
-			frappe.msgprint(__('Bulk action executed'));
-			d.hide();
-		}
-	});
-
-	d.show();
-}

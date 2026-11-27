@@ -753,3 +753,25 @@ class TestChapterSubscribers(EnhancedTestCase):
         user_doc = frappe.get_doc("User", user.name)
         cs.cleanup_chapter_user_permissions_for_admins(user_doc)
         self.assertFalse(frappe.db.exists("User Permission", {"user": user.name, "allow": "Chapter"}))
+
+    # ------------------------------------- #680: an unknown action is not "done"
+    def test_membership_jobs_report_an_unknown_action_680(self):
+        """No branch handles ``frobnicate``, yet the handlers logged "Sent/Updated ..." and
+        returned. They must leave an Error Log row and send/grant nothing. Chapter and member
+        are real, so every guard before the dispatch passes."""
+        self._ensure_role("Chapter Member")
+        member, user = self._make_member_with_user()
+        self._persist_member_email(member, "unk680")
+        chapter = self._new_chapter()
+        self._setup_chapter_member(chapter, member)
+        event = {"chapter": chapter.name, "member": member.name, "action": "frobnicate"}
+        for handler, title in (
+            (cs.handle_membership_notifications, "Chapter Membership Notification: Unknown Action"),
+            (cs.handle_member_role_updates, "Chapter Member Role Update: Unknown Action"),
+        ):
+            self.expectErrorLog(title)
+            before = frappe.db.count("Error Log", {"method": title})
+            with self._no_import_flags(), self._patch_email_service() as svc:
+                handler("member.frobnicate", dict(event))
+                svc.send_templated_email.assert_not_called()
+            self.assertEqual(frappe.db.count("Error Log", {"method": title}), before + 1, handler.__name__)

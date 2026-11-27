@@ -68,6 +68,9 @@ def handle_assignment_history_updates(event_name, event_data, **kwargs):
             team.add_team_assignment_history(
                 volunteer, role, change_date, row_from_date=from_date, row_name=row_name
             )
+        else:
+            _report_unknown_team_action("Team Assignment History", action, team_name, volunteer)
+            return
 
         frappe.logger("events").info(f"Updated assignment history for {volunteer} in {team_name}")
 
@@ -106,6 +109,9 @@ def handle_membership_notifications(event_name, event_data, **kwargs):
         elif action == "role_changed":
             old_role = event_data.get("old_role")
             _send_team_role_changed_notification(team, volunteer_doc, old_role, role)
+        else:
+            _report_unknown_team_action("Team Membership Notification", action, team_name, volunteer)
+            return
 
         frappe.logger("events").info(f"Sent team notifications for {volunteer} in {team_name}")
 
@@ -280,6 +286,14 @@ def handle_team_lead_permissions(event_name, event_data, **kwargs):
 
     except Exception as e:
         frappe.log_error(f"Failed to update team lead permissions: {str(e)}", "Team Lead Permission Error")
+
+
+def _report_unknown_team_action(handler_label, action, team_name, volunteer):
+    """Record a job whose action no branch handles, instead of logging it as done (#680)."""
+    frappe.log_error(
+        title=f"{handler_label}: Unknown Action",
+        message=f"Unhandled action {action!r} for {volunteer} in {team_name}; nothing was done.",
+    )
 
 
 def _team_membership_event_still_holds(team, event_data):

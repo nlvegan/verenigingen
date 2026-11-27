@@ -19,7 +19,6 @@
  * Collections Management:
  * - Tiered reminder system (Friendly → Urgent → Final Notice)
  * - Escalation workflows based on days overdue
- * - Bulk suspension and membership actions
  * - Late fee application and calculation
  * - Collection agency integration and export
  * - Payment link generation for easy processing
@@ -380,7 +379,6 @@ function show_bulk_payment_actions_dialog(report) {
 				fieldtype: 'Select',
 				options: [
 					'Send Payment Reminders',
-					'Suspend Memberships',
 					'Create Payment Plan',
 					'Mark for Collection Agency',
 					'Apply Late Fees'
