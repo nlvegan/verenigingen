@@ -321,8 +321,10 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
         # an uncommitted frappe.log_error() row is erased by the rollbacks below.
         self._capture_test_error_logs()
 
-        # Restore original session user
-        frappe.session.user = self._original_session_user
+        # Restore original session user through set_user, not a bare assignment: it also
+        # resets role_permissions/user_perms/cache/session.sid so the last user's state
+        # cannot leak into the next test (#1600).
+        frappe.set_user(self._original_session_user)
 
         # Rollback FIRST, then cleanup. The other order silently undoes the
         # customer cleanup: it deletes an invoice, the rollback puts it back, and
