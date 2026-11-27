@@ -92,6 +92,23 @@ class TestAddressPayloadCacheIsSiteScoped(_SiteSwapMixin, EnhancedTestCase):
         again = af._cached_address_payload(self.address.name)
         self.assertIn("Nacleaar 7", again["formatted_address"])
 
+    def test_decorator_scopes_per_user_true_by_site(self):
+        """Same user email on two sites is a real collision for the default path."""
+        calls = []
+
+        @cache_with_ttl(ttl=300)
+        def per_user_list_1935():
+            calls.append(frappe.local.site)
+            return [frappe.local.site]
+
+        self._as_site(SITE_A)
+        self.assertEqual(per_user_list_1935(), [SITE_A])
+        self._as_site(SITE_B)
+        self.assertEqual(per_user_list_1935(), [SITE_B])
+        self._as_site(SITE_A)
+        self.assertEqual(per_user_list_1935(), [SITE_A])
+        self.assertEqual(calls, [SITE_A, SITE_B], "A's entry must survive B's and be reused")
+
     def test_decorator_scopes_per_user_false_by_site(self):
         """The decorator itself, not only this call site: any per_user=False cache."""
         calls = []
@@ -190,3 +207,18 @@ class TestProfileConfigCacheIsSiteScoped(_SiteSwapMixin, EnhancedTestCase):
                     self.PROFILE_B,
                     f"invalidate_profile_config_cache({kw}) left the entry in place",
                 )
+
+    def test_type_invalidation_only_evicts_the_current_site(self):
+        """Per-type eviction on site B must leave site A's entry in place."""
+        self._set_default_profile(self.PROFILE_A)
+        self._as_site(SITE_A)
+        calc._get_cached_chapter_profile_config(self.chapter.name)
+        self._set_default_profile(self.PROFILE_B)
+        self._as_site(SITE_B)
+        calc.invalidate_profile_config_cache(entity_type="chapter")
+        self._as_site(SITE_A)
+        self.assertEqual(
+            calc._get_cached_chapter_profile_config(self.chapter.name)["default_profile"],
+            self.PROFILE_A,
+            "site B's per-type invalidation evicted site A's entry",
+        )
