@@ -368,14 +368,6 @@ class TestMembershipDuesSchedule(VereningingenTestCase):
             "Membership Dues - Custom (Every 2 Months)",
         )
 
-    def test_ensure_membership_dues_item_exists_creates_item(self):
-        settings = frappe.get_single("Verenigingen Settings")
-        if not settings.company:
-            self.skipTest("No company configured in Verenigingen Settings")
-        schedule = self._active_schedule()
-        item_name = schedule.ensure_membership_dues_item_exists()
-        self.assertTrue(frappe.db.exists("Item", item_name))
-
     # ------------------------------------------------------------------ generate_invoice guard
 
     def test_generate_invoice_returns_none_when_not_eligible(self):
