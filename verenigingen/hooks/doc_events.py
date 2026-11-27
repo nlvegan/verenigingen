@@ -535,6 +535,7 @@ doc_events = {
             "verenigingen.services.field_sync_service.sync_fields",
             "verenigingen.utils.user_desk_settings.ensure_desk_settings_for_role_profile",
             "verenigingen.events.subscribers.chapter_subscribers.cleanup_chapter_user_permissions_for_admins",
+            "verenigingen.services.chapter.board_seat_withdrawal_service.end_seats_for_disabled_user",
         ],
     },
     "Role Profile": {
