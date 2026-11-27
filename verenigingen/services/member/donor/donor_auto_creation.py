@@ -227,12 +227,11 @@ def create_donor_from_customer(customer_doc, donation_amount, reference_doc):
         donor.donor_name = customer_doc.customer_name
         donor.donor_type = "Organization" if customer_doc.customer_type == "Company" else "Individual"
 
-        # Copy contact information (donor_email is required)
+        # Copy contact information. donor_email is not mandatory; a customer without
+        # one leaves it blank rather than inventing an @example.com address that
+        # receipts and consent mails would then be sent to (#2034).
         if customer_doc.email_id:
             donor.donor_email = customer_doc.email_id
-        else:
-            # Generate a placeholder email if none provided
-            donor.donor_email = f"donor.{customer_doc.name.lower().replace(' ', '.')}@example.com"
 
         if customer_doc.mobile_no:
             donor.phone = customer_doc.mobile_no

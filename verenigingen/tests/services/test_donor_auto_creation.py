@@ -10,7 +10,7 @@ Covered behaviour:
 - is_customer_group_eligible: all-allowed, in-list, not-in-list
 - has_existing_donor: by donor.customer link and by customer.donor back-ref
 - create_donor_from_customer: field mapping (Individual/Organization), customer
-  back-link, placeholder-email generation, idempotency on existing donor
+  back-link, blank email when the customer has none (#2034), idempotency on existing donor
 - test_auto_creation_conditions: each failure branch + the all-conditions-met
   success path
 - get_auto_creation_stats: counts/sum over auto-created donors
@@ -164,16 +164,20 @@ class TestDonorAutoCreation(EnhancedTestCase):
         donor = frappe.get_doc("Donor", donor_name)
         self.assertEqual(donor.donor_type, "Organization")
 
-    def test_create_donor_generates_placeholder_email_when_missing(self):
-        # Customer without email -> a deterministic placeholder email is built.
+    def test_create_donor_leaves_email_blank_when_customer_has_none(self):
+        # #2034: no invented address. donor_email is not mandatory on Donor, and
+        # the mailers (send_consent_requests) skip a blank address, so a blank
+        # donor is unmailable while a made-up @example.com one would be mailed.
         customer = self._make_customer(customer_type="Individual")
         self.assertFalse(customer.email_id)
         donor_name = dac.create_donor_from_customer(customer, 30.0, "PE-TEST-2")
         self.assertTrue(donor_name)
         self._track_donor(donor_name)
         donor = frappe.get_doc("Donor", donor_name)
-        self.assertTrue(donor.donor_email.endswith("@example.com"))
-        self.assertIn(customer.name.lower().replace(" ", "."), donor.donor_email)
+        self.assertFalse(donor.donor_email)
+        self.assertEqual(donor.customer, customer.name)
+        # Control: the stored value really is blank in the DB, not just unset in memory.
+        self.assertFalse(frappe.db.get_value("Donor", donor_name, "donor_email"))
 
     def test_create_donor_idempotent_for_existing_donor(self):
         customer = self._make_customer(email_id=f"dup.{frappe.generate_hash(length=6)}@example.com")
