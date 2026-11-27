@@ -20,6 +20,11 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
+try:
+    from snippet_parse_guard import write_py_snippet
+except ImportError:  # run by dotted name: python -m unittest scripts.validation.tests.<module>
+    from .snippet_parse_guard import write_py_snippet
+
 _MOD_PATH = Path(__file__).resolve().parents[1] / "doctype_name_validator.py"
 _spec = importlib.util.spec_from_file_location("doctype_name_validator", _MOD_PATH)
 dnv = importlib.util.module_from_spec(_spec)
@@ -53,11 +58,14 @@ _needs_real_bench = unittest.skipIf(
 )
 
 
-def _names(source, known=("Member", "Chapter", "Chapter Board Member")):
-    """Unknown doctype names the scanner reports for one source string."""
+def _names(source, known=("Member", "Chapter", "Chapter Board Member"), intentionally_invalid=False):
+    """Unknown doctype names the scanner reports for one source string.
+
+    Every snippet must parse (#1181) unless the test is about the scanner's own
+    unparseable-file path and says so with `intentionally_invalid=True`."""
     with tempfile.TemporaryDirectory() as d:
         path = Path(d) / "sample.py"
-        path.write_text(source)
+        write_py_snippet(path, source, intentionally_invalid=intentionally_invalid)
         return sorted(f.name for f in dnv.unknown_in_file(path, dict.fromkeys(known, "app")))
 
 
@@ -169,7 +177,7 @@ class TestDetection(unittest.TestCase):
         )
 
     def test_unparseable_file_is_skipped_rather_than_crashing(self):
-        self.assertEqual(_names("def (:\n"), [])
+        self.assertEqual(_names("def (:\n", intentionally_invalid=True), [])
 
 
 class TestAuthority(unittest.TestCase):

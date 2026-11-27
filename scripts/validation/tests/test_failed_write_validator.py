@@ -11,6 +11,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    from snippet_parse_guard import write_py_snippet
+except ImportError:  # run by dotted name: python -m unittest scripts.validation.tests.<module>
+    from .snippet_parse_guard import write_py_snippet
+
 _MOD_PATH = Path(__file__).resolve().parents[1] / "failed_write_validator.py"
 _spec = importlib.util.spec_from_file_location("failed_write_validator", _MOD_PATH)
 fwv = importlib.util.module_from_spec(_spec)
@@ -22,7 +27,7 @@ def _scan(src: str):
     """Return (findings, bad_pragmas) for a snippet."""
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "snippet.py"
-        p.write_text(src)
+        write_py_snippet(p, src)
         return fwv.scan_file(p)
 
 

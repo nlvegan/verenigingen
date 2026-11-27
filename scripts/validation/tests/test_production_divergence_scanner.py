@@ -11,6 +11,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    from snippet_parse_guard import write_py_snippet
+except ImportError:  # run by dotted name: python -m unittest scripts.validation.tests.<module>
+    from .snippet_parse_guard import write_py_snippet
+
 _MOD_PATH = Path(__file__).resolve().parents[1] / "production_divergence_scanner.py"
 _spec = importlib.util.spec_from_file_location("production_divergence_scanner", _MOD_PATH)
 pds = importlib.util.module_from_spec(_spec)
@@ -25,7 +30,7 @@ def _with_tree(files: dict, fn):
         for rel, src in files.items():
             p = root / rel
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(src)
+            write_py_snippet(p, src)
         return fn(str(root))
     finally:
         tmp.cleanup()
@@ -301,7 +306,7 @@ class ScanRootFlagTest(unittest.TestCase):
             for rel, src in self._tree().items():
                 p = root / rel
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(src)
+                write_py_snippet(p, src)
             rc, output = self._run_main([], root)
             self.assertEqual(0, rc, "advisory -- always exits 0")
             self.assertNotIn("scripts_only_diverged", output)
@@ -312,7 +317,7 @@ class ScanRootFlagTest(unittest.TestCase):
             for rel, src in self._tree().items():
                 p = root / rel
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(src)
+                write_py_snippet(p, src)
             rc, output = self._run_main(["--root", "scripts_stand_in"], root)
             self.assertEqual(0, rc, "advisory -- always exits 0")
             self.assertIn("scripts_only_diverged", output)

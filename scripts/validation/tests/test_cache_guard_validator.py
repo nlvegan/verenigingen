@@ -11,6 +11,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    from snippet_parse_guard import write_py_snippet
+except ImportError:  # run by dotted name: python -m unittest scripts.validation.tests.<module>
+    from .snippet_parse_guard import write_py_snippet
+
 _MOD_PATH = Path(__file__).resolve().parents[1] / "cache_guard_validator.py"
 _spec = importlib.util.spec_from_file_location("cache_guard_validator", _MOD_PATH)
 cg = importlib.util.module_from_spec(_spec)
@@ -21,7 +26,7 @@ _spec.loader.exec_module(cg)
 def _run(src: str):
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "test_snippet.py"
-        p.write_text(src)
+        write_py_snippet(p, src)
         return cg.check_file(p)
 
 
