@@ -6,13 +6,9 @@ actually creating or modifying any data.
 """
 
 import copy
-import json
-from datetime import datetime
 
 import frappe
 from frappe.utils import cint, flt
-
-from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 class DryRunSimulator:
@@ -477,52 +473,3 @@ class DryRunSimulator:
             )
 
         return recommendations
-
-
-@frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
-def run_migration_dry_run(migration_name: str, sample_size=None):
-    """Run a dry-run simulation of the migration"""
-    from .eboekhouden_soap_migration import fetch_eboekhouden_data
-
-    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
-    simulator = DryRunSimulator()
-
-    # Fetch data (limited sample for dry-run)
-    data = fetch_eboekhouden_data(
-        migration_doc.company,
-        migration_doc.date_from,
-        migration_doc.date_to,
-        migration_doc.get("username"),
-        migration_doc.get("security_code_1"),
-        migration_doc.get("security_code_2"),
-    )
-
-    # Limit to sample size if specified
-    if sample_size:
-        for key in data:
-            if isinstance(data[key], list) and len(data[key]) > sample_size:
-                data[key] = data[key][:sample_size]
-
-    # Simulate processing each type of data
-    # ... (simulate processing similar to actual migration)
-
-    # Generate and return report
-    report = simulator.generate_dry_run_report()
-
-    # Save report to file
-    report_path = frappe.get_site_path(
-        "private",
-        "files",
-        "migration_dry_runs",
-        f"dry_run_{migration_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-    )
-
-    import os
-
-    os.makedirs(os.path.dirname(report_path), exist_ok=True)
-
-    with open(report_path, "w") as f:
-        json.dump(report, f, indent=2, default=str)
-
-    return {"success": True, "report": report, "report_path": report_path}

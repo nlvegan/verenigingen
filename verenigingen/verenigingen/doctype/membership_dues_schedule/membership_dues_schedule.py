@@ -800,40 +800,6 @@ class MembershipDuesSchedule(Document):
 
         return item_name
 
-    def ensure_membership_dues_item_exists(self):
-        """Ensure the membership dues item exists - called before transaction starts"""
-        item_name = self.get_membership_dues_item()
-
-        if not DocumentExistenceValidator.check_document_exists("Item", item_name):
-            # Get correct company settings
-            settings = frappe.get_single("Verenigingen Settings")
-            if not settings.company:
-                frappe.throw("Company not configured in Verenigingen Settings")
-
-            # Create item outside of the main transaction to avoid implicit commits
-            item = frappe.new_doc("Item")
-            item.item_code = item_name
-            item.item_name = item_name
-            item.item_group = "Services"
-            item.is_sales_item = 1
-
-            # Set correct default accounts from configuration
-            # Income account from Verenigingen Payments Settings - use the proper P&L income account
-            from verenigingen.utils.settings_utils import get_payments_settings
-
-            payments_settings = get_payments_settings()
-            # dues_income_account is a field on Verenigingen Payments Settings, not this DocType
-            income_acct = (
-                getattr(payments_settings, "dues_income_account", None) if payments_settings else None
-            )
-            if income_acct:
-                item.income_account = income_acct
-
-            item.insert()
-            # Let Frappe handle transaction management automatically
-
-        return item_name
-
     def update_schedule_dates(self, actual_invoice_date=None):
         """
         Update schedule dates after invoice generation.

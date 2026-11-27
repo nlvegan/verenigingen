@@ -79,11 +79,17 @@ class TestInvoiceGenerationAndPaymentHistorySync(VereningingenTestCase):
 
         # The tests below build Sales Invoices that reference the frequency-based
         # membership dues item ("Membership Dues - Daily"). Production creates
-        # this item lazily during invoice generation; seed it here via the same
-        # method so the manually-built invoices pass link validation. The item is
-        # a reusable master, so it is intentionally left untracked (like other
-        # shared masters).
-        self.dues_schedule.ensure_membership_dues_item_exists()
+        # this item lazily during invoice generation; seed it here through the
+        # same manager so the manually-built invoices pass link validation. The
+        # item is a reusable master, so it is intentionally left untracked (like
+        # other shared masters).
+        from verenigingen.services.billing.invoice_generator import MembershipDuesItemManager
+
+        item_manager = MembershipDuesItemManager()
+        item_manager.ensure_item_exists(
+            item_name=item_manager.get_item_name("Daily"),
+            company=frappe.get_single("Verenigingen Settings").company,
+        )
 
     def test_payment_status_field_allows_draft(self):
         """
