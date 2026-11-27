@@ -380,7 +380,9 @@ def _apply_result_to_row(row, result) -> None:
     elif result.status == "partial":
         row.row_status = "Skipped" if result.bank_transaction else "Failed"
     elif result.status == "error":
-        row.row_status = "Skipped" if result.bank_transaction else "Failed"
+        # A draft Bank Transaction is unfinished, not imported: retry it on resume (#822).
+        is_draft = "still a draft" in (result.error or "")
+        row.row_status = "Skipped" if result.bank_transaction and not is_draft else "Failed"
     else:
         row.row_status = "Failed"
 

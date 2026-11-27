@@ -157,6 +157,14 @@ class TestOrchestratorDraftBankTransaction822(OrchestratorBase):
     def payment_entry_count(self):
         return frappe.db.count("Payment Entry", {"reference_no": self.pid})
 
+    def invoice_names(self, customer=None):
+        """Live Sales Invoices booked for this payment: by member customer, else by the orphan remark."""
+        if customer:
+            filters = {"customer": customer, "docstatus": ["<", 2]}
+        else:
+            filters = {"remarks": ["like", f"%Mollie Payment ID: {self.pid}%"], "docstatus": ["<", 2]}
+        return frappe.get_all("Sales Invoice", filters=filters, pluck="name")
+
     def bank_transaction_payment_rows(self):
         return frappe.db.count("Bank Transaction Payments", {"parent": self.draft})
 
@@ -179,7 +187,28 @@ class TestOrchestratorDraftBankTransaction822(OrchestratorBase):
     def orphan_with_invoice_run(self):
         return lambda: self.orch.process_orphaned_payment_with_invoice(self.pid, self.payment())
 
-    def assert_refused_then_allowed(self, run):
+    def assert_refused_then_allowed(self, run, customer=None, new_invoices=0):
+        """``new_invoices``: how many invoices the permitted run itself creates (orphan: 1)."""
+        before = len(self.invoice_names(customer))
+        for _ in range(2):
+            self.refuse_once(run, customer, before)
+        allowed = run()
+        self.assertEqual(self.docstatus(), 1, f"a caller who may submit never got to: {allowed.to_dict()}")
+        self.assertEqual(self.payment_entry_count(), 1, f"{allowed.to_dict()}")
+        self.assertEqual(self.bank_transaction_payment_rows(), 1, f"{allowed.to_dict()}")
+        self.assertNotEqual(allowed.status, "error", f"{allowed.to_dict()}")
+        # Two refusals then one success: still ONE invoice for the payment, and the PE sits on it.
+        invoices = self.invoice_names(customer)
+        self.assertEqual(len(invoices), before + new_invoices, f"phantom invoices left behind: {invoices}")
+        self.assertIn(allowed.sales_invoice, invoices)
+        referenced = frappe.get_all(
+            "Payment Entry Reference",
+            filters={"parent": allowed.payment_entry, "reference_doctype": "Sales Invoice"},
+            pluck="reference_name",
+        )
+        self.assertEqual(referenced, [allowed.sales_invoice])
+
+    def refuse_once(self, run, customer, invoices_before):
         with patch.object(
             # Mock justified: stands in for a caller without submit permission (the real #383 outcome).
             BankTransactionCreator,
@@ -195,15 +224,45 @@ class TestOrchestratorDraftBankTransaction822(OrchestratorBase):
         self.assertEqual(self.docstatus(), 0)
         self.assertEqual(self.payment_entry_count(), 0, "a Payment Entry was booked against a draft")
         self.assertEqual(self.bank_transaction_payment_rows(), 0, "a Payment Entry was linked to a draft")
-
-        allowed = run()
-        self.assertEqual(self.docstatus(), 1, f"a caller who may submit never got to: {allowed.to_dict()}")
-        self.assertEqual(self.payment_entry_count(), 1, f"{allowed.to_dict()}")
-        self.assertEqual(self.bank_transaction_payment_rows(), 1, f"{allowed.to_dict()}")
-        self.assertNotEqual(allowed.status, "error", f"{allowed.to_dict()}")
+        self.assertEqual(
+            len(self.invoice_names(customer)), invoices_before, "a refused run wrote a Sales Invoice"
+        )
 
     def test_member_matched_reconcile_stops_at_a_draft_then_a_permitted_retry_processes_it(self):
-        self.assert_refused_then_allowed(self.member_matched_run())
+        self.assert_refused_then_allowed(self.member_matched_run(), customer=self.member.customer)
 
     def test_orphan_with_invoice_stops_at_a_draft_then_a_permitted_retry_processes_it(self):
-        self.assert_refused_then_allowed(self.orphan_with_invoice_run())
+        self.assert_refused_then_allowed(self.orphan_with_invoice_run(), new_invoices=1)
+
+    def test_member_matched_recovery_mode_writes_no_invoice_while_the_bank_transaction_is_a_draft(self):
+        """process_payment(create_missing_invoice=True) with no invoice to match: nothing is created
+        on a refused run, and one invoice exists after the permitted retry."""
+        payment = SimpleNamespace(
+            id=self.pid,
+            status="paid",
+            description="contributie",
+            customer_id=None,
+            subscription_id=None,
+            amount={"value": f"{AMOUNT:.2f}", "currency": "EUR"},
+            paid_at=f"{today()}T12:00:00+00:00",
+            details=None,
+        )
+        customer = self.member.customer
+        before = len(self.invoice_names(customer))
+        with patch.object(BankTransactionCreator, "_try_submit_existing_draft"), patch.object(
+            # Mock justified: a pass-through spy (wraps=); the real method still runs. It shows
+            # whether recovery mode REACHED invoice creation, which this fixture's member may
+            # refuse for lack of a membership and so leave no invoice to count.
+            self.orch,
+            "_create_invoice_if_safe",
+            wraps=self.orch._create_invoice_if_safe,
+        ) as create_invoice:
+            for _ in range(2):
+                result = self.orch.process_payment(
+                    self.pid, payment=payment, member_name=self.member.name, create_missing_invoice=True
+                )
+                self.assertEqual(result.status, "error", f"{result.to_dict()}")
+                self.assertEqual(len(self.invoice_names(customer)), before, "refused run wrote an invoice")
+                self.assertEqual(self.payment_entry_count(), 0)
+        self.assertEqual(self.docstatus(), 0)
+        self.assertEqual(create_invoice.call_count, 0, "invoice creation ran before the draft stop")

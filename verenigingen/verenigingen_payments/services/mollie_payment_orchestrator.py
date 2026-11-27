@@ -234,6 +234,16 @@ class MolliePaymentOrchestrator:
         )
         return result
 
+    def _draft_bank_transaction_blocks(self, payment_id: str, status, result) -> bool:
+        """True (result set to error) when this payment's Bank Transaction is still a draft (#822)."""
+        if not status.has_bank_transaction:
+            return False
+        result.bank_transaction = status.bank_transaction
+        if self._bank_transaction_is_submitted(payment_id, status.bank_transaction):
+            return False
+        self._stop_at_draft_bank_transaction(result)
+        return True
+
     def clear_bank_config_cache(self) -> None:
         """Reset the cached Mollie bank-account configuration (#867).
 
@@ -463,6 +473,11 @@ class MolliePaymentOrchestrator:
 
             result.member = member_name
 
+            # A draft Bank Transaction stops the run BEFORE anything is written (#822): an invoice
+            # created first would be created again on every refused retry.
+            if self._draft_bank_transaction_blocks(payment_id, status, result):
+                return result
+
             # Extract payment data
             from verenigingen.verenigingen_payments.utils.payment_data_extractor import (
                 get_payment_data_extractor,
@@ -492,8 +507,6 @@ class MolliePaymentOrchestrator:
             else:
                 result.bank_transaction = status.bank_transaction
                 result.actions_taken.append(f"Bank Transaction exists: {status.bank_transaction}")
-                if not self._bank_transaction_is_submitted(payment_id, status.bank_transaction):
-                    return self._stop_at_draft_bank_transaction(result)
 
             # Step 3: Create Payment Entry (if not exists and we have invoice)
             if not status.has_payment_entry:
@@ -1100,6 +1113,11 @@ class MolliePaymentOrchestrator:
                 result.skipped_reason = "Payment Entry was cancelled by staff; not booked again"
                 return result
 
+            # Before the orphan invoice exists: status.sales_invoice is empty until a Payment Entry
+            # exists, so an invoice made before this stop would be made again on every refused retry.
+            if self._draft_bank_transaction_blocks(payment_id, status, result):
+                return result
+
             result.actions_taken.append("WARNING: Processing as ORPHANED payment - no member match found")
 
             # Get or create orphaned payments customer
@@ -1147,8 +1165,6 @@ class MolliePaymentOrchestrator:
             else:
                 result.bank_transaction = status.bank_transaction
                 result.actions_taken.append(f"Bank Transaction exists: {status.bank_transaction}")
-                if not self._bank_transaction_is_submitted(payment_id, status.bank_transaction):
-                    return self._stop_at_draft_bank_transaction(result)
 
             # Create Payment Entry
             pe_name = self._create_orphan_payment_entry(

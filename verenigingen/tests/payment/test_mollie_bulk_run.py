@@ -357,6 +357,20 @@ class TestMollieBulkRun(EnhancedTestCase):
         svc._apply_result_to_row(row, result)
         self.assertEqual(row.row_status, "Skipped")
 
+    def test_still_a_draft_error_with_bt_maps_to_failed_so_resume_retries_it(self):
+        """#822: a draft Bank Transaction is unfinished, so the row is retryable, not terminal."""
+        from unittest.mock import MagicMock
+
+        row = MagicMock()
+        result = _mk_result(
+            "tr_test002d",
+            "error",
+            bank_transaction="BT-DRAFT-001",
+            error="Bank Transaction BT-DRAFT-001 is still a draft (submit refused or failed)",
+        )
+        svc._apply_result_to_row(row, result)
+        self.assertEqual(row.row_status, "Failed")
+
     def test_error_without_bt_still_maps_to_failed(self):
         """Orchestrator error with no BT → Failed (unchanged behavior)."""
         from unittest.mock import MagicMock
