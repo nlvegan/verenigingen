@@ -880,8 +880,20 @@ def process_sepa_return_file(file_content, file_type="csv"):
         for result in processed_returns:
             status = result.get("status")
             status_counts[status] = status_counts.get(status, 0) + 1
+        # A "processed" row can still carry dunning_failed: the reversal stands but the
+        # dues schedule was not dunned (#3347). Counted here so the file-level answer
+        # cannot be a lying success; the per-row flag alone is easy to miss.
+        dunning_failed = sum(1 for result in processed_returns if result.get("dunning_failed"))
+
+        # Read by the dashboard (getErrorMessage -> "message") to show a PARTIAL result.
+        partial = {}
+        if dunning_failed:
+            from verenigingen.services.billing.sepa_return_dunning_service import dunning_failed_message
+
+            partial["message"] = dunning_failed_message(dunning_failed)
 
         return {
+            **partial,
             # "success" means every return in this file was actually APPLIED -- not
             # merely that nothing threw, which is what it used to mean and is how #576
             # stayed invisible. Any row that is not "processed" is money the bank has
@@ -892,7 +904,9 @@ def process_sepa_return_file(file_content, file_type="csv"):
             # (log_ambiguous_refusal); "not_found" records nothing anywhere, which is
             # exactly why it may not be counted as a success. status_counts is what tells
             # the operator which of the four they are looking at.
-            "success": set(status_counts) <= {"processed"},
+            # A processed row whose dunning failed also needs a human (dunning_failed).
+            "success": set(status_counts) <= {"processed"} and not dunning_failed,
+            "dunning_failed": dunning_failed,
             "processed_returns": processed_returns,
             "total_processed": len(processed_returns),
             "status_counts": status_counts,
@@ -1082,18 +1096,32 @@ def process_individual_return(return_item):
                     "action": "Matched invoice has no submitted SEPA Direct Debit payment to reverse",
                 }
 
+            # Dunning (#3347): keyed on the cancelled Payment Entry, so a return is counted once.
+            from verenigingen.services.billing.sepa_return_dunning_service import record_failed_collection
+
+            dunning_outcome = record_failed_collection(
+                invoice_name,
+                reversed_payment_entry,
+                return_item.get("return_reason") or "",
+                return_item.get("return_code") or "",
+            )
+
             # Create failed payment record
             create_failed_payment_record(member[0], invoice_name, return_item)
 
             # Notify member of failed payment
             notify_member_of_failed_payment(member[0], invoice_name, return_item)
 
-            return {
+            result = {
                 "member_reference": return_item.get("member_reference"),
                 "invoice": invoice_name,
                 "status": "processed",
                 "action": "Payment reversed and member notified",
             }
+            if dunning_outcome == "failed":
+                result["dunning_failed"] = True
+                result["action"] += "; dunning FAILED, see Error Log 'SEPA Return Dunning Failed'"
+            return result
         else:
             return {
                 "member_reference": return_item.get("member_reference"),

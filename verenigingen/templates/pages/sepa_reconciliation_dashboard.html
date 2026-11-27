@@ -400,7 +400,18 @@ function processReturnFile() {
             },
             callback: function(r) {
                 const data = unwrapOperationResult(r.message);
-                if (data && (data.success !== false)) {
+                const partial = r.message;
+                if (partial && partial.dunning_failed > 0) {
+                    // PARTIAL result (#3347): the reversals stand, only the dues schedule was
+                    // not dunned. Not an "Error": warn, close and refresh so the user does
+                    // not re-upload a file that was applied.
+                    frappe.msgprint({
+                        message: escapeHtml(partial.message || ''),
+                        indicator: 'orange'
+                    });
+                    closeReturnFileModal();
+                    loadDashboardData();
+                } else if (data && (data.success !== false)) {
                     frappe.msgprint(`Processed ${data.total_processed} return items`);
                     closeReturnFileModal();
                     loadDashboardData();
