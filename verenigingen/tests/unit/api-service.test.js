@@ -10,6 +10,19 @@
  * retry timing uses a tiny retryDelay with real timers so the actual backoff path runs.
  */
 
+// operation-result-helpers.js (app_include_js) supplies verenigingen.utils.getHttpErrorMessage
+global.frappe = {
+	provide(path) {
+		let obj = global;
+		for (const part of path.split('.')) {
+			obj[part] = obj[part] || {};
+			obj = obj[part];
+		}
+		return obj;
+	}
+};
+global.__ = (text) => text;
+require('../../public/js/utils/operation-result-helpers.js');
 require('../../public/js/services/api-service.js');
 const APIService = window.APIService;
 
@@ -123,9 +136,9 @@ describe('APIService', () => {
 			await expect(api.call('some.method')).resolves.toEqual({ legacy: true });
 		});
 
-		test('rejects when the response carries a server exception', async () => {
-			respondWith({ exc: 'Traceback: boom' });
-			await expect(api.call('some.method')).rejects.toThrow('Traceback: boom');
+		test('rejects when the response carries a server exception, without the traceback (#2249)', async () => {
+			respondWith({ exc: 'Traceback: boom', exception: 'frappe.exceptions.ValidationError: boom' });
+			await expect(api.call('some.method')).rejects.toThrow(/^boom$/);
 		});
 
 		test('resolves the raw response when there is no message and no exc', async () => {

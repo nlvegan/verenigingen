@@ -170,7 +170,7 @@ export class ChapterAPI {
 			});
 
 			if (response.exc) {
-				throw new Error(response.exc);
+				throw this._errorFromResponse(response);
 			}
 
 			return response.message;
@@ -439,6 +439,21 @@ export class ChapterAPI {
 	}
 
 	/**
+	 * Error for a failed call body: readable text, never the raw traceback in `exc` (#2249).
+	 * The exception class travels on `excType` because the readable text no longer carries it
+	 * and handleError/shouldLogError classify by class.
+	 * @param {Object} response - parsed Frappe error body
+	 * @returns {Error}
+	 */
+	_errorFromResponse(response) {
+		const error = new Error(
+			verenigingen.utils.getHttpErrorMessage(response, '') || ChapterConfig.messages.errors.generic
+		);
+		error.excType = response.exc_type;
+		return error;
+	}
+
+	/**
 	 * Upload file
 	 * @param {File} file - File object
 	 * @param {Object} params - Upload parameters
@@ -458,7 +473,7 @@ export class ChapterAPI {
 				args: formData,
 				callback: (response) => {
 					if (response.exc) {
-						reject(new Error(response.exc));
+						reject(this._errorFromResponse(response));
 					} else {
 						resolve(response.message);
 					}
@@ -563,24 +578,25 @@ export class ChapterAPI {
 		let title = __('Error');
 		const indicator = 'red';
 
-		// Parse error message
+		// Parse error message (class name first: the readable text no longer carries it)
+		const kind = `${error.excType || ''} ${error.message || ''}`;
 		if (error.message) {
-			if (error.message.includes('PermissionError')) {
+			if (kind.includes('PermissionError')) {
 				message = ChapterConfig.messages.errors.permission;
 				title = __('Permission Denied');
-			} else if (error.message.includes('ValidationError')) {
+			} else if (kind.includes('ValidationError')) {
 				message = ChapterConfig.messages.errors.validation;
 				title = __('Validation Error');
-			} else if (error.message.includes('DoesNotExistError')) {
+			} else if (kind.includes('DoesNotExistError')) {
 				message = __('The requested item does not exist');
 				title = __('Not Found');
-			} else if (error.message.includes('DuplicateEntryError')) {
+			} else if (kind.includes('DuplicateEntryError')) {
 				message = __('This item already exists');
 				title = __('Duplicate Entry');
-			} else if (error.message.includes('timeout')) {
+			} else if (kind.includes('timeout')) {
 				message = ChapterConfig.messages.errors.timeout;
 				title = __('Timeout');
-			} else if (error.message.includes('Network')) {
+			} else if (kind.includes('Network')) {
 				message = ChapterConfig.messages.errors.network;
 				title = __('Network Error');
 			} else {
@@ -611,7 +627,9 @@ export class ChapterAPI {
 		// Don't log expected errors
 		const expectedErrors = ['PermissionError', 'ValidationError', 'DoesNotExistError', 'DuplicateEntryError'];
 
-		return !expectedErrors.some((e) => error.message?.includes(e));
+		const kind = `${error.excType || ''} ${error.message || ''}`;
+
+		return !expectedErrors.some((e) => kind.includes(e));
 	}
 
 	/**
