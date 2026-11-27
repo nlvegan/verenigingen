@@ -359,7 +359,9 @@ def _rel(path: Path) -> str:
         return str(path)
 
 
-def scan_file(path: Path, name_pattern=None) -> tuple[list[Finding], list[tuple[int, str]]]:
+def scan_file(
+    path: Path, name_pattern=None, unscannable: list | None = None
+) -> tuple[list[Finding], list[tuple[int, str]]]:
     """Return (findings, bad_pragmas) for one test file.
 
     `name_pattern` defaults to the GATE's pattern. It is threaded through as an
@@ -370,7 +372,11 @@ def scan_file(path: Path, name_pattern=None) -> tuple[list[Finding], list[tuple[
     try:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(path))
-    except (OSError, SyntaxError):
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        # A file the scan never examined must not count as clean (#2815): this
+        # gate has NO baseline, so a skipped file hides a finding for good.
+        if unscannable is not None:
+            unscannable.append(path)
         return [], []
 
     lines = source.splitlines()
@@ -430,10 +436,10 @@ def default_paths() -> list[str]:
     return [str(REPO_ROOT / root) for root in SCAN_ROOTS]
 
 
-def scan(paths, name_pattern=None) -> list[Finding]:
+def scan(paths, name_pattern=None, unscannable: list | None = None) -> list[Finding]:
     findings: list[Finding] = []
     for path in _iter_test_files(paths):
-        found, _bad = scan_file(path, name_pattern)
+        found, _bad = scan_file(path, name_pattern, unscannable)
         findings.extend(found)
     return findings
 
@@ -460,10 +466,18 @@ def main(argv: list[str]) -> int:
 
     findings: list[Finding] = []
     problems: list[str] = []
+    unscannable: list[Path] = []
     for path in _iter_test_files(paths):
-        found, bad = scan_file(path, pattern)
+        found, bad = scan_file(path, pattern, unscannable)
         findings.extend(found)
         problems.extend(f"{_rel(path)}:{ln}: {msg}" for ln, msg in bad)
+
+    if unscannable:
+        # Fails --stats/--audit too: their counts would silently omit these files.
+        print("\n\U0001f6d1 Cannot scan these test file(s), so the gate cannot vouch for them (#2815):\n")
+        for path in unscannable:
+            print(f"  {_rel(path)}")
+        return 1
 
     if args.stats or args.audit:
         label = "candidates (wide classification pattern)" if args.audit else "vacuous log-claiming tests"
