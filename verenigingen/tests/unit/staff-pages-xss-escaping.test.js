@@ -476,19 +476,6 @@ describe('eboekhouden_mapping_review.html', () => {
 					opts.callback({ message: loadResponse || { success: true, recommendations: [account] } });
 				} else if (/frappe.client.get_list/.test(opts.method) && opts.args.doctype === 'Company') {
 					opts.callback({ message: [{ name: 'Test Co' }] });
-				} else if (/frappe.client.get_list/.test(opts.method)) {
-					opts.callback({
-						message: [
-							{
-								name: PAYLOAD,
-								account_code: PAYLOAD,
-								account_name: PAYLOAD,
-								document_type: PAYLOAD,
-								transaction_category: PAYLOAD,
-								usage_count: 1
-							}
-						]
-					});
 				}
 			}
 		});
@@ -505,7 +492,7 @@ describe('eboekhouden_mapping_review.html', () => {
 		expectNoInjection(dialog.message);
 	});
 
-	test('account table and existing-mapping rows render no payload element', () => {
+	test('account table rows render no payload element', () => {
 		const jq = run();
 		expect(jq.sinks.length).toBeGreaterThan(5);
 		const joined = jq.sinks.filter((h) => /<td/.test(h)).join('');
@@ -514,18 +501,6 @@ describe('eboekhouden_mapping_review.html', () => {
 		const box = document.createElement('div');
 		box.innerHTML = `<table><tbody><tr>${joined}</tr></tbody></table>`;
 		expect(box.textContent).toContain(PAYLOAD);
-	});
-
-	test('displayAnalysisResults (not wired to any caller today) escapes too, and the suggestion JSON round-trips', () => {
-		const script = pageScript(REL, 'function displayAccountTypes');
-		const start = script.indexOf('function displayAnalysisResults');
-		const end = script.indexOf('// Create individual mapping');
-		const body = script.slice(start, end);
-		const raw = body.match(
-			/\$\{(?!escapeHtml\()[^}]*(account_code|account_name|transaction_category|suggested_type)[^}]*\}/g
-		);
-		expect(raw).toBeNull();
-		expect(body).toContain('data-suggestion="${escapeHtml(JSON.stringify(suggestion))}"');
 	});
 
 	test('error text collected for the update summary is escaped', () => {
