@@ -321,110 +321,6 @@ class ConfigurationManager:
         """
         return self._global_config.get(key, default)
 
-    def load_from_settings(self):
-        """Load configuration from Verenigingen Settings doctype."""
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
-
-            # Load common settings with defensive field access
-            self._safe_load_field(settings, "default_member_id_prefix", "member_id_prefix")
-            self._safe_load_field(settings, "enable_debug_logging", "debug_logging")
-
-            # Load service-specific settings
-            self._load_member_service_settings(settings)
-
-            self.logger.info("Loaded configuration from Verenigingen Settings")
-
-        except Exception as e:
-            self.logger.warning(f"Could not load settings from DocType: {str(e)}")
-
-    def _safe_load_field(self, settings, field_name: str, config_key: str, default=None):
-        """Safely load a field from settings with defensive checking.
-
-        Args:
-            settings: Settings document
-            field_name: Field name in the document
-            config_key: Configuration key to set
-            default: Default value if field doesn't exist
-        """
-        try:
-            if hasattr(settings, field_name):
-                value = getattr(settings, field_name, default)
-                if value is not None:
-                    self.set_global_config(config_key, value)
-                    self.logger.debug(f"Loaded {field_name} -> {config_key}: {value}")
-            else:
-                self.logger.debug(f"Field {field_name} not found in settings")
-        except Exception as e:
-            self.logger.warning(f"Error loading field {field_name}: {str(e)}")
-            if default is not None:
-                self.set_global_config(config_key, default)
-
-    def _load_member_service_settings(self, settings):
-        """Load member service specific settings.
-
-        Args:
-            settings: Verenigingen Settings document
-        """
-        member_config = self.get_service_config("member_services")
-
-        # Define field mappings with defaults and validation.
-        #
-        # Field names are the REAL Verenigingen Settings fieldnames (the loader
-        # previously referenced stale/renamed names which never matched, so the
-        # configured values silently fell through to the hardcoded defaults):
-        #   member_id_start_number -> member_id_start
-        #
-        # `id_length` and `default_status` have NO corresponding field on the
-        # current Verenigingen Settings doctype, so they keep their hardcoded
-        # defaults (no field mapping) instead of referencing a phantom field.
-        #
-        # A `minimum_membership_age -> minimum_age` mapping used to live here,
-        # with a hardcoded default of 16 and min_val=0 -- silently accepting the
-        # exact missing/zero setting that AgeValidator._get_configurable_min_age
-        # deliberately refuses on. No consumer of member_config.get("minimum_age")
-        # ever existed (grepped: only this line and its own test read it), so the
-        # contradiction was reachable by nothing. Removed rather than reconciled
-        # with the policy it never enforced (#673); age minimums for actual
-        # validation are sourced solely from AgeValidator._get_configurable_min_age.
-        field_mappings = [
-            ("member_id_start", "id_start_number", 1000, int, 1, 999999),
-        ]
-
-        # Config keys with no backing settings field: seed their defaults so
-        # downstream consumers still get a value.
-        member_config.set("id_length", 6)
-        member_config.set("default_status", "Active")
-
-        # Load each field safely with validation
-        for field_name, config_key, default_value, expected_type, min_val, max_val in field_mappings:
-            try:
-                if hasattr(settings, field_name):
-                    value = getattr(settings, field_name, default_value)
-                    if value is not None:
-                        # Add type and range validation
-                        if expected_type in (int, float) and min_val is not None and max_val is not None:
-                            member_config.add_type_validator(config_key, expected_type, min_val, max_val)
-                        elif expected_type == str:
-                            member_config.add_type_validator(config_key, expected_type)
-
-                        try:
-                            member_config.validate_and_set(config_key, value)
-                            self.logger.debug(f"Loaded member service {field_name} -> {config_key}: {value}")
-                        except ValueError as ve:
-                            self.logger.warning(
-                                f"Validation failed for {field_name}, using default: {str(ve)}"
-                            )
-                            member_config.set(config_key, default_value)
-                    else:
-                        member_config.set(config_key, default_value)
-                else:
-                    member_config.set(config_key, default_value)
-                    self.logger.debug(f"Using default for {field_name}: {default_value}")
-            except Exception as e:
-                self.logger.warning(f"Error loading member service field {field_name}: {str(e)}")
-                member_config.set(config_key, default_value)
-
     def save_to_file(self, file_path: str):
         """Save configuration to a JSON file.
 
@@ -558,13 +454,16 @@ _global_config_manager = None
 def get_config_manager() -> ConfigurationManager:
     """Get the global configuration manager instance.
 
+    Holds no Verenigingen Settings values: a per-process singleton is never
+    invalidated when the Single is saved, so settings are read at the point of
+    use (frappe.db.get_single_value / frappe.get_cached_doc) instead (#927).
+
     Returns:
         Global ConfigurationManager instance
     """
     global _global_config_manager
     if _global_config_manager is None:
         _global_config_manager = ConfigurationManager()
-        _global_config_manager.load_from_settings()
         EnvironmentConfig.load_environment_config(_global_config_manager)
     return _global_config_manager
 
