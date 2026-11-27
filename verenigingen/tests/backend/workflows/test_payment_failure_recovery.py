@@ -193,7 +193,6 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "iban": "NL91ABNA0417164300",
                 "bic": "ABNANL2A",
                 "account_holder_name": f"{member.first_name} {member.last_name}",
-                "mandate_date": today(),
                 "sign_date": today(),
                 "mandate_reference": f"MANDATE-{unique_id}",
                 "status": "Active",
