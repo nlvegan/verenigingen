@@ -111,6 +111,22 @@ describe('ChapterAPI', () => {
 		expect(api.shouldLogError(new Error('boom'))).toBe(true);
 	});
 
+	test('handleError keeps the class-specific title for a PermissionError (class from excType)', async () => {
+		global.frappe.msgprint = jest.fn();
+		global.frappe.call = jest.fn(async () =>
+			failureBody({
+				exc_type: 'PermissionError',
+				exception: 'frappe.exceptions.PermissionError: Not allowed here',
+				_server_messages: JSON.stringify([JSON.stringify({ message: 'Not allowed here' })])
+			})
+		);
+		const api = new ChapterAPI();
+		const error = await api._makeCall('some.method', {}, { retry: false, showError: false }).catch((e) => e);
+		api.handleError(error, 'some.method');
+		expect(global.frappe.msgprint).toHaveBeenCalledTimes(1);
+		expect(global.frappe.msgprint.mock.calls[0][0].title).toBe('Permission Denied');
+	});
+
 	test('a real failure through _makeCall is classified as expected (not logged to the server)', async () => {
 		global.frappe.call = jest.fn(async () => failureBody());
 		const api = new ChapterAPI();
