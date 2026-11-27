@@ -204,7 +204,7 @@ def create_ideal_order(
             - success: bool
             - transaction_id: Pay.nl order ID
             - redirect_url: URL to redirect user for payment
-            - reference: Structured reference (DOCTYPE_CODE:DOCUMENT_NAME)
+            - reference: Structured reference (DOCTYPE_CODE-DOCUMENT_NAME; Pay.nl refuses ":" with a 422, #2057)
             - message: Status message
     """
     try:
