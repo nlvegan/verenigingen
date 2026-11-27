@@ -53,7 +53,7 @@ class TestGetDocInLoops2909(EnhancedTestCase):
         name = f"G2909{level}{frappe.generate_hash(length=6)}"
         return self.factory.ensure_chapter_role(name, {"permissions_level": level}).name
 
-    def _seat(self, chapter_name, volunteer_name, role, active=1):
+    def _add_board_seat_2909(self, chapter_name, volunteer_name, role, active=1):
         chapter = frappe.get_doc("Chapter", chapter_name)
         chapter.append(
             "board_members",
@@ -96,7 +96,7 @@ class TestGetDocInLoops2909(EnhancedTestCase):
             "Volunteer", good.name, {"email": "", "personal_email": good_user.email}, update_modified=False
         )
         for vol in (disabled, no_email, stray, good):
-            self._seat(chapter.name, vol.name, role)
+            self._add_board_seat_2909(chapter.name, vol.name, role)
         return chapter, subject, good_user
 
     def test_board_financial_approver_skips_unusable_seats_and_is_constant_query(self):
@@ -118,7 +118,7 @@ class TestGetDocInLoops2909(EnhancedTestCase):
         disabled, _ = self._volunteer("ndis", enabled=0)
         no_email, _ = self._volunteer("nnoem", with_user=False)
         for vol in (disabled, no_email):
-            self._seat(chapter.name, vol.name, role)
+            self._add_board_seat_2909(chapter.name, vol.name, role)
         self.assertIsNone(self._approver(subject.name).get_board_financial_approver(chapter.name))
 
     # -------------------------------------------- can_view_members_without_chapter
@@ -132,7 +132,7 @@ class TestGetDocInLoops2909(EnhancedTestCase):
         frappe.db.set_value("Member", member.name, "user", user.name, update_modified=False)
         for index, level in enumerate(levels):
             chapter = self.ensure_test_chapter(f"G2909V{index}{frappe.generate_hash(length=4)}")
-            self._seat(chapter.name, volunteer.name, self._role(level), active=0 if index in inactive else 1)
+            self._add_board_seat_2909(chapter.name, volunteer.name, self._role(level), active=0 if index in inactive else 1)
         return user
 
     def _can_view_as(self, user):
@@ -173,7 +173,7 @@ class TestGetDocInLoops2909(EnhancedTestCase):
         chapter = self.ensure_test_chapter(f"G2909I{frappe.generate_hash(length=4)}")
         subject, _ = self._volunteer("isubj", with_user=False)
         inactive, _ = self._volunteer("inact")
-        self._seat(chapter.name, inactive.name, self._role("Financial"), active=0)
+        self._add_board_seat_2909(chapter.name, inactive.name, self._role("Financial"), active=0)
         self.assertIsNone(self._approver(subject.name).get_board_financial_approver(chapter.name))
 
     def test_approver_lowest_idx_wins_and_email_case_is_ignored(self):
@@ -184,8 +184,8 @@ class TestGetDocInLoops2909(EnhancedTestCase):
         # The first seat's volunteer stores the address in a different case than the User name.
         frappe.db.set_value("Volunteer", first.name, "email", first_user.email.upper(), update_modified=False)
         role = self._role("Financial")
-        self._seat(chapter.name, first.name, role)
-        self._seat(chapter.name, second.name, role)
+        self._add_board_seat_2909(chapter.name, first.name, role)
+        self._add_board_seat_2909(chapter.name, second.name, role)
 
         self.assertEqual(
             self._approver(subject.name).get_board_financial_approver(chapter.name), first_user.email.upper()
