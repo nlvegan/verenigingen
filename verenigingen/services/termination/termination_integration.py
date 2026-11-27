@@ -17,11 +17,14 @@ whether an exemption's stated reason is true, so the four exemptions in
 ``termination_execution_service`` remain a human claim. #470.
 """
 
+from contextlib import contextmanager
+
 import frappe
 from frappe.utils import today
 
 from verenigingen.services.volunteer.status_derivation_service import CURRENT_ASSIGNMENT_STATUSES
 from verenigingen.utils import append_to_text_field
+from verenigingen.utils.constants import Roles
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
@@ -560,6 +563,76 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
     except Exception as e:
         frappe.logger().error(f"Failed to update member {member_name}: {str(e)}")
         return False
+
+
+PROTECTED_USERS_FLAG = "termination_protected_users"
+
+
+def _live_staff_check(user_email):
+    """(protected, cause) from a fresh staff check; an erroring check protects (fail closed)."""
+    from verenigingen.services.member.account.member_role_service import MemberRoleService
+
+    try:
+        return bool(MemberRoleService._is_staff_account(user_email)), None
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception as e:
+        return True, e
+
+
+def classify_termination_user(member_name):
+    """#3219: classify the member's User ONCE, before any termination step runs.
+
+    A board-seat end re-derives the user's roles from role profiles and so can strip System
+    Manager BEFORE the deactivate step looks, which would then see an ordinary user. Returns
+    {user_email: None | cause}; a user in it is protected (staff, or unclassifiable and so
+    failed closed). "*" stands for every user when even the lookup failed.
+    """
+    try:
+        user_email = frappe.db.get_value("Member", member_name, "user")
+        if not user_email or not frappe.db.exists("User", user_email):
+            return {}
+        protected, cause = _live_staff_check(user_email)
+        return {user_email: cause} if protected else {}
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception as e:
+        return {"*": e}
+
+
+def user_protection(user_email):
+    """(protected, cause) for a termination step about to touch `user_email`.
+
+    Reads the classification taken at the start of the termination (PROTECTED_USERS_FLAG);
+    with none in force (a direct call such as a suspension) it checks live.
+    """
+    classified = frappe.flags.get(PROTECTED_USERS_FLAG)
+    if classified is None:
+        return _live_staff_check(user_email)
+    for key in (user_email, "*"):
+        if key in classified:
+            return True, classified[key]
+    return False, None
+
+
+@contextmanager
+def termination_user_protection(member_name):
+    """#3219: classify the member's User once and hold it for every step run inside the block.
+
+    Every entry point that runs termination steps (TerminationExecutor, execute_safe_termination)
+    wraps them in this, so a board-seat end cannot strip System Manager before the deactivate
+    step looks. The previous flag value is restored on exit, including on an exception.
+    """
+    had_flag = PROTECTED_USERS_FLAG in frappe.flags
+    previous = frappe.flags.get(PROTECTED_USERS_FLAG)
+    frappe.flags[PROTECTED_USERS_FLAG] = classify_termination_user(member_name)
+    try:
+        yield
+    finally:
+        if had_flag:
+            frappe.flags[PROTECTED_USERS_FLAG] = previous
+        else:
+            frappe.flags.pop(PROTECTED_USERS_FLAG, None)
 
 
 def _record_termination_failure(failures, title, message, user_message):
@@ -1139,9 +1212,83 @@ def restore_team_memberships_safe(member_name, restoration_reason, failures=None
         return 0
 
 
-def deactivate_user_account_safe(member_name, termination_type, reason, suspend_only=False):
+def _staff_alert_recipients(excluded_user):
+    """Enabled System Users holding Verenigingen Administrator (maintainer ruling, #3219 part 4;
+    not System Manager holders), minus the terminated user. A ToDo's ``role`` gates nothing (see held_reversals.treasurer_users), so each
+    recipient gets their own allocated ToDo."""
+    holders = frappe.get_all(
+        "Has Role", filters={"role": Roles.VERENIGINGEN_ADMIN, "parenttype": "User"}, pluck="parent"
+    )
+    holders = [user for user in holders if user != excluded_user]
+    if not holders:
+        return []
+    return frappe.get_all(
+        "User",
+        filters={"name": ["in", holders], "enabled": 1, "user_type": "System User"},
+        pluck="name",
+    )
+
+
+def _refuse_staff_deactivation(member_name, user_email, failures, cause=None):
+    """#3219: record a refused (or unclassifiable) user deactivation where a human sees it.
+
+    An Error Log row plus one ToDo per staff recipient; `failures` carries the operator line
+    into the termination's own audit trail. The ToDo is best effort: the refusal itself is
+    already in force, so a failure to raise it is logged, never allowed to undo the refusal.
+    """
+    if cause is None:
+        title = "Termination: staff user account NOT deactivated"
+        detail = (
+            f"User {user_email} (linked to member {member_name}) is a staff account "
+            "(Administrator or System Manager). Its roles, role profiles and enabled flag were "
+            "left untouched; decide by hand whether the account should be changed."
+        )
+    else:
+        title = "Termination: user account NOT deactivated, staff check failed"
+        detail = (
+            f"Could not tell whether {user_email} (linked to member {member_name}) is a staff "
+            f"account: {cause}. Failing closed: roles, role profiles and enabled flag were left "
+            "untouched; decide by hand whether the account should be changed."
+        )
+    _record_termination_failure(
+        failures,
+        title,
+        detail,
+        f"User account {user_email} was NOT deactivated: staff account, left untouched (see ToDo)",
+    )
+    try:
+        for recipient in _staff_alert_recipients(user_email) or ["Administrator"]:
+            todo = frappe.get_doc(
+                {
+                    "doctype": "ToDo",
+                    "description": detail,
+                    "priority": "High",
+                    "status": "Open",
+                    "allocated_to": recipient,
+                    "reference_type": "Member",
+                    "reference_name": member_name,
+                }
+            )
+            # Security: ignore_permissions is safe here: a system-generated alert for staff, its
+            # text built from ids above; the actor is a termination executor who may lack ToDo rights.
+            todo.insert(ignore_permissions=True)
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception as e:
+        frappe.log_error(
+            title="Termination: staff-account ToDo not created",
+            message=f"Member {member_name}, user {user_email}: {e}\n{frappe.get_traceback()}",
+        )
+
+
+def deactivate_user_account_safe(member_name, termination_type, reason, suspend_only=False, failures=None):
     """
     Deactivate or suspend backend user account for terminated member
+
+    #3219: a staff user (Administrator, or holding System Manager) is NEVER touched -- no
+    roles, role profiles or enabled change. The refusal is recorded (Error Log, ToDo for
+    staff, a line in `failures`) and False is returned. The same happens, failing closed,
+    when the staff check itself errors.
     """
     try:
         # Get the user associated with this member
@@ -1154,6 +1301,11 @@ def deactivate_user_account_safe(member_name, termination_type, reason, suspend_
         if not frappe.db.exists("User", user_email):
             frappe.logger().info(f"User {user_email} does not exist")
             return True
+
+        is_staff, check_error = user_protection(user_email)
+        if is_staff:
+            _refuse_staff_deactivation(member_name, user_email, failures, cause=check_error)
+            return False
 
         user_doc = frappe.get_doc("User", user_email)
 
@@ -1692,6 +1844,20 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                     sync_user_role_profile,
                 )
 
+                # #3219: the sync REPLACES role_profiles and User.validate re-derives roles from
+                # them, so it must not run for a staff user (whose deactivation was refused), nor
+                # when the staff check itself errors (fail closed).
+                skip_sync, skip_cause = user_protection(user_email)
+                if skip_sync:
+                    _record_termination_failure(
+                        results["errors"],
+                        "Termination: staff user role profile NOT recalculated",
+                        f"User {user_email} (member {member_name}): role profile sync skipped, "
+                        f"{'staff account' if skip_cause is None else f'staff check failed: {skip_cause}'}.",
+                        f"Role profile of {user_email} was NOT recalculated: staff account, left untouched",
+                    )
+                    return results
+
                 # #2597: a RAISE here used to reach the outer handler, which discards `results`
                 # and returns volunteers_terminated=0 although the volunteers above were already
                 # saved Inactive. Report it like a success=False return and keep the count.
@@ -1737,6 +1903,20 @@ def terminate_employee_records_safe(member_name, termination_type, termination_d
 
         # Get user email to find employee records
         user_email = frappe.db.get_value("Member", member_name, "user")
+
+        # #3219 (ruling part 3): ERPNext's Employee.update_user_status disables the linked User
+        # when the Employee leaves, so a protected user's Employee is left as it is.
+        if user_email:
+            protected, check_error = user_protection(user_email)
+            if protected:
+                _record_termination_failure(
+                    results["errors"],
+                    "Termination: staff user's Employee record NOT updated",
+                    f"User {user_email} (member {member_name}): Employee step skipped, "
+                    f"{'staff account' if check_error is None else f'staff check failed: {check_error}'}.",
+                    f"Employee record of {user_email} was NOT updated: staff account, left untouched",
+                )
+                return results
 
         # Method 1: Find employee records linked via user_id - enhanced detection
         employee_records = []

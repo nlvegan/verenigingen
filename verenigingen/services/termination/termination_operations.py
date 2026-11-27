@@ -301,14 +301,20 @@ class DeactivateUserAccountOperation(TerminationOperation):
             f"Request: {self.termination_request.name}"
         )
 
+        # #3219: a refused staff account explains itself through `failures`.
+        failures = []
         if deactivate_user_account_safe(
-            self.member_name, self.termination_request.termination_type, termination_reason
+            self.member_name,
+            self.termination_request.termination_type,
+            termination_reason,
+            failures=failures,
         ):
             results.user_deactivated = True
             results.record_action("Deactivated user account")
         else:
             results.user_deactivated = False
-            results.record_error("Failed to deactivate user account")
+            for failure in failures or ["Failed to deactivate user account"]:
+                results.record_error(failure)
 
 
 class TerminateVolunteerRecordsOperation(TerminationOperation):
@@ -627,7 +633,15 @@ class TerminationExecutor:
     def execute(self) -> Dict:
         """Execute all operations in sequence and return results"""
         results = TerminationResults()
+        from verenigingen.services.termination.termination_integration import termination_user_protection
 
+        # #3219: classify the member's User once, before any step can change its roles.
+        with termination_user_protection(self.operations[0].member_name):
+            self._execute_operations(results)
+
+        return results.to_dict()
+
+    def _execute_operations(self, results: TerminationResults) -> None:
         for operation in self.operations:
             if not operation.is_enabled():
                 frappe.logger().debug(f"Skipping disabled operation: {operation.operation_name}")
@@ -649,5 +663,3 @@ class TerminationExecutor:
             f"Termination execution completed: {len(results.actions_taken)} actions, "
             f"{len(results.errors)} errors"
         )
-
-        return results.to_dict()
