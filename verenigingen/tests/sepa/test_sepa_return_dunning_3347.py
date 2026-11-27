@@ -18,6 +18,7 @@ from verenigingen.services.billing import sepa_return_dunning_service as dunning
 from verenigingen.tests.payment.test_sepa_reconciliation import ReconBase
 from verenigingen.tests.support.invoice_payments import receive_against_invoice
 from verenigingen.verenigingen_payments.api import sepa_reconciliation as recon
+from verenigingen.verenigingen_payments.utils.sepa_return_parser import SEPA_RETURN_REASON_CODES
 from verenigingen.verenigingen_payments.utils import bank_transaction_reconciliation as btr
 
 
@@ -48,13 +49,13 @@ class TestSepaReturnDunning3347(ReconBase):
         )
         return invoice, pe
 
-    def _return(self, amount):
+    def _return(self, amount, code="AM04"):
         return recon.process_individual_return(
             {
                 "member_reference": self.member_id,
                 "amount": amount,
-                "return_reason": "Insufficient funds",
-                "return_code": "AM04",
+                "return_reason": SEPA_RETURN_REASON_CODES.get(code, "x"),
+                "return_code": code,
             }
         )
 
@@ -142,13 +143,13 @@ class TestSepaReturnDunning3347(ReconBase):
 
     # ---- pain.002 path ----------------------------------------------------------
 
-    def _pain002(self, invoice_name, reason_text):
+    def _pain002(self, invoice_name, reason_text, code="AM04"):
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.002.001.03">
   <CstmrPmtStsRpt><OrgnlPmtInfAndSts><TxInfAndSts>
     <OrgnlEndToEndId>E2E-{invoice_name}</OrgnlEndToEndId>
     <TxSts>RJCT</TxSts>
-    <StsRsnInf><Rsn><Cd>AM04</Cd></Rsn><AddtlInf>{reason_text}</AddtlInf></StsRsnInf>
+    <StsRsnInf><Rsn><Cd>{code}</Cd></Rsn><AddtlInf>{reason_text}</AddtlInf></StsRsnInf>
   </TxInfAndSts></OrgnlPmtInfAndSts></CstmrPmtStsRpt>
 </Document>"""
 
@@ -188,18 +189,14 @@ class TestSepaReturnDunning3347(ReconBase):
     # ---- sweep (success side) -----------------------------------------------------
 
     def _age_failures(self, days):
-        """Back-date the counted-failure markers (probe shortcut: time travel)."""
-        when = add_to_date(now_datetime(), days=-days)
-        for name in frappe.get_all(
-            "Comment",
-            filters={
-                "reference_doctype": "Membership Dues Schedule",
-                "reference_name": self.schedule,
-                "content": ["like", f"{dunning.FAILURE_MARKER_PREFIX}%"],
-            },
-            pluck="name",
-        ):
-            frappe.db.set_value("Comment", name, "creation", when, update_modified=False)
+        """Back-date last_failure_on (probe shortcut: time travel)."""
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            self.schedule,
+            "last_failure_on",
+            add_to_date(now_datetime(), days=-days),
+            update_modified=False,
+        )
 
     def _age_collection(self, pe, days):
         frappe.db.set_value(
@@ -287,3 +284,131 @@ class TestSepaReturnDunning3347(ReconBase):
             "verenigingen.services.billing.sepa_return_dunning_service.reset_failures_after_clean_window",
             scheduler_events["daily"],
         )
+
+    # ---- part 4 rulings ---------------------------------------------------------------
+
+    def test_classification_of_every_return_code(self):
+        """The debtor-fault set is exactly the ruled one; every other code in the app's table is out."""
+        expected = {"AC04", "AC06", "AM04", "MS02", "MS03"}
+        self.assertEqual(set(dunning.DEBTOR_FAULT_RETURN_CODES), expected)
+        self.assertTrue(expected <= set(SEPA_RETURN_REASON_CODES))
+        for code in set(SEPA_RETURN_REASON_CODES) - expected:
+            self.assertNotIn(code, dunning.DEBTOR_FAULT_RETURN_CODES)
+
+    def test_non_debtor_fault_return_is_reversed_logged_and_never_dunned(self):
+        for code in ("MD01", "FF01", "AM05"):
+            self.expectErrorLog("SEPA Return Not Dunned")
+            self._collect()
+            result = self._return(self._amount, code=code)
+            self.assertEqual(result["status"], "processed", msg=result)
+            self.assertNotIn("dunning_failed", result)
+        sched = self._schedule()
+        self.assertEqual(sched.status, "Active")
+        self.assertEqual(cint(sched.consecutive_failures), 0)
+        self.assertTrue(frappe.db.exists("Error Log", {"method": "SEPA Return Not Dunned"}))
+
+    def test_a_return_without_a_reason_code_is_not_dunned(self):
+        self.expectErrorLog("SEPA Return Not Dunned")
+        self._collect()
+        self.assertEqual(self._return(self._amount, code="")["status"], "processed")
+        self.assertEqual(cint(self._schedule().consecutive_failures), 0)
+
+    def test_pain002_rejection_with_a_technical_reason_is_not_dunned(self):
+        self.expectErrorLog("Mollie Account Configuration")
+        self.expectErrorLog("SEPA Return Not Dunned")
+        invoice = self._unpaid_linked_invoice()
+        btr.process_sepa_return_file(self._pain002(invoice.name, "x", code="FF01"), file_type="pain.002")
+        self.assertEqual(cint(self._schedule().consecutive_failures), 0)
+        self.assertEqual(self._schedule().status, "Active")
+
+    def test_staff_suspended_schedule_with_zero_failures_stays_suspended_with_one(self):
+        frappe.db.set_value("Membership Dues Schedule", self.schedule, "status", "Suspended")
+        self.assertEqual(cint(self._schedule().consecutive_failures), 0)
+        self._fail_once()
+        sched = self._schedule()
+        self.assertEqual(sched.status, "Suspended")
+        self.assertEqual(cint(sched.consecutive_failures), 1)
+        self.assertFalse(sched.grace_period_until)
+
+    # ---- dedicated fields (R3, D1) ---------------------------------------------------------
+
+    def test_failure_is_recorded_in_the_dedicated_fields(self):
+        _, pe = self._fail_once()
+        doc = frappe.get_doc("Membership Dues Schedule", self.schedule)
+        self.assertTrue(doc.last_failure_on)
+        self.assertEqual([row.return_key for row in doc.counted_returns], [pe.name])
+
+    def test_keys_sharing_a_prefix_are_both_counted(self):
+        """D1: the old LIKE '%key%' dedupe would drop ...-00012 as a duplicate of ...-0001.
+
+        Calls the service directly (the key shape is what is under test)."""
+        invoice, _ = self._collect()
+        for key in ("PE-00012", "PE-0001"):
+            self.assertEqual(
+                dunning.record_failed_collection(invoice.name, key, "x", "AM04"), dunning.COUNTED
+            )
+        self.assertEqual(
+            dunning.record_failed_collection(invoice.name, "PE-0001", "x", "AM04"), dunning.DUPLICATE
+        )
+        self.assertEqual(cint(self._schedule().consecutive_failures), 2)
+
+    # ---- D2: counter without a timestamp ---------------------------------------------------------
+
+    def test_hand_set_counter_without_timestamp_falls_back_to_modified_and_logs_once(self):
+        """Probe shortcut: the counter is set directly, as legacy data / staff would."""
+        self._settings(auto_apply=1)
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            self.schedule,
+            {
+                "consecutive_failures": 2,
+                "last_failure_on": None,
+                "modified": add_to_date(now_datetime(), days=-30),
+            },
+            update_modified=False,
+        )
+        self.expectErrorLog("SEPA Return Dunning Unknown Failure Date")
+        _, pe = self._collect()
+        self._age_collection(pe, dunning.SEPA_RETURN_WINDOW_DAYS + 1)
+        before = frappe.db.count("Error Log", {"method": "SEPA Return Dunning Unknown Failure Date"})
+        self.assertEqual(dunning.reset_failures_after_clean_window(), 1)
+        self.assertEqual(cint(self._schedule().consecutive_failures), 0)
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "SEPA Return Dunning Unknown Failure Date"}), before + 1
+        )
+
+    def test_hand_set_counter_with_only_a_young_collection_is_left_and_logged_once(self):
+        frappe.db.set_value(
+            "Membership Dues Schedule",
+            self.schedule,
+            {"consecutive_failures": 2, "last_failure_on": None, "modified": add_to_date(now_datetime(), days=-30)},
+            update_modified=False,
+        )
+        self.expectErrorLog("SEPA Return Dunning Unknown Failure Date")
+        _, pe = self._collect()
+        self._age_collection(pe, 3)
+        self.assertEqual(dunning.reset_failures_after_clean_window(), 0)
+        n = frappe.db.count("Error Log", {"method": "SEPA Return Dunning Unknown Failure Date"})
+        self.assertEqual(dunning.reset_failures_after_clean_window(), 0)
+        self.assertEqual(frappe.db.count("Error Log", {"method": "SEPA Return Dunning Unknown Failure Date"}), n)
+        self.assertEqual(cint(self._schedule().consecutive_failures), 2)
+
+    # ---- D3: dunning failure is visible in the result ----------------------------------------------
+
+    def test_a_dunning_failure_is_signalled_in_the_result_and_the_reversal_stands(self):
+        from unittest.mock import patch
+
+        self.expectErrorLog("SEPA Return Dunning Failed")
+        invoice, pe = self._collect()
+        # Mock justified: fault injected at the schedule save; no real input makes it raise here.
+        with patch(
+            "verenigingen.verenigingen.doctype.membership_dues_schedule."
+            "membership_dues_schedule.MembershipDuesSchedule.save",
+            side_effect=RuntimeError("boom-3347"),
+        ):
+            result = self._return(self._amount)
+        self.assertEqual(result["status"], "processed", msg=result)
+        self.assertTrue(result.get("dunning_failed"), msg=result)
+        self.assertEqual(frappe.db.get_value("Payment Entry", pe.name, "docstatus"), 2)
+        self.assertEqual(cint(self._schedule().consecutive_failures), 0)
+        self.assertTrue(frappe.db.exists("Error Log", {"method": "SEPA Return Dunning Failed"}))

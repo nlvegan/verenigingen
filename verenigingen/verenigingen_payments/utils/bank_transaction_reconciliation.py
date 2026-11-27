@@ -2876,7 +2876,7 @@ def handle_payment_rejection(end_to_end_id, reason_code, reason_text, file_key=N
     if file_key:
         from verenigingen.services.billing.sepa_return_dunning_service import record_failed_collection
 
-        record_failed_collection(invoice_name, f"pain002-{file_key}-{invoice_name}", reason_code)
+        record_failed_collection(invoice_name, f"pain002-{file_key}-{invoice_name}", reason_text, reason_code)
 
     # Schedule retry
     from verenigingen.verenigingen_payments.utils.payment_retry import PaymentRetryManager

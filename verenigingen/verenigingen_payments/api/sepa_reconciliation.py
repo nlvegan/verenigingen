@@ -1085,8 +1085,11 @@ def process_individual_return(return_item):
             # Dunning (#3347): keyed on the cancelled Payment Entry, so a return is counted once.
             from verenigingen.services.billing.sepa_return_dunning_service import record_failed_collection
 
-            record_failed_collection(
-                invoice_name, reversed_payment_entry, return_item.get("return_reason") or ""
+            dunning_outcome = record_failed_collection(
+                invoice_name,
+                reversed_payment_entry,
+                return_item.get("return_reason") or "",
+                return_item.get("return_code") or "",
             )
 
             # Create failed payment record
@@ -1095,12 +1098,16 @@ def process_individual_return(return_item):
             # Notify member of failed payment
             notify_member_of_failed_payment(member[0], invoice_name, return_item)
 
-            return {
+            result = {
                 "member_reference": return_item.get("member_reference"),
                 "invoice": invoice_name,
                 "status": "processed",
                 "action": "Payment reversed and member notified",
             }
+            if dunning_outcome == "failed":
+                result["dunning_failed"] = True
+                result["action"] += "; dunning FAILED, see Error Log 'SEPA Return Dunning Failed'"
+            return result
         else:
             return {
                 "member_reference": return_item.get("member_reference"),

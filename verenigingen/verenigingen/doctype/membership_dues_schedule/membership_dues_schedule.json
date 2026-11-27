@@ -18,6 +18,8 @@
   "payment_plan",
   "grace_period_until",
   "consecutive_failures",
+  "last_failure_on",
+  "counted_returns",
   "billing_frequency",
   "custom_frequency_number",
   "custom_frequency_unit",
@@ -167,6 +169,22 @@
    "fieldtype": "Int",
    "label": "Consecutive Payment Failures",
    "non_negative": 1
+  },
+  {
+   "description": "When the latest SEPA return was counted against this schedule (#3347).",
+   "fieldname": "last_failure_on",
+   "fieldtype": "Datetime",
+   "label": "Last Payment Failure On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "counted_returns",
+   "fieldtype": "Table",
+   "hidden": 1,
+   "label": "Counted SEPA Returns",
+   "no_copy": 1,
+   "options": "Membership Dues Schedule Return",
+   "read_only": 1
   },
   {
    "default": "Annual",

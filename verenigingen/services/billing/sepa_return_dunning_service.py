@@ -22,7 +22,7 @@ reset the counter and the 3rd failure could never be reached (maintainer ruling,
 from typing import Optional
 
 import frappe
-from frappe.utils import add_days, cint, getdate, today
+from frappe.utils import add_days, cint, getdate, now_datetime, today
 
 from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS, rollback_to_savepoint
 
@@ -39,32 +39,55 @@ SEPA_RETURN_WINDOW_DAYS = 14
 SUSPEND_AFTER_FAILURES = 3
 DEFAULT_GRACE_PERIOD_DAYS = 30
 
-# Content prefix of the Comment on the schedule that records one counted failure. It is the
-# idempotency record (one per return key) and the timestamp the sweep measures against.
-FAILURE_MARKER_PREFIX = "SEPA return counted: "
+# Return reason codes (ISO 20022 / SEPA, ``SEPA_RETURN_REASON_CODES``) that are the DEBTOR's
+# fault and therefore dun (maintainer ruling, #3347 part 4). Every other code (bank,
+# creditor, mandate and technical reasons) is logged and never dunned; a code that cannot
+# be classified confidently stays out of this set. Classification of all 35 codes is in the
+# PR body.
+DEBTOR_FAULT_RETURN_CODES = frozenset({"AC04", "AC06", "AM04", "MS02", "MS03"})
+
+COUNTED = "counted"
+DUPLICATE = "duplicate"
+IGNORED = "ignored"
+FAILED = "failed"
 
 _DUNNING_STATES = ("Active", "Grace Period", "Suspended")
 
 
-def record_failed_collection(invoice_name: str, return_key: str, reason: str = "") -> Optional[str]:
+def record_failed_collection(
+    invoice_name: str, return_key: str, reason: str = "", reason_code: str = ""
+) -> str:
     """Count one failed SEPA collection of ``invoice_name`` against its dues schedule.
 
     ``return_key`` identifies THIS return (the cancelled Payment Entry, or the return file
-    hash plus end-to-end id); the same key is never counted twice. Returns the schedule name
-    when a failure was counted, None when there was nothing to do. A failure to write the
-    schedule is logged and rolled back to its own savepoint: the reversal that called this
-    is already done and must not be reported as failed because of it.
+    hash plus invoice) and is stored on the schedule: the same key is never counted twice.
+    Only a debtor-fault ``reason_code`` counts; anything else is logged and ignored.
+
+    Returns COUNTED, DUPLICATE, IGNORED (no schedule, not a debtor-fault code, or a schedule
+    status dunning cannot leave) or FAILED. A failure to write the schedule is logged and
+    rolled back to its own savepoint, and reported as FAILED so the caller can tell staff:
+    the reversal that called this is already done and must not become an "error" result.
     """
     schedule_name = frappe.db.get_value("Sales Invoice", invoice_name, "membership_dues_schedule_display")
     if not schedule_name:
-        return None
+        return IGNORED
+    if (reason_code or "").strip().upper() not in DEBTOR_FAULT_RETURN_CODES:
+        frappe.log_error(
+            title="SEPA Return Not Dunned",
+            message=(
+                f"Return {return_key} of invoice {invoice_name} carries reason code "
+                f"'{reason_code or 'none'}' ({reason or 'no description'}), which is not a "
+                f"debtor-fault code; dues schedule {schedule_name} was not dunned."
+            ),
+        )
+        return IGNORED
 
     savepoint = "sepa_return_dunning"
     frappe.db.savepoint(savepoint)
     try:
-        counted = _count_failure(schedule_name, return_key, reason)
+        outcome = _count_failure(schedule_name, return_key, reason)
         frappe.db.release_savepoint(savepoint)
-        return schedule_name if counted else None
+        return outcome
     except NON_RESUMABLE_DB_ERRORS:
         raise
     # The reversal is already done; the cause goes to the Error Log.
@@ -77,29 +100,28 @@ def record_failed_collection(invoice_name: str, return_key: str, reason: str = "
                 f"(return {return_key}) on dues schedule {schedule_name}.\n\n{frappe.get_traceback()}"
             ),
         )
-        return None
+        return FAILED
 
 
-def _count_failure(schedule_name: str, return_key: str, reason: str) -> bool:
+def _count_failure(schedule_name: str, return_key: str, reason: str) -> str:
     schedule = frappe.get_doc("Membership Dues Schedule", schedule_name, for_update=True)
-    if _failure_already_counted(schedule_name, return_key):
-        return False
+    if any(row.return_key == return_key for row in schedule.counted_returns):
+        return DUPLICATE
     if schedule.status not in _DUNNING_STATES:
         # Paused, Cancelled, Payment Plan Active ...: dunning has no transition from there.
-        schedule.add_comment(
-            "Info", f"{FAILURE_MARKER_PREFIX}{return_key} (not dunned, status {schedule.status})"
-        )
-        return False
+        return IGNORED
 
     schedule.consecutive_failures = cint(schedule.consecutive_failures) + 1
+    schedule.last_failure_on = now_datetime()
+    schedule.append("counted_returns", {"return_key": return_key, "counted_on": schedule.last_failure_on})
     _apply_dunning_status(schedule)
     schedule.save()
     schedule.add_comment(
         "Info",
-        f"{FAILURE_MARKER_PREFIX}{return_key}: failure #{schedule.consecutive_failures}"
+        f"SEPA return {return_key} counted: failure #{schedule.consecutive_failures}"
         + (f" ({reason})" if reason else ""),
     )
-    return True
+    return COUNTED
 
 
 def _apply_dunning_status(schedule) -> None:
@@ -128,20 +150,6 @@ def _set_status(schedule, new_status: str) -> None:
     schedule.status = new_status
 
 
-def _failure_already_counted(schedule_name: str, return_key: str) -> bool:
-    return bool(
-        frappe.db.exists(
-            "Comment",
-            {
-                "reference_doctype": "Membership Dues Schedule",
-                "reference_name": schedule_name,
-                "comment_type": "Info",
-                "content": ["like", f"%{FAILURE_MARKER_PREFIX}{return_key}%"],
-            },
-        )
-    )
-
-
 def reset_failures_after_clean_window() -> int:
     """Daily sweep: reset the counter of schedules with a collection that was never returned.
 
@@ -155,26 +163,32 @@ def reset_failures_after_clean_window() -> int:
     for schedule_name in frappe.get_all(
         "Membership Dues Schedule", filters={"consecutive_failures": [">", 0]}, pluck="name"
     ):
-        last_failure = _latest_counted_failure(schedule_name)
-        if last_failure and _has_clean_collection_since(schedule_name, last_failure):
+        if _has_clean_collection_since(schedule_name, _last_failure_on(schedule_name)):
             reset += _reset_schedule(schedule_name)
     return reset
 
 
-def _latest_counted_failure(schedule_name: str):
-    rows = frappe.get_all(
-        "Comment",
-        filters={
-            "reference_doctype": "Membership Dues Schedule",
-            "reference_name": schedule_name,
-            "comment_type": "Info",
-            "content": ["like", f"{FAILURE_MARKER_PREFIX}%"],
-        },
-        fields=["creation"],
-        order_by="creation desc",
-        limit=1,
+def _last_failure_on(schedule_name: str):
+    """``last_failure_on``; for a counter set by hand (no timestamp) fall back to ``modified``.
+
+    Such a schedule is logged once and backfilled, so the next sweep finds a timestamp.
+    """
+    last_failure, modified = frappe.db.get_value(
+        "Membership Dues Schedule", schedule_name, ["last_failure_on", "modified"]
     )
-    return rows[0].creation if rows else None
+    if last_failure:
+        return last_failure
+    frappe.log_error(
+        title="SEPA Return Dunning Unknown Failure Date",
+        message=(
+            f"Dues schedule {schedule_name} has consecutive_failures > 0 but no last_failure_on; "
+            f"using its last modification ({modified}) as the failure date."
+        ),
+    )
+    frappe.db.set_value(
+        "Membership Dues Schedule", schedule_name, "last_failure_on", modified, update_modified=False
+    )
+    return modified
 
 
 def _has_clean_collection_since(schedule_name: str, last_failure) -> bool:
