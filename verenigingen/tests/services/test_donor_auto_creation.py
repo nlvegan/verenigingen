@@ -166,8 +166,9 @@ class TestDonorAutoCreation(EnhancedTestCase):
 
     def test_create_donor_leaves_email_blank_when_customer_has_none(self):
         # #2034: no invented address. donor_email is not mandatory on Donor, and
-        # the mailers (send_consent_requests) skip a blank address, so a blank
-        # donor is unmailable while a made-up @example.com one would be mailed.
+        # the ANBI consent and renewal-reminder queries (anbi_operations
+        # send_consent_requests, periodic_donation_operations) skip a blank
+        # address, while a made-up @example.com one would have been mailed.
         customer = self._make_customer(customer_type="Individual")
         self.assertFalse(customer.email_id)
         donor_name = dac.create_donor_from_customer(customer, 30.0, "PE-TEST-2")
