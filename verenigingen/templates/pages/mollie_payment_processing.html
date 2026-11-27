@@ -1681,25 +1681,14 @@ function bulkProcessSelectedPayments() {
     .then(response => {
         if (!response.ok) {
             return response.text().then(text => {
-                throw new Error(`Server error (${response.status}): ${text}`);
+                throw new Error(formatBulkHttpFailure(response.status, text));
             });
         }
         return response.json();
     })
     .then(data => {
         if (data.exc || data._server_messages) {
-            let errorMsg = 'Server Error:\n\n';
-            if (data._server_messages) {
-                try {
-                    const messages = JSON.parse(data._server_messages);
-                    errorMsg += messages.map(m => JSON.parse(m).message).join('\n');
-                } catch (e) {
-                    errorMsg += data._server_messages;
-                }
-            }
-            if (data.exc) {
-                errorMsg += '\n\nException:\n' + data.exc;
-            }
+            const errorMsg = formatBulkProcessingError(data);
             document.getElementById('bulk-processing-results').textContent = errorMsg;
             document.getElementById('bulk-processing-results').style.display = 'block';
             return;
@@ -1735,6 +1724,37 @@ function bulkProcessSelectedPayments() {
             processBtn.textContent = 'Process Selected Payments';
         }
     });
+}
+
+function formatBulkHttpFailure(status, text) {
+    let detail = text;
+    try {
+        // A Frappe error body is JSON whose `exc` is the raw traceback (#2249).
+        const body = JSON.parse(text);
+        if (body && typeof body === 'object') {
+            detail = verenigingen.utils.getHttpErrorMessage(body, __('Unknown server error'));
+        }
+    } catch (e) {
+        // Not JSON (e.g. a proxy error page): keep the text as it was.
+    }
+    return `Server error (${status}): ${detail}`;
+}
+
+function formatBulkProcessingError(data) {
+    let errorMsg = 'Server Error:\n\n';
+    if (data._server_messages) {
+        try {
+            const messages = JSON.parse(data._server_messages);
+            errorMsg += messages.map(m => JSON.parse(m).message).join('\n');
+        } catch (e) {
+            errorMsg += data._server_messages;
+        }
+    }
+    if (data.exc && !data._server_messages) {
+        // `exc` is the raw Python traceback; show only the readable exception line (#2249).
+        errorMsg += verenigingen.utils.getHttpErrorMessage(data, __('Unknown server error'));
+    }
+    return errorMsg;
 }
 
 function displayBulkProcessingResults(data) {

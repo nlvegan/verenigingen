@@ -293,7 +293,9 @@ class APIService {
 							resolve(response.message);
 						}
 					} else if (response.exc) {
-						reject(new Error(response.exc));
+						// `exc` is the raw Python traceback; never show it (#2249).
+						const readable = verenigingen.utils.getHttpErrorMessage(response, '') || 'Server error';
+						reject(new Error(readable));
 					} else {
 						resolve(response);
 					}
