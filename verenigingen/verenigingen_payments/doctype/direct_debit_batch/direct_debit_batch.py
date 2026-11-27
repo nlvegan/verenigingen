@@ -71,7 +71,6 @@ from verenigingen.verenigingen_payments.utils.sepa_utilities import (
     BatchLoggingUtilities,
     CalculationUtilities,
     FileManagementUtilities,
-    InvoiceManagementUtilities,
     SEPAXMLValidator,
 )
 
@@ -638,16 +637,6 @@ class DirectDebitBatch(Document):
                     "Batch {0} is already collected (every invoice is Successful); nothing is left to process"
                 ).format(self.name)
             )
-
-    def update_invoice_status(self, invoice_index, status, result_code=None, result_message=None):
-        """Update status of a specific invoice in the batch"""
-        try:
-            InvoiceManagementUtilities.update_batch_invoice_status(
-                self.invoices, invoice_index, status, result_code, result_message
-            )
-            self.save()
-        except IndexError:
-            frappe.throw(_("Invalid invoice index"))
 
     def mark_invoices_as_paid(self):
         """Mark all invoices in the batch as paid"""
