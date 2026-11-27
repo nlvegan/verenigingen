@@ -812,6 +812,11 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
           `_ensure_item_group` had before #1073 removed it from
           `self._tracked`.
 
+        Indirection (#1086): a helper the fixture calls (`self.<name>(...)` in
+        the same class, or a plain module-level function) is read ONE hop deep
+        with the same checks. Two hops (a wrapper around a wrapper) and helpers
+        in other classes/modules are NOT resolved; that is a documented limit.
+
         `suspend_insert_capture()` is deliberately NOT treated as a fix for
         any of these: it only affects the captured-insert drain, which has
         nothing to do with why these mechanisms delete the row.
@@ -898,7 +903,7 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                         return True
             return False
 
-        def check_body(fn, label, findings):
+        def check_body(fn, label, findings, helpers=None):
             for n in ast.walk(fn):
                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
                     attr = n.func.attr
@@ -912,6 +917,29 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
                             f"{label}: calls .{attr}(...) at a non -1 priority -- the "
                             f"tracked drain deletes this row regardless of @shared_fixture"
                         )
+            # One hop (#1086): a same-class / same-module helper the fixture
+            # calls is read with the DIRECT check only, so a wrapper around a
+            # tracker is seen but a wrapper around a wrapper is not.
+            for helper_name, helper in (helpers or {}).items():
+                if helper is not fn and not is_shared(helper) and helper_name in names_called_by(fn):
+                    hop = []
+                    check_body(helper, f"{label} via {helper_name}()", hop)
+                    findings.extend(hop)
+
+        def names_called_by(fn):
+            names = set()
+            for n in ast.walk(fn):
+                if isinstance(n, ast.Call):
+                    f = n.func
+                    if isinstance(f, ast.Name):
+                        names.add(f.id)
+                    elif (
+                        isinstance(f, ast.Attribute)
+                        and isinstance(f.value, ast.Name)
+                        and f.value.id == "self"
+                    ):
+                        names.add(f.attr)
+            return names
 
         findings = []
         for path in sorted(root.rglob("*.py")):
@@ -920,12 +948,15 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
             except (SyntaxError, UnicodeDecodeError):
                 continue
             rel = path.relative_to(root.parent)
+            module_fns = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
             for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+                helpers = dict(module_fns)
+                helpers.update({n.name: n for n in cls.body if isinstance(n, ast.FunctionDef)})
                 for fn in cls.body:
                     if not (isinstance(fn, ast.FunctionDef) and is_shared(fn)):
                         continue
                     label = f"{rel}:{fn.lineno} ({cls.name}.{fn.name})"
-                    check_body(fn, label, findings)
+                    check_body(fn, label, findings, helpers)
                     for attr_name in appended_self_attrs(fn):
                         if teardown_force_deletes(cls, attr_name):
                             findings.append(
@@ -936,8 +967,101 @@ class SharedFixturesAreNotCapturedTest(unittest.TestCase):
             for fn in tree.body:
                 if isinstance(fn, ast.FunctionDef) and is_shared(fn):
                     label = f"{rel}:{fn.lineno} (<module> {fn.name})"
-                    check_body(fn, label, findings)
+                    check_body(fn, label, findings, module_fns)
         return findings
+
+    def _indirection_probe_races(self, source):
+        """Run the competing-cleanup walk over one planted module (#1086)."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "pkg"
+            self._write_fixture_module(root, "probe_module.py", source)
+            return self._shared_fixture_tracked_drain_races(root=root)
+
+    @staticmethod
+    def _indirection_probe_source(helper_body, chain_body=None):
+        """A `@shared_fixture` method that reaches `helper_body` through `self._helper`.
+
+        `chain_body`, when given, is a SECOND helper `_helper` calls, so the
+        tracker sits two hops from the fixture.
+        """
+        chain = ""
+        if chain_body is not None:
+            chain = f"    def _deep_helper(self, doctype, name):\n        {chain_body}\n\n"
+        return (
+            "from verenigingen.tests.fixtures.enhanced_test_factory import (\n"
+            "    EnhancedTestCase,\n"
+            "    shared_fixture,\n"
+            ")\n\n\n"
+            "class TestProbe(EnhancedTestCase):\n"
+            f"{chain}"
+            "    def _helper(self, doctype, name):\n"
+            f"        {helper_body}\n\n"
+            "    @shared_fixture\n"
+            "    def _ensure_thing(self):\n"
+            '        self._helper("Item Group", "Probe")\n'
+        )
+
+    def test_competing_cleanup_guard_sees_a_one_hop_same_class_indirection(self):
+        """#1086 RED: the tracker is reached through `self._helper(...)`.
+
+        Before the fix the walk matched call-site names inside the
+        `@shared_fixture` body only, so a one-line wrapper hid `track_doc` and
+        this planted module produced zero findings.
+        """
+        findings = self._indirection_probe_races(
+            self._indirection_probe_source("self.track_doc(doctype, name)")
+        )
+        self.assertEqual(1, len(findings), findings)
+        self.assertIn("_ensure_thing", findings[0])
+        self.assertIn("_helper", findings[0])
+
+    def test_competing_cleanup_guard_sees_a_one_hop_module_function_indirection(self):
+        findings = self._indirection_probe_races(
+            "from verenigingen.tests.fixtures.enhanced_test_factory import (\n"
+            "    EnhancedTestCase,\n"
+            "    shared_fixture,\n"
+            ")\n\n\n"
+            "def _register_row(test, doctype, name):\n"
+            "    test.addCleanup(lambda: None)\n\n\n"
+            "class TestProbe(EnhancedTestCase):\n"
+            "    @shared_fixture\n"
+            "    def _ensure_thing(self):\n"
+            '        _register_row(self, "Item Group", "Probe")\n'
+        )
+        self.assertEqual(1, len(findings), findings)
+        self.assertIn("_register_row", findings[0])
+
+    def test_competing_cleanup_guard_ignores_a_separate_helper_that_tracks_nothing(self):
+        """Control: a helper the fixture calls that registers no cleanup passes.
+
+        Guards against "treat every called helper as competing".
+        """
+        findings = self._indirection_probe_races(
+            self._indirection_probe_source("return frappe.db.exists(doctype, name)")
+        )
+        self.assertEqual([], findings)
+
+    def test_competing_cleanup_guard_accepts_a_helper_tracking_at_priority_minus_one(self):
+        """Control: the documented-safe `priority=-1` stays safe through a wrapper."""
+        findings = self._indirection_probe_races(
+            self._indirection_probe_source("self.track_document(doctype, name, priority=-1)")
+        )
+        self.assertEqual([], findings)
+
+    def test_competing_cleanup_guard_resolves_exactly_one_hop(self):
+        """Documented limit: a tracker two hops away is NOT resolved.
+
+        Pins the boundary so a future change to multi-hop is a deliberate one.
+        """
+        findings = self._indirection_probe_races(
+            self._indirection_probe_source(
+                "self._deep_helper(doctype, name)",
+                chain_body="self.track_doc(doctype, name)",
+            )
+        )
+        self.assertEqual([], findings)
 
     def test_no_shared_fixture_helper_is_decorated_in_one_copy_and_not_its_clone(self):
         """A helper family must not disagree with itself about being shared.
