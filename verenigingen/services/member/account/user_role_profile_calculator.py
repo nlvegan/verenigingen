@@ -68,6 +68,12 @@ _STUB_EMPLOYEE_GENDER = "Prefer not to say"
 _STUB_EMPLOYEE_DOB = "1990-01-01"
 
 
+def _profile_config_cache_key(entity_type: str, entity_name: str = "") -> str:
+    """Cache key scoped to the current site: the dict is process-wide and one
+    worker can serve several sites whose Chapters/Teams share a name (#1935)."""
+    return f"{getattr(frappe.local, 'site', None) or '__no_site__'}:{entity_type}_profile:{entity_name}"
+
+
 def _get_cached_chapter_profile_config(chapter_name: str) -> dict:
     """
     Get chapter profile configuration with caching.
@@ -79,7 +85,7 @@ def _get_cached_chapter_profile_config(chapter_name: str) -> dict:
             "specific_profiles": {role_name: profile_name}
         }
     """
-    cache_key = f"chapter_profile:{chapter_name}"
+    cache_key = _profile_config_cache_key("chapter", chapter_name)
 
     # Check cache
     if cache_key in _profile_config_cache:
@@ -125,7 +131,7 @@ def _get_cached_team_profile_config(team_name: str) -> dict:
             "specific_profiles": {role_name: profile_name}
         }
     """
-    cache_key = f"team_profile:{team_name}"
+    cache_key = _profile_config_cache_key("team", team_name)
 
     # Check cache
     if cache_key in _profile_config_cache:
@@ -176,11 +182,13 @@ def invalidate_profile_config_cache(entity_type: str = None, entity_name: str = 
     """
     if entity_name:
         # Clear specific entity
-        cache_key = f"{entity_type}_profile:{entity_name}"
+        cache_key = _profile_config_cache_key(entity_type, entity_name)
         _profile_config_cache.pop(cache_key, None)
     elif entity_type:
         # Clear all of type
-        keys_to_remove = [k for k in _profile_config_cache.keys() if k.startswith(f"{entity_type}_profile:")]
+        keys_to_remove = [
+            k for k in _profile_config_cache.keys() if k.startswith(_profile_config_cache_key(entity_type))
+        ]
         for key in keys_to_remove:
             _profile_config_cache.pop(key, None)
     else:
