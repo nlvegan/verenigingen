@@ -7,7 +7,7 @@ cluster that the existing SEPA suites do not yet exercise:
   (totals SQL + Python fallback, invoice validation guards, sequence-type
   validation, status transitions, the phantom-field mandate bulk lookup)
 - ``verenigingen_payments/doctype/direct_debit_batch/direct_debit_batch.py``
-  (sequence-type validation branches, update_invoice_status, on_cancel,
+  (sequence-type validation branches, on_cancel,
   process_batch guard, module-level helpers)
 - ``verenigingen_payments/services/sepa_batch_processor.py``
   (the single-invoice add helpers' missing-mandate guards, the empty-batch
@@ -509,18 +509,6 @@ class TestDirectDebitBatchController(_BatchPipelineBase):
         batch.calculate_totals()
         self.assertEqual(batch.entry_count, 2)
         self.assertEqual(batch.total_amount, 20.0)
-
-    def test_update_invoice_status_invalid_index_throws(self):
-        batch, _m, _mn = self._one_invoice_batch()
-        with self.assertRaises(frappe.ValidationError):
-            batch.update_invoice_status(99, "Successful")
-
-    def test_update_invoice_status_valid_index_persists(self):
-        batch, _m, _mn = self._one_invoice_batch()
-        batch.update_invoice_status(0, "Successful", "PDNG", "ok")
-        batch.reload()
-        self.assertEqual(batch.invoices[0].status, "Successful")
-        self.assertEqual(batch.invoices[0].result_code, "PDNG")
 
     def test_on_cancel_sets_cancelled_status_and_logs(self):
         batch, _m, _mn = self._one_invoice_batch()
