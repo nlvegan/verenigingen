@@ -11,7 +11,8 @@ The seat is ended through its parent Chapter save, the same route as termination
 ``end_board_positions_safe`` and ``ChapterAssignmentService._cleanup_board_memberships``
 (#738): a standalone row write never runs ``Chapter.validate()``, so the volunteer's
 assignment history would stay Active. The save also defers and flushes the role/profile
-recalculation, which withdraws the board role.
+recalculation, which withdraws the board role. A seat whose Chapter no longer exists is ended by
+saving the row itself (#2941, maintainer ruling 2026-11-24); see ``_end_orphan_seats``.
 
 A Desk edit that sets ``is_active`` back to 1 without moving ``to_date`` is ended again at
 the next run; that is intended.
@@ -31,7 +32,6 @@ from verenigingen.utils.transaction_errors import (
 
 ENDED_NOTE = "Ended automatically: the seat's end date has passed."
 NOTIFICATION_KEY = "board_seat_expiry_failed"
-ORPHAN_REASON = "parent chapter missing"
 # A stuck chapter stays stuck until staff act, so the reminder is weekly, not daily.
 REALERT_SECONDS = 7 * 24 * 3600
 
@@ -40,7 +40,7 @@ def end_lapsed_board_seats() -> tuple:
     """Set ``is_active=0`` on every live-flagged seat whose ``to_date`` is before today.
 
     Returns ``(ended, failed)``: the number of seats ended, and one ``(chapter, rows, reason)``
-    per chapter whose seats could NOT be ended (its save failed, or the chapter is gone). The seat
+    per chapter whose seats could NOT be ended (its save failed). The seat
     keeps its own ``to_date``. Idempotent: an ended seat no longer matches. A failed chapter does
     not stop the others and is NOT re-raised (the scheduler would roll back the chapters that
     succeeded); staff are alerted instead. No commit here: the scheduler commits after the job.
@@ -82,19 +82,20 @@ def _end_seats_of_chapter(chapter_name, row_names) -> tuple:
 
     A failed save is rolled back, so none of the chapter's rows is left half-ended.
     """
-    if not frappe.db.exists("Chapter", chapter_name):
-        return 0, ORPHAN_REASON
+    orphan = not frappe.db.exists("Chapter", chapter_name)
     savepoint = f"end_lapsed_seats_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
     try:
-        chapter_doc = frappe.get_doc("Chapter", chapter_name)
-        ended = 0
-        for row in chapter_doc.board_members:
-            if row.name in row_names:
-                row.is_active = 0
-                row.notes = f"{row.notes}\n{ENDED_NOTE}" if row.notes else ENDED_NOTE
-                ended += 1
-        chapter_doc.save()
+        if orphan:
+            ended = _end_orphan_seats(row_names)
+        else:
+            chapter_doc = frappe.get_doc("Chapter", chapter_name)
+            ended = 0
+            for row in chapter_doc.board_members:
+                if row.name in row_names:
+                    _mark_ended(row)
+                    ended += 1
+            chapter_doc.save()
         release_savepoint_if_present(savepoint)
         return ended, None
     except NON_RESUMABLE_DB_ERRORS:
@@ -109,6 +110,27 @@ def _end_seats_of_chapter(chapter_name, row_names) -> tuple:
         )
         error = str(e) or type(e).__name__
         return 0, error
+
+
+def _mark_ended(row):
+    row.is_active = 0
+    row.notes = f"{row.notes}\n{ENDED_NOTE}" if row.notes else ENDED_NOTE
+
+
+def _end_orphan_seats(row_names) -> int:
+    """End seats whose Chapter is gone by saving each row on its own (#2941).
+
+    There is no Chapter to save, but the row is a document in its own right: its ``on_update``
+    completes the volunteer's assignment history through the orphan route (#2607) and withdraws
+    the holder's board role and profile without needing a Chapter (#1953), the same hooks a REST
+    PUT of the row runs. The history hangs off the Volunteer (its Dynamic Link names the missing
+    Chapter), so it is kept and closed, not lost.
+    """
+    for name in row_names:
+        row = frappe.get_doc("Chapter Board Member", name)
+        _mark_ended(row)
+        row.save()
+    return len(row_names)
 
 
 def _alert_staff(failed):

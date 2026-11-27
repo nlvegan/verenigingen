@@ -310,31 +310,64 @@ class TestEndLapsedBoardSeats2875(VereningingenTestCase):
         end_lapsed_board_seats()
         self.assertEqual(len(self._alerts_2875(staff, chapter.name)), 1, "the same chapter alerts once")
 
-    def test_an_orphan_lapsed_seat_reaches_the_alert(self):
-        """Parent Chapter gone (#2745 leaves rows behind): reported under its own reason, not ended."""
-        staff = self._staff_2875()
-        chapter = self._chapter_2875("orphan")
-        person = self._person_2875("Orphan")
-        row = self._lapse_seat_2875(chapter, person)
-        # Probe shortcut: the Chapter row is deleted under the seat, as #2745's delete leaves it.
+    def _orphan_seat_2941(self, tag, to_date):
+        """A seat (live role + profile, Active assignment) whose Chapter is then gone.
+
+        Probe shortcut: the Chapter row is deleted under the seat with a direct ``db.delete``,
+        standing in for #2745's delete; no real flow that leaves the row behind is established.
+        """
+        chapter = self._chapter_2875(tag)
+        person = self._person_2875(tag.title())
+        # Seat, then Desk-edit the end date (as _lapse_seat_2875 does): the edit's Chapter save is
+        # what leaves the role and profile granted.
+        row = self._seat_2875(chapter, person, to_date=add_days(today(), 5))
+        self._desk_edit_to_date_2875(chapter, row, to_date)
         frappe.db.delete("Chapter", {"name": chapter.name})
         self.assertTrue(frappe.db.exists("Chapter Board Member", row), "fixture: the orphan row is there")
+        self.assertFalse(frappe.db.exists("Chapter", chapter.name), "fixture: the Chapter is gone")
+        return chapter, person, row
+
+    def test_an_orphan_lapsed_seat_is_ended_with_its_access_and_history_withdrawn(self):
+        """#2941 (maintainer ruling 2026-11-24): a lapsed seat whose Chapter is gone is ended too."""
+        staff = self._staff_2875()
+        chapter, person, row = self._orphan_seat_2941("orphan", add_days(today(), -1))
+        self.assertEqual(self._state_2875(row).is_active, 1, "fixture: the orphan seat is live")
+        self.assertIn(BOARD_ROLE, self._roles_2875(person.user), "fixture: the board role is granted")
 
         ended, failed = end_lapsed_board_seats()
 
-        self.assertEqual(ended, 0)
-        self.assertIn((chapter.name, [row], "parent chapter missing"), failed)
-        alerts = self._alerts_2875(staff, chapter.name)
-        self.assertEqual(len(alerts), 1)
-        self.assertIn("parent chapter missing", alerts[0].email_content)
-        # The `exists` check is what keeps an orphan out of the Error Log: without it the job logs a
-        # DoesNotExistError row every day for a chapter nobody can fix by saving it.
+        self.assertEqual((ended, failed), (1, []))
+        after = frappe.db.get_value(
+            "Chapter Board Member", row, ["is_active", "to_date", "notes"], as_dict=True
+        )
+        self.assertEqual(after.is_active, 0)
+        self.assertEqual(str(after.to_date), add_days(today(), -1), "the seat keeps its own end date")
+        self.assertIn("Ended automatically", after.notes or "")
+        self.assertNotIn(BOARD_ROLE, self._roles_2875(person.user), "board role survived")
+        self.assertNotIn(PROFILE_BOARD_MEMBER, get_user_role_profiles(person.user), "board profile survived")
+        self.assertEqual(self._assignment_status_2875(person, chapter), "Completed", "history not completed")
+        self.assertEqual(self._alerts_2875(staff, chapter.name), [], "an ended orphan is not alerted")
         self.assertEqual(
             [e.method for e in self._expiry_errors_2875() if chapter.name in (e.method + e.error)],
             [],
-            "an orphan must be alerted, not logged once a day",
+            "ending an orphan must not log an error",
         )
-        self.assertEqual(self._state_2875(row).is_active, 1, "no new ending path for orphans")
+        self.assertEqual(end_lapsed_board_seats(), (0, []), "a second run is a no-op")
+
+    def test_orphan_seats_that_are_not_lapsed_are_left_alone(self):
+        """Controls: a real orphan row the over-broad fix (end every orphan) would end."""
+        _c, future_person, future_row = self._orphan_seat_2941("orphfut", add_days(today(), 5))
+        _c, open_person, open_row = self._orphan_seat_2941("orphopen", None)
+        _c, lapsed_person, lapsed_row = self._orphan_seat_2941("orphlapsed", add_days(today(), -1))
+
+        ended, failed = end_lapsed_board_seats()
+
+        self.assertEqual((ended, failed), (1, []), "only the lapsed orphan is ended")
+        self.assertEqual(self._state_2875(lapsed_row).is_active, 0)
+        self.assertEqual(self._state_2875(future_row).is_active, 1, "future-dated orphan must stay")
+        self.assertEqual(self._state_2875(open_row).is_active, 1, "open-ended orphan must stay")
+        for person in (future_person, open_person):
+            self.assertIn(BOARD_ROLE, self._roles_2875(person.user), "a live seat keeps its role")
 
     def test_alert_side_trouble_never_undoes_the_ended_seats(self):
         """A cache that raises while the alert is being released must not escape the job: the

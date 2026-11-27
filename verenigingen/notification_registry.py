@@ -697,7 +697,7 @@ NOTIFICATION_KEYS = {
         "label": "Lapsed Board Seats Could Not Be Ended (Admin)",
         "category": CATEGORY_ADMIN,
         "description": "Sent when the daily job that ends Chapter Board Member seats past their end date "
-        "cannot end some (the Chapter will not save, or it no longer exists), so those holders keep board "
+        "cannot end some (the Chapter will not save), so those holders keep board "
         "access. The mail names each chapter, its seat rows and the reason. At most once a week per chapter "
         "and reason while the problem lasts.",
         "priority": PRIORITY_HIGH,
