@@ -69,6 +69,16 @@ def _respond_service_unavailable() -> None:
     frappe.local.response_headers.set("Retry-After", "60")
 
 
+# Donation Payment.payment_status per reversal type. "chargeback_reversed" is the counter-entry for a
+# chargeback Mollie reports as reversed (#638): its own status, so a Chargeback row is never offset
+# by another "Chargeback" row, and its amount is POSITIVE (the money came back) so the rows net to 0.
+_REVERSAL_ROW_STATUS = {
+    "refund": "Refunded",
+    "chargeback": "Chargeback",
+    "chargeback_reversed": "Chargeback Reversed",
+}
+
+
 def _reversal_history_row(
     doctype: str, name: str, amount: float, payment_date, reversal_id: str, reversal_type: str = "refund"
 ) -> dict:
@@ -82,7 +92,7 @@ def _reversal_history_row(
         "amount": -float(amount),  # negative: this is a reversal
         "payment_date": payment_date,
         "mollie_payment_id": reversal_id,
-        "payment_status": "Refunded" if reversal_type == "refund" else "Chargeback",
+        "payment_status": _REVERSAL_ROW_STATUS.get(reversal_type, "Chargeback"),
         "payment_method": "Mollie",
     }
     row["journal_entry" if doctype == "Journal Entry" else "payment_entry"] = name
@@ -849,7 +859,7 @@ class UnifiedWebhookWrapperService:
         chargeback's reversal Journal Entry (donation: Dr clearing / Cr income; dues: credit the
         receivable against the invoice again, restoring what the chargeback re-opened), and
         the original stays submitted. Keyed ``{payment}_chargeback_{id}_reversed``, so a
-        redelivery finds it and books nothing. A donation also records it (a positive row).
+        redelivery finds it and books nothing. A donation also records it: a positive "Chargeback Reversed" row.
 
         Only a Journal Entry booking is countered. No Bank Transaction is written for the
         returned money: the chargeback's own bank line stays and the money's return arrives
@@ -885,7 +895,7 @@ class UnifiedWebhookWrapperService:
                 amount=-flt(amount),  # the history row stores reversals negative; a counter is positive
                 reversal_date=reversed_at,
                 reversal_id=f"{chargeback_id}_reversed",
-                reversal_type="chargeback",
+                reversal_type="chargeback_reversed",
             )
             if not repaired:
                 return {

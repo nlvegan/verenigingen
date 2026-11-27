@@ -583,6 +583,9 @@ class TestMollieDonationChargebackBooking638(TestMollieDonationFinancialChain):
             if p.payment_status == "Chargeback"
         ]
 
+    def _donation_rows_with_status(self, status):
+        return [p for p in frappe.get_doc("Donation", self.donation_name).payments if p.payment_status == status]
+
     def _income_balance(self):
         return sum(
             g.credit - g.debit
@@ -630,9 +633,12 @@ class TestMollieDonationChargebackBooking638(TestMollieDonationFinancialChain):
         # Both the forward entry and the chargeback entry stay submitted: countered, not cancelled.
         self.assertEqual(frappe.db.get_value("Journal Entry", forward_je, "docstatus"), 1)
         self.assertEqual(frappe.db.get_value("Journal Entry", booked[0], "docstatus"), 1)
-        rows = self._donation_chargeback_rows()
-        self.assertEqual(sorted(float(r.amount) for r in rows), [-self.CHARGEBACK_AMOUNT, self.CHARGEBACK_AMOUNT])
-        self.assertEqual({r.journal_entry for r in rows}, {booked[0], counters[0]})
+        # #638 ruling: the counter row has its OWN status (not a second "Chargeback" row), positive.
+        chargeback_rows = self._donation_chargeback_rows()
+        reversed_rows = self._donation_rows_with_status("Chargeback Reversed")
+        self.assertEqual([(r.journal_entry, float(r.amount)) for r in chargeback_rows], [(booked[0], -self.CHARGEBACK_AMOUNT)])
+        self.assertEqual([(r.journal_entry, float(r.amount)) for r in reversed_rows], [(counters[0], self.CHARGEBACK_AMOUNT)])
+        self.assertEqual(reversed_rows[0].mollie_payment_id, f"{chargeback_id}_reversed")
 
         again = self._run_webhook()
 
@@ -644,5 +650,49 @@ class TestMollieDonationChargebackBooking638(TestMollieDonationFinancialChain):
             1,
             "the redelivery booked a second counter-entry",
         )
-        self.assertEqual(len(self._donation_chargeback_rows()), 2)
+        self.assertEqual(len(self._donation_chargeback_rows()), 1)
+        self.assertEqual(len(self._donation_rows_with_status("Chargeback Reversed")), 1)
         self.assertEqual(self._income_balance(), income_after_chargeback + self.CHARGEBACK_AMOUNT)
+
+    def test_a_won_dispute_nets_back_to_the_original_donation_amount(self):
+        """Reader-level: summing the Donation's own payment rows (Paid + Chargeback + Chargeback Reversed).
+
+        No production code sums Donation Payment amounts (swept, #638 round 3), so this is the reader
+        contract for anything that ever does: the signed rows of a won dispute net to the original.
+        The control is the lost dispute: with the counter row absent the same sum is short by the
+        chargeback. The rows are also grouped BY STATUS, as a status-filtering reader would.
+        """
+        self._forward_booked()
+        chargeback_id = self._announce_chargeback()
+        self.assertEqual(self._run_webhook()["status"], "success")
+        lost = frappe.get_doc("Donation", self.donation_name).payments
+        original = [p for p in lost if p.payment_status == "Paid"]
+        self.assertEqual(len(original), 1, "the fixture must carry the original Paid row")
+        self.assertEqual(
+            sum(float(p.amount) for p in lost),
+            float(original[0].amount) - self.CHARGEBACK_AMOUNT,
+            "a lost dispute leaves the donation short by the chargeback",
+        )
+
+        from verenigingen.verenigingen_payments.mollie.utils.reversal_idempotency import total_reversed
+
+        self.assertEqual(total_reversed(self.payment_id), self.CHARGEBACK_AMOUNT)  # control: lost dispute
+
+        self._announce_chargeback(chargeback_id=chargeback_id, reversed_at=self.REVERSED_AT)
+        self.assertEqual(self._run_webhook()["status"], "success")
+        # The booked-reversal total (what over-reversal guards read) gives the counter back.
+        self.assertEqual(total_reversed(self.payment_id), 0.0)
+
+        won = frappe.get_doc("Donation", self.donation_name).payments
+        by_status = {}
+        for p in won:
+            by_status[p.payment_status] = by_status.get(p.payment_status, 0.0) + float(p.amount)
+        self.assertEqual(
+            by_status,
+            {
+                "Paid": float(original[0].amount),
+                "Chargeback": -self.CHARGEBACK_AMOUNT,
+                "Chargeback Reversed": self.CHARGEBACK_AMOUNT,
+            },
+        )
+        self.assertEqual(sum(by_status.values()), float(original[0].amount))
