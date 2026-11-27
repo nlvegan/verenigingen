@@ -149,3 +149,61 @@ class TestOrchestratorDraftBankTransaction822(OrchestratorBase):
         self.assertTrue(result.payment_entry, f"fixture problem: no Payment Entry. {result.to_dict()}")
         self.assertTrue(result.reconciled, f"fixture problem: link failed. {result.to_dict()}")
         self.assertEqual(self.docstatus(), 1, f"the linked Bank Transaction stayed a draft. {result.to_dict()}")
+
+    # Round 3 (review F-A): a refused submit must stop BEFORE the Payment Entry step. Linking a
+    # Payment Entry to a draft Bank Transaction makes get_processing_status() read the pair as
+    # complete, so no later retry by a caller who CAN submit would ever reach the draft.
+
+    def payment_entry_count(self):
+        return frappe.db.count("Payment Entry", {"reference_no": self.pid})
+
+    def bank_transaction_payment_rows(self):
+        return frappe.db.count("Bank Transaction Payments", {"parent": self.draft})
+
+    def member_matched_run(self):
+        invoice = self._make_sales_invoice(self.member.customer, today(), today(), outstanding=AMOUNT)
+        payment = SimpleNamespace(
+            id=self.pid,
+            status="paid",
+            description="contributie",
+            customer_id=None,
+            subscription_id=None,
+            amount={"value": f"{AMOUNT:.2f}", "currency": "EUR"},
+            paid_at=f"{today()}T12:00:00+00:00",
+            details=None,
+        )
+        return lambda: self.orch.process_payment(
+            self.pid, payment=payment, member_name=self.member.name, invoice_name=invoice.name
+        )
+
+    def orphan_with_invoice_run(self):
+        return lambda: self.orch.process_orphaned_payment_with_invoice(self.pid, self.payment())
+
+    def assert_refused_then_allowed(self, run):
+        with patch.object(
+            # Mock justified: stands in for a caller without submit permission (the real #383 outcome).
+            BankTransactionCreator,
+            "_try_submit_existing_draft",
+            autospec=True,
+            side_effect=lambda *args, **kwargs: None,
+        ) as submit:
+            refused = run()
+        self.assertEqual(submit.call_count, 1, "exactly one resubmit attempt per call")
+        self.assertEqual(refused.status, "error", f"{refused.to_dict()}")
+        self.assertIn("still a draft", refused.error)
+        self.assertEqual(refused.bank_transaction, self.draft)
+        self.assertEqual(self.docstatus(), 0)
+        self.assertEqual(self.payment_entry_count(), 0, "a Payment Entry was booked against a draft")
+        self.assertEqual(self.bank_transaction_payment_rows(), 0, "a Payment Entry was linked to a draft")
+
+        allowed = run()
+        self.assertEqual(self.docstatus(), 1, f"a caller who may submit never got to: {allowed.to_dict()}")
+        self.assertEqual(self.payment_entry_count(), 1, f"{allowed.to_dict()}")
+        self.assertEqual(self.bank_transaction_payment_rows(), 1, f"{allowed.to_dict()}")
+        self.assertNotEqual(allowed.status, "error", f"{allowed.to_dict()}")
+
+    def test_member_matched_reconcile_stops_at_a_draft_then_a_permitted_retry_processes_it(self):
+        self.assert_refused_then_allowed(self.member_matched_run())
+
+    def test_orphan_with_invoice_stops_at_a_draft_then_a_permitted_retry_processes_it(self):
+        self.assert_refused_then_allowed(self.orphan_with_invoice_run())

@@ -221,6 +221,19 @@ class MolliePaymentOrchestrator:
         )
         return frappe.db.get_value("Bank Transaction", bt_name, "docstatus") != 0
 
+    def _stop_at_draft_bank_transaction(self, result: "PaymentProcessingResult") -> "PaymentProcessingResult":
+        """Stop BEFORE any Payment Entry exists while the Bank Transaction is still a draft (#822).
+
+        A Payment Entry linked to a draft makes get_processing_status() read the pair as complete,
+        so a later retry by a caller who may submit would answer already_processed and the draft
+        would stay a draft for good. Stopping here leaves nothing to hide it.
+        """
+        result.status = "error"
+        result.error = (
+            f"Bank Transaction {result.bank_transaction} is still a draft (submit refused or failed)"
+        )
+        return result
+
     def clear_bank_config_cache(self) -> None:
         """Reset the cached Mollie bank-account configuration (#867).
 
@@ -480,9 +493,7 @@ class MolliePaymentOrchestrator:
                 result.bank_transaction = status.bank_transaction
                 result.actions_taken.append(f"Bank Transaction exists: {status.bank_transaction}")
                 if not self._bank_transaction_is_submitted(payment_id, status.bank_transaction):
-                    result.actions_taken.append(
-                        f"Warning: Bank Transaction {status.bank_transaction} is still a draft"
-                    )
+                    return self._stop_at_draft_bank_transaction(result)
 
             # Step 3: Create Payment Entry (if not exists and we have invoice)
             if not status.has_payment_entry:
@@ -1137,9 +1148,7 @@ class MolliePaymentOrchestrator:
                 result.bank_transaction = status.bank_transaction
                 result.actions_taken.append(f"Bank Transaction exists: {status.bank_transaction}")
                 if not self._bank_transaction_is_submitted(payment_id, status.bank_transaction):
-                    result.actions_taken.append(
-                        f"Warning: Bank Transaction {status.bank_transaction} is still a draft"
-                    )
+                    return self._stop_at_draft_bank_transaction(result)
 
             # Create Payment Entry
             pe_name = self._create_orphan_payment_entry(
