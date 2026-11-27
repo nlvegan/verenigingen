@@ -381,7 +381,7 @@ _make_member_with_membership::4
 _make_member_with_mollie::2
 _make_member_with_schedule::3  # clone family, 1 near-identical pair(s)
 _make_member_with_user::20  # clone family, 24 near-identical pair(s)
-_make_membership_type::9  # clone family, 7 near-identical pair(s)
+_make_membership_type::9  # clone family, 8 near-identical pair(s)
 _make_migration::11  # clone family, 4 near-identical pair(s)
 _make_migration_doc::4  # clone family, 3 near-identical pair(s)
 _make_mock_je::2  # clone family, 1 near-identical pair(s)
