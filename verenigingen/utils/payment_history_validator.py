@@ -26,10 +26,10 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 RECONCILIATION_WINDOW_DAYS = 90
 
 # MemberFinancialHistoryManager._trim_history keeps at most this many payment
-# history rows per member (get_payment_history_manager's max_entries). Which rows
-# survive depends on drain order, not on invoice date, so a member already at the
-# cap cannot be repaired invoice-by-invoice: a drain re-drops some invoices and
-# they would read as "missing" every hour (#3190 review).
+# history rows per member (get_payment_history_manager's max_entries), keeping the
+# newest by posting_date (#3240). An invoice older than a full member's 30th-newest
+# row is re-dropped by every drain, so it would read as "missing" every hour: a
+# member already at the cap is skipped rather than repaired (#3190 review).
 PAYMENT_HISTORY_MAX_ROWS = 30
 
 # Upper bound on drain jobs enqueued per hourly run, so a wide window with many
