@@ -9,7 +9,11 @@
   "billing_frequency",
   "label",
   "postal_minimum",
-  "is_default"
+  "is_default",
+  "period_anchor",
+  "anchor_month",
+  "anchor_day",
+  "waive_final_months"
  ],
  "fields": [
   {
@@ -52,6 +56,38 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Is Default"
+  },
+  {
+   "default": "Join date",
+   "description": "Join date: periods run from the day the membership starts. Fixed date: periods run from the same day every year (set below).",
+   "fieldname": "period_anchor",
+   "fieldtype": "Select",
+   "label": "Period Anchor",
+   "options": "Join date\nFixed date"
+  },
+  {
+   "depends_on": "eval:doc.period_anchor==\"Fixed date\"",
+   "description": "Month (1-12) the billing periods start on.",
+   "fieldname": "anchor_month",
+   "fieldtype": "Int",
+   "label": "Anchor Month",
+   "mandatory_depends_on": "eval:doc.period_anchor==\"Fixed date\""
+  },
+  {
+   "depends_on": "eval:doc.period_anchor==\"Fixed date\"",
+   "description": "Day of that month the billing periods start on.",
+   "fieldname": "anchor_day",
+   "fieldtype": "Int",
+   "label": "Anchor Day",
+   "mandatory_depends_on": "eval:doc.period_anchor==\"Fixed date\""
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.period_anchor==\"Fixed date\"",
+   "description": "Someone approved within this many months before the next anchor starts at that anchor, with nothing billed until then.",
+   "fieldname": "waive_final_months",
+   "fieldtype": "Int",
+   "label": "Waive Final Months"
   }
  ],
  "istable": 1,

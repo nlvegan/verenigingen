@@ -7,6 +7,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
+from verenigingen.services.billing.fixed_date_period_anchor import validate_fixed_date_plan
+
 # Paths under /word-lid that are not doors.
 RESERVED_SLUGS = {"bevestig"}
 SLUG_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -36,6 +38,7 @@ class MembershipApplicationDoor(Document):
                 frappe.throw(_("{0} is offered more than once.").format(template))
         for row in self.plans:
             self._validate_template(row.dues_template)
+            validate_fixed_date_plan(row)
         defaults = [row for row in self.plans if row.is_default]
         if self.plans and len(defaults) != 1:
             frappe.throw(_("Choose exactly one default payment plan."))
