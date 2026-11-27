@@ -46,9 +46,14 @@ class TestAdminCleanupToolsInProduction3086(
     def setUp(self):
         super().setUp()
         users = self._create_login_users(
-            admin="Verenigingen Administrator", member="Verenigingen Member", staff="Verenigingen Staff"
+            admin="Verenigingen Administrator",
+            member="Verenigingen Member",
+            staff="Verenigingen Staff",
+            treasurer="Verenigingen Treasurer",
+            sysmgr_bare=("Verenigingen Member", ("System Manager",)),
         )
         self.admin, self.member_user, self.staff = users["admin"], users["member"], users["staff"]
+        self.treasurer, self.sysmgr_bare = users["treasurer"], users["sysmgr_bare"]
         self._types = []
         self.addCleanup(self._cleanup_schedules_3086)
 
@@ -111,6 +116,24 @@ class TestAdminCleanupToolsInProduction3086(
                 self.assertNotEqual(response["status"], 200, (user, endpoint, response["body"][:300]))
         self.assertTrue(frappe.db.exists("Membership Dues Schedule", orphan))
         self.assertTrue(frappe.db.exists("Membership Dues Schedule", live))
+
+    def test_the_gate_is_critical_not_high(self):
+        """Pins the decorator: critical refuses Staff and a bare System Manager role at the gate; a Treasurer passes the
+        gate and is stopped by the in-function role check (417), so that check stays covered.
+
+        high_security_api(ADMIN) admits Staff at the gate (#2774), so it would change both results.
+        """
+        for endpoint in (SCHEDULES, MEMBERSHIP_DATA):
+            gate = self._call_3086(endpoint, self.sysmgr_bare, {"dry_run": "true"})
+            self.assertEqual(gate["status"], 403, (endpoint, gate["body"][:300]))
+            self.assertIn("Access denied", gate["body"], endpoint)
+            # Staff is admitted by the HIGH tier (#2774) and would then reach the in-function 417.
+            staff = self._call_3086(endpoint, self.staff, {"dry_run": "true"})
+            self.assertEqual(staff["status"], 403, (endpoint, staff["body"][:300]))
+            self.assertIn("Access denied", staff["body"], endpoint)
+            inner = self._call_3086(endpoint, self.treasurer, {"dry_run": "true"})
+            self.assertEqual(inner["status"], 417, (endpoint, inner["body"][:300]))
+            self.assertIn("Insufficient permissions", inner["body"], endpoint)
 
     def test_real_run_deletes_only_the_orphan_with_a_string_max_cleanup(self):
         for endpoint in (SCHEDULES, MEMBERSHIP_DATA):
