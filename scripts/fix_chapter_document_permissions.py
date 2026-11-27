@@ -89,6 +89,9 @@ def create_missing_file_records(dry_run=False):
                         "folder": "Home/Attachments"
                     })
 
+                    # Security: operator-only repair script, not whitelisted and not wired into
+                    # hooks/scheduler (#1095); reachable only via `bench execute` / console, i.e.
+                    # shell access on the bench host, so there is no lesser caller to refuse.
                     # Insert without triggering file system operations
                     file_doc.flags.ignore_file_validate = True
                     file_doc.insert(ignore_permissions=True)
