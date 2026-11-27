@@ -14,6 +14,7 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from verenigingen.utils.service_logger import get_service_logger
+from verenigingen.utils.transaction_errors import NON_RESUMABLE_DB_ERRORS
 
 logger = get_service_logger("verenigingen.mijnrood_sync", prefix="document_import")
 
@@ -316,6 +317,10 @@ class DocumentImportService:
         """
         try:
             return self._import_all(dry_run)
+        except NON_RESUMABLE_DB_ERRORS as e:
+            # Record, then re-raise: a deadlock/lock-wait must reach the job runner, not become a dict.
+            self._record_import_failure(str(e)[:500], dry_run, log_traceback=True)
+            raise
         except Exception as e:
             error_msg = str(e)[:500]
             self._record_import_failure(error_msg, dry_run, log_traceback=True)

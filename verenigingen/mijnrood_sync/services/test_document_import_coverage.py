@@ -759,3 +759,36 @@ class TestImportAllEarlyFailureReachesStatus(EnhancedTestCase):
             result = self._run_job()
         self.assertFalse(result["success"])
         self.assertIn("Import failed", self._status())
+
+    # ---- round 3 -------------------------------------------------------
+
+    def test_a_deadlock_is_recorded_on_the_status_and_then_re_raised(self):
+        """A 1213 destroys the transaction state; swallowing it into a dict hides it from the job runner.
+        Fault injected at ``_import_all`` (the whole body), not at a real lock conflict.
+        """
+        before = len(self._failed_logs())
+        # Mock justified: injects a lock-wait fault; a real 1213 needs two contending connections.
+        with patch.object(
+            DocumentImportService, "_import_all", side_effect=frappe.QueryDeadlockError("1213")
+        ):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                self._run_job()
+        self.assertIn("Import failed", self._status())
+        self.assertNotEqual(self._status(), "Import job enqueued")
+        self.assertEqual(len(self._failed_logs()), before + 1)
+
+    def test_a_lock_wait_timeout_is_also_re_raised(self):
+        # Mock justified: injects a 1205 lock-wait fault (see the deadlock test).
+        with patch.object(DocumentImportService, "_import_all", side_effect=frappe.QueryTimeoutError("1205")):
+            with self.assertRaises(frappe.QueryTimeoutError):
+                self._run_job()
+        self.assertIn("Import failed", self._status())
+
+    def test_enqueue_failure_is_written_to_the_status_and_re_raised(self):
+        settings = frappe.get_single("MijnRood Sync Settings")
+        settings.document_folder_mapping = [frappe._dict(organization_type="Chapter", document_type="Other")]
+        # Mock justified: seam at the queue boundary; Redis being down cannot be provoked in a test.
+        with patch.object(frappe, "enqueue", side_effect=RuntimeError("redis is down")):
+            with self.assertRaises(RuntimeError):
+                settings.import_documents()
+        self.assertEqual(self._status(), "Import failed to enqueue: redis is down")
