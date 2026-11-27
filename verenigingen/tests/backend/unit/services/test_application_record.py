@@ -6,6 +6,7 @@ through the real endpoints as Guest; the confirm step runs as a POST like the em
 
 import json
 import random
+import re
 from unittest.mock import patch
 
 import frappe
@@ -192,6 +193,50 @@ class TestApplicationRecord(ApplicationRecordCase):
         self.assertEqual(known_log, unknown_log)
         self.assertEqual(known_errors, unknown_errors)
         self.assertEqual(frappe.db.count(SUBMISSION), submissions, "no row staged for a member")
+
+    def _writes_of_a_full_submit(self, email):
+        """(response, message_log, Error Log delta, Email Queue delta, {(verb, table): n}) of one guest submit.
+
+        Counts every write statement the real endpoint issues, so extra or different guest-visible work
+        on either path shows up. Query counts and timing are the oracle #1961 asked about.
+        """
+        writes = {}
+        original_sql = frappe.db.sql
+
+        def spy(query, *args, **kwargs):
+            match = re.match(r"\s*(insert\s+into|update|delete\s+from)\s+`?(tab[^`\s(]+(?: [^`\s(]+)*)`?", str(query), re.I)
+            if match:
+                key = (match.group(1).split()[0].lower(), match.group(2))
+                writes[key] = writes.get(key, 0) + 1
+            return original_sql(query, *args, **kwargs)
+
+        queued = frappe.db.count("Email Queue")
+        with patch.object(frappe.db, "sql", spy):
+            response, log, errors = self._as_guest(submit_application, **self._full_data(email=email))
+        self.assertTrue(response["success"], response)
+        return response, log, errors, frappe.db.count("Email Queue") - queued, writes
+
+    def test_existing_member_and_new_email_differ_by_exactly_the_staged_row(self):
+        """#1961 (ruling: accept and pin): the one write a member's email skips is the staged row.
+
+        Anything else that differs, or any extra write on either path, is a new timing oracle.
+        """
+        email = self._unused_email()
+        member = self.create_test_member(email=email)
+        frappe.db.set_value("Member", member.name, {"status": "Active", "application_status": "Approved"})
+        warm_email, new_email = self._unused_email(), self._unused_email()
+        self._writes_of_a_full_submit(warm_email)  # warm caches so the counts compare steady state
+        unknown = self._writes_of_a_full_submit(new_email)
+        known = self._writes_of_a_full_submit(email)
+        self._latest_submission(warm_email)  # tracks the staged rows for teardown
+        self._latest_submission(new_email)
+
+        self.assertEqual(known[:4], unknown[:4], "response, message_log, Error Log delta, Email Queue delta")
+        self.assertEqual(known[3], 1, "a mail is queued for the member too")
+        staged = ("insert", f"tab{SUBMISSION}")
+        self.assertEqual(unknown[4].get(staged), 1, unknown[4])
+        self.assertNotIn(staged, known[4])
+        self.assertEqual({k: v for k, v in unknown[4].items() if k != staged}, known[4])
 
     def test_full_form_involuntary_and_unclear_terminations_get_the_same_response(self):
         unknown, unknown_log, unknown_errors = self._submit_full()
