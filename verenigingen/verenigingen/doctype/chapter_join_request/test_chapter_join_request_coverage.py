@@ -12,6 +12,7 @@ test_chapter_join_request.py.
 
 import json
 import unittest
+import unittest.mock
 
 import frappe
 from frappe.utils import getdate, today
@@ -151,7 +152,9 @@ class TestChapterJoinRequestCoverage(EnhancedTestCase):
         if status:
             filters["status"] = status
         return frappe.get_all(
-            "Chapter Membership History", filters=filters, fields=["status", "start_date", "end_date"]
+            "Chapter Membership History",
+            filters=filters,
+            fields=["status", "start_date", "end_date", "reason"],
         )
 
     def test_desk_reject_writes_one_closed_inactive_history_row_2500(self):
@@ -168,10 +171,80 @@ class TestChapterJoinRequestCoverage(EnhancedTestCase):
         self.assertEqual(str(rows[0].end_date), today())
 
     def test_desk_reject_does_not_double_write_via_member_manager_2500(self):
-        """One rejection, one row, even though MemberManager.reject_member_request also writes one."""
+        """One rejection, one row. The two writers have distinguishable payloads (the desk row names
+        its request, MemberManager's does not) so a path writing through BOTH shows two rows."""
         req = self._make_request(self.test_member)
         req.reject_request(reason="single")
-        self.assertEqual(len(self._history_rows_2500(self.test_member, "Inactive")), 1)
+        rows = self._history_rows_2500(self.test_member, "Inactive")
+        self.assertEqual(len(rows), 1, rows)
+        self.assertIn(req.name, rows[0].reason)
+
+    def test_two_same_day_rejections_each_keep_their_own_row_2500(self):
+        """Reject, re-request, reject again, all in one day: two closed rows, one per request."""
+        first = self._make_request(self.test_member)
+        self.assertTrue(reject_join_request(first.name, reason="first")["success"])
+        second = self._make_request(self.test_member)
+        self.assertNotEqual(first.name, second.name)
+        self.assertTrue(reject_join_request(second.name, reason="second")["success"])
+
+        rows = self._history_rows_2500(self.test_member, "Inactive")
+        self.assertEqual(len(rows), 2, rows)
+        first_row = next(r for r in rows if first.name in r.reason)
+        second_row = next(r for r in rows if second.name in r.reason)
+        self.assertIn("first", first_row.reason)
+        self.assertIn("second", second_row.reason)
+        for row in rows:
+            self.assertEqual(str(row.end_date), today())
+
+    def test_rejection_row_starts_on_the_request_creation_date_2500(self):
+        req = self._make_request(self.test_member)
+        frappe.db.set_value("Chapter Join Request", req.name, "creation", "2026-01-15 10:00:00")
+        req.reload()
+        self.assertEqual(str(getdate(req.creation)), "2026-01-15", "fixture: backdated request")
+
+        self.assertTrue(reject_join_request(req.name, reason="late")["success"])
+
+        rows = self._history_rows_2500(self.test_member, "Inactive")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(str(rows[0].start_date), "2026-01-15")
+        self.assertEqual(str(rows[0].end_date), today())
+
+    def test_deadlock_at_history_write_propagates_from_reject_2500(self):
+        """A 1213 has rolled the transaction back, Rejected save included: reject_join_request must
+        raise, not return success."""
+        req = self._make_request(self.test_member)
+        from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+
+        # Mock justified: a real 1213 cannot be provoked deterministically; this injects the exact
+        # exception _with_doc re-raises, at the history write, and nothing else is stubbed.
+        with unittest.mock.patch.object(
+            ChapterMembershipHistoryManager, "_with_doc", side_effect=frappe.QueryDeadlockError("1213")
+        ):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                reject_join_request(req.name, reason="deadlock")
+
+    def test_ordinary_history_failure_is_logged_with_traceback_and_reject_succeeds_2500(self):
+        """Control: a non-DB failure at the history write is logged (traceback) but does not undo the
+        rejection."""
+        req = self._make_request(self.test_member)
+        from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+
+        # Mock justified: forces the failure the handler exists to log.
+        with unittest.mock.patch.object(
+            ChapterMembershipHistoryManager, "_with_doc", side_effect=ValueError("boom 2500")
+        ):
+            result = reject_join_request(req.name, reason="ordinary")
+        self.assertTrue(result["success"], result)
+        log = frappe.get_all(
+            "Error Log",
+            filters={"method": "Chapter join rejection history failed"},
+            fields=["error"],
+            order_by="creation desc",
+            limit=1,
+        )
+        self.assertTrue(log)
+        self.assertIn("boom 2500", log[0].error)
+        self.assertIn("Traceback", log[0].error)
 
     def test_desk_approve_still_leaves_one_open_active_row_2500(self):
         """Control: approval writes one open Active row and no Inactive row."""
