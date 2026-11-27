@@ -17,6 +17,7 @@ import uuid
 from unittest.mock import MagicMock, call, patch
 
 import frappe
+import pymysql
 from frappe.utils import add_days, now_datetime
 
 from verenigingen.mijnrood_sync.services.polling_service import (
@@ -726,6 +727,50 @@ class TestUpsertSyncStateAndCreateEvent(EnhancedTestCase):
         self.assertEqual(json.loads(doc.new_data), {"iban": "NEW"})
 
 
+class TestDivisionContactFetchFailure(EnhancedTestCase):
+    """#3391 part 2: a failing division_member fetch logs once per day, unless the table is missing."""
+
+    TITLE = "MijnRood table fetch failed: division_member"
+
+    def setUp(self):
+        super().setUp()
+        self.service = MijnRoodPollingService()
+        self.addCleanup(lambda: frappe.db.delete("Error Log", {"method": self.TITLE}))
+        frappe.db.delete("Error Log", {"method": self.TITLE})
+
+    def _poll_failing_with(self, exc):
+        client = MagicMock()
+        client.fetch_division_contacts.side_effect = exc
+        settings = MagicMock(last_division_contacts_hash=None)
+        self.assertEqual(self.service._poll_division_contacts(client, settings, "run-3391"), 0)
+
+    def _logs(self):
+        return frappe.get_all("Error Log", filters={"method": self.TITLE}, fields=["name", "error"])
+
+    def test_real_fault_logs_once_per_day(self):
+        for _ in range(2):
+            self._poll_failing_with(pymysql.err.OperationalError(1142, "SELECT command denied"))
+        logs = self._logs()
+        self.assertEqual(len(logs), 1)
+        self.assertIn("SELECT command denied", logs[0].error)
+
+    def test_a_different_programming_error_still_logs(self):
+        self._poll_failing_with(pymysql.err.ProgrammingError(1064, "You have an error in your SQL syntax"))
+        self.assertEqual(len(self._logs()), 1)
+
+    def test_missing_table_stays_quiet_whatever_the_message_says(self):
+        self._poll_failing_with(pymysql.err.ProgrammingError(1146, "Table 'x.division_member' doesn't exist"))
+        self._poll_failing_with(pymysql.err.ProgrammingError(1146, "boom"))
+        self.assertEqual(self._logs(), [])
+
+    def test_failure_logs_again_on_a_later_day(self):
+        exc = pymysql.err.OperationalError(1142, "denied")
+        self._poll_failing_with(exc)
+        frappe.db.set_value("Error Log", self._logs()[0].name, "creation", add_days(now_datetime(), -1))
+        self._poll_failing_with(exc)
+        self.assertEqual(len(self._logs()), 2)
+
+
 class TestPollTable(EnhancedTestCase):
     """_poll_table end-to-end with a STUBBED client (external DB boundary only).
 
@@ -770,6 +815,47 @@ class TestPollTable(EnhancedTestCase):
         state.insert(ignore_permissions=True)
         self._state_keys.append(key)
         return key
+
+    def _stats_and_artifacts(self, table, row_id, run_id):
+        events = frappe.get_all("MijnRood Sync Event", filters={"sync_run_id": run_id}, pluck="name")
+        return events, frappe.db.get_value("MijnRood Sync State", f"{table}-{row_id}", "raw_data")
+
+    def test_new_row_deleted_before_fetch_is_skipped(self):
+        run_id, row_id = "polltest-3391-new", 710031
+        self._event_run_id = run_id
+        self._state_keys.append(f"admin_member-{row_id}")
+        client = self._make_client(checksums={row_id: "cs-live"}, rows_by_id={})
+        self.service._poll_table(client, "admin_member", run_id)
+        events, state = self._stats_and_artifacts("admin_member", row_id, run_id)
+        self.assertEqual(events, [])
+        self.assertIsNone(state)
+
+    def test_changed_row_deleted_before_fetch_is_skipped(self):
+        run_id, row_id = "polltest-3391-chg", 710032
+        self._event_run_id = run_id
+        self._make_seed_state("admin_member", row_id, "cs-old", {"id": row_id, "first_name": "Old"})
+        client = self._make_client(checksums={row_id: "cs-live"}, rows_by_id={})
+        self.service._poll_table(client, "admin_member", run_id)
+        events, state = self._stats_and_artifacts("admin_member", row_id, run_id)
+        self.assertEqual(events, [])
+        self.assertEqual(json.loads(state), {"id": row_id, "first_name": "Old"})
+
+    def test_persistently_failing_changed_row_logs_its_cause_once_per_day(self):
+        run_id, row_id = "polltest-3391-fail", 710033
+        title = f"MijnRood row skipped: admin_member {row_id}"
+        self._event_run_id = run_id
+        self.addCleanup(lambda: frappe.db.delete("Error Log", {"method": title}))
+        # valid JSON that is not a dict: the Changed branch raises AttributeError on it
+        self._make_seed_state("admin_member", row_id, "cs-old", [1, 2])
+        client = self._make_client(
+            checksums={row_id: "cs-live"}, rows_by_id={row_id: {"id": row_id, "first_name": "X"}}
+        )
+        for _ in range(2):
+            stats = self.service._poll_table(client, "admin_member", run_id)
+            self.assertEqual(stats["errors"], 1)
+        logs = frappe.get_all("Error Log", filters={"method": title}, fields=["error"])
+        self.assertEqual(len(logs), 1)
+        self.assertIn("AttributeError", logs[0].error)
 
     def test_new_row_creates_event_and_state(self):
         run_id = "polltest-new"
@@ -901,7 +987,7 @@ class TestRowSavepoint(EnhancedTestCase):
     def _new_row_id(self):
         row_id = f"t3391-{uuid.uuid4().hex[:8]}"
         self.addCleanup(
-            lambda: frappe.db.delete("Error Log", {"method": ("like", f"%{row_id}")}),
+            lambda: frappe.db.delete("Error Log", {"method": ("like", f"%{row_id}%")}),
         )
         return row_id
 
@@ -923,8 +1009,10 @@ class TestRowSavepoint(EnhancedTestCase):
         self.assertEqual(len(self._row_error_logs(row_id)), 2)
 
     def test_a_different_failing_row_gets_its_own_log(self):
-        first, second = self._new_row_id(), self._new_row_id()
+        # One id is a prefix of the other, so a prefix-LIKE dedup would swallow the second.
+        first = self._new_row_id()
+        second = first + "7"
+        self._fail_row(second)  # longer id first: a prefix-LIKE on `first` would match it
         self._fail_row(first)
-        self._fail_row(second)
         self.assertEqual(len(self._row_error_logs(first)), 1)
         self.assertEqual(len(self._row_error_logs(second)), 1)

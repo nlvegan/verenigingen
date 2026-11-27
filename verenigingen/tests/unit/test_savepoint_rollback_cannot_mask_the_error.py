@@ -143,6 +143,9 @@ class TestAPollingRowAbandonsOnANonResumableError(VereningingenTestCase):
     def _open_row_savepoint(self, stats):
         from verenigingen.mijnrood_sync.services.polling_service import MijnRoodPollingService
 
+        # A failing row now writes an Error Log (MyISAM: not rolled back by teardown), so
+        # remove it, or the row-1 dedup record leaks into the next test and run.
+        self.addCleanup(frappe.db.delete, "Error Log", {"method": "MijnRood row skipped: members row-1"})
         return MijnRoodPollingService()._row_savepoint("row-1", "members", stats)
 
     def _capture_savepoint_names(self):
