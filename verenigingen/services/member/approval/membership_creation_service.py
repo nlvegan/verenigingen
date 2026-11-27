@@ -186,11 +186,18 @@ class MembershipCreationService(StatelessService):
             with self._follow_on_privileges(system_follow_on):
                 self._ensure_dues_schedule_exists(member_doc, membership, membership_type)
 
-            # Step 5: Generate invoice (if needed)
+            # Step 4b: A Fixed date door plan starts the member's periods at its anchor (#3450)
+            anchor = self._apply_fixed_date_anchor(member_doc, membership, membership_type)
+
+            # Step 5: Generate invoice (if needed). The invoice covers the period from the anchor. An anchor
+            # still ahead never gets here: the approval caller turned create_invoice off for it (see
+            # _invoice_due_at_approval), and the scheduler invoices the period that begins there.
             invoice = None
             if create_invoice:
                 with self._follow_on_privileges(system_follow_on):
-                    invoice = self._create_membership_invoice(member_doc, membership, membership_type)
+                    invoice = self._create_membership_invoice(
+                        member_doc, membership, membership_type, period_start=anchor
+                    )
 
             # Step 6: Consolidate all member field updates
             dues_schedule = self._consolidate_member_updates(
@@ -585,6 +592,47 @@ class MembershipCreationService(StatelessService):
             f"MembershipCreationService: Reactivated dues schedule {schedule_name} for rejoining "
             f"member {member_doc.name} from {membership.start_date}"
         )
+
+    def fixed_date_anchor(self, member_doc, membership_type=None):
+        """The coverage anchor approval gives this applicant today (#3450), or None for a Join date plan.
+
+        The plan is the door plan whose template approval resolves for the member, so a reviewer who
+        approves under another membership type or template leaves the applicant without an anchor.
+        """
+        from verenigingen.services.billing.fixed_date_period_anchor import anchor_for_member
+
+        if not (membership_type or member_doc.selected_membership_type):
+            return None  # step 1 of the approval refuses this, with its own message
+        membership_type = membership_type or frappe.get_doc(
+            "Membership Type", member_doc.selected_membership_type
+        )
+        template_name = self._resolve_dues_template(member_doc, membership_type)
+        return anchor_for_member(member_doc, template_name, today())
+
+    def _apply_fixed_date_anchor(self, member_doc, membership, membership_type):
+        """Write the anchor on the member's dues schedule and carry it into the membership's renewal date.
+
+        Runs for a created, an existing and a reactivated (rejoin) schedule alike. An anchor still ahead
+        also becomes the schedule's next invoice date. Returns the anchor, or None.
+        """
+        anchor = self.fixed_date_anchor(member_doc, membership_type)
+        if not anchor:
+            return None
+        schedule_name = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member_doc.name, "is_template": 0, "status": ["!=", "Cancelled"]},
+            "name",
+        )
+        if not schedule_name:
+            return None
+        values = {"coverage_anchor_date": anchor}
+        if anchor > getdate(today()):
+            values["next_invoice_date"] = anchor
+        frappe.db.set_value("Membership Dues Schedule", schedule_name, values, update_modified=False)
+        if anchor > getdate(membership.start_date):  # only a LATER anchor moves the renewal date
+            membership.set_renewal_date()
+            membership.db_set("renewal_date", membership.renewal_date, update_modified=False)
+        return anchor
 
     @staticmethod
     def _follow_on_privileges(system_follow_on):

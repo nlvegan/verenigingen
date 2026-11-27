@@ -757,6 +757,7 @@ def _approve_membership_application_locked(
     # The approver was authorised above (approve_application, before the lock), so the dues schedule and
     # invoice writes run with permission checks bypassed, still as the approver: a chapter board approver's
     # own DocPerms refuse them (#1930).
+    create_invoice = _invoice_due_at_approval(member, create_invoice)
     membership = member.create_membership_on_approval(
         create_invoice=create_invoice, approval_fields=approval_fields, system_follow_on=True
     )
@@ -920,6 +921,18 @@ def _approve_application_locked(
     response["member"] = member.name
     response["application"] = application.name
     return response
+
+
+def _invoice_due_at_approval(member, create_invoice):
+    """False when the applicant's Fixed date plan starts billing at an anchor still ahead (#3450): approval
+    then behaves as create_invoice=False (no invoice, no failure marker, the mail goes without a payment
+    link) and the scheduler invoices the period that begins at the anchor."""
+    if not create_invoice:
+        return create_invoice
+    from verenigingen.services.member.approval.membership_creation_service import MembershipCreationService
+
+    anchor = MembershipCreationService().fixed_date_anchor(member)
+    return not (anchor and anchor > getdate(today()))
 
 
 def _mark_invoice_failed(application_name, create_invoice, invoice):
@@ -1518,11 +1531,29 @@ def _existing_or_new_membership_invoice(member, membership, membership_type):
     savepoint = f"retry_invoice_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
     invoice = MembershipCreationService()._create_membership_invoice(
-        member, membership, membership_type, period_start=membership.start_date
+        member, membership, membership_type, period_start=_retry_period_start(member, membership)
     )
     if not invoice and not rollback_to_savepoint(savepoint):
         frappe.db.rollback()  # savepoint already gone (a nested commit): nothing of ours to keep
     return invoice, True
+
+
+def _retry_period_start(member, membership):
+    """First day of the period the retried invoice covers: the one approval would have invoiced. A schedule
+    carrying a coverage anchor on or before the membership start (a Fixed date plan, #3450) starts there."""
+    anchor = frappe.db.get_value(
+        "Membership Dues Schedule",
+        {
+            "member": member.name,
+            "membership": membership.name,
+            "is_template": 0,
+            "status": ["!=", "Cancelled"],
+        },
+        "coverage_anchor_date",
+    )
+    if anchor and getdate(anchor) <= getdate(membership.start_date):
+        return anchor
+    return membership.start_date
 
 
 def _retry_response(application_name, member, invoice, mail_sent, message, invoice_failed=False):

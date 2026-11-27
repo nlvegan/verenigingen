@@ -49,7 +49,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import frappe
-from frappe.utils import flt, today
+from frappe.utils import flt, getdate, today
 
 
 class ScheduleStatus(Enum):
@@ -823,6 +823,12 @@ class DuesScheduleRepository:
             # Update the schedule
             schedule.membership_type = new_membership_type
             schedule.dues_rate = new_dues_rate
+            # An anchor still ahead came from the OLD type's Fixed date plan; the new type has no plan here,
+            # so holding billing back until that date would be a stale rule (#3450). A reached anchor changes
+            # nothing any more (coverage chains from the last invoice) and a rejoin's is left alone.
+            if schedule.coverage_anchor_date and getdate(schedule.coverage_anchor_date) > getdate(today()):
+                schedule.coverage_anchor_date = None
+                schedule.next_invoice_date = today()
             # Only update billing frequency if a new one is provided
             # (billing_period is optional on membership type)
             if new_billing_frequency:

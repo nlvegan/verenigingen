@@ -179,6 +179,25 @@ schedule, and makes the rule explicit: the anchor follows the **new** type's pla
 *Join date* plan). Not established: whether the amendment creates a new schedule or edits the
 old one. Read it before choosing where the rule goes.
 
+**Build findings (#3450, 2026-11-28).**
+- `renewal_date` is not cosmetic: `process_expired_memberships` expires an Active membership whose
+  `renewal_date` is past, and the renewal reminders key on it. It is recomputed from `start_date` on every
+  Membership validate, so it is carried by `Membership._renewal_base_date`: a coverage anchor of the
+  membership's schedule that lies **after** `start_date` replaces `start_date` as the base. A past anchor
+  does not (a year from approval already lies beyond the period it paid for). Nothing in the app extends
+  `renewal_date` when later periods are paid; that is true for every member and is not changed here.
+- The type-change amendment **edits the existing schedule** in place (`update_schedule_for_type_change`);
+  it creates a new one only when the member has none. The rule is therefore implemented there: an anchor
+  that is still **in the future** is cleared and `next_invoice_date` becomes today. A reached anchor is left
+  alone: coverage chains from the last invoice, so it no longer changes anything, and a rejoining member's
+  anchor (set by `reactivate_for_rejoin`) must not be cleared before its first invoice.
+- The anchor is written in `MembershipCreationService` after the schedule step rather than inside
+  `create_from_template`, so a created, an existing and a reactivated (rejoin) schedule all get it.
+- A future anchor is handled by the approval caller (`_invoice_due_at_approval`), which turns
+  `create_invoice` off for it: no invoice, no #1900 failure marker, and the approval mail goes out without
+  a payment link. The retry path uses the schedule's anchor as `period_start` when it is on or before the
+  membership start.
+
 **Configuration precondition** (no code): a Fixed plan whose rate is below the membership type's
 `minimum_amount` is dropped from the door (`door_plans.py:136-146`), and the door alert reports
 it.
