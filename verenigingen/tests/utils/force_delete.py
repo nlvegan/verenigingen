@@ -29,6 +29,74 @@ def force_delete(doctype: str, name: str) -> None:
         pass
 
 
+def side_rows_of(doctype: str, name: str) -> list:
+    """``(doctype, name)`` of the rows production hooks built BESIDE ``name``, which its delete leaves (#2209).
+
+    Read BEFORE the parent is deleted: the Chapter's links to them go with it. Chapter's
+    ``after_insert`` creates a Cost Center and a Department and ``chapter.py`` has no ``on_trash``;
+    a Volunteer's creation queues an Account Creation Request and gives its User a Contact. A
+    tracked-only drain never saw them, so a test whose body commits left them on the site. Whether
+    a PRODUCTION Chapter delete should remove its Cost Center is an open product question; this
+    only tidies what a test built.
+
+    A Contact is claimed only if it is NOT older than the Volunteer, so one that predates the test
+    (a shared user's) is never taken.
+    """
+    if doctype == "Chapter":
+        # Found by the LINK and by the NAME the sync services give them. The link alone missed a
+        # Department: a later save of a stale in-memory Chapter wrote `department` back as empty
+        # (MemberManager's request_to_join test), leaving the Department with no pointer to it.
+        linked = frappe.db.get_value("Chapter", name, ["cost_center", "department"]) or (None, None)
+        cost_centers = {linked[0]} | set(
+            frappe.get_all("Cost Center", filters={"cost_center_name": f"{name} - Chapter"}, pluck="name")
+        )
+        departments = {linked[1]} | set(
+            frappe.get_all("Department", filters={"department_name": name}, pluck="name")
+        )
+        return [("Cost Center", n) for n in cost_centers if n] + [
+            ("Department", n) for n in departments if n
+        ]
+    if doctype == "Volunteer":
+        created, user = frappe.db.get_value("Volunteer", name, ["creation", "user"]) or (None, None)
+        requests = frappe.get_all(
+            "Account Creation Request",
+            filters={"request_type": ["in", ["Volunteer", "Both"]], "source_record": name},
+            fields=["name", "created_user"],
+        )
+        # The Volunteer's own `user` link is often empty: the pipeline that makes the User (and
+        # through it the Contact) records it on the request instead.
+        users = {u for u in [user] + [r.created_user for r in requests] if u}
+        contacts = (
+            frappe.get_all("Contact", filters={"user": ["in", list(users)], "creation": [">=", created]}, pluck="name")
+            if users and created
+            else []
+        )
+        return [("Account Creation Request", r.name) for r in requests] + [("Contact", n) for n in contacts]
+    return []
+
+
+def delete_side_rows(rows, attempts: int = 10, pause: float = 0.5) -> None:
+    """Delete what ``side_rows_of`` returned, once the parent is gone. Never raises.
+
+    An Account Creation Request is retried on a lock timeout: it is queued, and a live RQ worker
+    (this bench has them, CI does not) holds it ``FOR UPDATE`` while it processes it, which
+    refuses the delete with ``QueryTimeoutError``.
+    """
+    import time
+
+    for doctype, name in rows:
+        for attempt in range(attempts):
+            if not (name and frappe.db.exists(doctype, name)):
+                break
+            try:
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+                break
+            except frappe.QueryTimeoutError:
+                time.sleep(pause)
+            except Exception:
+                break
+
+
 def delete_role_and_grants(role_name: str) -> None:
     """Delete a Role and every `Has Role` row that points at it (#1665).
 

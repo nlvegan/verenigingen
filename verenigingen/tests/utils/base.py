@@ -45,7 +45,9 @@ from verenigingen.tests.utils.error_log_guard import ErrorLogGuardMixin
 from verenigingen.tests.utils.force_delete import (
     chapters_last,
     delete_role_and_grants,
+    delete_side_rows,
     release_single_links_to_chapter,
+    side_rows_of,
 )
 from verenigingen.tests.utils.form_dict_guard import guard_form_dict
 from verenigingen.tests.utils.outgoing_mail_guard import ensure_outgoing_mail_account
@@ -549,7 +551,9 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     else:
                         if doc_info["doctype"] == "Chapter":
                             release_single_links_to_chapter(doc_info["name"])
+                        side_rows = side_rows_of(doc_info["doctype"], doc_info["name"])
                         frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
+                        delete_side_rows(side_rows)  # #2209
                     # Commit the deletion to release locks
                     frappe.db.commit()
                     doc_info["cleanup_status"] = "success"
@@ -1046,7 +1050,9 @@ class VereningingenTestCase(ErrorLogGuardMixin, FrappeTestCase):
                     else:
                         if doctype == "Chapter":
                             release_single_links_to_chapter(name)
+                        side_rows = side_rows_of(doctype, name)
                         frappe.delete_doc(doctype, name, force=True)
+                        delete_side_rows(side_rows)  # #2209
             except (frappe.DoesNotExistError, frappe.ValidationError, frappe.LinkExistsError) as e:
                 print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")
 
