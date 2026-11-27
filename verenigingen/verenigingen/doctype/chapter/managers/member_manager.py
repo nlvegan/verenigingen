@@ -646,13 +646,13 @@ class MemberManager(BaseManager):
                 chapter_name=self.chapter_name,
                 assignment_type="Member",
                 start_date=today(),
-                # WHY: add_membership_history accepts neither `end_date=` nor
-                # `new_status=`. Both unsupported kwargs raised a swallowed
-                # TypeError, so rejections returned a failure result and recorded
-                # no history. "Rejected" is also not a valid status option for the
-                # Chapter Membership History child table (Active/Pending/Completed/
+                # WHY: "Rejected" is not a valid status option for the Chapter
+                # Membership History child table (Active/Pending/Completed/
                 # Inactive/Quit), so the rejection is recorded as Inactive -- the
-                # request was declined and the relationship did not start.
+                # request was declined and the relationship did not start. It is
+                # an audit record, so it is closed on the rejection date rather
+                # than left open (#2500).
+                end_date=today(),
                 reason=f"Membership request rejected: {reason or 'No reason provided'}",
                 status="Inactive",
             )

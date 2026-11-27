@@ -37,6 +37,8 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
         start_date: str,
         reason: str = None,
         status: str = "Active",
+        end_date: str = None,
+        distinguish_by_reason: bool = False,
     ) -> bool:
         """
         Add membership to member history when starting a chapter relationship
@@ -48,13 +50,20 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
             start_date: Start date of membership
             reason: Reason for assignment (optional)
             status: Status of the membership ("Active", "Pending", etc.)
+            end_date: Close the entry on creation (e.g. a rejected join request, #2500)
+            distinguish_by_reason: Treat the reason as part of the dedupe identity, for callers whose
+                reason names the originating record (a rejection row per request, #2500). Off by
+                default so every other writer keeps the (chapter, type, status, start_date) dedupe.
 
         Returns:
             bool: Success status
         """
         # Request-level cache stays OUTSIDE _with_doc — no behavioural change
         cache = get_request_cache(ChapterMembershipHistoryManager.CACHE_NAME)
-        history_key = make_cache_key(member_id, chapter_name, assignment_type, status, start_date)
+        key_parts = [member_id, chapter_name, assignment_type, status, start_date]
+        if distinguish_by_reason:
+            key_parts.append(reason)
+        history_key = make_cache_key(*key_parts)
         if history_key in cache:
             frappe.logger().debug(
                 f"Skipping duplicate membership history within same request: {member_id} at {chapter_name}"
@@ -69,6 +78,8 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
                 "status": status,
                 "start_date": start_date,
             }
+            if distinguish_by_reason:
+                match_fields["reason"] = reason
             existing = check_duplicate_entry(member.chapter_membership_history, match_fields)
             if existing:
                 frappe.logger().debug(
@@ -97,6 +108,7 @@ class ChapterMembershipHistoryManager(BaseHistoryManager):
                     "chapter_name": chapter_name,
                     "assignment_type": assignment_type,
                     "start_date": start_date,
+                    "end_date": end_date,
                     "status": status,
                     "reason": reason or f"Assigned to {chapter_name} as {assignment_type}",
                 },
