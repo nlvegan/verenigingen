@@ -1629,7 +1629,7 @@ jobs:
   order-dependence-ratchet:
     name: 🔀 Order-Dependence Ratchet
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
 
     steps:
     - name: Checkout code
@@ -1703,8 +1703,12 @@ jobs:
           exit 0
         fi
         if ! git diff --quiet "$BASE_SHA" HEAD -- "$SCANNER"; then
-          echo "Scanner changed in this PR, so a different census is expected."
-          exit 0
+          # #950: a census from scanner A and one from scanner B are not comparable, but
+          # "not comparable" is not "not gated". Re-scan the BASE tree and the HEAD tree with
+          # the SAME scanner (the PR's, then the base's) and compare those. Fails closed.
+          echo "Scanner changed in this PR - comparing both trees under each scanner version."
+          python scripts/validation/order_dependence_scanner_edit_gate.py --base-sha "$BASE_SHA"
+          exit $?
         fi
 
         before=$(git show "$BASE_SHA:$BASELINE" | total)
