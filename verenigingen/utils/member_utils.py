@@ -223,6 +223,21 @@ def get_current_user_member_doc():
         frappe.throw(_("Error accessing member record"), frappe.ValidationError)
 
 
+def member_solely_holds_customer(member_name, customer) -> bool:
+    """Whether ``member_name`` is the ONLY Member linked to ``customer`` (#2493, ruling (a)).
+
+    A Sales Invoice with a blank ``member`` carries only its Customer, so the Customer is the
+    sole evidence of whose invoice it is. When two Members share a Customer (household, donor)
+    that evidence names both, so nobody may claim the invoice through it: fail closed. Every
+    blank-member Customer fallback (payment_retry page, ING Checkout payment and mandate APIs)
+    must call this one rule.
+    """
+    if not member_name or not customer:
+        return False
+    holders = frappe.get_all("Member", filters={"customer": customer}, pluck="name", limit=2)
+    return holders == [member_name]
+
+
 def get_current_user_member_name_required() -> str:
     """
     Get member name/ID for current user, throwing exception if not found.

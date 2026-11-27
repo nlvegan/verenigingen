@@ -849,6 +849,11 @@ def check_application_status(application_id) -> OperationResult[Dict[str, Any]]:
 
 
 @frappe.whitelist(allow_guest=True)
+# This wrapper, not submit_application, is the route the application form calls, so it carries its
+# own cap (#2926): the limit must not depend on the callee's decorator surviving a refactor. Its
+# counter is keyed on this function, so a wrapper call is counted once here and once on the callee
+# (same limit): the effective cap per IP stays 10/hour.
+@rate_limit(limit=10, seconds=3600)
 @public_api(operation_type=OperationType.MEMBER_DATA)
 def submit_application_with_tracking(**kwargs) -> OperationResult[Dict[str, Any]]:
     """Legacy endpoint - same as submit_application"""

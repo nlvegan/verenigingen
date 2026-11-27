@@ -24,7 +24,7 @@ import hashlib
 import frappe
 from frappe.utils import escape_html
 
-from verenigingen.mijnrood_sync.services.event_application.config_fault_alerts import _delivered
+from verenigingen.utils.notification_helpers import was_delivered
 
 STEP_FAILED_KEY = "mijnrood_sync_step_failed"
 MONEY_STEP_FAILED_KEY = "mijnrood_sync_money_step_failed"
@@ -102,4 +102,4 @@ def send_step_failed_alert(step: str, member_name: str, reason: str) -> bool:
             exclude_users=["Administrator"],
             staff_alert=True,
         )
-    return _delivered(result)
+    return was_delivered(result)

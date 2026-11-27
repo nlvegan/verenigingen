@@ -1056,27 +1056,178 @@ class TestSubscriptionWebhookBooksTheDuesPayment(_GuestDispatchMixin, EnhancedTe
         )
         self.assertEqual(self._invoice_outstanding(), amount)
 
-    def test_a_refund_of_an_unreconciled_bank_transaction_is_not_swallowed_and_posts_nothing(self):
-        """BT-only forward booking: there is no Payment Entry for the reversal to mirror.
-        The delivery must say so (non-success, so Mollie retries until the treasurer has
-        reconciled) -- never answer 200 and lose the refund, and never post a stand-in."""
-        payment_id = f"tr_{frappe.generate_hash(length=10)}"
-        # A payment matching no open invoice stays a Bank Transaction only (#1803).
-        self._age_the_invoice_out_of_reach()
-        payment = self._paid_dues_payment(payment_id, float(self.invoice_total))
-        self._post_mollie_notification(payment)
-        before = self._state_of(payment_id)
+    def _held_todos(self, reversal_key):
+        """Every ToDo raised for exactly this reversal key (anchored, not a substring match)."""
+        return frappe.get_all(
+            "ToDo",
+            filters={"description": ["like", f"%Reference: {reversal_key}"], "status": "Open"},
+            fields=["name", "reference_type", "reference_name", "allocated_to"],
+        )
+
+    def _treasurer_only_user(self):
+        """A user whose ONLY role is Treasurer: Frappe shows such a user just the ToDos allocated
+        to them, which is the whole point of the alert. Call it BEFORE the first Guest dispatch of a test."""
+        email = f"held.treasurer.{frappe.generate_hash(length=6)}@example.com"
+        self.create_test_user_with_roles(email, ["Verenigingen Treasurer"])
+        return email
+
+    def _hold_refund_of_unmatched_payment(self, payment_id, refund_id):
         refund = self._refund_of(1.0)
+        refund["id"] = refund_id
         refunded_payment = self._paid_dues_payment(
             payment_id,
             float(self.invoice_total),
             amountRefunded={"value": "1.00", "currency": self.currency},
         )
-
         result = self._post_mollie_notification(refunded_payment, _FakeMollie(refunds=[refund]))
+        self.assertLess(self._http_status(), 400, result)
+        return result
 
-        self.assertEqual(self._http_status(), 500, result)
+    def _unmatched_payment(self):
+        """A paid dues payment that matched no open invoice: a Bank Transaction only (#1803)."""
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        self._age_the_invoice_out_of_reach()
+        self._post_mollie_notification(self._paid_dues_payment(payment_id, float(self.invoice_total)))
+        return payment_id
+
+    def test_a_refund_of_an_unmatched_payment_is_held_with_one_staff_alert_and_posts_nothing(self):
+        """#2542 ruling (b). BT-only forward booking: there is no Payment Entry for the reversal
+        to mirror. The delivery is ACKNOWLEDGED (2xx, so Mollie stops its retry loop), nothing is
+        booked, and a Treasurer-only user can SEE exactly one alert, however often Mollie
+        redelivers. Probe shortcut: only the invoice's coverage dates (as in the siblings)."""
+        treasurer = self._treasurer_only_user()
+        payment_id = self._unmatched_payment()
+        before = self._state_of(payment_id)
+        bank_transaction = before["bank_transactions"][0]["name"]
+        refund_id = f"re_{frappe.generate_hash(length=8)}"
+        key = f"{payment_id}_refund_{refund_id}"
+
+        self._hold_refund_of_unmatched_payment(payment_id, refund_id)
+
         self.assertEqual(self._state_of(payment_id), before)
+        alerts = self._held_todos(key)
+        self.assertTrue(alerts, "no alert raised")
+        for alert in alerts:
+            self.track_test_record("ToDo", alert.name)
+        self.assertEqual(
+            {(a.reference_type, a.reference_name) for a in alerts}, {("Bank Transaction", bank_transaction)}
+        )
+        seen_by_treasurer = self._todos_visible_to(treasurer, key)
+        self.assertEqual(len(seen_by_treasurer), 1, "a Treasurer-only user must see the alert, once")
+        total = len(alerts)
+
+        self._hold_refund_of_unmatched_payment(payment_id, refund_id)
+
+        self.assertEqual(len(self._held_todos(key)), total, "a redelivery must not alert staff again")
+        self.assertEqual(self._state_of(payment_id), before)
+
+    def _todos_visible_to(self, user, key):
+        """What ``user`` can list: Frappe's ToDo permission query shows a non-System-Manager only
+        the ToDos allocated to, assigned by or owned by them."""
+        original = frappe.session.user
+        frappe.set_user(user)
+        try:
+            return frappe.get_list(
+                "ToDo", filters={"description": ["like", f"%Reference: {key}"]}, pluck="name"
+            )
+        finally:
+            frappe.set_user(original)
+
+    def test_a_prefix_reversal_id_is_not_suppressed_by_a_longer_held_one(self):
+        """Dedup is exact: holding re_12 first must not swallow re_1 (a LIKE %key% would)."""
+        self._treasurer_only_user()
+        payment_id = self._unmatched_payment()
+        longer, shorter = "re_ab12", "re_ab1"
+
+        self._hold_refund_of_unmatched_payment(payment_id, longer)
+        self._hold_refund_of_unmatched_payment(payment_id, shorter)
+
+        for refund_id in (longer, shorter):
+            alerts = self._held_todos(f"{payment_id}_refund_{refund_id}")
+            self.assertTrue(alerts, f"{refund_id} was suppressed")
+            for alert in alerts:
+                self.track_test_record("ToDo", alert.name)
+
+    def test_a_held_reversal_with_no_treasurer_user_is_logged_not_silent(self):
+        from unittest.mock import patch
+
+        payment_id = self._unmatched_payment()
+        refund_id = f"re_{frappe.generate_hash(length=8)}"
+        held = "verenigingen.verenigingen_payments.mollie.utils.held_reversals"
+
+        # Mock justified: a site always has a Treasurer user on shared fixtures; this forces the
+        # "nobody to alert" branch, and log_error is the observable it must reach.
+        with patch(f"{held}.treasurer_users", return_value=[]), patch(f"{held}.frappe.log_error") as logged:
+            self._hold_refund_of_unmatched_payment(payment_id, refund_id)
+
+        self.assertEqual(self._held_todos(f"{payment_id}_refund_{refund_id}"), [])
+        self.assertTrue(logged.called, "an alert that reaches nobody must be logged")
+
+    def test_a_refund_of_a_donation_payment_with_only_a_bank_transaction_is_not_held(self):
+        """Control for the Donation exclusion: a Donation owns this payment id, so the donation
+        path decides. The Bank Transaction is real, the Donation claims the id, no JE/PE exists."""
+        payment_id = self._unmatched_payment()
+        self.assertTrue(self._state_of(payment_id)["bank_transactions"], "fixture: no Bank Transaction")
+        frappe.set_user("Administrator")  # the Guest dispatch above leaves the session as Guest
+        donation = self.create_test_donation(payment_id=payment_id)
+        self.assertEqual(frappe.db.get_value("Donation", donation.name, "payment_id"), payment_id)
+        refund = self._refund_of(1.0)
+        wrapper = __import__(
+            "verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified",
+            fromlist=["UnifiedWebhookWrapperService"],
+        ).UnifiedWebhookWrapperService()
+
+        result = wrapper.process_reversal_webhook(
+            payment_id=payment_id, reversal_id=refund["id"], amount=1.0, reversal_type="refund"
+        )
+
+        self.assertEqual(result["status"], "error", result)
+        self.assertEqual(self._held_todos(f"{payment_id}_refund_{refund['id']}"), [])
+
+    def test_a_chargeback_of_an_unmatched_payment_is_held_too(self):
+        payment_id = self._unmatched_payment()
+        before = self._state_of(payment_id)
+        chargeback = {
+            "id": f"chb_{frappe.generate_hash(length=8)}",
+            "amount": {"value": "1.00", "currency": self.currency},
+            "reason": {"code": "AM04", "description": "Insufficient funds"},
+        }
+        payment = self._paid_dues_payment(
+            payment_id,
+            float(self.invoice_total),
+            amountChargedBack={"value": "1.00", "currency": self.currency},
+        )
+
+        result = self._post_mollie_notification(payment, _FakeMollie(chargebacks=[chargeback]))
+
+        self.assertLess(self._http_status(), 400, result)
+        self.assertEqual(self._state_of(payment_id), before)
+        alerts = self._held_todos(f"{payment_id}_chargeback_{chargeback['id']}")
+        self.assertTrue(alerts)
+        for alert in alerts:
+            self.track_test_record("ToDo", alert.name)
+
+    def test_a_refund_of_a_payment_this_site_never_recorded_is_still_refused(self):
+        """Control: with NO Bank Transaction either, the payment is unknown, not held. The forward
+        delivery may simply not have arrived yet, so Mollie must keep retrying (non-2xx) and no
+        staff alert is raised."""
+        self._unmatched_payment()  # a real, unrelated Bank Transaction a sloppy lookup could pick up
+        payment_id = f"tr_{frappe.generate_hash(length=10)}"
+        refund = self._refund_of(1.0)
+        wrapper = __import__(
+            "verenigingen.verenigingen_payments.mollie.services.webhook_wrapper_service_unified",
+            fromlist=["UnifiedWebhookWrapperService"],
+        ).UnifiedWebhookWrapperService()
+
+        result = wrapper.process_reversal_webhook(
+            payment_id=payment_id,
+            reversal_id=refund["id"],
+            amount=1.0,
+            reversal_type="refund",
+        )
+
+        self.assertEqual(result["status"], "error", result)
+        self.assertEqual(self._held_todos(f"{payment_id}_refund_{refund['id']}"), [])
 
     def test_an_unavailable_mollie_defers_refund_discovery_rather_than_dropping_it(self):
         payment_id = f"tr_{frappe.generate_hash(length=10)}"

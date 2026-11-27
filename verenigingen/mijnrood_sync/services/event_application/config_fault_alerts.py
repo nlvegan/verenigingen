@@ -27,15 +27,6 @@ def _claim_key(alert_key: str, *parts) -> str:
     return frappe.cache.make_key(f"{alert_key}:{digest}")
 
 
-def _delivered(result) -> bool:
-    result = result or {}
-    return (
-        bool(result.get("success"))
-        and not result.get("skipped")
-        and bool(result.get("notifications_created"))
-    )
-
-
 def _first_seen(member_name: str, event_name: str) -> str:
     event = f" (event {escape_html(event_name)})" if event_name else ""
     return f"First seen on member {escape_html(member_name)}{event}."
@@ -58,9 +49,9 @@ def send_division_unmapped_alert(
 ) -> bool:
     """True when at least one notification was created."""
     # lazy: callers/tests patch the helper at its source module
-    from verenigingen.utils.notification_helpers import notify_administrators
+    from verenigingen.utils.notification_helpers import notify_administrators, was_delivered
 
-    return _delivered(
+    return was_delivered(
         notify_administrators(
             subject=f"MijnRood division {division_id}: {reason}",
             message=(
@@ -85,9 +76,9 @@ def send_role_mapping_alert(
     object_type: str, name: str, reason: str, member_name: str, event_name: str
 ) -> bool:
     # lazy: callers/tests patch the helper at its source module
-    from verenigingen.utils.notification_helpers import notify_administrators
+    from verenigingen.utils.notification_helpers import notify_administrators, was_delivered
 
-    return _delivered(
+    return was_delivered(
         notify_administrators(
             subject=f"MijnRood role mapping invalid: {object_type} '{name}' {reason}",
             message=(
@@ -109,10 +100,10 @@ def send_role_mapping_alert(
 
 def send_dues_template_alert(payment_period, detail: str, member_name: str, event_name: str) -> bool:
     # lazy: callers/tests patch the helper at its source module
-    from verenigingen.utils.notification_helpers import notify_administrators
+    from verenigingen.utils.notification_helpers import notify_administrators, was_delivered
 
     shown = payment_period or "(empty)"
-    return _delivered(
+    return was_delivered(
         notify_administrators(
             subject=f"MijnRood payment period '{shown}' has no dues template",
             message=(

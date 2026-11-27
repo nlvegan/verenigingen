@@ -349,7 +349,7 @@ class TestEndLapsedBoardSeats2875(VereningingenTestCase):
             raise ConnectionError("simulated: redis went away")
 
         with (
-            mock.patch("verenigingen.services.chapter.board_seat_expiry_service._was_delivered", lambda r: False),
+            mock.patch("verenigingen.services.chapter.board_seat_expiry_service.was_delivered", lambda r: False),
             mock.patch.object(frappe.cache, "delete", boom),
         ):
             ended, failed = end_lapsed_board_seats()

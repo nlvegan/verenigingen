@@ -699,7 +699,14 @@ class MembershipCreationService(StatelessService):
         from verenigingen.utils.application_payments import create_membership_invoice
 
         try:
-            current_fee = member_doc.get_current_membership_fee()
+            # The service, not member_doc.get_current_membership_fee(): that is a whitelisted
+            # @standard_api endpoint, and calling it here ticks a second rate-limit bucket and
+            # re-runs the MEDIUM gate inside an already-authorised approval (#2927).
+            from verenigingen.services.member.financial.member_fee_calculation_service import (
+                get_member_fee_calculation_service,
+            )
+
+            current_fee = get_member_fee_calculation_service().get_current_membership_fee(member_doc)
             invoice = create_membership_invoice(
                 member_doc, membership, membership_type, current_fee["amount"], period_start=period_start
             )

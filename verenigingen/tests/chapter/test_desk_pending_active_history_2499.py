@@ -70,7 +70,9 @@ class TestDeskPendingActiveHistory2499(EnhancedTestCase):
 
     def test_desk_activation_after_a_rejoin_keeps_the_earlier_period(self):
         self.add_member_to_test_chapter(self.applicant.name, self.chapter.name)
-        self.assertTrue(leave_chapter(self.applicant.name, self.chapter.name, "moving")["removed"])
+        self.assertTrue(leave_chapter(
+                member_name=self.applicant.name, chapter_name=self.chapter.name, leave_reason="moving"
+            )["removed"])
         self.assertTrue(join_chapter(self.applicant.name, self.chapter.name, "back")["success"])
         before = self._entries_2499()
         self.assertEqual(before[-1].status, "Pending", before)

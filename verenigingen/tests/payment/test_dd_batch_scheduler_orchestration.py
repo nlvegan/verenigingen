@@ -39,12 +39,13 @@ from frappe.utils import getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+from verenigingen.tests.support.batcher_commit_release import ReleasesWhatTheBatcherCommitted
 from verenigingen.verenigingen_payments.api import dd_batch_scheduler as sched
 
 NOTIF_MODULE = "verenigingen.verenigingen_payments.api.sepa_batch_notifications"
 
 
-class _SchedulerOrchestrationBase(EnhancedTestCase):
+class _SchedulerOrchestrationBase(ReleasesWhatTheBatcherCommitted, EnhancedTestCase):
     """Shared eligible-data builder, mirroring the optimizer integration suite."""
 
     def setUp(self):

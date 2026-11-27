@@ -1956,6 +1956,33 @@ class UnifiedWebhookWrapperService:
             )
             return False, str(err)
 
+    def _hold_if_payment_unmatched(self, payment_id, reversal_type, reversal_id, amount):
+        """#2542: a reversal of a payment that matched no invoice is HELD, not retried.
+
+        Only when the payment IS recorded (a Bank Transaction exists); a payment this site has
+        never seen stays an error, since its forward delivery may simply not have arrived.
+        Returns the ``held`` result, or None when this is not that case.
+        """
+        from ..utils.held_reversals import hold_unmatched_reversal, unmatched_payment_bank_transaction
+
+        bank_transaction = unmatched_payment_bank_transaction(payment_id)
+        if not bank_transaction:
+            return None
+        todo = hold_unmatched_reversal(payment_id, reversal_type, reversal_id, amount, bank_transaction)
+        message = (
+            f"{reversal_type.capitalize()} {reversal_id} held: payment {payment_id} was never matched "
+            f"to an invoice (Bank Transaction {bank_transaction}); staff alerted (ToDo {todo or 'none, no Treasurer user'})"
+        )
+        self.logger.warning(message)
+        return {
+            "status": "held",
+            "message": message,
+            "payment_id": payment_id,
+            f"{reversal_type}_id": reversal_id,
+            "bank_transaction": bank_transaction,
+            "todo": todo,
+        }
+
     def process_reversal_webhook(
         self,
         payment_id: str,
@@ -2027,6 +2054,9 @@ class UnifiedWebhookWrapperService:
             booked = find_booked_payment(payment_id)
 
             if not booked:
+                held = self._hold_if_payment_unmatched(payment_id, reversal_type, reversal_id, amount)
+                if held:
+                    return held
                 return {
                     "status": "error",
                     "message": f"Cannot process {reversal_type} - original payment {payment_id} not booked",

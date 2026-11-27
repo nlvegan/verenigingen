@@ -45,11 +45,12 @@ not seen); resolution is by class name, so a mixin whose name is shadowed by a
 same-named class elsewhere is judged by whichever was scanned last. Further limits,
 all unexploited today: only module-level classes are registered (a class nested in
 another class or a function is invisible), and ``async def`` lifecycle methods are
-not recognised (only ``def`` is read). The explicit-base-call rule accepts any
-harness-rooted ANCESTOR, not the next class in the MRO, so a harness-rooted mixin
-ahead of a harness base that calls a non-adjacent harness ancestor
-(``Mix(VTC)`` calling ``VereningingenTestCase.setUp(self)``, used as
-``T(Mix, Other)`` with ``Other(VTC)``) bypasses ``Other.setUp`` unseen. It does not evaluate what the override
+not recognised (only ``def`` is read). An explicit base call must also land on the NEXT class in the MRO
+that defines the method (#2939): the MRO is computed (C3, by name) for every
+harness-rooted class, since the next class depends on who is instantiated, so
+``Mix(VTC)`` calling ``VereningingenTestCase.setUp(self)`` is flagged when ``T(Mix, Other)``
+exists with ``Other(VTC)`` defining ``setUp``. Classes outside the scanned tree are taken to define
+no lifecycle method. It does not evaluate what the override
 does with the isolation it skips, or whether the omission is currently
 harmless -- only whether the contract is honoured. It also does not flag a
 class that never overrides the method at all (normal MRO dispatch already
@@ -265,6 +266,7 @@ class Violation:
     method: str
     lineno: int
     ahead_of: str = ""  # set for a mixin-ordering finding (#1348): the using class
+    via: str = ""  # set for a skipped-sibling finding (#2939): the concrete class whose MRO exposes it
 
     def key(self) -> str:
         return f"{self.file}::{self.class_name}::{self.method}"
@@ -299,8 +301,90 @@ def find_violations(root: Path = SCAN_ROOT, unscannable: list | None = None) -> 
                     )
                 )
     violations.extend(_mixin_ordering_violations(registry))
+    seen = {v.key() for v in violations}
+    violations.extend(v for v in _skipped_sibling_violations(registry) if v.key() not in seen)
     violations.sort(key=lambda v: v.key())
     return violations
+
+
+def _c3_mro(name: str, registry: dict, _stack=()):
+    """C3 linearisation of ``name`` over the registry, or None if it is inconsistent.
+
+    A base outside the registry (``FrappeTestCase``, ``ErrorLogGuardMixin``,
+    ``unittest.TestCase``) is a leaf. Resolution is by name, as everywhere here.
+    """
+    if name in _stack:
+        return None
+    bases = list(registry[name].bases) if name in registry else []
+    seqs = []
+    for base in bases:
+        sub = _c3_mro(base, registry, _stack + (name,))
+        if sub is None:
+            return None
+        seqs.append(sub)
+    seqs.append(bases)
+    result = [name]
+    seqs = [s for s in seqs if s]
+    while seqs:
+        head = next((s[0] for s in seqs if not any(s[0] in o[1:] for o in seqs)), None)
+        if head is None:
+            return None
+        result.append(head)
+        seqs = [[c for c in s if c != head] for s in seqs]
+        seqs = [s for s in seqs if s]
+    return result
+
+
+def _first_definer(mro, method: str, registry: dict):
+    return next((c for c in mro if c in registry and method in registry[c].methods), None)
+
+
+def _callee_reaches_next_definer(klass, callee, method, concrete_mro, registry) -> bool:
+    """#2939: ``callee.<method>(self)`` from ``klass`` runs the next definer in the MRO.
+
+    ``concrete_mro`` is the MRO of the class actually instantiated, not of
+    ``klass``: ``T(Mix, Other)`` puts ``Other`` between ``Mix`` and the harness
+    root, so ``Mix`` calling the root's method directly skips ``Other``'s. A
+    callee that defines nothing itself resolves through its own MRO. When no
+    class after ``klass`` defines the method, any callee passes.
+    Classes outside the registry are taken to define nothing.
+    """
+    after = concrete_mro[concrete_mro.index(klass) + 1 :]
+    next_definer = _first_definer(after, method, registry)
+    if next_definer is None:
+        return True
+    callee_mro = _c3_mro(callee, registry)
+    return callee_mro is not None and _first_definer(callee_mro, method, registry) == next_definer
+
+
+def _skipped_sibling_violations(registry: dict) -> list:
+    """An explicit harness-base call that is not the next definer in some MRO (#2939).
+
+    The main rule accepts ``Base.setUp(self)`` for any harness-rooted ancestor, so
+    ``Mix(VTC)`` calling ``VTC.setUp(self)`` passes alone but skips ``Other.setUp``
+    in ``T(Mix, Other)``. Only calls the main rule accepted can be flagged here.
+    """
+    found = {}
+    for concrete in registry:
+        if concrete in HARNESS_ROOTS or not _is_harness_rooted(concrete, registry):
+            continue
+        mro = _c3_mro(concrete, registry)
+        if mro is None:
+            continue  # an inconsistent MRO cannot be instantiated
+        for name in mro:
+            info = registry.get(name)
+            if info is None or name in HARNESS_ROOTS or not _is_harness_rooted(name, registry):
+                continue
+            for method, has_super in info.methods.items():
+                callees = {c for c in info.explicit_calls.get(method, set()) if _is_harness_base(c, registry)}
+                if has_super or not callees:
+                    continue  # super() is cooperative; no harness callee is the main rule's finding
+                if any(_callee_reaches_next_definer(name, c, method, mro, registry) for c in callees):
+                    continue
+                v = Violation(str(info.file), name, method, info.lineno, via=concrete)
+                if v.key() not in found or name == concrete:
+                    found[v.key()] = v
+    return list(found.values())
 
 
 def _is_harness_base(name: str, registry: dict) -> bool:
@@ -403,6 +487,8 @@ def main():
         print(f"FAIL: {len(new_violations)} NEW harness-super-skip violation(s):")
         for v in new_violations:
             where = f" (listed ahead of the harness base in {v.ahead_of})" if v.ahead_of else ""
+            if v.via and v.via != v.class_name:
+                where = f" (skips a sibling's {v.method} as {v.via})"
             print(f"  {v.file}:{v.lineno} {v.class_name}.{v.method}{where} -- add super().{v.method}(...)")
         return 1
 
