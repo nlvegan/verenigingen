@@ -698,3 +698,64 @@ class TestImportAllEarlyFailureReachesStatus(EnhancedTestCase):
         self.assertFalse(result["success"])
         self.assertEqual(self._status(), "Import job enqueued")
         self.assertEqual(len(self._failed_logs()), before)
+
+    # ---- round 2 -------------------------------------------------------
+
+    def test_a_job_that_fails_instantly_is_not_overwritten_by_the_enqueue_status(self):
+        """Simulates the job finishing synchronously AT enqueue time (no real worker: bench RQ workers run
+        develop's code). The request must have written "enqueued" BEFORE enqueueing, or its later write
+        would bury the job's "Import failed" and bring back the stuck-status symptom.
+        """
+        settings = frappe.get_single("MijnRood Sync Settings")
+        settings.document_folder_mapping = [frappe._dict(organization_type="Chapter", document_type="Other")]
+
+        def run_job_now(*args, **kwargs):
+            with (
+                patch.object(
+                    DocumentImportService,
+                    "_load_folder_mapping",
+                    lambda s: setattr(s, "folder_mapping", {1: {}}),
+                ),
+                _patch_db_client(_FakeDBClient(raise_on_enter=True)),
+            ):
+                self._run_job()
+
+        with patch.object(frappe, "enqueue", side_effect=run_job_now):
+            result = settings.import_documents()
+        self.assertTrue(result["success"])
+        self.assertIn("Import failed", self._status())
+
+    def test_exception_before_the_sftp_try_is_reported_on_the_status(self):
+        """SFTP client construction sits outside import_all's own try."""
+        folders = [{"id": 1, "name": "Landelijk", "parent_id": None}]
+        documents = [{"id": 10, "folder_id": 1, "name": "a.pdf", "upload_file_name": "a.pdf"}]
+        with (
+            patch.object(
+                DocumentImportService,
+                "_load_folder_mapping",
+                lambda s: setattr(s, "folder_mapping", {1: {}}),
+            ),
+            _patch_db_client(_FakeDBClient(folders=folders, documents=documents)),
+            patch(
+                "verenigingen.mijnrood_sync.sftp_client.MijnRoodSFTPClient",
+                side_effect=RuntimeError("sftp settings broken"),
+            ),
+        ):
+            result = self._run_job()
+        self.assertFalse(result["success"])
+        self.assertIn("sftp settings broken", self._status())
+        self.assertNotEqual(self._status(), "Import job enqueued")
+
+    def test_malformed_folder_row_is_reported_on_the_status(self):
+        """Folder-tree build (step 3) is also outside the try."""
+        with (
+            patch.object(
+                DocumentImportService,
+                "_load_folder_mapping",
+                lambda s: setattr(s, "folder_mapping", {1: {}}),
+            ),
+            _patch_db_client(_FakeDBClient(folders=[{"name": "no id"}], documents=[{"id": 1}])),
+        ):
+            result = self._run_job()
+        self.assertFalse(result["success"])
+        self.assertIn("Import failed", self._status())

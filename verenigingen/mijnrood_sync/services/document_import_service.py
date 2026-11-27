@@ -308,7 +308,21 @@ class DocumentImportService:
         return national_chapter
 
     def import_all(self, dry_run: bool = False) -> dict:
-        """Main entry point for document import.
+        """Main entry point for document import; any unexpected failure lands on the status field.
+
+        The enqueued job's return value is discarded, so an exception outside the guarded steps of
+        ``_import_all`` (client construction, folder-tree build) would otherwise leave the status at
+        "Import job enqueued".
+        """
+        try:
+            return self._import_all(dry_run)
+        except Exception as e:
+            error_msg = str(e)[:500]
+            self._record_import_failure(error_msg, dry_run, log_traceback=True)
+            return {"success": False, "imported": 0, "skipped": 0, "errors": [error_msg]}
+
+    def _import_all(self, dry_run: bool = False) -> dict:
+        """Body of ``import_all``.
 
         Args:
             dry_run: If True, compute counts without creating records or downloading files.
