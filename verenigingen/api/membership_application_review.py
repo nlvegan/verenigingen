@@ -431,12 +431,15 @@ def _activate_volunteer_if_requested(member, activate_as_volunteer):
             frappe.logger().info(
                 f"Activated volunteer record for {member.name} during approval (full activation)"
             )
-        except Exception as e:
-            safe_log_error(
-                "Volunteer activation failed",
-                f"Failed to activate volunteer record for {member.name}: {str(e)}",
+        except NON_RESUMABLE_DB_ERRORS:
+            # A 1213 rolled the whole transaction back: carrying on would approve against lost writes.
+            raise
+        except Exception:  # swallow-ok: the approval stands with a warning (ruling #3051, 2026-11-27)
+            frappe.log_error(
+                title="Volunteer activation failed",
+                message=f"Member {member.name}:\n{frappe.get_traceback()}",
             )
-            # Continue with approval - this is not critical
+            member.flags.volunteer_activation_failed = True
     elif has_volunteer_interest:
         # Interest-only: volunteer record exists but no full activation requested
         frappe.logger().info(
@@ -577,7 +580,14 @@ def _request_mandate_signature_safe(member):
         return False
 
 
-def _build_approval_response(member, invoice, billing_amount, user_creation_result, invoice_requested=False):
+def _build_approval_response(
+    member,
+    invoice,
+    billing_amount,
+    user_creation_result,
+    invoice_requested=False,
+    volunteer_activation_failed=False,
+):
     """Build approval response dict with 5-way user account status branching.
 
     invoice_requested: the caller asked for an invoice. With no invoice then, the response
@@ -654,12 +664,19 @@ def _build_approval_response(member, invoice, billing_amount, user_creation_resu
             " Note: the dues schedule could NOT be created. See the Error Log, then create it manually."
         )
 
+    # Volunteer activation is a follow-on step: when it fails the approval stands, with this warning (#3051).
+    if volunteer_activation_failed:
+        message += _(
+            " Note: the volunteer could NOT be activated. See the Error Log, then activate the volunteer manually."
+        )
+
     response = {
         "success": True,
         "message": message,
         "invoice": invoice.name if invoice else None,
         "invoice_failed": invoice_failed,
         "dues_schedule_failed": dues_schedule_failed,
+        "volunteer_activation_failed": volunteer_activation_failed,
         "amount": billing_amount,
         "user_account": user_creation_result,
         "user_account_status": user_account_status,
@@ -816,7 +833,12 @@ def _approve_membership_application_locked(
     )
 
     return _build_approval_response(
-        member, invoice, billing_amount, user_creation_result, invoice_requested=create_invoice
+        member,
+        invoice,
+        billing_amount,
+        user_creation_result,
+        invoice_requested=create_invoice,
+        volunteer_activation_failed=bool(member.flags.get("volunteer_activation_failed")),
     )
 
 

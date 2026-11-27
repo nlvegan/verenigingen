@@ -1161,6 +1161,82 @@ class TestApproveApplicationBoard(ApprovalCase):
         self.track_doc("Volunteer", volunteer.name)
         self.assertEqual((volunteer.status, rows, activated), ("Active", [], True))
 
+    def _orphan_volunteer_that_cannot_be_saved_3051(self):
+        """A Volunteer with the applicant's email and no member (the activation adopts it), whose saved
+        assignment row ends before it starts, so Volunteer.validate refuses the relink save. A real data fault
+        the activation hits through the real flow. Fixture shortcut, stated: the bad child row is written
+        with db_insert, because a normal save would refuse it; it stands in for a row that predates the rule."""
+        old_owner = self.create_test_member(first_name="Old", last_name="Owner3051", birth_date="1990-01-01")
+        volunteer = self.create_test_volunteer(member_name=old_owner.name, status="New")
+        volunteer.db_set("email", self.email, update_modified=False)
+        volunteer.db_set("member", None, update_modified=False)
+        frappe.get_doc(
+            {
+                "doctype": "Volunteer Assignment",
+                "parent": volunteer.name,
+                "parenttype": "Volunteer",
+                "parentfield": "assignment_history",
+                "assignment_type": "Board Position",
+                "role": "Secretary",
+                "start_date": "2026-02-01",
+                "end_date": "2026-01-01",
+            }
+        ).db_insert()
+        return volunteer
+
+    def _approve_with_activation_3051(self):
+        name = self._stage_and_confirm(interested_in_volunteering=1)
+        errors = set(frappe.get_all("Error Log", pluck="name"))
+        result = self._approve_as(name, user=self.admin_user.email, activate_as_volunteer=True)
+        rows = frappe.get_all(
+            "Error Log",
+            {"name": ["not in", list(errors) or [""]], "method": ["like", "Volunteer activation%"]},
+            pluck="method",
+        )
+        return name, result, rows
+
+    def test_a_failed_volunteer_activation_is_a_warning_not_plain_success_3051(self):
+        """Ruling 2026-11-27: the approval stands, the response names the failed step, the failure is logged."""
+        self.email = self._fresh_applicant_email()
+        volunteer = self._orphan_volunteer_that_cannot_be_saved_3051()
+
+        name, result, rows = self._approve_with_activation_3051()
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(
+            frappe.db.get_value("Member", frappe.db.get_value(SUBMISSION, name, "member"), "status"), "Active"
+        )
+        self.assertNotEqual(frappe.db.get_value("Volunteer", volunteer.name, "status"), "Active")
+        self.assertTrue(result.get("volunteer_activation_failed"), result)
+        self.assertIn("volunteer could NOT be activated", result["message"])
+        self.assertTrue(rows, "the failure must be logged")
+
+    def test_control_a_working_volunteer_activation_carries_no_warning_3051(self):
+        """CONTROL: same flow, same flag, no fault: Volunteer Active, no warning, no activation Error Log row."""
+        self.email = self._fresh_applicant_email()
+        name, result, rows = self._approve_with_activation_3051()
+
+        member = frappe.db.get_value(SUBMISSION, name, "member")
+        volunteer = frappe.db.get_value("Volunteer", {"member": member}, ["name", "status"], as_dict=True)
+        self.track_doc("Volunteer", volunteer.name)
+        self.assertEqual((volunteer.status, rows), ("Active", []))
+        self.assertTrue(result["success"], result)
+        self.assertFalse(result.get("volunteer_activation_failed"), result)
+        self.assertNotIn("volunteer could NOT be activated", result["message"])
+
+    def test_a_deadlock_during_volunteer_activation_propagates_3051(self):
+        """A 1213 rolled the whole transaction back: the approval must not report success on top of it.
+        Fault injected at get_volunteer_for_member, the first call inside the activation's own try, so it
+        passes through both swallowing layers (service handler and the caller's)."""
+        from verenigingen.services.volunteer import volunteer_activation_service as service
+
+        self.email = self._fresh_applicant_email()
+        name = self._stage_and_confirm(interested_in_volunteering=1)
+        # Mock justified: Infrastructure fault injection - a MariaDB deadlock victim (1213) cannot be provoked on demand.
+        with patch.object(service, "get_volunteer_for_member", side_effect=frappe.QueryDeadlockError("1213")):
+            with self.assertRaises(frappe.QueryDeadlockError):
+                self._approve_as(name, user=self.admin_user.email, activate_as_volunteer=True)
+
     def test_control_activation_scope_is_call_local_and_unauthorised_caller_refused_3022(self):
         """CONTROL (passes on the base too). The elevation is only inside the activation: afterwards the flag is gone, and a caller with no
         Volunteer write right is refused before any write."""

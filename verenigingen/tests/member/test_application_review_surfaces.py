@@ -637,6 +637,22 @@ class TestDashboardWiring(EnhancedTestCase):
             self.assertIn("escape_html(", shown)
             self.assertIsNone(re.search(r"indicator: 'green'", shown))
 
+    def test_an_approval_with_a_failed_volunteer_activation_is_shown_orange_3051(self):
+        """#3051: the server says `volunteer_activation_failed`; the review page (the only caller that sends
+        activate_as_volunteer) must show it orange, not as the green success toast. Source check, like the
+        dues-schedule one above (the callback runs in the browser), tied to the key the server really sends."""
+        from verenigingen.api import membership_application_review as review
+
+        self.assertIn('"volunteer_activation_failed": volunteer_activation_failed', inspect.getsource(review))
+        page = self._read("verenigingen/page/membership_application_review/membership_application_review.js")
+        branch = page.index("response.message.volunteer_activation_failed")
+        green = page.index("Application approved for")
+        self.assertLess(branch, green, "the orange branch is tested before the green toast")
+        shown = page[branch:green]
+        self.assertIn("indicator: 'orange'", shown)
+        self.assertIn("escape_html(response.message.message)", shown)
+        self.assertNotIn("indicator: 'green'", shown)
+
     def test_staff_may_open_the_review_page(self):
         import json
         import os
