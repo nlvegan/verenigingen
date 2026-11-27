@@ -350,8 +350,11 @@ runs:
         mkdir -p ${GITHUB_WORKSPACE}/{sites,config,logs,config/pids,sites/test_site}
         python -m venv ${GITHUB_WORKSPACE}/env
         source ${GITHUB_WORKSPACE}/env/bin/activate
-        pip install --quiet --upgrade pip
-        pip install --quiet frappe-bench
+        # Network failures are retried and, if they persist, reported as an infrastructure
+        # failure (#2910, same guard as the JS install, #853).
+        source "${{ github.action_path }}/retry-js-install.sh"
+        ci_retry_pip_install "pip upgrade" pip install --quiet --upgrade pip
+        ci_retry_pip_install frappe-bench pip install --quiet frappe-bench
 
         # Generate bench configuration
         python <<EOF
@@ -455,12 +458,19 @@ runs:
       shell: bash
       run: |
         source ${GITHUB_WORKSPACE}/env/bin/activate
+        source "${{ github.action_path }}/retry-js-install.sh"
 
         for app in ${GITHUB_WORKSPACE}/apps/*/; do
           app_name="$(basename $app)"
           if [ -f "${app}setup.py" ] || [ -f "${app}pyproject.toml" ]; then
             echo "Installing Python dependencies for ${app_name}"
-            pip install --upgrade -e "${app}[dev,test]" || pip install --upgrade -e "${app}"
+            # The extras-less fallback is for a missing extra only: after a network give-up it
+            # would just repeat the same doomed round and a second ::error::.
+            # An explicit if/exit: under `bash -e` a failing `&&` list inside `||` does NOT stop the step.
+            if ! ci_retry_pip_install "${app_name}[dev,test]" pip install --upgrade -e "${app}[dev,test]"; then
+              [ "$CI_RETRY_GAVE_UP_ON_NETWORK" != 1 ] || exit 1
+              ci_retry_pip_install "${app_name}" pip install --upgrade -e "${app}" || exit 1
+            fi
           fi
           echo "$app_name" >> sites/apps.txt
         done
@@ -469,7 +479,7 @@ runs:
         # CodeCoverage, which imports the `coverage` package at runtime; it is
         # not a frappe/app dependency, so install it when coverage is enabled.
         if [ "${{ inputs.enable-coverage }}" = "true" ]; then
-          pip install --quiet coverage
+          ci_retry_pip_install coverage pip install --quiet coverage
         fi
 
     - name: Install JS Dependencies

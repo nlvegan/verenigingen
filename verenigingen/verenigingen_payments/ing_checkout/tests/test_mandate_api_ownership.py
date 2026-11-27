@@ -326,6 +326,60 @@ class TestExecuteDebitOwnership(_Base):
         self.assertEqual(result, {"success": True})
         self.assertEqual(len(recorder.calls), 1)
 
+    def test_blank_member_invoice_with_a_shared_customer_refused_2493(self):
+        """Ruling (a) of #2493: BOTH Members sharing the Customer are refused the pairing.
+
+        Each is refused like an unknown pairing, and nothing is debited.
+        """
+        self.assertFalse(frappe.db.get_value("Sales Invoice", self.own_invoice.name, "member"))
+        housemate_user, housemate = self._plain_member_linked_user("IngDebitHousemate")
+        frappe.db.set_value("Member", housemate.name, "customer", self.attacker_customer)
+        housemate_mandate = self._make_mandate_for(housemate.name)
+        recorder = self._ownership_1089_patch_service()
+        with self.set_user(self.attacker), self._bypass_tier_gate():
+            foreign = self._observe(
+                mandate_api.execute_debit_for_invoice, self.own_mandate.name, self.victim_invoice.name
+            )
+            shared_first = self._observe(
+                mandate_api.execute_debit_for_invoice, self.own_mandate.name, self.own_invoice.name
+            )
+        with self.set_user(housemate_user), self._bypass_tier_gate():
+            shared_second = self._observe(
+                mandate_api.execute_debit_for_invoice, housemate_mandate.name, self.own_invoice.name
+            )
+        self.assertEqual(foreign["outcome"][0], "raised", foreign)
+        for shared in (shared_first, shared_second):
+            self.assertEqual(shared["outcome"], foreign["outcome"])
+            self.assertEqual(shared["message_log"], foreign["message_log"])
+        self.assertEqual(recorder.calls, [])
+
+    def test_member_set_invoice_naming_another_member_refused_when_customer_is_shared_2493(self):
+        """B shares A's Customer; A's member-set invoice must not pair with B's mandate."""
+        frappe.db.set_value("Member", self.attacker_member.name, "customer", self.victim_customer)
+        frappe.db.set_value("Sales Invoice", self.victim_invoice.name, "member", self.victim.name)
+        recorder = self._ownership_1089_patch_service()
+        with self.set_user(self.attacker), self._bypass_tier_gate():
+            foreign = self._observe(
+                mandate_api.execute_debit_for_invoice, UNKNOWN_MANDATE, self.victim_invoice.name
+            )
+            shared = self._observe(
+                mandate_api.execute_debit_for_invoice, self.own_mandate.name, self.victim_invoice.name
+            )
+        self.assertEqual(shared["outcome"], foreign["outcome"])
+        self.assertEqual(shared["message_log"], foreign["message_log"])
+        self.assertEqual(recorder.calls, [])
+
+    def test_member_set_invoice_with_a_shared_customer_unaffected_2493(self):
+        """CONTROL: an invoice naming the mandate owner is still theirs when the Customer is shared."""
+        housemate = self.create_test_member(first_name="IngDebitHousemate")
+        frappe.db.set_value("Member", housemate.name, "customer", self.attacker_customer)
+        frappe.db.set_value("Sales Invoice", self.own_invoice.name, "member", self.attacker_member.name)
+        recorder = self._ownership_1089_patch_service()
+        with self.set_user(self.attacker), self._bypass_tier_gate():
+            result = mandate_api.execute_debit_for_invoice(self.own_mandate.name, self.own_invoice.name)
+        self.assertEqual(result, {"success": True})
+        self.assertEqual(len(recorder.calls), 1)
+
     def test_staff_may_debit_another_members_invoice(self):
         recorder = self._ownership_1089_patch_service()
         staff = self._staff_user()

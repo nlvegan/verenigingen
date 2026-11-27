@@ -152,7 +152,6 @@ verenigingen/services/member/account/user_role_profile_calculator.py::auto_sync_
 verenigingen/services/member/account/user_role_profile_calculator.py::is_active_board_member::1
 verenigingen/services/member/account/user_role_profile_calculator.py::is_active_volunteer::1
 verenigingen/services/member/account/user_role_profile_calculator.py::is_team_leader::1
-verenigingen/services/member/approval/application_helpers.py::activate_pending_chapter_membership::1
 verenigingen/services/member/approval/application_helpers.py::create_active_chapter_membership::1
 verenigingen/services/member/approval/application_helpers.py::create_pending_chapter_membership::1
 verenigingen/services/member/approval/application_helpers.py::create_volunteer_record::1

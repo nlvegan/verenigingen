@@ -467,8 +467,14 @@ class TestEscalation(RetryBase):
                 self.assertFalse(result["scheduled"])
                 self.assertEqual(rec.status, "Escalated")
                 self.assertIsNotNone(rec.escalated_on)
-                email_service.send_templated_email.assert_called_once()
-                kwargs = email_service.send_templated_email.call_args.kwargs
+                # Exhaustion also mails the member their final notice (#3103); this
+                # test is about the staff alert, so select that call by template.
+                staff_calls = [
+                    c for c in email_service.send_templated_email.call_args_list
+                    if c.kwargs["template_name"] == "payment_notification"
+                ]
+                self.assertEqual(len(staff_calls), 1)
+                kwargs = staff_calls[0].kwargs
                 self.assertEqual(kwargs["reference_name"], member.name)
                 # The audit-trail comment lands on the retry record instead.
                 comments = frappe.get_all(

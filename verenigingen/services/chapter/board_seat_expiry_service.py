@@ -22,8 +22,7 @@ import hashlib
 import frappe
 from frappe.utils import escape_html, today
 
-from verenigingen.services.member.application.door_alerts import _was_delivered
-from verenigingen.utils.notification_helpers import notify_administrators
+from verenigingen.utils.notification_helpers import notify_administrators, was_delivered
 from verenigingen.utils.transaction_errors import (
     NON_RESUMABLE_DB_ERRORS,
     release_savepoint_if_present,
@@ -137,7 +136,7 @@ def _alert_staff(failed):
     except Exception:
         result = None
         frappe.log_error(title="Board seat expiry alert failed", message=frappe.get_traceback())
-    if not _was_delivered(result):
+    if not was_delivered(result):
         for _item, key in fresh:
             frappe.cache.delete(key)  # nobody was told: do not hold the alert back for a week
 

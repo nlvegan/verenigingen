@@ -14,7 +14,11 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.constants import Roles
-from verenigingen.utils.member_utils import get_current_user_member_name, validate_member_ownership
+from verenigingen.utils.member_utils import (
+    get_current_user_member_name,
+    member_solely_holds_customer,
+    validate_member_ownership,
+)
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -47,8 +51,16 @@ def _require_mandate_access(mandate_name: str, sales_invoice: str = None) -> Non
         _refuse_mandate_access()
     if sales_invoice is not None:
         member_customer = frappe.db.get_value("Member", owner, "customer")
-        invoice_customer = frappe.db.get_value("Sales Invoice", sales_invoice, "customer")
+        invoice = frappe.db.get_value("Sales Invoice", sales_invoice, ["customer", "member"], as_dict=True)
+        invoice_customer = invoice.customer if invoice else None
+        sole_holder = member_solely_holds_customer(owner, member_customer)
         if not member_customer or member_customer != invoice_customer:
+            _refuse_mandate_access()
+        # A blank-member invoice is claimed through its Customer alone: refused when shared (#2493).
+        if invoice and not invoice.member and not sole_holder:
+            _refuse_mandate_access()
+        # A member-set invoice belongs to that Member alone, whatever Customer they share.
+        if invoice and invoice.member and invoice.member != owner:
             _refuse_mandate_access()
 
 

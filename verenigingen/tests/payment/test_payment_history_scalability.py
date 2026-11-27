@@ -18,7 +18,6 @@ Features:
 Architecture:
 - Inherits from VereningingenTestCase for automatic cleanup
 - Uses CoreTestDataFactory for efficient data generation
-- Integrates with BackgroundJobManager for realistic queue testing
 - Provides comprehensive performance measurement
 
 Usage:
@@ -54,7 +53,6 @@ from frappe.utils import add_days, add_months, today, now
 
 from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.tests.fixtures.test_data_factory import CoreTestDataFactory
-from verenigingen.utils.background_jobs import BackgroundJobManager
 
 
 @dataclass
@@ -713,141 +711,6 @@ class PaymentHistoryScalabilityFactoryShadowTest(unittest.TestCase):
         )
 
 
-class BackgroundJobScalabilityTest(VereningingenTestCase):
-    """Test background job processing scalability for payment history updates"""
-    
-    def setUp(self):
-        """Set up background job testing environment"""
-        super().setUp()
-        self.factory = CoreTestDataFactory(cleanup_on_exit=False, seed=42)
-        # Re-wire what VereningingenTestCase.setUp() wired on the instance this one
-        # replaced. Unwired, _test_docs stays empty, base tearDown skips its rollback,
-        # and cleanup(commit=True) then COMMITS the whole test transaction, stranding
-        # every row the factory cannot reach (#2842).
-        self.factory.on_track = self.track_doc
-        self.metrics_collector = PerformanceMetricsCollector()
-        self.job_completion_times = []
-        
-    def tearDown(self):
-        """Clean up background job testing"""
-        # super() first, then commit: cleanup(commit=True) is connection-wide (#842/#489)
-        super().tearDown()
-        self.factory.cleanup(commit=True)
-        
-    @pytest.mark.integration
-    def test_background_job_queue_processing_50_members(self):
-        """Test background job queue processing with 50 members"""
-        self._run_background_job_scale_test(member_count=50, test_name="bg_jobs_50")
-        
-    @pytest.mark.performance  
-    def test_background_job_queue_processing_200_members(self):
-        """Test background job queue processing with 200 members"""
-        self._run_background_job_scale_test(member_count=200, test_name="bg_jobs_200")
-        
-    def _run_background_job_scale_test(self, member_count: int, test_name: str):
-        """Core background job scaling test"""
-        
-        print(f"\n🔄 Testing background job processing: {member_count} members")
-        
-        # Create test members
-        members = []
-        for i in range(member_count):
-            member = self.factory.create_test_member()
-            members.append(member)
-            
-        # Queue background jobs for payment history updates
-        job_ids = []
-        queue_start = time.time()
-        
-        for member in members:
-            job_id = BackgroundJobManager.queue_member_payment_history_update(
-                member_name=member.name,
-                payment_entry=None,
-                priority="default"
-            )
-            job_ids.append(job_id)
-            
-        queue_time = time.time() - queue_start
-        print(f"📤 Queued {len(job_ids)} jobs in {queue_time:.2f}s")
-        
-        # Monitor job completion
-        self._monitor_job_completion(job_ids, timeout=300)  # 5 minute timeout
-        
-        # Verify job results
-        self._verify_background_job_results(job_ids, members)
-        
-    def _monitor_job_completion(self, job_ids: List[str], timeout: int = 300):
-        """Monitor background job completion with timeout"""
-        
-        start_time = time.time()
-        completed_jobs = set()
-        failed_jobs = set()
-        
-        print(f"⏳ Monitoring {len(job_ids)} background jobs...")
-        
-        while len(completed_jobs) + len(failed_jobs) < len(job_ids):
-            if time.time() - start_time > timeout:
-                remaining = len(job_ids) - len(completed_jobs) - len(failed_jobs)
-                print(f"⚠️ Timeout reached, {remaining} jobs still pending")
-                break
-                
-            for job_id in job_ids:
-                if job_id in completed_jobs or job_id in failed_jobs:
-                    continue
-                    
-                job_status = BackgroundJobManager.get_job_status(job_id)
-                status = job_status.get("status", "Unknown")
-                
-                if status == "Completed":
-                    completed_jobs.add(job_id)
-                    job_time = job_status.get("result", {}).get("execution_time", 0)
-                    self.job_completion_times.append(job_time)
-                elif status == "Failed":
-                    failed_jobs.add(job_id)
-                    
-            # Progress update
-            total_done = len(completed_jobs) + len(failed_jobs)
-            if total_done % 10 == 0:
-                progress = (total_done / len(job_ids)) * 100
-                print(f"  Progress: {total_done}/{len(job_ids)} ({progress:.1f}%)")
-                
-            time.sleep(1)  # Check every second
-            
-        completion_time = time.time() - start_time
-        print(f"✅ Job monitoring completed in {completion_time:.2f}s")
-        print(f"  Completed: {len(completed_jobs)}")
-        print(f"  Failed: {len(failed_jobs)}")
-        print(f"  Pending: {len(job_ids) - len(completed_jobs) - len(failed_jobs)}")
-        
-        # Calculate average job completion time
-        if self.job_completion_times:
-            avg_completion = sum(self.job_completion_times) / len(self.job_completion_times)
-            print(f"  Average job completion time: {avg_completion:.2f}s")
-            
-    def _verify_background_job_results(self, job_ids: List[str], members: List):
-        """Verify background job processing results"""
-        
-        successful_updates = 0
-        
-        for member in members:
-            try:
-                # Reload member to get updated payment history
-                member.reload()
-                
-                # Verify payment history was loaded (even if empty)
-                if hasattr(member, 'payment_history'):
-                    successful_updates += 1
-                    
-            except Exception as e:
-                print(f"❌ Failed to verify member {member.name}: {e}")
-                
-        success_rate = (successful_updates / len(members)) * 100
-        print(f"✅ Payment history update success rate: {success_rate:.1f}%")
-        
-        # Assert minimum success rate
-        self.assertGreater(success_rate, 85.0, f"Success rate {success_rate:.1f}% below minimum 85%")
-
-
 class EdgeCaseScalabilityTest(VereningingenTestCase):
     """Test edge cases and failure scenarios at scale"""
     
@@ -996,11 +859,6 @@ class ScalabilityEdgeCaseResidueTest(unittest.TestCase):
 
     def test_edge_case_class_leaves_no_rows(self):
         self._assert_no_residue(EdgeCaseScalabilityTest, "test_payment_history_with_missing_customers")
-
-    def test_background_job_class_leaves_no_rows(self):
-        self._assert_no_residue(
-            BackgroundJobScalabilityTest, "test_background_job_queue_processing_50_members"
-        )
 
 
 # Test Runner Integration

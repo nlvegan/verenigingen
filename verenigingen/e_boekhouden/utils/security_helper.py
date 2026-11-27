@@ -13,6 +13,7 @@ from typing import Any, Callable, List, Optional
 import frappe
 
 from verenigingen.utils.constants import Roles
+from verenigingen.utils.flag_restore import restored_flags
 from verenigingen.utils.transaction_errors import (
     NON_RESUMABLE_DB_ERRORS,
     release_savepoint_if_present,
@@ -52,6 +53,9 @@ def migration_context(operation_type: str = "general", user: Optional[str] = Non
 
     migration_user = user or MIGRATION_SYSTEM_USER
 
+    # #3221: hand back the caller's flag values on exit, not False/None
+    flag_guard = restored_flags("in_migration", "migration_operation", "migration_initiated_by")
+    flag_guard.__enter__()
     try:
         # Check if current user has required roles (skip check if we're already using system user)
         if current_user != MIGRATION_SYSTEM_USER and not has_migration_permission(operation_type):
@@ -72,12 +76,11 @@ def migration_context(operation_type: str = "general", user: Optional[str] = Non
         yield
 
     finally:
+        # First, so a raising set_user below cannot skip the flag restore (#3221)
+        flag_guard.__exit__(None, None, None)
         # Restore original user (only if we switched)
         if current_user != migration_user:
             frappe.set_user(current_user)
-        frappe.flags.in_migration = False
-        frappe.flags.migration_operation = None
-        frappe.flags.migration_initiated_by = None
 
 
 def has_migration_permission(operation_type: str) -> bool:
@@ -150,24 +153,19 @@ def validate_and_insert(doc, skip_validation: bool = False):
 
     operation_type = operation_map.get(doc.doctype, "general")
 
-    with migration_context(operation_type):
+    with migration_context(operation_type), restored_flags("skip_non_critical_validations"):
         if skip_validation:
             # Only skip non-critical validations, never skip permissions
             frappe.flags.skip_non_critical_validations = True
 
-        try:
-            doc.insert()
+        doc.insert()
 
-            # Log for audit trail
-            frappe.logger().info(
-                f"Migration insert: {doc.doctype} {doc.name} "
-                f"by {frappe.flags.migration_initiated_by} "
-                f"(operation: {operation_type})"
-            )
-
-        finally:
-            if skip_validation:
-                frappe.flags.skip_non_critical_validations = False
+        # Log for audit trail
+        frappe.logger().info(
+            f"Migration insert: {doc.doctype} {doc.name} "
+            f"by {frappe.flags.migration_initiated_by} "
+            f"(operation: {operation_type})"
+        )
 
     return doc
 
@@ -193,21 +191,16 @@ def validate_and_save(doc, skip_validation: bool = False):
 
     operation_type = operation_map.get(doc.doctype, "general")
 
-    with migration_context(operation_type):
+    with migration_context(operation_type), restored_flags("skip_non_critical_validations"):
         if skip_validation:
             frappe.flags.skip_non_critical_validations = True
 
-        try:
-            doc.save()
+        doc.save()
 
-            # Log for audit trail
-            frappe.logger().info(
-                f"Migration save: {doc.doctype} {doc.name} " f"by {frappe.flags.migration_initiated_by}"
-            )
-
-        finally:
-            if skip_validation:
-                frappe.flags.skip_non_critical_validations = False
+        # Log for audit trail
+        frappe.logger().info(
+            f"Migration save: {doc.doctype} {doc.name} " f"by {frappe.flags.migration_initiated_by}"
+        )
 
     return doc
 
@@ -263,6 +256,8 @@ def cleanup_context():
     """
     current_user = frappe.session.user
 
+    flag_guard = restored_flags("in_cleanup", "cleanup_initiated_by")  # #3221
+    flag_guard.__enter__()
     try:
         # Verify user has delete permissions
         if not any(
@@ -286,8 +281,7 @@ def cleanup_context():
         yield
 
     finally:
-        frappe.flags.in_cleanup = False
-        frappe.flags.cleanup_initiated_by = None
+        flag_guard.__exit__(None, None, None)  # sole statement here (#3221)
 
 
 @contextmanager
@@ -316,6 +310,10 @@ def migration_transaction(
     """
     current_user = frappe.session.user
     start_time = time.time()
+    flag_guard = restored_flags(
+        "in_migration_transaction", "migration_transaction_type", "migration_initiated_by"
+    )
+    flag_guard.__enter__()  # #3221: restored in the finally below
 
     # Transaction state - includes last_commit_time for time-based auto-commit
     transaction_state = {
@@ -460,6 +458,10 @@ def migration_transaction(
         raise
 
     finally:
+        # Hand back the caller's transaction flags FIRST, so a raising cleanup
+        # below cannot skip it (#3221)
+        flag_guard.__exit__(None, None, None)
+
         # Cleanup. A `finally:` clobbers a propagating exception with a new one
         # from inside it EXACTLY the same way an `except:` block does -- Python's
         # exception-replacement mechanics do not differ by block type. What
@@ -494,11 +496,6 @@ def migration_transaction(
         # Restore original user
         frappe.set_user(current_user)
 
-        # Clear transaction flags
-        frappe.flags.in_migration_transaction = False
-        frappe.flags.migration_transaction_type = None
-        frappe.flags.migration_initiated_by = None
-
 
 @contextmanager
 def atomic_migration_operation(operation_type: str = "general"):
@@ -516,6 +513,8 @@ def atomic_migration_operation(operation_type: str = "general"):
     """
     current_user = frappe.session.user
 
+    flag_guard = restored_flags("in_atomic_migration", "atomic_operation_type", "atomic_initiated_by")
+    flag_guard.__enter__()  # #3221: restored in the finally below
     try:
         # Check permissions
         if not has_migration_permission(operation_type):
@@ -590,13 +589,11 @@ def atomic_migration_operation(operation_type: str = "general"):
         raise
 
     finally:
+        # Flags first, so a raising set_user cannot skip the restore (#3221)
+        flag_guard.__exit__(None, None, None)
+
         # Restore original user
         frappe.set_user(current_user)
-
-        # Clear atomic flags
-        frappe.flags.in_atomic_migration = False
-        frappe.flags.atomic_operation_type = None
-        frappe.flags.atomic_initiated_by = None
 
 
 def ensure_migration_user_setup():

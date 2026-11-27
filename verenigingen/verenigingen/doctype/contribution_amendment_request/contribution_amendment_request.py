@@ -226,7 +226,12 @@ class ContributionAmendmentRequest(Document):
         else:
             # PRIORITY 2: Fall back to legacy fee calculation
             try:
-                current_fee = member_doc.get_current_membership_fee()
+                # Service, not the whitelisted Member method (second bucket + MEDIUM gate, #2927)
+                from verenigingen.services.member.financial.member_fee_calculation_service import (
+                    get_member_fee_calculation_service,
+                )
+
+                current_fee = get_member_fee_calculation_service().get_current_membership_fee(member_doc)
                 self.current_amount = current_fee.get("amount", 0)
             except Exception:
                 self.current_amount = (

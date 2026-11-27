@@ -276,17 +276,19 @@ class AccountCreationManager:
                     errors.append(error_msg)
                     frappe.logger().warning(f"[ACR PIPELINE] ⚠️ {error_msg}")
 
-            # Link 2: Employee to source record
-            if self.created_employee and hasattr(self.source_doc, "employee"):
+            # Link 2: Employee to source record. Member's field is `employee`, Volunteer's is
+            # `employee_id` (#2971: probing only `employee` never linked a Volunteer-type request).
+            employee_field = "employee_id" if self.request.request_type == "Volunteer" else "employee"
+            if self.created_employee and hasattr(self.source_doc, employee_field):
                 try:
                     current_employee = frappe.db.get_value(
-                        self.request.request_type, self.request.source_record, "employee"
+                        self.request.request_type, self.request.source_record, employee_field
                     )
                     if not current_employee:
                         frappe.db.set_value(
                             self.request.request_type,
                             self.request.source_record,
-                            "employee",
+                            employee_field,
                             self.created_employee,
                             update_modified=False,
                         )

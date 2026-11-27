@@ -338,6 +338,11 @@ class MemberCleanupService(StatelessService):
                 frappe.delete_doc("Chapter Member", chapter_member_name, force=True)
             except Exception as e:
                 self.logger.error(f"Error deleting Chapter Member {chapter_member_name}: {str(e)}")
+                # self.logger leaves no Error Log row; a stranded enrolment must be visible (#2868)
+                frappe.log_error(
+                    title="Member cleanup could not delete a Chapter Member",
+                    message=f"Chapter Member {chapter_member_name} of {member_doc.name}: {e}\n\n{frappe.get_traceback()}",
+                )
 
         # Handle Customer - preserve if has transactions
         if member_doc.customer:

@@ -132,36 +132,33 @@ def _activate_pending_chapter_memberships(member, applied_chapter):
 
     Note on Chapter Member SQL: it is a child table on Chapter, so the chapter name lives in ``parent``.
 
-    Errors are logged but do not fail the approval. This step runs BEFORE the membership and the first
-    invoice are created (#2916), so a swallowed failure here leaves that invoice without a chapter; a
-    follow-up manual activation is recoverable but does not back-fill the invoice.
+    A row that cannot be activated FAILS the approval (#2975, maintainer ruling 2026-11-25, as #2133 for a
+    missing dues schedule): the caller's savepoint rolls the whole approval back, so a member is never left
+    Active and billed with the chapter row still Pending. The helper's own exception propagates (1213/1205
+    included); a falsy answer, the helper's swallowed-failure shape, is raised here.
     """
     activated = []
     if not applied_chapter:
         return activated
-    try:
-        from verenigingen.utils.application_helpers import activate_pending_chapter_membership
+    from verenigingen.utils.application_helpers import activate_pending_chapter_membership
 
-        pending = frappe.db.sql(
-            """
-            SELECT parent AS chapter
-            FROM `tabChapter Member`
-            WHERE member = %s AND parent = %s AND status = 'Pending'
-            """,
-            (member.name, applied_chapter),
-            as_dict=True,
-        )
-        for row in pending:
-            try:
-                if activate_pending_chapter_membership(member, row.chapter):
-                    activated.append(row.chapter)
-            except Exception as e:  # noqa: BLE001
-                frappe.logger().warning(
-                    f"Failed to activate pending Chapter Member for member="
-                    f"{member.name} chapter={row.chapter}: {e}"
-                )
-    except Exception as e:  # noqa: BLE001
-        frappe.logger().warning(f"Pending chapter activation step failed for member={member.name}: {e}")
+    pending = frappe.db.sql(
+        """
+        SELECT parent AS chapter
+        FROM `tabChapter Member`
+        WHERE member = %s AND parent = %s AND status = 'Pending'
+        """,
+        (member.name, applied_chapter),
+        as_dict=True,
+    )
+    for row in pending:
+        if not activate_pending_chapter_membership(member, row.chapter):
+            frappe.throw(
+                _(
+                    "The membership row in chapter {0} could not be activated, so the approval was not completed."
+                ).format(row.chapter)
+            )
+        activated.append(row.chapter)
     return activated
 
 
@@ -205,10 +202,10 @@ def _finish_reviewer_chapter_row(member, chapter):
 
     Once the row exists add_member answers already_exists and stops, which skips the tracking fields, the
     audit comment (#2196) and the member's welcome mail it writes for a new row. The Member is Active now,
-    so a row whose early activation failed (logged, swallowed) is activated here, as it was when add_member
-    wrote it. As in add_member (#1842) the comment, tracking fields and mail follow only a row that really is
-    Active and enabled: if it is still not, the failure is logged with the member and chapter and none of the
-    three is written. add_member cannot be the fallback for it: the row exists, so it answers already_exists.
+    so a row still Pending is activated here, as it was when add_member wrote it (an early activation that
+    fails fails the approval since #2975, so this is normally a no-op). As in add_member (#1842) the comment,
+    tracking fields and mail follow only a row that really is Active and enabled: if it is still not, the
+    failure is logged with the member and chapter and none of the three is written. add_member cannot be the fallback for it: the row exists, so it answers already_exists.
     Returns the chapters this call activated, for the board join mail.
     """
     from verenigingen.services.chapter.chapter_membership_manager import ChapterMembershipManager
@@ -218,6 +215,7 @@ def _finish_reviewer_chapter_row(member, chapter):
         "Chapter Member", {"member": member.name, "parent": chapter}, ["status", "enabled"]
     )
     if not row or row[0] != "Active" or not row[1]:
+        # Deliberate post-core last resort: the #2975 ruling is enforced pre-core; raising after the core is worse.
         frappe.log_error(
             title="Approval Chapter Row Not Activated",
             message=f"Member {member.name}: the reviewer-assigned row in chapter {chapter} is still "

@@ -84,7 +84,7 @@ def _send_disabled_type_alert(membership_type: str, application_name: str) -> bo
     """Raise the staff alert; True when at least one notification was actually created."""
     from frappe.utils import escape_html
 
-    from verenigingen.utils.notification_helpers import notify_administrators
+    from verenigingen.utils.notification_helpers import notify_administrators, was_delivered
 
     result = notify_administrators(
         subject=f"MijnRood applications use a disabled membership type: {membership_type}",
@@ -103,12 +103,7 @@ def _send_disabled_type_alert(membership_type: str, application_name: str) -> bo
         exclude_users=["Administrator"],
         staff_alert=True,
     )
-    result = result or {}
-    return (
-        bool(result.get("success"))
-        and not result.get("skipped")
-        and bool(result.get("notifications_created"))
-    )
+    return was_delivered(result)
 
 
 class MijnRoodApplicationSyncService:
