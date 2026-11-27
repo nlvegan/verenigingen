@@ -40,7 +40,7 @@ Technical implementation documentation covering:
 - **Architecture**: Component overview and integration
 - **Critical Operation Rules**: DocType structure and management
 - **API Security Framework**: Decorator usage and configuration
-- **Security Monitoring**: Business logic monitoring and anomaly detection
+- **Security Monitoring**: Threat detection, incident tracking and the security dashboard
 - **Implementation Guide**: Step-by-step implementation procedures
 - **Configuration Management**: Environment detection and rule management
 - **Best Practices**: Security patterns and recommendations
@@ -91,7 +91,6 @@ Complete API reference documentation featuring:
 - **5 Security Levels**: CRITICAL, HIGH, MEDIUM, LOW, PUBLIC
 - **6 Operation Types**: FINANCIAL, MEMBER_DATA, ADMIN, REPORTING, UTILITY, PUBLIC
 - **Runtime Rules**: Database-driven Critical Operation Rules
-- **Business Logic Monitoring**: Advanced anomaly detection
 
 ### 3. Developer-Friendly Implementation
 

@@ -40,7 +40,6 @@ verenigingen/tests/workflows/test_security_comprehensive_advanced.py::GDPR Delet
 verenigingen/tests/workflows/test_security_comprehensive_advanced.py::Member Consent::4
 verenigingen/tests/workflows/test_sepa_processing_pipeline.py::SEPA Mandate Renewal::2
 verenigingen/tests/workflows/test_volunteer_board_finance_persona.py::Volunteer Expense::4
-verenigingen/utils/security/security_monitoring.py::Security Alert::1
 verenigingen/verenigingen/doctype/verenigingen_settings/verenigingen_settings.py::Donor Type::1
 verenigingen/verenigingen/report/users_by_team/validation_script.py::Team Member Role::1
 verenigingen/verenigingen/report/volunteer_interest_analysis/volunteer_interest_analysis.py::Member Volunteer Interest::1

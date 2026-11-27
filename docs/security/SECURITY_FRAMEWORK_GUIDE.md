@@ -24,7 +24,7 @@ The Verenigingen Security Framework implements a layered security approach for a
 
 - **Critical Operation Rules**: Runtime-configurable security policies stored in database
 - **API Security Framework**: Decorator-based security layers for API endpoints
-- **Security Monitoring**: Business logic monitoring and anomaly detection
+- **Security Monitoring**: Threat detection, incident tracking and the security dashboard
 - **Audit Logging**: Tracking of security events
 
 ### Design Philosophy
@@ -397,77 +397,6 @@ When a Critical Operation Rule exists for the function name, the framework will:
 
 ## Security Monitoring
 
-### Business Logic Monitoring
-
-The security framework includes business logic monitoring that goes beyond technical security to detect suspicious patterns:
-
-#### High-Value Payment Detection
-
-```python
-def check_high_value_payments(threshold: float = 5000) -> List[Dict]:
-    """Alert on payments exceeding threshold"""
-    # Implementation detects payments over threshold in last 24 hours
-    # Sends immediate alerts to administrators
-```
-
-#### Financial Pattern Anomalies
-
-- **Round Amount Detection**: Alerts on invoices with round amounts (potential fraud indicator)
-- **Excessive Discount Patterns**: Detects invoices with >30% discounts
-- **Rapid Financial Operations**: Monitors for unusual financial activity patterns
-
-#### Member Operation Anomalies
-
-- **Bulk Member Updates**: Alerts when users update >10 members in one hour
-- **Unusual Access Patterns**: Detects abnormal member data access
-
-#### SEPA Operation Monitoring
-
-- **Rapid Mandate Creation**: Alerts on >5 SEPA mandates created per hour by one user
-- **Mandate Pattern Analysis**: Monitors SEPA mandate creation patterns
-
-#### Policy Change Monitoring
-
-Immediate alerts when Critical Operation Rules are modified:
-
-```python
-def monitor_policy_changes() -> List[Dict]:
-    """Send immediate alert on any Critical Operation Rule changes"""
-    # Sends email to all System Managers when rules are modified
-```
-
-### Running Monitoring
-
-#### Background Job Setup
-
-```bash
-# Add to hooks.py or scheduler configuration
-scheduler_events = {
-    "cron": {
-        "*/15 * * * *": [  # Every 15 minutes
-            "verenigingen.utils.security.security_monitoring.run_business_rule_monitoring"
-        ]
-    }
-}
-```
-
-#### Manual Monitoring Execution
-
-```python
-from verenigingen.utils.security.security_monitoring import run_business_rule_monitoring
-
-# Run all business rule monitoring
-run_business_rule_monitoring()
-
-# Run specific monitoring
-from verenigingen.utils.security.security_monitoring import get_security_monitor
-
-monitor = get_security_monitor()
-alerts = monitor.detect_business_rule_anomalies()
-for alert in alerts:
-    print(f"Alert: {alert['type']} - {alert['message']}")
-```
-
 ### Security Dashboard
 
 Access real-time security metrics:
@@ -553,9 +482,6 @@ Set up background monitoring jobs:
 # In hooks.py
 scheduler_events = {
     "cron": {
-        "*/15 * * * *": [
-            "verenigingen.utils.security.security_monitoring.run_business_rule_monitoring"
-        ],
         "0 */6 * * *": [  # Every 6 hours
             "verenigingen.utils.security.security_monitoring.analyze_security_trends"
         ]
@@ -947,7 +873,7 @@ def debug_rules():
 @frappe.whitelist()
 def debug_security_events():
     events = frappe.get_all("Activity Log",
-        filters={"reference_doctype": ["in", ["Critical Operation Rule", "Security Alert"]]},
+        filters={"reference_doctype": ["in", ["Critical Operation Rule"]]},
         fields=["subject", "creation", "user"],
         order_by="creation desc",
         limit=20

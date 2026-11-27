@@ -820,15 +820,6 @@ NOTIFICATION_KEYS = {
         # Role-Based still wins.
         "recipient_policy": POLICY_CUSTOM,
     },
-    "business_logic_alert": {
-        "label": "Business Logic Alert",
-        "category": CATEGORY_SYSTEM,
-        "description": "Alert triggered by business logic monitoring rules detecting anomalies.",
-        "priority": PRIORITY_MEDIUM,
-        "recipient_policy": POLICY_ROLE_BASED,
-        # Seeded roles: System Managers only (#2095).
-        "recipient_roles": "System Manager",
-    },
     "system_alert": {
         "label": "System Alert",
         "category": CATEGORY_SYSTEM,
@@ -1025,7 +1016,6 @@ REQUIRES_ACTION_KEYS = frozenset(
         "mollie_security_alert",
         "audit_alert",
         "auth_monitoring_alert",
-        "business_logic_alert",
         "termination_overdue",
         "termination_pending_approval",
         "expense_approval_request",

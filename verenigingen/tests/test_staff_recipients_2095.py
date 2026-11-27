@@ -12,9 +12,7 @@ that matters: a seeded row always exists, and the resolver uses it before any de
 
 Mock justification: the EmailService factory is the outgoing-mail boundary; recipient resolution runs
 against real Users, real Has Role rows and the real Verenigingen Email Configuration. One seam is
-stubbed for lack of the thing itself: the orphaned-records query (needs broken data). The security
-monitor inserts a "Security Alert" row that no shipped DocType backs (#689), so only that insert is
-stubbed; creating the DocType would CREATE TABLE, which commits the test's setUp for good.
+stubbed for lack of the thing itself: the orphaned-records query (needs broken data).
 
 Run:
     bench --site test_site_6 run-tests --app verenigingen --module verenigingen.tests.test_staff_recipients_2095
@@ -58,14 +56,12 @@ KEYS = (
     "payment_plan_request",
     "system_stuck_schedules",
     "security_policy_digest",
-    "business_logic_alert",
     "audit_alert",
 )
 MODULES = (
     "verenigingen.verenigingen.doctype.member_contact_request.member_contact_request",
     "verenigingen.verenigingen.doctype.member_contact_request.contact_request_automation",
     "verenigingen.verenigingen.doctype.expulsion_report_entry.expulsion_report_entry",
-    "verenigingen.utils.security.security_monitoring",
 )
 
 
@@ -406,21 +402,6 @@ class TestStaffRecipients2095(EnhancedTestCase):
         self.assertNotIn(self.admin_email, emails)
         self.audience(emails, ("sm_only",), ("va_only", "fm_only", "staff_only"))
 
-    def test_business_rule_security_alert_is_unreachable_today(self):
-        """The sender inserts a "Security Alert" row first, and no such DocType ships (#689), so on a real
-        site that insert raises, the job logs and swallows it, and the mail is never reached. That is the
-        behaviour pinned here; the key's audience is pinned on the row itself (seeded class). Creating the
-        DocType in a test would CREATE TABLE, which commits the test's setUp permanently."""
-        from verenigingen.utils.security import security_monitoring as sm
-
-        self.assertFalse(frappe.db.exists("DocType", "Security Alert"), "control: the DocType really is absent")
-        alert = {"type": "t", "severity": "HIGH", "user": "u", "message": "m", "timestamp": "2026-01-01 00:00:00"}
-        monitor = SimpleNamespace(detect_business_rule_anomalies=lambda: [alert])
-        self.expectErrorLog("Business Rule Monitoring Failed")
-        with self.mail() as mail, patch.object(sm, "get_security_monitor", return_value=monitor):
-            sm.run_business_rule_monitoring()
-        self.assertEqual(mail.recipients, [])
-
     def test_audit_alert(self):
         from verenigingen.utils.security.audit_logging import SEPAAuditLogger
 
@@ -483,19 +464,6 @@ class TestSeededRowAudiences(TestStaffRecipients2095):
                 key,
             )
 
-    def test_business_logic_alert_row_reaches_system_managers_only(self):
-        """Its sender is unreachable (#689), so pin the key's own row: what it resolves to once reached."""
-        from verenigingen.utils.notification_helpers import resolve_admin_recipients
-
-        recipients = resolve_admin_recipients(
-            notification_key="business_logic_alert",
-            default_roles=[Roles.SYSTEM_MANAGER],
-            exclude_users=("Administrator",),
-            key_first=True,
-        )
-        self.audience(recipients, ("sm_only",), ("va_only", "fm_only", "staff_only"))
-        self.assertNotIn(self.admin_email, recipients)
-
     def test_stock_row_then_patch_then_the_sender_keeps_the_old_audience(self):
         """The migrated-site path: the stock admin-pair row, the patch, the real sender (expense approvals)."""
         _put_key_row("expense_approval_request", "Role-Based", recipient_roles=STOCK_ROLES)
@@ -534,7 +502,6 @@ PATCH = "verenigingen.patches.v2_2.restore_staff_alert_audiences_2095"
 VA, SM, STAFF = Roles.VERENIGINGEN_ADMIN, Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_STAFF
 EXPECTED_SEEDED_ROLES = {
     "expense_approval_request": {VA},
-    "business_logic_alert": {SM},
     "security_policy_digest": {SM},
     "expulsion_report_submitted": {VA},
     "system_stuck_schedules": {STAFF},
@@ -547,7 +514,7 @@ EXPECTED_SEEDED_ROLES = {
     "audit_alert": {SM, VA},
 }
 PATCHED = {k: next(iter(v)) for k, v in EXPECTED_SEEDED_ROLES.items() if len(v) == 1 and k in (
-    "expense_approval_request", "business_logic_alert", "security_policy_digest",
+    "expense_approval_request", "security_policy_digest",
     "expulsion_report_submitted", "system_stuck_schedules", "contact_request_escalated",
 )}
 
@@ -573,9 +540,9 @@ class TestRestoreAudiencesPatch(EnhancedTestCase):
             self.assertEqual(self._row(key).recipient_roles, role, key)
 
     def test_the_reversed_stock_order_moves_too(self):
-        _put_key_row("business_logic_alert", "Role-Based", recipient_roles="Verenigingen Administrator, System Manager")
+        _put_key_row("security_policy_digest", "Role-Based", recipient_roles="Verenigingen Administrator, System Manager")
         self._run()
-        self.assertEqual(self._row("business_logic_alert").recipient_roles, SM)
+        self.assertEqual(self._row("security_policy_digest").recipient_roles, SM)
 
     def test_a_customised_row_is_left_alone(self):
         _put_key_row("expense_approval_request", "Role-Based", recipient_roles="Expense Approver, Verenigingen Administrator")
@@ -593,11 +560,11 @@ class TestRestoreAudiencesPatch(EnhancedTestCase):
     def test_keys_that_keep_the_admin_pair_are_left_alone(self):
         for key in ("contribution_sync_failed", "payment_plan_request", "audit_alert"):
             _put_key_row(key, "Role-Based", recipient_roles=STOCK_ROLES)
-        _put_key_row("business_logic_alert", "Role-Based", recipient_roles=STOCK_ROLES)  # control: this one moves
+        _put_key_row("security_policy_digest", "Role-Based", recipient_roles=STOCK_ROLES)  # control: this one moves
         self._run()
         for key in ("contribution_sync_failed", "payment_plan_request", "audit_alert"):
             self.assertEqual(self._row(key).recipient_roles, STOCK_ROLES, key)
-        self.assertEqual(self._row("business_logic_alert").recipient_roles, SM)
+        self.assertEqual(self._row("security_policy_digest").recipient_roles, SM)
 
     def test_the_patch_is_idempotent_and_registered(self):
         _put_key_row("expulsion_report_submitted", "Role-Based", recipient_roles=STOCK_ROLES)
