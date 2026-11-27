@@ -287,6 +287,29 @@ def _process_rows(run) -> None:
         # mean this payment was imported.
         existing = creator.find_mollie_bank_transaction(row.payment_id, config=mollie_config)
         existing_bt = existing.name if existing else None
+        if existing_bt and existing.docstatus == 0:
+            # #822: a DRAFT is an unfinished import (an earlier caller lacked submit
+            # permission), not a finished one. Retry the submit, scoped to the Mollie
+            # account like the lookup (#383); only a submitted row may skip the payment.
+            creator._resolve_existing_bank_transaction(
+                row.payment_id, mollie_config["bank_account"], mollie_config["company"]
+            )
+            if frappe.db.get_value("Bank Transaction", existing_bt, "docstatus") == 0:
+                row.bank_transaction = existing_bt
+                row.row_status = "Failed"
+                can_submit = frappe.has_permission("Bank Transaction", "submit", existing_bt)
+                reason = "submit refused: no permission" if not can_submit else "submit failed, see Error Log"
+                row.message = (
+                    f"Bank Transaction {existing_bt} for {row.payment_id} is still a draft ({reason}); "
+                    "retry after it is submitted"
+                )[:1000]
+                row.processed_at = now_datetime()
+                failed += 1
+                idx += 1
+                if idx % PROGRESS_CHECKPOINT_INTERVAL == 0 or idx == total:
+                    _checkpoint(run, idx, succeeded, skipped, failed, total)
+                    run.reload()
+                continue
         if existing_bt:
             row.bank_transaction = existing_bt
             row.row_status = "Skipped"
@@ -357,7 +380,9 @@ def _apply_result_to_row(row, result) -> None:
     elif result.status == "partial":
         row.row_status = "Skipped" if result.bank_transaction else "Failed"
     elif result.status == "error":
-        row.row_status = "Skipped" if result.bank_transaction else "Failed"
+        # A draft Bank Transaction is unfinished, not imported: retry it on resume (#822).
+        is_draft = "still a draft" in (result.error or "")
+        row.row_status = "Skipped" if result.bank_transaction and not is_draft else "Failed"
     else:
         row.row_status = "Failed"
 

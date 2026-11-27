@@ -222,7 +222,10 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
             # Batch check Bank Transactions
             placeholders = ", ".join(["%s"] * len(payment_ids))
             # Mollie bank account only (#2620)
-            existing_bts = bt_creator.find_mollie_bank_transactions(payment_ids)
+            # #822: SUBMITTED rows only. A draft Bank Transaction is an unfinished import
+            # (an earlier caller lacked submit permission), not a processed payment. A
+            # reference with a draft AND a submitted row on the account stays processed.
+            existing_bts = bt_creator.find_mollie_bank_transactions(payment_ids, docstatus=1)
 
             # Batch check Payment Entries
             pe_results = frappe.db.sql(
