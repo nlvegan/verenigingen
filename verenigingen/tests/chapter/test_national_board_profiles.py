@@ -40,22 +40,14 @@ class TestNationalBoardProfiles(VereningingenTestCase):
         frappe.db.set_single_value("Verenigingen Settings", "national_board_chapter", self.national.name)
 
     def tearDown(self):
-        """Track the stub Employees that role-profile assignment created (#1694).
+        """Assert the harness drain removed the stub Employees seating created (#1694).
 
         Seating a board member applies a profile carrying the Employee role, and
-        _ensure_employee_for_profile() inserts and COMMITS an Employee for that
-        User. Nothing here created it, so nothing tracked it: the User was deleted
-        and the Employee stayed behind with a dangling user_id (same shape as
-        #1689). Cleanup runs in reverse registration order, so registering the
-        Employee AFTER its User deletes the Employee first.
-
-        After the drain, assert none survived: this fires on every test in the
-        module that seats a user, without re-running any test.
+        _ensure_employee_for_profile() inserts an Employee for that User. The harness
+        (`_track_employees_of_tracked_users`, #1886) deletes it with the User; this
+        fires on every test in the module that seats a user, without re-running any.
         """
         users = [d["name"] for d in self._test_docs if d["doctype"] == "User"]
-        for user in users:
-            for employee in frappe.get_all("Employee", filters={"user_id": user}, pluck="name"):
-                self.track_doc("Employee", employee)
         super().tearDown()
         survivors = frappe.get_all("Employee", filters={"user_id": ["in", users or [""]]}, pluck="name")
         self.assertEqual(survivors, [], "Employee rows outlived their User (#1694)")
