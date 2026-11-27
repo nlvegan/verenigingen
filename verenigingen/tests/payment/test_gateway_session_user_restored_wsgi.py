@@ -149,21 +149,6 @@ SCRIPT = textwrap.dedent(
             out["mollie_payment"] = post(MOLLIE + "handle_payment_webhook?id=tr_2515", {{"id": "tr_2515"}})
         out["mollie_payment"]["during"] = seen
 
-        # (2) Mollie refund and (3) chargeback webhooks
-        seen, record = recorder({{"status": "success"}})
-        with sig, mock.patch.object(mw.UnifiedWebhookWrapperService, "process_reversal_webhook", side_effect=record):
-            out["mollie_refund"] = post(
-                MOLLIE + "handle_refund_webhook",
-                {{"resource": "refund", "id": "re_2515", "status": "refunded", "payment_id": "tr_2515"}},
-            )
-        out["mollie_refund"]["during"] = seen
-        seen, record = recorder({{"status": "success"}})
-        with sig, mock.patch.object(mw.UnifiedWebhookWrapperService, "process_chargeback_webhook", side_effect=record):
-            out["mollie_chargeback"] = post(
-                MOLLIE + "handle_chargeback_webhook", {{"status": "charged_back", "payment_id": "tr_2515"}}
-            )
-        out["mollie_chargeback"]["during"] = seen
-
         # (4) ING Checkout payment webhook, Payment Plan Payment branch (the only authenticate_webhook caller)
         seen, record = recorder({{"status": "success"}})
         order = "ord-2515-" + uuid.uuid4().hex[:8]
@@ -292,7 +277,7 @@ class TestGatewaySessionUserRestoredOverRealWsgi(EnhancedTestCase):
         assert lines, result.stdout[-3000:] + "\n" + result.stderr[-3000:]
         cls.out = json.loads(lines[-1][len("RESULT") :])
 
-    GATEWAY_REQUESTS = ("mollie_payment", "mollie_refund", "mollie_chargeback", "ing_payment")
+    GATEWAY_REQUESTS = ("mollie_payment", "ing_payment")
 
     def test_each_gateway_handler_still_processes_as_the_webhook_user(self):
         """Control: the user switch is what processing relies on, so it must still happen."""

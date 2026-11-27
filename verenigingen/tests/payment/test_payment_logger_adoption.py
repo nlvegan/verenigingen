@@ -28,7 +28,7 @@ class TestWebhookReceivedLogging(VereningingenTestCase):
         """The live Mollie webhook entry (unified handle_payment_webhook) logs receipt.
 
         Every configured Mollie webhook URL (webhooks.handle_mollie_payment_webhook /
-        mollie_payment_webhook / handle_unified_webhook) funnels into
+        mollie_payment_webhook) funnels into
         unified_payment_api.handle_payment_webhook, which does the real processing.
         That is the genuine entry chokepoint, so the log lives there.
         """

@@ -57,11 +57,7 @@ def _run_requests() -> dict:
             marker = uuid.uuid4().hex
             ids.append(marker)
             long_id = ("tr_" + marker).ljust(ID_LENGTH, "x")
-            if endpoint == "handle_payment_webhook":
-                r = client.post(API + endpoint, data={{"id": long_id}}, headers=headers)
-            else:
-                body = json.dumps({{"paymentId": long_id, "id": "re_" + marker}})
-                r = client.post(API + endpoint, data=body, headers={{**headers, "Content-Type": "application/json"}})
+            r = client.post(API + endpoint, data={{"id": long_id}}, headers=headers)
             return r.status_code, r.get_data(as_text=True)
 
         def rows_since(mark):
@@ -74,7 +70,7 @@ def _run_requests() -> dict:
             return rows
 
         out = {{"scenarios": {{}}}}
-        for endpoint in ("handle_payment_webhook", "handle_refund_webhook", "handle_chargeback_webhook"):
+        for endpoint in ("handle_payment_webhook",):
             mark = None
             frappe.init(site=SITE); frappe.connect()
             mark = frappe.utils.now_datetime()
@@ -140,9 +136,7 @@ class TestBogusSignatureErrorLog(EnhancedTestCase):
                 self.assertLessEqual(len(got["titles"]), 3, f"{endpoint}: {got['titles']}")
                 # The ids differ per request, so a dedupe keyed on the id would pass the cap
                 # above; the handler's own row must be written once for the three requests.
-                word = {"handle_refund_webhook": "refund", "handle_chargeback_webhook": "chargeback"}.get(
-                    endpoint, "processing error"
-                )
+                word = "processing error"
                 own = [t for t in got["titles"] if word in t.lower() and "error" in t.lower()]
                 self.assertEqual(len(own), 1, f"{endpoint}: {got['titles']}")
 

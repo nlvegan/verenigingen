@@ -17,9 +17,7 @@ from unittest.mock import patch
 import frappe
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-from verenigingen.verenigingen_payments.mollie.api import webhooks
-from verenigingen.verenigingen_payments.mollie.exceptions import MollieSecurityError, MollieWebhookError
-from verenigingen.verenigingen_payments.mollie.tests.fixtures.webhook_fixtures import install_fake_request
+from verenigingen.verenigingen_payments.mollie.api import unified_payment_api, webhooks
 
 DELEGATE = "verenigingen.verenigingen_payments.mollie.api.unified_payment_api.handle_payment_webhook"
 
@@ -58,49 +56,35 @@ class TestHandleMolliePaymentWebhook(EnhancedTestCase):
             self.assertEqual(webhooks.mollie_subscription_webhook(), expected)
 
 
-class TestHandleUnifiedWebhook(EnhancedTestCase):
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(setattr, frappe.local, "response", getattr(frappe.local, "response", None))
-        frappe.local.response = frappe._dict()
+class TestDeadWebhookEndpointsAreGone(EnhancedTestCase):
+    """#638: Mollie announces a chargeback or a refund by calling the PAYMENT's webhookUrl
+    (docs.mollie.com/reference/webhooks), so separate chargeback/refund endpoints are never
+    called, and ``handle_unified_webhook`` had no caller. All were guest-reachable and are deleted.
 
-    def test_get_request_is_health_check(self):
-        """A GET request short-circuits to a healthy status payload without
-        invoking the payment handler."""
-        with install_fake_request("", method="GET"):
-            with patch(DELEGATE) as delegate:
-                out = webhooks.handle_unified_webhook()
-        self.assertEqual(out["status"], "healthy")
-        self.assertEqual(out["service"], "Mollie Webhook Handler")
-        delegate.assert_not_called()
+    The check is dispatch-level: ``frappe.whitelisted`` is what ``/api/method/...`` consults.
+    """
 
-    def test_post_request_delegates(self):
-        expected = {"status": "success", "message": "processed"}
-        with install_fake_request('{"id":"tr_unified_1"}', method="POST"):
-            with patch(DELEGATE, return_value=expected):
-                out = webhooks.handle_unified_webhook()
-        self.assertEqual(out, expected)
+    DELETED = (
+        (webhooks, "handle_unified_webhook"),
+        (unified_payment_api, "handle_chargeback_webhook"),
+        (unified_payment_api, "handle_refund_webhook"),
+    )
+    STILL_LIVE = (
+        (webhooks, "handle_mollie_payment_webhook"),
+        (unified_payment_api, "handle_payment_webhook"),
+    )
 
-    def test_security_error_maps_to_403(self):
-        with install_fake_request('{"id":"tr_unified_sec"}', method="POST"):
-            with patch(DELEGATE, side_effect=MollieSecurityError("bad sig")):
-                out = webhooks.handle_unified_webhook()
-        self.assertEqual(frappe.local.response.http_status_code, 403)
-        self.assertEqual(out["status"], "error")
+    def test_the_dead_endpoints_are_not_whitelisted(self):
+        for module, name in self.DELETED:
+            with self.subTest(endpoint=name):
+                fn = getattr(module, name, None)
+                self.assertTrue(fn is None or fn not in frappe.whitelisted, f"{name} is still whitelisted")
 
-    def test_webhook_error_maps_to_400(self):
-        with install_fake_request('{"id":"tr_unified_we"}', method="POST"):
-            with patch(DELEGATE, side_effect=MollieWebhookError("bad webhook")):
-                out = webhooks.handle_unified_webhook()
-        self.assertEqual(frappe.local.response.http_status_code, 400)
-        self.assertEqual(out["status"], "error")
-
-    def test_unexpected_error_maps_to_500(self):
-        with install_fake_request('{"id":"tr_unified_500"}', method="POST"):
-            with patch(DELEGATE, side_effect=RuntimeError("kaboom")):
-                out = webhooks.handle_unified_webhook()
-        self.assertEqual(frappe.local.response.http_status_code, 500)
-        self.assertEqual(out["status"], "error")
+    def test_control_the_live_endpoints_are_still_whitelisted(self):
+        """Control: the same membership test finds the endpoints that must stay."""
+        for module, name in self.STILL_LIVE:
+            with self.subTest(endpoint=name):
+                self.assertIn(getattr(module, name), frappe.whitelisted)
 
 
 class TestWebhookHealthCheck(EnhancedTestCase):

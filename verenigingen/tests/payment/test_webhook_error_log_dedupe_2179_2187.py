@@ -20,8 +20,6 @@ from unittest.mock import patch
 
 import frappe
 from frappe.utils import get_bench_path
-from werkzeug.test import EnvironBuilder
-from werkzeug.wrappers import Request
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.mollie.api import webhooks
@@ -205,20 +203,3 @@ class TestMollieWrapperRowsAreDeduped(EnhancedTestCase):
         self._same_class_from_two_ips(
             webhooks.handle_mollie_payment_webhook.__wrapped__, "Mollie Webhook API", "Webhook endpoint error"
         )
-
-    def test_unified_wrapper_same_class_from_two_ips_writes_two_rows(self):
-        self.expectErrorLog("Mollie Webhook Error")
-        self._set_post_request()
-        self._same_class_from_two_ips(
-            webhooks.handle_unified_webhook.__wrapped__, "Mollie Webhook Error", "Unexpected error in unified"
-        )
-
-    def _set_post_request(self):
-        original = getattr(frappe.local, "request", None)
-        self.addCleanup(setattr, frappe.local, "request", original)
-        frappe.local.request = Request(EnvironBuilder(method="POST", data=b"{}").get_environ())
-
-    def test_unified_wrapper(self):
-        self.expectErrorLog("Mollie Webhook Error", "Unexpected error in unified")
-        self._set_post_request()
-        self._flood(webhooks.handle_unified_webhook.__wrapped__, "Mollie Webhook Error", "Unexpected error in unified")

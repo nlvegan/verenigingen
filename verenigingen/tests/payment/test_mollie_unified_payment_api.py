@@ -3,8 +3,7 @@ Coverage for the non-webhook endpoints of the unified Mollie payment API.
 
 Target: verenigingen/verenigingen_payments/mollie/api/unified_payment_api.py
 
-The webhook entry points (handle_payment_webhook / handle_refund_webhook /
-handle_chargeback_webhook) are already covered by
+The webhook entry point (handle_payment_webhook) is already covered by
 verenigingen_payments/mollie/tests/test_unified_payment_api_webhook.py and
 tests/payment/test_unified_webhook_error_scenarios.py. This suite covers the
 remaining whitelisted operations:
