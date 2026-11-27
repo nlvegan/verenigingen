@@ -150,7 +150,9 @@ and re-checked):
 4. **`renewal_date`.** Approval sets Membership `renewal_date` to approval date + 1 year,
    which does not match periods running from the anchor. Find its readers; if any drives
    billing, notices or status, set it from the anchor-based period end. Otherwise record that it
-   is cosmetic.
+   is cosmetic. *(Resolved during the build: it is not cosmetic, and approval now moves it for
+   a future anchor. See "Build findings"; the spike table's `renewal_date` row below shows the
+   state before that change.)*
 
 ### Spike results (2026-11-28, test_site_10, real stage → confirm → approve with `create_invoice=False`)
 
