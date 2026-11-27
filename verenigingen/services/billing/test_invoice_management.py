@@ -1041,9 +1041,11 @@ class TestInvoiceManagement(EnhancedTestCase):
     def test_cleanup_schedules_denied_for_non_admin(self):
         email = self._make_limited_user()
         with self.set_user(email):
-            with self.assertRaises(frappe.ValidationError) as cm:
+            # critical_api (#3086) refuses a profile-less user at the gate, before the
+            # in-function role check (which test_admin_cleanup_tools_prod_3086 covers).
+            with self.assertRaises(frappe.PermissionError) as cm:
                 im.cleanup_orphaned_schedules(dry_run=True)
-        self.assertIn("Insufficient permissions for schedule cleanup", str(cm.exception))
+        self.assertIn("Access denied. Required: critical", str(cm.exception))
 
     def test_cleanup_member_references_denied_for_non_admin(self):
         email = self._make_limited_user()
@@ -1055,6 +1057,8 @@ class TestInvoiceManagement(EnhancedTestCase):
     def test_cleanup_membership_data_denied_for_non_admin(self):
         email = self._make_limited_user()
         with self.set_user(email):
-            with self.assertRaises(frappe.ValidationError) as cm:
+            # critical_api (#3086) refuses a profile-less user at the gate, before the
+            # in-function role check (which test_admin_cleanup_tools_prod_3086 covers).
+            with self.assertRaises(frappe.PermissionError) as cm:
                 im.cleanup_orphaned_membership_data(dry_run=True)
-        self.assertIn("Insufficient permissions for membership data cleanup", str(cm.exception))
+        self.assertIn("Access denied. Required: critical", str(cm.exception))

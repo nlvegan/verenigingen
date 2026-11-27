@@ -369,8 +369,10 @@ def get_dues_schedules_summary(
 
 
 @frappe.whitelist()
-@development_only_api(operation_type=OperationType.ADMIN)
-def cleanup_orphaned_schedules(dry_run: bool = True, max_cleanup=20) -> OperationResult[Dict[str, Any]]:
+@critical_api(operation_type=OperationType.ADMIN)
+def cleanup_orphaned_schedules(
+    dry_run: bool = True, max_cleanup: int = 20
+) -> OperationResult[Dict[str, Any]]:
     """
     Clean up orphaned dues schedules that reference non-existent members
 
@@ -389,6 +391,9 @@ def cleanup_orphaned_schedules(dry_run: bool = True, max_cleanup=20) -> Operatio
     ):
         frappe.throw(_("Insufficient permissions for schedule cleanup"))
 
+    from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+        MembershipDuesSchedule,
+    )
     from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
         delete_dues_schedule_with_backlink_cleanup,
     )
@@ -407,27 +412,10 @@ def cleanup_orphaned_schedules(dry_run: bool = True, max_cleanup=20) -> Operatio
             "orphaned_details": [],  # For frontend compatibility
         }
 
-        # Find orphaned schedules using the same logic as the Invoice Generation Dashboard
-        # Get all non-template active schedules and check each one individually
-        all_schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"is_template": 0},
-            fields=["name", "member", "status"],
-            limit=max_cleanup * 3,  # Get more to account for filtering
-        )
-
-        orphaned_schedules = []
-        for schedule_data in all_schedules:
-            try:
-                schedule = frappe.get_doc(
-                    "Membership Dues Schedule", schedule_data.name, ignore_validate=True
-                )
-                if schedule.is_orphaned():
-                    orphaned_schedules.append(schedule_data)
-                    if len(orphaned_schedules) >= max_cleanup * 2:
-                        break
-            except Exception:
-                continue  # Skip problematic schedules
+        # An orphan query, not "read the first N schedules and test each": with a
+        # LIMIT on the schedule scan, an orphan outside those rows was never found
+        # and the tool reported "No orphaned dues schedules found" (#3086).
+        orphaned_schedules = MembershipDuesSchedule.find_orphaned_schedules(limit=max_cleanup * 2)
 
         results["orphaned_found"] = len(orphaned_schedules)
         results["orphaned_schedules"] = len(orphaned_schedules)  # For frontend compatibility
@@ -818,8 +806,10 @@ def cleanup_orphaned_member_references(
 
 
 @frappe.whitelist()
-@development_only_api(operation_type=OperationType.ADMIN)
-def cleanup_orphaned_membership_data(dry_run: bool = True, max_cleanup=20) -> OperationResult[Dict[str, Any]]:
+@critical_api(operation_type=OperationType.ADMIN)
+def cleanup_orphaned_membership_data(
+    dry_run: bool = True, max_cleanup: int = 20
+) -> OperationResult[Dict[str, Any]]:
     """
     Enhanced cleanup for orphaned membership-related data including:
     - Orphaned dues schedules (existing functionality)
@@ -872,8 +862,9 @@ def cleanup_orphaned_membership_data(dry_run: bool = True, max_cleanup=20) -> Op
             "processed_items": [],
         }
 
-        # Get list of valid membership types for comparison
-        valid_membership_types = set(frappe.db.get_list("Membership Type", pluck="name"))
+        # Get list of valid membership types for comparison. get_all, not get_list: a
+        # permission-filtered list would call a type the caller cannot read "invalid".
+        valid_membership_types = set(frappe.get_all("Membership Type", pluck="name"))
 
         # 1. Clean up orphaned dues schedules (existing functionality)
         from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
