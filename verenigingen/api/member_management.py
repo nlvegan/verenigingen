@@ -220,22 +220,21 @@ def can_view_members_without_chapter():
         return False
 
     try:
-        volunteer_records = frappe.get_all("Volunteer", filters={"member": user_member}, fields=["name"])
+        volunteer_names = frappe.get_all("Volunteer", filters={"member": user_member}, pluck="name")
+        if not volunteer_names:
+            return False
 
-        for volunteer_record in volunteer_records:
-            board_positions = frappe.get_all(
-                "Chapter Board Member",
-                filters={"volunteer": volunteer_record.name, "is_active": 1},
-                fields=["chapter_role"],
+        # One query per table instead of one Chapter Role get_doc per board seat (#2909)
+        board_roles = frappe.get_all(
+            "Chapter Board Member",
+            filters={"volunteer": ["in", volunteer_names], "is_active": 1},
+            pluck="chapter_role",
+        )
+        board_roles = [role for role in set(board_roles) if role]
+        if board_roles:
+            return bool(
+                frappe.db.exists("Chapter Role", {"name": ["in", board_roles], "permissions_level": "Admin"})
             )
-
-            for position in board_positions:
-                try:
-                    role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                    if role_doc.permissions_level == "Admin":
-                        return True
-                except Exception:
-                    continue
     except Exception:
         pass
 
