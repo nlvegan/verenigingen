@@ -165,6 +165,19 @@ class TestUrlAttributeSchemes(unittest.TestCase):
     def test_a_variable_after_a_literal_prefix_cannot_set_the_scheme(self):
         self.assertEqual(found('<a href="/files/{{ doc.name|e }}">x</a>'), [])
 
+    def test_leading_space_inside_the_quotes_is_flagged(self):
+        """Browsers strip leading whitespace from a URL attribute, so it still executes."""
+        self.assertEqual(len(found('<a href=" {{ y|e }}">x</a>')), 1)
+        self.assertEqual(found('<a href=" {{ y|safe_url|e }}">x</a>'), [])
+
+    def test_unquoted_url_attribute_is_flagged(self):
+        self.assertEqual(len(found("<a href={{ y|e }}>x</a>")), 1)
+        self.assertEqual(found("<a href={{ y|safe_url|e }}>x</a>"), [])
+
+    def test_a_filter_after_safe_url_that_can_restore_the_value_is_flagged(self):
+        self.assertEqual(len(found('<a href="{{ y|safe_url|default(z, true)|e }}">x</a>')), 1)
+        self.assertEqual(len(found('<a href="{{ y|safe_url|replace(\'a\', z)|e }}">x</a>')), 1)
+
     def test_non_url_attribute_is_unaffected(self):
         self.assertEqual(found('<a title="{{ doc.name|e }}" data-x="{{ doc.url|e }}">x</a>'), [])
 

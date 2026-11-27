@@ -178,7 +178,6 @@ URL_ATTR_BASELINE = {
     ("verenigingen/templates/pages/application_success.html", "payment_url|e"): "same-site check in application_success._same_site_payment_url (#2495)",
     ("verenigingen/templates/pages/my_dues_schedule.html", "payment.invoice_link|e"): "f-string /app/sales-invoice/<name> built in my_dues_schedule.py",
     ("verenigingen/templates/pages/payment_success.html", "step.action|e"): "literal paths / mailto in payment_success.py",
-    ("verenigingen/templates/pages/ponto_pay.html", "payment_link.redirect_link|e"): "Ponto API response stored on Ponto Payment Link, not user-written",
 }
 
 _ENV = Environment()
@@ -265,7 +264,7 @@ def expression_nodes(inner):
 _SCRIPT_OPEN = re.compile(r"<script\b", re.I)
 _SCRIPT_CLOSE = re.compile(r"</script", re.I)
 _QUOTED_ATTR = re.compile(r"""\s[\w:-]+\s*=\s*("[^"]*|'[^']*)$""")
-_URL_ATTR_START = re.compile(r"""\s(?:href|src|action)\s*=\s*["']$""", re.I)
+_URL_ATTR_START = re.compile(r"""\s(?:href|src|action)\s*=\s*["']?\s*$""", re.I)
 _HANDLER_ATTR = re.compile(r"""\son\w+\s*=\s*("[^"]*|'[^']*)$""", re.I)
 
 
@@ -309,11 +308,15 @@ def variable_blocks(source):
 
 
 def _uses_safe_url(node):
-    """True when ``|safe_url`` is anywhere in the filter chain (or every branch of a conditional)."""
-    while isinstance(node, nodes.Filter):
-        if node.name == "safe_url":
-            return True
+    """True when ``|safe_url`` is the LAST filter before the escape (or every branch of a conditional).
+
+    A later filter (``|safe_url|default(z, true)|e``) can put an unchecked value back, so it must
+    be the outermost one apart from the escaping filter.
+    """
+    if isinstance(node, nodes.Filter) and node.name in {"e", "escape", "forceescape"}:
         node = node.node
+    if isinstance(node, nodes.Filter):
+        return node.name == "safe_url"
     if isinstance(node, nodes.CondExpr):
         return _uses_safe_url(node.expr1) and (node.expr2 is None or _uses_safe_url(node.expr2))
     if isinstance(node, (nodes.Or, nodes.And)):
