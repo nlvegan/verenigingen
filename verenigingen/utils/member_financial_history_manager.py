@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import frappe
 from frappe.model import child_table_fields, default_fields, optional_fields
-from frappe.utils import now
+from frappe.utils import getdate, now
 
 from verenigingen.verenigingen_payments.core.resilience.job_timeout import reraise_if_job_timeout
 
@@ -39,7 +39,14 @@ class MemberFinancialHistoryManager:
     - Standardized error handling
     """
 
-    def __init__(self, doc, history_field_name: str, max_entries: int = 30):
+    def __init__(
+        self,
+        doc,
+        history_field_name: str,
+        max_entries: int = 30,
+        date_field: Optional[str] = None,
+        id_field: str = "invoice",
+    ):
         """
         Initialize the financial history manager.
 
@@ -50,10 +57,16 @@ class MemberFinancialHistoryManager:
                 what let a `tabMember` lock sit unnoticed on the Donor path.
             history_field_name: Field name ('payment_history' or 'volunteer_expenses')
             max_entries: Maximum entries to maintain (default 30)
+            date_field: Date column of the child row. When set, an over-cap trim
+                keeps the newest `max_entries` rows by this date (#3240); when
+                None the trim keeps the first `max_entries` rows of the list.
+            id_field: Column that names the row (tie-break for equal dates).
         """
         self.doc = doc
         self.history_field = history_field_name
         self.max_entries = max_entries
+        self.date_field = date_field
+        self.id_field = id_field
 
     def add_or_update_entry(
         self, entry_id: str, entry_builder: Callable, id_field_name: str = "invoice"
@@ -384,13 +397,32 @@ class MemberFinancialHistoryManager:
         history_list = getattr(self.doc, self.history_field, [])
 
         if len(history_list) > self.max_entries:
-            # Keep only the first N entries (newest)
-            trimmed_history = history_list[: self.max_entries]
+            trimmed_history = self._newest_entries(history_list)
 
             # Clear and rebuild
             setattr(self.doc, self.history_field, [])
             for entry in trimmed_history:
                 self.doc.append(self.history_field, entry)
+
+    def _newest_entries(self, history_list):
+        """The `max_entries` rows to keep.
+
+        Without a date_field the list order is trusted (newest first). Rows are
+        inserted at index 0 and updated in place, so that order follows drain
+        order, not row date, and the "first N" it yields is not the newest N (#3240).
+        With one, rows are ranked by date (missing = oldest) and then by the id
+        column, so a date tie never depends on which row was drained first.
+        """
+        if not self.date_field:
+            return history_list[: self.max_entries]
+
+        def rank(entry):
+            return (
+                getdate(getattr(entry, self.date_field, None) or "1900-01-01"),
+                str(getattr(entry, self.id_field, None) or ""),
+            )
+
+        return sorted(history_list, key=rank, reverse=True)[: self.max_entries]
 
     def _has_invalid_chapter_references(self) -> bool:
         """True when the owning doc has a chapter history row whose Chapter no longer exists.
@@ -507,7 +539,9 @@ class MemberFinancialHistoryManager:
 
 def get_payment_history_manager(member_doc) -> MemberFinancialHistoryManager:
     """Factory function for payment history manager."""
-    return MemberFinancialHistoryManager(member_doc, "payment_history", max_entries=30)
+    return MemberFinancialHistoryManager(
+        member_doc, "payment_history", max_entries=30, date_field="posting_date"
+    )
 
 
 def get_expense_history_manager(member_doc) -> MemberFinancialHistoryManager:
