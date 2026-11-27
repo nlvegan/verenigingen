@@ -66,9 +66,12 @@ class _FakeRefundsResource:
 
 
 class _FakeChargebacksResource:
+    def __init__(self, chargebacks=()):
+        self._chargebacks = list(chargebacks)
+
     def list(self):
-        # No chargebacks -> iterable, nothing pending.
-        return []
+        # Default: no chargebacks -> iterable, nothing pending.
+        return list(self._chargebacks)
 
 
 class _FakePayment:
@@ -401,3 +404,165 @@ class TestMollieDonationFinancialChain(EnhancedTestCase):
             je_name,
             "Donation.journal_entry must be persisted (not clobbered by the status save)",
         )
+
+
+class TestMollieDonationChargebackBooking638(TestMollieDonationFinancialChain):
+    """#638: a chargeback announced on a donation's payment webhook must be BOOKED.
+
+    Inherits the real fixtures (company, clearing/bank/income accounts, Donor, Donation).
+    Only the Mollie HTTP/SDK boundary is faked (``_FakePayment``); the chargeback is a
+    Mollie-shaped dict served by ``payment.chargebacks.list()``.
+
+    The inherited tests are re-run under this class on purpose: they are the control
+    that the forward path still books exactly as before.
+    """
+
+    CHARGEBACK_AMOUNT = 10.00
+
+    def _announce_chargeback(self, chargeback_id=None, amount=None, created_at="2025-04-20T09:00:00+00:00"):
+        chargeback_id = chargeback_id or f"chb_{frappe.generate_hash(length=10)}"
+        amount = self.CHARGEBACK_AMOUNT if amount is None else amount
+        self.fake_payment.chargebacks = _FakeChargebacksResource(
+            [
+                {
+                    "id": chargeback_id,
+                    "amount": {"value": f"{amount:.2f}", "currency": "EUR"},
+                    "reason": {"code": "AC01", "description": "Account closed"},
+                    "createdAt": created_at,
+                }
+            ]
+        )
+        self.fake_payment.amount_charged_back = {"value": f"{amount:.2f}", "currency": "EUR"}
+        return chargeback_id
+
+    def _forward_booked(self):
+        first = self._run_webhook()
+        self.assertEqual(first["status"], "success", f"forward booking failed: {first}")
+        return first["journal_entry"]
+
+    def _reversal_jes(self, chargeback_id):
+        key = f"{self.payment_id}_chargeback_{chargeback_id}"
+        return frappe.get_all("Journal Entry", filters={"cheque_no": key, "docstatus": ["!=", 2]}, pluck="name")
+
+    def _gl(self, voucher_no):
+        return frappe.get_all(
+            "GL Entry",
+            filters={"voucher_no": voucher_no, "is_cancelled": 0},
+            fields=["account", "debit", "credit"],
+        )
+
+    def test_a_chargeback_is_booked_as_a_reversing_entry_and_recorded_on_the_donation(self):
+        forward_je = self._forward_booked()
+        chargeback_id = self._announce_chargeback()
+
+        result = self._run_webhook()
+
+        self.assertEqual(result["status"], "success", f"unexpected: {result}")
+        reversals = self._reversal_jes(chargeback_id)
+        self.assertEqual(len(reversals), 1, f"expected one reversing Journal Entry, got {reversals}")
+        gl = self._gl(reversals[0])
+        income = [g for g in gl if g.account == self.income_account]
+        clearing = [g for g in gl if g.account == self.clearing_account]
+        self.assertEqual(sum(g.debit for g in income), self.CHARGEBACK_AMOUNT, gl)
+        self.assertEqual(sum(g.credit for g in clearing), self.CHARGEBACK_AMOUNT, gl)
+        # The original is reversed, not cancelled.
+        self.assertEqual(frappe.db.get_value("Journal Entry", forward_je, "docstatus"), 1)
+        rows = [
+            p
+            for p in frappe.get_doc("Donation", self.donation_name).payments
+            if p.payment_status == "Chargeback"
+        ]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].mollie_payment_id, chargeback_id)
+        self.assertEqual(rows[0].journal_entry, reversals[0])
+        self.assertEqual(float(rows[0].amount), -self.CHARGEBACK_AMOUNT)
+
+    def test_a_redelivered_chargeback_books_nothing_new(self):
+        self._forward_booked()
+        chargeback_id = self._announce_chargeback()
+        self.assertEqual(self._run_webhook()["status"], "success")
+        before_bt = frappe.db.count("Bank Transaction", {"reference_number": ["like", f"%{chargeback_id}%"]})
+
+        again = self._run_webhook()
+
+        self.assertEqual(again["status"], "success", f"redelivery: {again}")
+        self.assertEqual(len(self._reversal_jes(chargeback_id)), 1)
+        self.assertEqual(
+            frappe.db.count("Bank Transaction", {"reference_number": ["like", f"%{chargeback_id}%"]}),
+            before_bt,
+        )
+        rows = [
+            p for p in frappe.get_doc("Donation", self.donation_name).payments if p.payment_status == "Chargeback"
+        ]
+        self.assertEqual(len(rows), 1)
+
+    def test_a_chargeback_that_cannot_be_booked_answers_an_error_so_mollie_retries(self):
+        """Fault: Mollie announces a chargeback whose amount is not positive, which
+        ``process_reversal_webhook`` refuses with an error outcome. The forward booking is
+        already done and idempotent, so that refusal is the only thing that can fail.
+        (A fault in the shared Mollie/bank configuration cannot be used: the forward
+        step re-checks it on every delivery and would be the one failing.)"""
+        self._forward_booked()
+        chargeback_id = self._announce_chargeback(amount=0.0)
+
+        result = self._run_webhook()
+
+        self.assertEqual(result["status"], "error", f"a failed booking answered success: {result}")
+        self.assertEqual(self._reversal_jes(chargeback_id), [])
+        self.assertEqual(result["chargeback_failures"][0]["status"], "error")
+
+    def test_a_refund_and_a_chargeback_on_one_payment_both_book(self):
+        """Control: the chargeback path must not displace the refund path."""
+        self._forward_booked()
+        refund_id = f"re_{frappe.generate_hash(length=10)}"
+        self.fake_payment.refunds = SimpleNamespace(
+            list=lambda: {
+                "_embedded": {
+                    "refunds": [
+                        {
+                            "id": refund_id,
+                            "status": "refunded",
+                            "amount": {"value": "5.00", "currency": "EUR"},
+                            "createdAt": "2025-04-18T09:00:00+00:00",
+                        }
+                    ]
+                }
+            }
+        )
+        chargeback_id = self._announce_chargeback()
+
+        result = self._run_webhook()
+
+        self.assertEqual(result["status"], "success", f"unexpected: {result}")
+        self.assertEqual(len(self._reversal_jes(chargeback_id)), 1)
+        refund_jes = frappe.get_all(
+            "Journal Entry",
+            filters={"cheque_no": f"{self.payment_id}_refund_{refund_id}", "docstatus": ["!=", 2]},
+        )
+        self.assertEqual(len(refund_jes), 1)
+
+    def test_the_fully_processed_branch_books_a_pending_chargeback_too(self):
+        """``_handle_fully_processed_payment`` carried the ``# TODO`` this issue replaces. It is
+        unreachable for donations today (#344: ``is_fully_processed()`` is never true), so it is
+        driven directly with the REAL state the idempotency manager computes."""
+        self._forward_booked()
+        chargeback_id = self._announce_chargeback()
+        with (
+            patch(
+                "verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings.MollieSettings.get_mollie_client",
+                return_value=self.fake_sdk,
+            ),
+            patch(
+                "verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings.MollieSettings.get_api_key",
+                return_value="test_dummy_key_for_tests",
+            ),
+            self.set_user("Administrator"),
+        ):
+            state = self.service.idempotency_manager.check_payment_processing_state(
+                self.payment_id, include_mollie_api=True
+            )
+            self.assertEqual([c["chargeback_id"] for c in state.pending_chargebacks], [chargeback_id])
+            result = self.service._handle_fully_processed_payment(self.payment_id, state, 0.0)
+
+        self.assertEqual(result["status"], "success", f"unexpected: {result}")
+        self.assertEqual(len(self._reversal_jes(chargeback_id)), 1)

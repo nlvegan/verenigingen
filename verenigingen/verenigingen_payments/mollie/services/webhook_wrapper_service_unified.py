@@ -806,7 +806,16 @@ class UnifiedWebhookWrapperService:
                 reversal_date=refund.get("refund_date"),
             )
             for refund in state.pending_refunds
-        ] + [
+        ] + self.book_pending_chargebacks(payment_id, state)
+
+    def book_pending_chargebacks(self, payment_id: str, state) -> list:
+        """Book every chargeback ``state`` found pending, through ``process_reversal_webhook``.
+
+        Shared by the dues path (``book_pending_reversals``) and the donation path of the
+        payment webhook (#638): ``process_reversal_webhook`` reads what the forward payment
+        booked and reverses it in kind, and is idempotent per chargeback id.
+        """
+        return [
             self.process_reversal_webhook(
                 payment_id=payment_id,
                 reversal_id=chargeback["chargeback_id"],
@@ -887,10 +896,12 @@ class UnifiedWebhookWrapperService:
         chargeback_results = []
         if processing_state.has_pending_chargebacks():
             self.logger.info(f"Processing {len(processing_state.pending_chargebacks)} pending chargebacks")
-            # TODO: Implement chargeback processing when needed
+            chargeback_results = self.book_pending_chargebacks(payment_id, processing_state)
 
         # CRITICAL FIX: Determine overall success based on refund processing results
-        failed_refunds = [r for r in refund_results if r.get("status") == "error"]
+        # A chargeback that could not be booked is a failure like a failed refund: an error
+        # answer makes Mollie re-deliver (#638).
+        failed_refunds = [r for r in refund_results + chargeback_results if r.get("status") == "error"]
         succeeded_refunds = [r for r in refund_results if r.get("status") == "success"]
 
         overall_success = len(failed_refunds) == 0
@@ -1132,6 +1143,14 @@ class UnifiedWebhookWrapperService:
                 if len(booking_failures) != len(failed_refunds):
                     history_failures.append("refund payment history")
 
+            # Chargebacks: Mollie re-posts the same payment id for them, exactly as for refunds,
+            # so they are discovered here and booked through process_reversal_webhook (#638).
+            chargeback_results = self.book_pending_chargebacks(payment_id, processing_state)
+            failed_chargebacks = [r for r in chargeback_results if r.get("status") == "error"]
+            if failed_chargebacks:
+                self.logger.error(f"{len(failed_chargebacks)} chargeback booking(s) failed for {payment_id}")
+                history_failures.append(f"{len(failed_chargebacks)} chargeback booking(s)")
+
             # A history write that failed must not be reported as success: the
             # financial entries are already booked and idempotent, so a non-2xx buys
             # a re-delivery that cannot double-book (measured: one JE, one Bank
@@ -1158,6 +1177,7 @@ class UnifiedWebhookWrapperService:
                     "donation_id": donation.name,
                     "history_failures": history_failures,
                     "refund_failures": failed_refunds,
+                    "chargeback_failures": failed_chargebacks,
                     "duration_seconds": time.time() - start_time,
                 }
 
@@ -1177,6 +1197,9 @@ class UnifiedWebhookWrapperService:
                 result["refunds_processed"] = refund_results
                 # Failures are detected and reported above, before the early return;
                 # reaching here means there were none.
+
+            if chargeback_results:
+                result["chargebacks_processed"] = chargeback_results
 
             if activation:
                 result["subscription_activation"] = activation
