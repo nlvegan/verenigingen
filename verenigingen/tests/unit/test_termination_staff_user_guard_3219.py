@@ -28,12 +28,13 @@ STAFF_TITLE = "Termination: staff user account NOT deactivated"
 SYNC_TITLE = "Termination: staff user role profile NOT recalculated"
 EMPLOYEE_TITLE = "Termination: staff user's Employee record NOT updated"
 FAILED_CHECK_TITLE = "Termination: user account NOT deactivated, staff check failed"
+BOARD_TITLE = "Termination: staff user's board role NOT withdrawn"
 
 
 class TestTerminationStaffUserGuard3219(VereningingenTestCase):
     def setUp(self):
         super().setUp()
-        self.expectErrorLog(STAFF_TITLE, FAILED_CHECK_TITLE, SYNC_TITLE, EMPLOYEE_TITLE)
+        self.expectErrorLog(STAFF_TITLE, FAILED_CHECK_TITLE, SYNC_TITLE, EMPLOYEE_TITLE, BOARD_TITLE)
         self.member = self.create_test_member()
 
     def _make_linked_user_3219(self, role_profile=None, roles=()):
@@ -300,6 +301,7 @@ class TestTerminationStaffUserGuard3219(VereningingenTestCase):
         before = self._account_state_3219(email)
         self.assertIn("System Manager", before["roles"])
         self.assertEqual(before["profiles"], [])
+        board_log_before = frappe.db.count("Error Log", {"method": BOARD_TITLE})
 
         request = self._expel_member_3219()
 
@@ -309,6 +311,8 @@ class TestTerminationStaffUserGuard3219(VereningingenTestCase):
             self._audit_errors_3219(request),
         )
         self.assertFalse(any("Deactivated user account" in a.details for a in request.audit_trail))
+        # Nit: the skipped board-role withdrawal leaves its own trace.
+        self.assertGreater(frappe.db.count("Error Log", {"method": BOARD_TITLE}), board_log_before)
 
     def test_a_staff_user_with_a_linked_employee_keeps_both(self):
         """F6 / ruling part 3: ERPNext disables the User when its Employee leaves."""
@@ -349,3 +353,57 @@ class TestTerminationStaffUserGuard3219(VereningingenTestCase):
         self.assertNotIn("Employee", state["roles"])
         self.assertFalse(self._refusal_todos_3219(email))
         self.assertFalse(any("NOT" in e for e in self._audit_errors_3219(request)))
+
+    # -- round 4 (F7): the second entry point, execute_safe_termination ------------------
+
+    def _expel_via_safe_api_3219(self):
+        from verenigingen.api.termination_api import execute_safe_termination
+
+        return execute_safe_termination(self.member.name, "Expulsion", frappe.utils.today())
+
+    def test_execute_safe_termination_keeps_a_seated_staff_user(self):
+        """F7. Same shape as the F5 test, through the whitelisted API (it does not use
+        TerminationExecutor): seat + team row + Active Volunteer + Employee, SM granted after the seat."""
+        email = self._make_linked_user_3219(roles=("Verenigingen Member",))
+        volunteer = self._make_active_volunteer_3219()
+        self._seat_volunteer_and_team_3219(volunteer)
+        self._grant_system_manager_3219(email)
+        before = self._account_state_3219(email)
+        self.assertIn("System Manager", before["roles"])
+        self.assertEqual(before["enabled"], 1)
+
+        result = self._expel_via_safe_api_3219()
+
+        self.assertEqual(self._account_state_3219(email), before)
+        self.assertFalse(result["success"], result)
+        self.assertTrue(
+            any(email in e and "NOT deactivated" in e for e in result["errors"]), result["errors"]
+        )
+        self.assertNotIn("Deactivated user account", result["actions_taken"])
+
+    def test_control_execute_safe_termination_still_deactivates_an_ordinary_seated_user(self):
+        email = self._make_linked_user_3219(roles=("Verenigingen Member",))
+        volunteer = self._make_active_volunteer_3219()
+        self._seat_volunteer_and_team_3219(volunteer)
+
+        result = self._expel_via_safe_api_3219()
+
+        self.assertEqual(self._account_state_3219(email)["enabled"], 0)
+        self.assertIn("Deactivated user account", result["actions_taken"])
+        self.assertFalse(any("NOT" in e for e in result["errors"]), result["errors"])
+
+    def test_execute_safe_termination_refuses_a_staff_user_without_a_seat(self):
+        """The no-seat control: this path was already right and must stay so."""
+        email = self._make_linked_user_3219(roles=("System Manager",))
+        before = self._account_state_3219(email)
+
+        result = self._expel_via_safe_api_3219()
+
+        self.assertEqual(self._account_state_3219(email), before)
+        self.assertTrue(any("NOT deactivated" in e for e in result["errors"]), result["errors"])
+
+    def test_the_protection_flag_is_restored_after_the_context(self):
+        self.assertNotIn(ti.PROTECTED_USERS_FLAG, frappe.flags)
+        with ti.termination_user_protection(self.member.name):
+            self.assertIn(ti.PROTECTED_USERS_FLAG, frappe.flags)
+        self.assertNotIn(ti.PROTECTED_USERS_FLAG, frappe.flags)

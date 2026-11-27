@@ -17,6 +17,8 @@ whether an exemption's stated reason is true, so the four exemptions in
 ``termination_execution_service`` remain a human claim. #470.
 """
 
+from contextlib import contextmanager
+
 import frappe
 from frappe.utils import today
 
@@ -611,6 +613,26 @@ def user_protection(user_email):
         if key in classified:
             return True, classified[key]
     return False, None
+
+
+@contextmanager
+def termination_user_protection(member_name):
+    """#3219: classify the member's User once and hold it for every step run inside the block.
+
+    Every entry point that runs termination steps (TerminationExecutor, execute_safe_termination)
+    wraps them in this, so a board-seat end cannot strip System Manager before the deactivate
+    step looks. The previous flag value is restored on exit, including on an exception.
+    """
+    had_flag = PROTECTED_USERS_FLAG in frappe.flags
+    previous = frappe.flags.get(PROTECTED_USERS_FLAG)
+    frappe.flags[PROTECTED_USERS_FLAG] = classify_termination_user(member_name)
+    try:
+        yield
+    finally:
+        if had_flag:
+            frappe.flags[PROTECTED_USERS_FLAG] = previous
+        else:
+            frappe.flags.pop(PROTECTED_USERS_FLAG, None)
 
 
 def _record_termination_failure(failures, title, message, user_message):

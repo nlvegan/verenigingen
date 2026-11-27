@@ -1271,6 +1271,12 @@ class BoardManager(BaseManager):
         for volunteer_name in pending:
             if self._user_protected_by_termination(volunteer_name):
                 # #3219: the seat is ended but the account's roles are left exactly as they are.
+                frappe.log_error(
+                    title="Termination: staff user's board role NOT withdrawn",
+                    message=f"Volunteer {volunteer_name}: the board seat was ended, but the role "
+                    "profile sync and board-role withdrawal were skipped for a protected staff "
+                    f"account (chapter {self.chapter_doc.name}).",
+                )
                 self._refresh_volunteer_status(volunteer_name)
                 continue
             self._sync_role_profile_for_volunteer(volunteer_name)

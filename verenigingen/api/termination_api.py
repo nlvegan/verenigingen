@@ -47,6 +47,7 @@ def execute_safe_termination(
         if not can_terminate_member(member_name):
             return {"success": False, "error": "You don't have permission to terminate this member"}
 
+        from verenigingen.services.termination.termination_integration import termination_user_protection
         from verenigingen.utils.termination_integration import (
             cancel_membership_safe,
             cancel_sepa_mandate_safe,
@@ -110,46 +111,48 @@ def execute_safe_termination(
             else:
                 results["errors"].append(f"Failed to cancel SEPA mandate {mandate.mandate_id}")
 
-        # 3. End board positions
-        board_failures = []
-        positions_ended = end_board_positions_safe(
-            member_name,
-            termination_date,
-            f"Member terminated - Request: {request_name or 'Direct'}",
-            failures=board_failures,
-        )
-        if positions_ended > 0:
-            results["actions_taken"].append(f"Ended {positions_ended} board position(s)")
-        results["errors"].extend(board_failures)
+        # #3219: classify the member's User once; steps 3-6 read it (see TerminationExecutor).
+        with termination_user_protection(member_name):
+            # 3. End board positions
+            board_failures = []
+            positions_ended = end_board_positions_safe(
+                member_name,
+                termination_date,
+                f"Member terminated - Request: {request_name or 'Direct'}",
+                failures=board_failures,
+            )
+            if positions_ended > 0:
+                results["actions_taken"].append(f"Ended {positions_ended} board position(s)")
+            results["errors"].extend(board_failures)
 
-        # 4. Suspend team memberships
-        teams_suspended = suspend_team_memberships_safe(
-            member_name,
-            termination_date,
-            f"Member terminated - Request: {request_name or 'Direct'}",
-            failures=results["errors"],
-        )
-        if teams_suspended > 0:
-            results["actions_taken"].append(f"Suspended {teams_suspended} team membership(s)")
+            # 4. Suspend team memberships
+            teams_suspended = suspend_team_memberships_safe(
+                member_name,
+                termination_date,
+                f"Member terminated - Request: {request_name or 'Direct'}",
+                failures=results["errors"],
+            )
+            if teams_suspended > 0:
+                results["actions_taken"].append(f"Suspended {teams_suspended} team membership(s)")
 
-        # 5. Deactivate user account
-        termination_reason = f"Membership terminated - Type: {termination_type}"
-        if request_name:
-            termination_reason += f" - Request: {request_name}"
+            # 5. Deactivate user account
+            termination_reason = f"Membership terminated - Type: {termination_type}"
+            if request_name:
+                termination_reason += f" - Request: {request_name}"
 
-        user_failures = []
-        if deactivate_user_account_safe(
-            member_name, termination_type, termination_reason, failures=user_failures
-        ):
-            results["actions_taken"].append("Deactivated user account")
-        else:
-            results["errors"].extend(user_failures or ["Failed to deactivate user account"])
+            user_failures = []
+            if deactivate_user_account_safe(
+                member_name, termination_type, termination_reason, failures=user_failures
+            ):
+                results["actions_taken"].append("Deactivated user account")
+            else:
+                results["errors"].extend(user_failures or ["Failed to deactivate user account"])
 
-        # 6. Update member status
-        if update_member_status_safe(member_name, termination_type, termination_date, request_name):
-            results["actions_taken"].append("Updated member status")
-        else:
-            results["errors"].append("Failed to update member status")
+            # 6. Update member status
+            if update_member_status_safe(member_name, termination_type, termination_date, request_name):
+                results["actions_taken"].append("Updated member status")
+            else:
+                results["errors"].append("Failed to update member status")
 
         # 7. Update customer if exists
         if member.customer:

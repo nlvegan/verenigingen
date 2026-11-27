@@ -633,22 +633,11 @@ class TerminationExecutor:
     def execute(self) -> Dict:
         """Execute all operations in sequence and return results"""
         results = TerminationResults()
-        from verenigingen.services.termination.termination_integration import (
-            PROTECTED_USERS_FLAG,
-            classify_termination_user,
-        )
+        from verenigingen.services.termination.termination_integration import termination_user_protection
 
         # #3219: classify the member's User once, before any step can change its roles.
-        had_flag = PROTECTED_USERS_FLAG in frappe.flags
-        previous = frappe.flags.get(PROTECTED_USERS_FLAG)
-        frappe.flags[PROTECTED_USERS_FLAG] = classify_termination_user(self.operations[0].member_name)
-        try:
+        with termination_user_protection(self.operations[0].member_name):
             self._execute_operations(results)
-        finally:
-            if had_flag:
-                frappe.flags[PROTECTED_USERS_FLAG] = previous
-            else:
-                frappe.flags.pop(PROTECTED_USERS_FLAG, None)
 
         return results.to_dict()
 
