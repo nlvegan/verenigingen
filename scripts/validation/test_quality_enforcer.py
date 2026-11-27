@@ -1339,37 +1339,45 @@ class TestQualityEnforcer:
         
         # Combined list of all patterns requiring justification
         all_mock_patterns = self.external_service_mocks + self.infrastructure_mocks
-        
+
+        def _is_justified(line_num):
+            # Justification comment within 3 lines before or after
+            start_line = max(0, line_num - 4)
+            end_line = min(len(lines), line_num + 3)
+            return any(
+                '# Mock justified:' in lines[i]
+                or '# External service' in lines[i]
+                or '# Mock external' in lines[i]
+                or '# Infrastructure' in lines[i]
+                for i in range(start_line, end_line)
+            )
+
+        def _warn(line_num, pattern, shown):
+            mock_category = "external service" if pattern in self.external_service_mocks else "infrastructure"
+            self.warnings.append(
+                f"{file_path}:{line_num}: {mock_category.title()} mock lacks justification: {shown}\n"
+                f"  -> Add comment: # Mock justified: <reason>\n"
+                f"  -> Example: # Mock justified: {mock_category.title()} - email service, not business logic\n"
+                f"  -> See docs/testing/TESTING_STANDARDS.md for examples"
+            )
+
         for line_num, line in enumerate(lines, 1):
             for pattern in all_mock_patterns:
-                if re.search(pattern, line, re.IGNORECASE):
-                    # Determine mock category for better error messages
-                    mock_category = "external service" if pattern in self.external_service_mocks else "infrastructure"
-                    
-                    # Check for justification comment within 3 lines before or after
-                    justification_found = False
-                    
-                    start_line = max(0, line_num - 4)
-                    end_line = min(len(lines), line_num + 3)
-                    
-                    for check_line in range(start_line, end_line):
-                        if check_line < len(lines):
-                            comment_line = lines[check_line]
-                            if ('# Mock justified:' in comment_line or
-                                '# External service' in comment_line or
-                                '# Mock external' in comment_line or
-                                '# Infrastructure' in comment_line):
-                                justification_found = True
-                                break
-                    
-                    if not justification_found:
-                        self.warnings.append(
-                            f"{file_path}:{line_num}: {mock_category.title()} mock lacks justification: {line.strip()}\n"
-                            f"  -> Add comment: # Mock justified: <reason>\n"
-                            f"  -> Example: # Mock justified: {mock_category.title()} - email service, not business logic\n"
-                            f"  -> See docs/testing/TESTING_STANDARDS.md for examples"
-                        )
-                        
+                if re.search(pattern, line, re.IGNORECASE) and not _is_justified(line_num):
+                    _warn(line_num, pattern, line.strip())
+
+        # #1587: a manual `frappe.sendmail = mock_send` reassignment has no
+        # `patch(` for the line patterns above to anchor on. Same approach as
+        # #1558 / `_check_all_mocks_blocked`: take the AST-resolved target from
+        # `_reassign_targets` and wrap it as `patch("<target>")` so the SAME
+        # pattern list applies, rather than keeping a second copy of it.
+        for line_num, target in _reassign_targets(content):
+            synthetic_target = f'patch("{target}")'
+            source_line = lines[line_num - 1] if 0 <= line_num - 1 < len(lines) else target
+            for pattern in all_mock_patterns:
+                if re.search(pattern, synthetic_target, re.IGNORECASE) and not _is_justified(line_num):
+                    _warn(line_num, pattern, source_line.strip())
+
         return valid
 
     def _check_enhanced_test_factory_usage(self, file_path: str, content: str) -> bool:
