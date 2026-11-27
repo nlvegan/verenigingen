@@ -73,6 +73,19 @@ class SecurityPermissionCheckTriggersTests(unittest.TestCase):
         for path in (_NESTED_SCRIPT, _TOP_SCRIPT):
             self.assertTrue(_covered(self.text, "push", path), path)
 
+    def test_no_paths_entry_is_a_negation(self):
+        """The matcher ignores `!` entries (GitHub would exclude those paths), so fail closed."""
+        for event in ("pull_request", "push"):
+            for entry in _secperm_trigger_paths(self.text, event):
+                self.assertFalse(entry.startswith("!"), (event, entry))
+
+    def test_both_scripts_globs_are_listed_on_both_events(self):
+        """`scripts/*.py` is insurance for `**/` zero-directory semantics (top-level files)."""
+        for event in ("pull_request", "push"):
+            paths = _secperm_trigger_paths(self.text, event)
+            self.assertIn("scripts/*.py", paths, event)
+            self.assertIn("scripts/**/*.py", paths, event)
+
     def test_the_job_diffs_every_python_file_not_just_verenigingen(self):
         self.assertIn("-- '*.py'", self.text)
         self.assertNotIn("-- 'verenigingen", self.text)

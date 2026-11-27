@@ -5,11 +5,13 @@ on:
     branches: [main, develop]
     paths:
       - 'verenigingen/**/*.py'
+      - 'scripts/*.py'
       - 'scripts/**/*.py'
   push:
     branches: [main, develop]
     paths:
       - 'verenigingen/**/*.py'
+      - 'scripts/*.py'
       - 'scripts/**/*.py'
 
 concurrency:
