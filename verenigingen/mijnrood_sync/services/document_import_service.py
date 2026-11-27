@@ -322,12 +322,9 @@ class DocumentImportService:
         # 1. Load folder mapping
         self._load_folder_mapping()
         if not self.folder_mapping:
-            return {
-                "success": False,
-                "imported": 0,
-                "skipped": 0,
-                "errors": ["No folder mappings configured. Fetch folders and configure mappings first."],
-            }
+            error_msg = "No folder mappings configured. Fetch folders and configure mappings first."
+            self._record_import_failure(error_msg, dry_run)
+            return {"success": False, "imported": 0, "skipped": 0, "errors": [error_msg]}
 
         # 2. Fetch folder tree + document list from MijnRood DB
         db_client = MijnRoodDatabaseClient(settings=self.settings)
@@ -337,6 +334,7 @@ class DocumentImportService:
                 documents = db_client.fetch_documents()
         except Exception as e:
             error_msg = str(e)[:500]
+            self._record_import_failure(error_msg, dry_run, log_traceback=True)
             return {"success": False, "imported": 0, "skipped": 0, "errors": [error_msg]}
 
         # 3. Build folder tree
@@ -397,6 +395,20 @@ class DocumentImportService:
             "skipped": skipped,
             "errors": errors,
         }
+
+    def _record_import_failure(self, error_msg: str, dry_run: bool, log_traceback: bool = False) -> None:
+        """Put an import that never started on the settings status, where staff look.
+
+        The enqueued job's return value is discarded and ``import_documents`` leaves the status at
+        "Import job enqueued", so without this a failure before the SFTP loop reads as a job that is
+        still waiting. A dry run is interactive: its caller gets the returned dict, so it is left alone.
+        """
+        if dry_run:
+            return
+        if log_traceback:
+            frappe.log_error(title="MijnRood Document Import Failed", message=frappe.get_traceback())
+        self.settings.db_set("document_import_status", _("Import failed: {0}").format(error_msg)[:1000])
+        frappe.db.commit()
 
     def _load_folder_mapping(self):
         """Load folder mapping from settings child table.

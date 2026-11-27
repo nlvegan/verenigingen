@@ -624,3 +624,77 @@ class TestReclassifyDocuments(EnhancedTestCase):
         # dry_run coerced from "true" -> no write, but a change is detected
         self.assertTrue(result["dry_run"])
         self.assertEqual(len(result["changes"]), 1)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# #2512: a failure BEFORE the SFTP loop must reach the status staff look at
+# ──────────────────────────────────────────────────────────────────────────
+class TestImportAllEarlyFailureReachesStatus(EnhancedTestCase):
+    """Drives the module-level ``import_all`` the enqueued job runs (its return value is discarded).
+
+    Probe shortcut, stated: ``document_import_status`` is set to what ``import_documents`` writes at enqueue
+    time instead of calling that endpoint, and ``_load_folder_mapping`` is patched to inject the mapping
+    (as the neighbouring tests do). Stubbed boundary: ``MijnRoodDatabaseClient`` (the SSH/DB connection).
+    """
+
+    FAILED_TITLE = "MijnRood Document Import Failed"
+
+    def setUp(self):
+        super().setUp()
+        self._orig_status = frappe.db.get_single_value("MijnRood Sync Settings", "document_import_status")
+        frappe.db.set_single_value("MijnRood Sync Settings", "document_import_status", "Import job enqueued")
+
+    def tearDown(self):
+        frappe.db.set_single_value("MijnRood Sync Settings", "document_import_status", self._orig_status)
+        super().tearDown()
+
+    def _status(self):
+        return frappe.db.get_single_value("MijnRood Sync Settings", "document_import_status")
+
+    def _failed_logs(self):
+        return frappe.get_all("Error Log", filters={"method": self.FAILED_TITLE}, pluck="name")
+
+    def _run_job(self, dry_run=False):
+        from verenigingen.mijnrood_sync.services import document_import_service as mod
+
+        return mod.import_all(dry_run=dry_run)
+
+    def test_unreachable_mijnrood_db_is_reported_on_the_status_and_error_log(self):
+        before = len(self._failed_logs())
+        with (
+            patch.object(
+                DocumentImportService,
+                "_load_folder_mapping",
+                lambda s: setattr(s, "folder_mapping", {1: {}}),
+            ),
+            _patch_db_client(_FakeDBClient(raise_on_enter=True)),
+        ):
+            result = self._run_job()
+        self.assertFalse(result["success"])
+        self.assertIn("DB unreachable", self._status())
+        self.assertNotEqual(self._status(), "Import job enqueued")
+        self.assertEqual(len(self._failed_logs()), before + 1)
+
+    def test_no_folder_mappings_is_reported_on_the_status(self):
+        with patch.object(
+            DocumentImportService, "_load_folder_mapping", lambda s: setattr(s, "folder_mapping", {})
+        ):
+            result = self._run_job()
+        self.assertFalse(result["success"])
+        self.assertIn("No folder mappings configured", self._status())
+
+    def test_dry_run_failure_leaves_the_status_alone(self):
+        """Control: a dry run is interactive (bench execute prints the dict); it must not stamp the status."""
+        before = len(self._failed_logs())
+        with (
+            patch.object(
+                DocumentImportService,
+                "_load_folder_mapping",
+                lambda s: setattr(s, "folder_mapping", {1: {}}),
+            ),
+            _patch_db_client(_FakeDBClient(raise_on_enter=True)),
+        ):
+            result = self._run_job(dry_run=True)
+        self.assertFalse(result["success"])
+        self.assertEqual(self._status(), "Import job enqueued")
+        self.assertEqual(len(self._failed_logs()), before)
