@@ -53,11 +53,11 @@ class TestGetDocInLoops2909(EnhancedTestCase):
         name = f"G2909{level}{frappe.generate_hash(length=6)}"
         return self.factory.ensure_chapter_role(name, {"permissions_level": level}).name
 
-    def _seat(self, chapter_name, volunteer_name, role):
+    def _seat(self, chapter_name, volunteer_name, role, active=1):
         chapter = frappe.get_doc("Chapter", chapter_name)
         chapter.append(
             "board_members",
-            {"volunteer": volunteer_name, "chapter_role": role, "from_date": frappe.utils.today(), "is_active": 1},
+            {"volunteer": volunteer_name, "chapter_role": role, "from_date": frappe.utils.today(), "is_active": active},
         )
         chapter.save()
 
@@ -122,7 +122,7 @@ class TestGetDocInLoops2909(EnhancedTestCase):
         self.assertIsNone(self._approver(subject.name).get_board_financial_approver(chapter.name))
 
     # -------------------------------------------- can_view_members_without_chapter
-    def _board_member_user(self, levels):
+    def _board_member_user(self, levels, inactive=()):
         """A non-staff user whose volunteer holds one active seat per entry of ``levels``."""
         from verenigingen.api import member_management  # noqa: F401  (import warms the module)
 
@@ -132,7 +132,7 @@ class TestGetDocInLoops2909(EnhancedTestCase):
         frappe.db.set_value("Member", member.name, "user", user.name, update_modified=False)
         for index, level in enumerate(levels):
             chapter = self.ensure_test_chapter(f"G2909V{index}{frappe.generate_hash(length=4)}")
-            self._seat(chapter.name, volunteer.name, self._role(level))
+            self._seat(chapter.name, volunteer.name, self._role(level), active=0 if index in inactive else 1)
         return user
 
     def _can_view_as(self, user):
@@ -162,6 +162,34 @@ class TestGetDocInLoops2909(EnhancedTestCase):
         result, queries = self._can_view_as(user)
         self.assertTrue(result)
         self.assertLessEqual(len([q for q in queries if "`tabChapter Role`" in q]), 1)
+
+    def test_can_view_false_when_the_only_admin_seat_is_inactive(self):
+        """Control: an INACTIVE Admin-level seat confers nothing (a real Admin role, a real seat row)."""
+        user = self._board_member_user(["Basic", "Admin"], inactive=(1,))
+        result, _queries = self._can_view_as(user)
+        self.assertFalse(result)
+
+    def test_approver_ignores_an_inactive_financial_seat(self):
+        chapter = self.ensure_test_chapter(f"G2909I{frappe.generate_hash(length=4)}")
+        subject, _ = self._volunteer("isubj", with_user=False)
+        inactive, _ = self._volunteer("inact")
+        self._seat(chapter.name, inactive.name, self._role("Financial"), active=0)
+        self.assertIsNone(self._approver(subject.name).get_board_financial_approver(chapter.name))
+
+    def test_approver_lowest_idx_wins_and_email_case_is_ignored(self):
+        chapter = self.ensure_test_chapter(f"G2909O{frappe.generate_hash(length=4)}")
+        subject, _ = self._volunteer("osubj", with_user=False)
+        first, first_user = self._volunteer("first")
+        second, _second_user = self._volunteer("second")
+        # The first seat's volunteer stores the address in a different case than the User name.
+        frappe.db.set_value("Volunteer", first.name, "email", first_user.email.upper(), update_modified=False)
+        role = self._role("Financial")
+        self._seat(chapter.name, first.name, role)
+        self._seat(chapter.name, second.name, role)
+
+        self.assertEqual(
+            self._approver(subject.name).get_board_financial_approver(chapter.name), first_user.email.upper()
+        )
 
     # ---------------------------------------------------------- email_group_sync
     def test_sync_member_on_change_does_not_load_chapter_docs(self):
