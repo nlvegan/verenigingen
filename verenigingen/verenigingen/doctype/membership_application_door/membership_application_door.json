@@ -9,6 +9,7 @@
   "title",
   "slug",
   "enabled",
+  "show_on_landing",
   "sort_order",
   "column_break_door1",
   "membership_type",
@@ -18,9 +19,11 @@
   "intro_text",
   "section_dues",
   "plans",
+  "require_iban",
   "amount_options",
   "section_questions",
   "hidden_questions",
+  "preset_referral_source",
   "section_legacy",
   "monthly_dues_template",
   "annual_dues_template",
@@ -52,6 +55,13 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Enabled"
+  },
+  {
+   "default": "1",
+   "description": "Off: the door is not listed on /word-lid, but its own link still works (for a link or QR code).",
+   "fieldname": "show_on_landing",
+   "fieldtype": "Check",
+   "label": "Show on landing page"
   },
   {
    "default": "0",
@@ -108,6 +118,13 @@
    "options": "Membership Application Door Plan"
   },
   {
+   "default": "0",
+   "description": "Require an IBAN for every plan on this door. Off: only a Monthly plan requires one.",
+   "fieldname": "require_iban",
+   "fieldtype": "Check",
+   "label": "Require IBAN"
+  },
+  {
    "description": "Extra preset amounts, offered on a plan whose template is Flexible. Each row names the plan's template.",
    "fieldname": "amount_options",
    "fieldtype": "Table",
@@ -124,6 +141,13 @@
    "fieldtype": "Table",
    "label": "Hidden Questions",
    "options": "Membership Application Door Hidden Question"
+  },
+  {
+   "description": "When set, the 'how did you find us' question is not shown and every applicant of this door gets this source.",
+   "fieldname": "preset_referral_source",
+   "fieldtype": "Link",
+   "label": "Preset Referral Source",
+   "options": "Membership Referral Source"
   },
   {
    "description": "Deprecated: replaced by the payment plans above, read only by the #2127 migration patch.",
