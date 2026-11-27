@@ -18,6 +18,7 @@ class MembershipApplicationDoor(Document):
         self._validate_plans()
         self._validate_amount_options()
         self._validate_has_plan()
+        self._validate_preset_referral_source()
 
     def hidden(self) -> set[str]:
         return {row.question for row in self.hidden_questions}
@@ -65,6 +66,12 @@ class MembershipApplicationDoor(Document):
             minimum = frappe.db.get_value("Membership Dues Schedule", option.dues_template, "minimum_amount")
             if flt(option.amount) < flt(minimum):
                 frappe.throw(_("Row {0}: the amount is below the template minimum.").format(option.idx))
+
+    def _validate_preset_referral_source(self):
+        """A preset is stored on every applicant of the door, so it must be a source that can be chosen."""
+        preset = self.preset_referral_source
+        if preset and not frappe.db.get_value("Membership Referral Source", {"name": preset, "enabled": 1}):
+            frappe.throw(_("The preset referral source {0} is not an enabled source.").format(preset))
 
     def _validate_has_plan(self):
         if self.form_shape == "Regular" and not self.plans:

@@ -40,7 +40,8 @@
           data-door="{{ door.name|e }}"
           data-shape="{{ door.form_shape|e }}"
           data-plans='{{ plans | tojson }}'
-          data-default-plan="{{ (default_plan_id or '')|e }}">
+          data-default-plan="{{ (default_plan_id or '')|e }}"
+          data-require-iban="{{ 1 if door.require_iban else 0 }}">
         <div class="wl-hp" aria-hidden="true">
             <label>Laat dit veld leeg <input type="text" name="leave_this_empty" tabindex="-1" autocomplete="off" value=""></label>
         </div>
@@ -146,12 +147,12 @@
 
         {% if door.form_shape == "Regular" %}
             <div class="grid gap-4 md:grid-cols-2 mb-4">
-                <div><label class="wl-label" for="iban">{{ _("IBAN") }}</label>
+                <div><label class="wl-label" for="iban">{{ _("IBAN") }}{% if door.require_iban %} *{% endif %}</label>
                     <input class="wl-input" type="text" name="iban" id="iban" autocomplete="off"></div>
                 <div><label class="wl-label" for="bank_account_name">{{ _("Account holder") }}</label>
                     <input class="wl-input" type="text" name="bank_account_name" id="bank_account_name"></div>
             </div>
-            <p class="wl-hint mb-2" id="wl-iban-hint">{{ _("A monthly contribution is paid by direct debit, so an IBAN is required.") }}</p>
+            <p class="wl-hint mb-2" id="wl-iban-hint">{% if door.require_iban %}{{ _("An IBAN is required for direct debit.") }}{% else %}{{ _("A monthly contribution is paid by direct debit, so an IBAN is required.") }}{% endif %}</p>
             <label class="flex items-start gap-2 mt-2">
                 <input type="checkbox" name="consent" id="consent" value="1">
                 <span>{{ _("I agree to a membership of at least 12 months. If I filled in an IBAN, I authorise the direct debit of my contribution.") }} *</span>
@@ -166,7 +167,8 @@
         {% endif %}
         </section>
 
-        {% if "birth_year" not in hidden or "join_reasons" not in hidden or "referral_source" not in hidden %}
+        {% set ask_referral = "referral_source" not in hidden and not door.preset_referral_source %}
+        {% if "birth_year" not in hidden or "join_reasons" not in hidden or ask_referral %}
         <section class="wl-card mb-6">
             <h2 class="text-xl font-semibold mb-4">{{ _("Extra information") }} <span class="wl-hint">({{ _("optional") }})</span></h2>
             {% if "birth_year" not in hidden %}
@@ -182,7 +184,7 @@
                 <input class="wl-input mt-2" type="text" name="join_reason_other" placeholder="{{ _('Other') }}">
             </div>
             {% endif %}
-            {% if "referral_source" not in hidden %}
+            {% if ask_referral %}
             <div class="mb-2">
                 <label class="wl-label" for="referral_source">{{ _("How did you find us?") }}</label>
                 <select class="wl-input" name="referral_source" id="referral_source">

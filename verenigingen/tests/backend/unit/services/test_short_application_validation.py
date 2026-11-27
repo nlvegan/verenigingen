@@ -233,6 +233,51 @@ class TestShortApplicationValidation(ApplicationDoorMixin, VereningingenUnitTest
         # Control: a door that hides nothing keeps it.
         self.assertEqual(sav.validate_short_application(self.door, self._validation_data(birth_year=1990))["birth_year"], 1990)
 
+    def test_preset_referral_source_is_stored_and_submitted_answers_dropped(self):
+        """#3451: a door that presets the source stores it and drops what the form posted, as a hidden
+        question drops its values."""
+        preset = self._master("Membership Referral Source", "source")
+        door = self._door(monthly_dues_template=self.template, preset_referral_source=preset)
+        posted = self._validation_data(referral_source=self.source, referral_source_other="een vriend")
+
+        cleaned = sav.validate_short_application(door, posted)
+
+        self.assertEqual(cleaned["referral_source"], preset)
+        self.assertNotIn("referral_source_other", cleaned)
+        # Control: the same post on a door without a preset keeps both answers.
+        control = sav.validate_short_application(self.door, posted)
+        self.assertEqual(control["referral_source"], self.source)
+        self.assertEqual(control["referral_source_other"], "een vriend")
+
+    def test_preset_referral_source_wins_over_a_hidden_question(self):
+        preset = self._master("Membership Referral Source", "source")
+        door = self._door(
+            monthly_dues_template=self.template,
+            preset_referral_source=preset,
+            hidden_questions=[{"question": "referral_source"}],
+        )
+        cleaned = sav.validate_short_application(door, self._validation_data(referral_source=self.source))
+        self.assertEqual(cleaned["referral_source"], preset)
+
+    def test_preset_referral_source_must_be_enabled_on_the_door(self):
+        disabled = self._master("Membership Referral Source", "source", enabled=0)
+        with self.assertRaises(frappe.ValidationError):
+            self._door(monthly_dues_template=self.template, preset_referral_source=disabled)
+
+    def test_require_iban_refuses_a_non_monthly_plan_without_iban(self):
+        annual = self._plan_template(frequency="Annual")
+        plans = [{"dues_template": annual, "is_default": 1}]
+        strict = self._door(plans=plans, require_iban=1)
+        lenient = self._door(plans=plans)
+        data = self._validation_data(frequency="Annual", iban="")
+
+        with self.assertRaises(frappe.ValidationError):
+            sav.validate_short_application(strict, data)
+        # Controls: the same Annual post is accepted without the setting, and with an IBAN under it.
+        self.assertEqual(sav.validate_short_application(lenient, data)["iban"], "")
+        iban = self._validation_data(frequency="Annual")["iban"]
+        self.assertEqual(sav.validate_short_application(strict, self._validation_data(frequency="Annual"))["iban"], iban)
+
     def test_hidden_question_is_not_validated(self):
         door = self._door(
             monthly_dues_template=self.template, hidden_questions=[{"question": "birth_year"}]

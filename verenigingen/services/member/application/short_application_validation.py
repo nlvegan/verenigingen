@@ -60,6 +60,7 @@ def validate_short_application(door, data: dict) -> dict:
     cleaned["membership_type"] = door.membership_type
     _check_email_field(cleaned)
     cleaned.update(_clean_optional_questions(data, hidden, cleaned))
+    _apply_preset_referral_source(door, cleaned)
     postal = _clean_delivery(door, data, hidden, cleaned)
     if door.form_shape == "Housemate":
         _clean_housemate(data, cleaned)
@@ -108,6 +109,14 @@ def _clean_optional_questions(data, hidden, cleaned) -> dict:
             frappe.throw(_("Unknown referral source."))
         result["referral_source"] = source
     return result
+
+
+def _apply_preset_referral_source(door, cleaned):
+    """A door that presets the source stores it and drops whatever the form posted, as a hidden question
+    drops its values. The preset wins over a hidden "referral_source" question: the door knows the answer."""
+    if door.preset_referral_source:
+        cleaned.pop("referral_source_other", None)
+        cleaned["referral_source"] = door.preset_referral_source
 
 
 def _clean_birth_year(raw):
@@ -182,7 +191,7 @@ def _clean_regular(door, data, cleaned, postal):
     amount = _parse_amount(data.get("amount"))
     check_amount(plan, amount, postal)
     frequency = plan["frequency"]
-    cleaned["iban"] = _clean_iban(data, frequency)
+    cleaned["iban"] = _clean_iban(data, frequency, cint(door.require_iban))
     cleaned["bank_account_name"] = _text(data, "bank_account_name")
     if not cint(data.get("consent")):
         frappe.throw(_("You must accept the terms to apply."))
@@ -207,9 +216,11 @@ def _parse_amount(raw) -> float:
     return flt(amount)
 
 
-def _clean_iban(data, frequency) -> str:
+def _clean_iban(data, frequency, require_iban=0) -> str:
     iban = _text(data, "iban").replace(" ", "").upper()
     if not iban:
+        if require_iban:
+            frappe.throw(_("An IBAN is required for direct debit."))
         if frequency == "Monthly":
             frappe.throw(_("Monthly payment requires an IBAN for direct debit."))
         return ""

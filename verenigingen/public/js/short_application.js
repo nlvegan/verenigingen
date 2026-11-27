@@ -81,7 +81,8 @@
 	function initApplicationForm(form) {
 		const plans = JSON.parse(form.dataset.plans || '[]');
 		const isRegular = form.dataset.shape === 'Regular';
-		const state = { form, plans, isRegular, plan: null };
+		const requireIban = form.dataset.requireIban === '1';
+		const state = { form, plans, isRegular, requireIban, plan: null };
 		form.addEventListener('change', (event) => {
 			if (event.target.name === 'plan_choice') {
 				selectPlan(state, event.target.value);
@@ -137,7 +138,12 @@
 		const hint = document.getElementById('wl-minimum-hint');
 		hint.textContent = minimum ? __('Minimum amount: {0}', [format(minimum)]) : '';
 		const ibanHint = document.getElementById('wl-iban-hint');
-		ibanHint.style.fontWeight = plan && plan.frequency === 'Monthly' ? '600' : '';
+		ibanHint.style.fontWeight = ibanRequired(state) ? '600' : '';
+	}
+
+	// The door can demand an IBAN for every plan; otherwise only a Monthly plan does.
+	function ibanRequired(state) {
+		return state.requireIban || Boolean(state.plan && state.plan.frequency === 'Monthly');
 	}
 
 	function format(amount) {
@@ -351,8 +357,12 @@
 				minimum ? __('The amount must be at least {0}.', [format(minimum)]) : __('Please choose an amount.')
 			);
 		}
-		if (state.plan && state.plan.frequency === 'Monthly' && !data.iban) {
-			found.push(__('A monthly contribution requires an IBAN (direct debit).'));
+		if (ibanRequired(state) && !data.iban) {
+			found.push(
+				state.requireIban
+					? __('An IBAN is required (direct debit).')
+					: __('A monthly contribution requires an IBAN (direct debit).')
+			);
 		}
 		if (!data.consent) {
 			found.push(__('Please agree to the membership terms.'));

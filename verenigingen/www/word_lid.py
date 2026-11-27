@@ -38,7 +38,7 @@ def _load_landing(context):
     context.door = None
     context.doors = frappe.get_all(
         DOOR_DOCTYPE,
-        filters={"enabled": 1},
+        filters={"enabled": 1, "show_on_landing": 1},
         fields=["title", "slug", "card_text"],
         order_by="sort_order asc, title asc",
     )

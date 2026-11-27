@@ -69,6 +69,47 @@ class TestWordLidPage(ApplicationDoorMixin, VereningingenUnitTestCase):
         self.assertLess(slugs.index(first.slug), slugs.index(second.slug))
         self.assertNotIn(disabled.slug, slugs)
 
+    def test_landing_lists_only_doors_shown_on_landing(self):
+        listed = self._door(title="Zichtbaar")
+        unlisted = self._door(title="Verborgen", show_on_landing=0)
+        slugs = [d.slug for d in self._page_context().doors]
+        self.assertIn(listed.slug, slugs)
+        self.assertNotIn(unlisted.slug, slugs)
+
+    def test_unlisted_door_url_still_renders_and_disabled_one_is_404(self):
+        unlisted = self._door(show_on_landing=0)
+        self.assertIn('name="first_name"', self._render_page_html(unlisted.slug))
+        disabled = self._door(show_on_landing=0, enabled=0)
+        with self.assertRaises(frappe.PageDoesNotExistError):
+            self._page_context(disabled.slug)
+
+    def test_a_door_is_listed_by_default_and_existing_rows_get_the_default(self):
+        """Existing doors keep showing after migrate: the new column's default is 1."""
+        door = self._door()
+        self.assertEqual(door.show_on_landing, 1)
+        column = frappe.db.sql("SHOW COLUMNS FROM `tabMembership Application Door` LIKE 'show_on_landing'", as_dict=True)
+        self.assertEqual(str(column[0]["Default"]), "1")
+        self.assertIn(door.slug, [d.slug for d in self._page_context().doors])
+
+    def test_preset_referral_source_hides_the_question(self):
+        source = frappe.get_doc(
+            {"doctype": "Membership Referral Source", "source": f"Bron {frappe.generate_hash(length=6)}", "enabled": 1}
+        ).insert()
+        self.track_doc("Membership Referral Source", source.name)
+        preset = self._door(preset_referral_source=source.name)
+        plain = self._door()
+        self.assertIn('name="referral_source"', self._render_page_html(plain.slug))
+        html = self._render_page_html(preset.slug)
+        self.assertNotIn('name="referral_source"', html)
+        self.assertNotIn('name="referral_source_other"', html)
+        self.assertIn('name="first_name"', html)
+
+    def test_require_iban_is_handed_to_the_form_script(self):
+        strict = self._door(require_iban=1)
+        plain = self._door()
+        self.assertIn('data-require-iban="1"', self._render_page_html(strict.slug))
+        self.assertIn('data-require-iban="0"', self._render_page_html(plain.slug))
+
     def test_unknown_or_disabled_door_is_404(self):
         disabled = self._door(enabled=0)
         for slug in (disabled.slug, "bestaat-niet"):
