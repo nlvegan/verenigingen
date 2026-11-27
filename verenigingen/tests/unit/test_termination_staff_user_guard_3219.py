@@ -226,6 +226,41 @@ class TestTerminationStaffUserGuard3219(VereningingenTestCase):
         self.assertTrue(todos)
         self.assertEqual({t.allocated_to for t in todos}, {"Administrator"})
 
+    def _make_plain_user_3219(self, role):
+        email = f"alert3219-{frappe.generate_hash(length=8)}@example.com"
+        user = frappe.get_doc(
+            {
+                "doctype": "User",
+                "email": email,
+                "first_name": "Alert3219",
+                "enabled": 1,
+                "send_welcome_email": 0,
+            }
+        )
+        user.append("roles", {"role": role})
+        user.insert(ignore_permissions=True)
+        return email
+
+    def test_the_alert_goes_to_verenigingen_administrators_not_system_managers(self):
+        """Part 4 ruling. Real rows: one Verenigingen Administrator, one System-Manager-only user,
+        and the terminated user, who holds BOTH roles and must never be a recipient."""
+        admin_user = self._make_plain_user_3219("Verenigingen Administrator")
+        sysmgr_only = self._make_plain_user_3219("System Manager")
+        target = self._make_linked_user_3219(roles=("System Manager", "Verenigingen Administrator"))
+        recipients = ti._staff_alert_recipients(target)
+        self.assertIn(admin_user, recipients)
+        self.assertNotIn(sysmgr_only, recipients)
+        self.assertNotIn(target, recipients)
+        self._expel_member_3219()
+        allocated = {t.allocated_to for t in self._refusal_todos_3219(target)}
+        self.assertIn(admin_user, allocated)
+        self.assertNotIn(sysmgr_only, allocated)
+        self.assertNotIn(target, allocated)
+
+    def test_a_disabled_verenigingen_administrator_gets_no_alert(self):
+        admin_user = self._make_plain_user_3219("Verenigingen Administrator")
+        frappe.db.set_value("User", admin_user, "enabled", 0)
+        self.assertNotIn(admin_user, ti._staff_alert_recipients("nobody@example.com"))
 
     # -- round 3: the steps BEFORE the deactivate step, and the Employee step --------------
 

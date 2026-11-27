@@ -1213,11 +1213,11 @@ def restore_team_memberships_safe(member_name, restoration_reason, failures=None
 
 
 def _staff_alert_recipients(excluded_user):
-    """Enabled System Users who can decide what happens to a staff account: System Manager
-    holders. A ToDo's ``role`` gates nothing (see held_reversals.treasurer_users), so each
+    """Enabled System Users holding Verenigingen Administrator (maintainer ruling, #3219 part 4;
+    not System Manager holders), minus the terminated user. A ToDo's ``role`` gates nothing (see held_reversals.treasurer_users), so each
     recipient gets their own allocated ToDo."""
     holders = frappe.get_all(
-        "Has Role", filters={"role": Roles.SYSTEM_MANAGER, "parenttype": "User"}, pluck="parent"
+        "Has Role", filters={"role": Roles.VERENIGINGEN_ADMIN, "parenttype": "User"}, pluck="parent"
     )
     holders = [user for user in holders if user != excluded_user]
     if not holders:
