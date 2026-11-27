@@ -64,6 +64,7 @@ class TestDraftBankTransactionRetry822(BankTransactionScopeCase):
         self.assertEqual(row.row_status, "Failed", "Skipped would hide the unfinished import for good")
         self.assertEqual(row.bank_transaction, draft)
         self.assertIn("still a draft", row.message)
+        self.assertIn("submit failed", row.message, "Administrator may submit, so this is a failure, not a refusal")
         self.assertEqual(row.attempts, 1, "Failed rows below the attempt cap are retried on resume")
 
     def test_a_draft_that_submits_on_retry_is_skipped_as_imported(self):

@@ -297,9 +297,11 @@ def _process_rows(run) -> None:
             if frappe.db.get_value("Bank Transaction", existing_bt, "docstatus") == 0:
                 row.bank_transaction = existing_bt
                 row.row_status = "Failed"
+                can_submit = frappe.has_permission("Bank Transaction", "submit", existing_bt)
+                reason = "submit refused: no permission" if not can_submit else "submit failed, see Error Log"
                 row.message = (
-                    f"Bank Transaction {existing_bt} for {row.payment_id} is still a draft "
-                    "(submit refused); retry after it is submitted"
+                    f"Bank Transaction {existing_bt} for {row.payment_id} is still a draft ({reason}); "
+                    "retry after it is submitted"
                 )[:1000]
                 row.processed_at = now_datetime()
                 failed += 1

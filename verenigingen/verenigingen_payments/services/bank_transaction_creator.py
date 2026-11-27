@@ -391,12 +391,16 @@ class BankTransactionCreator:
         )
 
     def find_mollie_bank_transactions(
-        self, reference_numbers: List[str], config: Optional[Dict[str, any]] = None
+        self,
+        reference_numbers: List[str],
+        config: Optional[Dict[str, any]] = None,
+        docstatus: Optional[int] = None,
     ) -> Dict[str, str]:
         """Batch form of ``find_mollie_bank_transaction``: ``{reference_number: name}``.
 
         Same scope (live row, Mollie bank account and company). A reference with several
-        live rows on that account maps to one of them.
+        live rows on that account maps to one of them. ``docstatus`` restricts to that exact
+        docstatus (e.g. 1: submitted only, so a draft does not count, #822); default: any live row.
         """
         if not reference_numbers:
             return {}
@@ -407,7 +411,7 @@ class BankTransactionCreator:
             "Bank Transaction",
             filters={
                 "reference_number": ["in", list(reference_numbers)],
-                "docstatus": ["!=", 2],
+                "docstatus": ["!=", 2] if docstatus is None else docstatus,
                 "bank_account": config["bank_account"],
                 "company": config["company"],
             },

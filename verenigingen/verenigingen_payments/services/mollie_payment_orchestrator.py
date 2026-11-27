@@ -205,6 +205,22 @@ class MolliePaymentOrchestrator:
             payment_id, fields=["name", "docstatus", "party", "date"], config=self._get_bank_account_config()
         )
 
+    def _bank_transaction_is_submitted(self, payment_id: str, bt_name: str) -> bool:
+        """False only while ``bt_name`` is still a DRAFT after a scoped resubmit attempt (#822).
+
+        A draft Bank Transaction is an unfinished import (an earlier caller lacked submit
+        permission, #383), not a processed payment. Resolve it through the creator, scoped to the
+        Mollie bank account and company like the lookup, so the draft is submitted by a caller who
+        may, and reported honestly by one who may not.
+        """
+        if frappe.db.get_value("Bank Transaction", bt_name, "docstatus") != 0:
+            return True
+        config = self._get_bank_account_config()
+        self.bt_creator._resolve_existing_bank_transaction(
+            payment_id, config["bank_account"], config["company"]
+        )
+        return frappe.db.get_value("Bank Transaction", bt_name, "docstatus") != 0
+
     def clear_bank_config_cache(self) -> None:
         """Reset the cached Mollie bank-account configuration (#867).
 
@@ -463,6 +479,10 @@ class MolliePaymentOrchestrator:
             else:
                 result.bank_transaction = status.bank_transaction
                 result.actions_taken.append(f"Bank Transaction exists: {status.bank_transaction}")
+                if not self._bank_transaction_is_submitted(payment_id, status.bank_transaction):
+                    result.actions_taken.append(
+                        f"Warning: Bank Transaction {status.bank_transaction} is still a draft"
+                    )
 
             # Step 3: Create Payment Entry (if not exists and we have invoice)
             if not status.has_payment_entry:
@@ -901,8 +921,14 @@ class MolliePaymentOrchestrator:
             existing = self._live_mollie_bank_transaction(payment_id)
             existing_bt = existing.name if existing else None
             if existing_bt:
-                result.status = "already_processed"
                 result.bank_transaction = existing_bt
+                if not self._bank_transaction_is_submitted(payment_id, existing_bt):
+                    result.status = "error"
+                    result.error = (
+                        f"Bank Transaction {existing_bt} is still a draft (submit refused or failed)"
+                    )
+                    return result
+                result.status = "already_processed"
                 result.skipped_reason = "Bank Transaction already exists"
                 return result
 
@@ -1110,6 +1136,10 @@ class MolliePaymentOrchestrator:
             else:
                 result.bank_transaction = status.bank_transaction
                 result.actions_taken.append(f"Bank Transaction exists: {status.bank_transaction}")
+                if not self._bank_transaction_is_submitted(payment_id, status.bank_transaction):
+                    result.actions_taken.append(
+                        f"Warning: Bank Transaction {status.bank_transaction} is still a draft"
+                    )
 
             # Create Payment Entry
             pe_name = self._create_orphan_payment_entry(
@@ -1419,8 +1449,14 @@ class MolliePaymentOrchestrator:
             existing = self._live_mollie_bank_transaction(payment_id)
             existing_bt = existing.name if existing else None
             if existing_bt:
-                result.status = "already_processed"
                 result.bank_transaction = existing_bt
+                if not self._bank_transaction_is_submitted(payment_id, existing_bt):
+                    result.status = "error"
+                    result.error = (
+                        f"Bank Transaction {existing_bt} is still a draft (submit refused or failed)"
+                    )
+                    return result
+                result.status = "already_processed"
                 result.skipped_reason = "Bank Transaction already exists"
                 return result
 

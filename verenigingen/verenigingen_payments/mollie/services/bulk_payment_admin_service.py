@@ -95,29 +95,6 @@ def bulk_retrieve_all_member_payments(
         return {"error": str(e)}
 
 
-def _submitted_mollie_bank_transactions(bt_creator, payment_ids) -> dict:
-    """``{payment_id: Bank Transaction name}`` for SUBMITTED rows on the Mollie account (#822).
-
-    Same scope as ``find_mollie_bank_transactions`` (Mollie bank account and company), but
-    drafts are left out: they are unfinished imports, not processed payments.
-    """
-    config = bt_creator.get_mollie_bank_account_config()
-    if config.get("error"):
-        return {}
-    rows = frappe.get_all(
-        "Bank Transaction",
-        filters={
-            "reference_number": ["in", list(payment_ids)],
-            "docstatus": 1,
-            "bank_account": config["bank_account"],
-            "company": config["company"],
-        },
-        fields=["reference_number", "name"],
-        limit_page_length=0,
-    )
-    return {row.reference_number: row.name for row in rows}
-
-
 def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, payment_status_filter: str):
     """
     Retrieve ALL payments from Mollie globally and identify orphaned ones.
@@ -248,7 +225,7 @@ def _retrieve_global_payments_with_orphans(days_back: int, max_payments: int, pa
             # #822: SUBMITTED rows only. A draft Bank Transaction is an unfinished import
             # (an earlier caller lacked submit permission), not a processed payment. A
             # reference with a draft AND a submitted row on the account stays processed.
-            existing_bts = _submitted_mollie_bank_transactions(bt_creator, payment_ids)
+            existing_bts = bt_creator.find_mollie_bank_transactions(payment_ids, docstatus=1)
 
             # Batch check Payment Entries
             pe_results = frappe.db.sql(
