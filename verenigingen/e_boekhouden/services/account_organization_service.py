@@ -11,6 +11,7 @@ Dutch accounting standards, including proper grouping of:
 
 import frappe
 
+from verenigingen.e_boekhouden.utils.account_label_lookup import find_account_by_label
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -225,7 +226,15 @@ class AccountOrganizationService:
             return results
 
     def _ensure_account_group(
-        self, filter_dict, group_name, root_type, parent_getter, account_number=None, *, reparent=True
+        self,
+        filter_dict,
+        group_name,
+        root_type,
+        parent_getter,
+        account_number=None,
+        *,
+        reparent=True,
+        label_lookup=False,
     ):
         """Ensure an account group exists, optionally fixing its parent.
 
@@ -236,8 +245,19 @@ class AccountOrganizationService:
             parent_getter: Callable returning the expected parent account name.
             account_number: Optional account number for creation.
             reparent: If True, fix parent_account when it doesn't match expected.
+            label_lookup: If True, filter_dict carries no account_name and the group is
+                found by its name label (see find_account_by_label).
         """
-        existing = frappe.db.get_value("Account", filter_dict, "name")
+        if not label_lookup and not {"account_name", "account_number"} & set(filter_dict):
+            # a filter with no name/number would match ANY group of the root_type
+            raise ValueError("_ensure_account_group needs account_name/account_number or label_lookup=True")
+        if label_lookup:
+            # Resolve by name label: exact beats substring, ambiguity raises (#1398)
+            existing = find_account_by_label(
+                group_name.split(" - ")[0], filter_dict, exact_names=[group_name, group_name.split(" - ")[0]]
+            )
+        else:
+            existing = frappe.db.get_value("Account", filter_dict, "name")
         if existing:
             if reparent:
                 parent = frappe.db.get_value("Account", existing, "parent_account")
@@ -254,11 +274,9 @@ class AccountOrganizationService:
         )
 
     def _name_filter(self, group_name, root_type):
-        """Build a LIKE filter dict for account_name search."""
-        search_name = group_name.split(" - ")[0]
+        """Build the non-name filters for a label lookup of a group (see _ensure_account_group)."""
         return {
             "company": self.company,
-            "account_name": ["like", f"%{search_name}%"],
             "is_group": 1,
             "root_type": root_type,
         }
@@ -280,6 +298,7 @@ class AccountOrganizationService:
             self.financial_accounts_name,
             "Asset",
             self._get_activa_root,
+            label_lookup=True,
         )
 
     def _ensure_overlopende_activa_group(self):
@@ -290,6 +309,7 @@ class AccountOrganizationService:
             "Asset",
             self._get_activa_root,
             account_number="15",
+            label_lookup=True,
         )
 
     def _ensure_schulden_group(self):
@@ -300,6 +320,7 @@ class AccountOrganizationService:
             "Liability",
             self._get_passiva_root,
             reparent=False,
+            label_lookup=True,
         )
 
     def _ensure_tax_payable_group(self):
@@ -309,6 +330,7 @@ class AccountOrganizationService:
             self.tax_payable_name,
             "Liability",
             self._get_passiva_root,
+            label_lookup=True,
         )
 
     def _ensure_tax_receivable_group(self):
@@ -318,6 +340,7 @@ class AccountOrganizationService:
             self.tax_receivable_name,
             "Asset",
             self._get_activa_root,
+            label_lookup=True,
         )
 
     def _organize_debtor_accounts(self, vorderingen_group, results):

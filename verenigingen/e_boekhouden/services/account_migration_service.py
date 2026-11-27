@@ -12,6 +12,10 @@ from typing import Callable, Dict, Optional, Set
 
 import frappe
 
+from verenigingen.e_boekhouden.utils.account_label_lookup import (
+    AmbiguousAccountLabel,
+    find_account_by_label,
+)
 from verenigingen.e_boekhouden.utils.security_helper import validate_and_insert, validate_and_save
 
 
@@ -514,6 +518,18 @@ class AccountMigrationService:
             )
             return None
 
+    def _find_parent_by_label(self, label: str, filters: dict) -> Optional[str]:
+        """Resolve a parent group by fixed label; an ambiguous label is skipped, never guessed (#1398)."""
+        try:
+            return find_account_by_label(label, filters)
+        except AmbiguousAccountLabel as e:
+            # once per (label, company): this runs for every migrated account
+            seen = self.__dict__.setdefault("_ambiguous_labels_logged", set())
+            if (label, filters.get("company")) not in seen:
+                seen.add((label, filters.get("company")))
+                frappe.log_error(title="E-Boekhouden ambiguous parent account label", message=str(e))
+            return None
+
     def get_parent_account(self, account_type: str, root_type: str, company: str = None) -> Optional[str]:
         """Get appropriate parent account for the new account with enhanced logic."""
         company = company or self.company
@@ -535,11 +551,7 @@ class AccountMigrationService:
                 ]
 
                 for parent_name in tax_parent_names:
-                    parent = frappe.db.get_value(
-                        "Account",
-                        {"company": company, "account_name": ["like", f"%{parent_name}%"], "is_group": 1},
-                        "name",
-                    )
+                    parent = self._find_parent_by_label(parent_name, {"company": company, "is_group": 1})
                     if parent:
                         break
 
@@ -548,15 +560,8 @@ class AccountMigrationService:
                 bank_parent_names = ["Liquide middelen", "Bank", "Kas en Bank", "Financiele activa"]
 
                 for parent_name in bank_parent_names:
-                    parent = frappe.db.get_value(
-                        "Account",
-                        {
-                            "company": company,
-                            "account_name": ["like", f"%{parent_name}%"],
-                            "root_type": "Asset",
-                            "is_group": 1,
-                        },
-                        "name",
+                    parent = self._find_parent_by_label(
+                        parent_name, {"company": company, "root_type": "Asset", "is_group": 1}
                     )
                     if parent:
                         frappe.logger().info(f"Found Bank parent account: {parent} for {parent_name}")
@@ -573,15 +578,8 @@ class AccountMigrationService:
                 cash_parent_names = ["Liquide middelen", "Kas", "Cash"]
 
                 for parent_name in cash_parent_names:
-                    parent = frappe.db.get_value(
-                        "Account",
-                        {
-                            "company": company,
-                            "account_name": ["like", f"%{parent_name}%"],
-                            "root_type": "Asset",
-                            "is_group": 1,
-                        },
-                        "name",
+                    parent = self._find_parent_by_label(
+                        parent_name, {"company": company, "root_type": "Asset", "is_group": 1}
                     )
                     if parent:
                         frappe.logger().info(f"Found Cash parent account: {parent} for {parent_name}")
@@ -598,15 +596,8 @@ class AccountMigrationService:
                 income_parent_names = ["Inkomsten", "Opbrengsten", "Direct Income", "Income"]
 
                 for parent_name in income_parent_names:
-                    parent = frappe.db.get_value(
-                        "Account",
-                        {
-                            "company": company,
-                            "account_name": ["like", f"%{parent_name}%"],
-                            "root_type": "Income",
-                            "is_group": 1,
-                        },
-                        "name",
+                    parent = self._find_parent_by_label(
+                        parent_name, {"company": company, "root_type": "Income", "is_group": 1}
                     )
                     if parent:
                         frappe.logger().info(f"Found Income parent account: {parent} for {parent_name}")
@@ -617,15 +608,8 @@ class AccountMigrationService:
                 expense_parent_names = ["Kosten", "Uitgaven", "Direct Expenses", "Expenses"]
 
                 for parent_name in expense_parent_names:
-                    parent = frappe.db.get_value(
-                        "Account",
-                        {
-                            "company": company,
-                            "account_name": ["like", f"%{parent_name}%"],
-                            "root_type": "Expense",
-                            "is_group": 1,
-                        },
-                        "name",
+                    parent = self._find_parent_by_label(
+                        parent_name, {"company": company, "root_type": "Expense", "is_group": 1}
                     )
                     if parent:
                         frappe.logger().info(f"Found Expense parent account: {parent} for {parent_name}")
@@ -637,15 +621,8 @@ class AccountMigrationService:
                 equity_parent_names = ["Eigen Vermogen", "Equity", "Capital"]
 
                 for parent_name in equity_parent_names:
-                    parent = frappe.db.get_value(
-                        "Account",
-                        {
-                            "company": company,
-                            "account_name": ["like", f"%{parent_name}%"],
-                            "root_type": "Equity",
-                            "is_group": 1,
-                        },
-                        "name",
+                    parent = self._find_parent_by_label(
+                        parent_name, {"company": company, "root_type": "Equity", "is_group": 1}
                     )
                     if parent:
                         frappe.logger().info(f"Found Equity parent account: {parent} for {parent_name}")
@@ -791,15 +768,8 @@ class AccountMigrationService:
             potential_parents = parent_group_mappings.get(root_type, [])
 
             for parent_name in potential_parents:
-                parent = frappe.db.get_value(
-                    "Account",
-                    {
-                        "company": company,
-                        "account_name": ["like", f"%{parent_name}%"],
-                        "root_type": root_type,
-                        "is_group": 1,
-                    },
-                    "name",
+                parent = self._find_parent_by_label(
+                    parent_name, {"company": company, "root_type": root_type, "is_group": 1}
                 )
                 if parent:
                     return parent
