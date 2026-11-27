@@ -203,3 +203,78 @@ describe('members_without_chapter.js assign (assign_member_to_chapter, #1485)', 
 		expect(ctx.msgprints[0].message).toBe('Member is not eligible');
 	});
 });
+
+describe('donor.js validate_bsn readers (validate_bsn returns an OperationResult, #1485)', () => {
+	const FILE = 'verenigingen/doctype/donor/donor.js';
+	const VALID = OK({ valid: true, cleaned_value: '111222333' }, 'Valid BSN');
+	const INVALID = OK({ valid: false, cleaned_value: '111222334' }, 'Invalid BSN (failed eleven-proof validation)');
+
+	it('validate_bsn: a VALID BSN is shown green with the server text, not "invalid"', () => {
+		const ctx = loadReal1485Functions(FILE, ['validate_bsn']);
+		answerWith(ctx, VALID);
+		ctx.fns.validate_bsn('111222333');
+		expect(ctx.msgprints[0].message).toBe('Valid BSN');
+		expect(ctx.msgprints[0].indicator).toBe('green');
+	});
+
+	it('validate_bsn: an INVALID BSN (success-flagged envelope) is shown red with the server text', () => {
+		const ctx = loadReal1485Functions(FILE, ['validate_bsn']);
+		answerWith(ctx, INVALID);
+		ctx.fns.validate_bsn('111222334');
+		expect(ctx.msgprints[0].message).toBe('Invalid BSN (failed eleven-proof validation)');
+		expect(ctx.msgprints[0].indicator).toBe('red');
+	});
+
+	it('validate_bsn: a failed call shows error.message, red', () => {
+		const ctx = loadReal1485Functions(FILE, ['validate_bsn']);
+		answerWith(ctx, FAIL('Failed to validate BSN'));
+		ctx.fns.validate_bsn('x');
+		expect(ctx.msgprints[0].message).toBe('Failed to validate BSN');
+		expect(ctx.msgprints[0].indicator).toBe('red');
+	});
+
+	it('validate_bsn: success with no meta.message falls back to the generic valid text (getSuccessMessage default)', () => {
+		const ctx = loadReal1485Functions(FILE, ['validate_bsn']);
+		answerWith(ctx, OK({ valid: true }));
+		ctx.fns.validate_bsn('111222333');
+		expect(ctx.msgprints[0].message).toBe('BSN is valid');
+		expect(ctx.msgprints[0].indicator).toBe('green');
+	});
+
+	it('validate_bsn_field: a valid BSN raises no alert', () => {
+		const ctx = loadReal1485Functions(FILE, ['validate_bsn_field']);
+		answerWith(ctx, VALID);
+		ctx.fns.validate_bsn_field({ doc: { bsn_citizen_service_number: '111222333' } });
+		expect(ctx.alerts).toEqual([]);
+	});
+
+	it('validate_bsn_field: an invalid BSN raises an orange alert WITH the server text', () => {
+		const ctx = loadReal1485Functions(FILE, ['validate_bsn_field']);
+		answerWith(ctx, INVALID);
+		ctx.fns.validate_bsn_field({ doc: { bsn_citizen_service_number: '111222334' } });
+		expect(ctx.alerts).toEqual([{ message: 'Invalid BSN (failed eleven-proof validation)', indicator: 'orange' }]);
+	});
+
+	it('validate_bsn_field: a failed call raises an orange alert with error.message', () => {
+		const ctx = loadReal1485Functions(FILE, ['validate_bsn_field']);
+		answerWith(ctx, FAIL('Failed to validate BSN'));
+		ctx.fns.validate_bsn_field({ doc: { bsn_citizen_service_number: 'x' } });
+		expect(ctx.alerts).toEqual([{ message: 'Failed to validate BSN', indicator: 'orange' }]);
+	});
+});
+
+describe('helper controls (#1485)', () => {
+	it('update_tax_identifiers: success with no meta.message uses the default text (getSuccessMessage fallback)', () => {
+		const ctx = loadReal1485Functions('verenigingen/doctype/donor/donor.js', ['update_tax_identifiers']);
+		answerWith(ctx, OK({ donor: 'D-1' }));
+		ctx.fns.update_tax_identifiers({ doc: { name: 'D-1' }, reload_doc() {} }, {});
+		expect(ctx.alerts[0].message).toBe('Tax identifiers updated successfully');
+	});
+
+	it('execute_merge: a plain-dict (flat string error) failure still shows its text through getErrorMessage', () => {
+		const ctx = loadReal1485Functions('verenigingen/doctype/member/member_list.js', ['execute_merge']);
+		answerWith(ctx, { success: false, error: 'Flat legacy failure text' });
+		ctx.fns.execute_merge('A', 'B', {}, {});
+		expect(ctx.msgprints[0].message).toBe('Flat legacy failure text');
+	});
+});

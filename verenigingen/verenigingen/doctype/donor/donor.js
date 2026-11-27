@@ -498,10 +498,17 @@ function validate_bsn(bsn) {
 		},
 		callback(r) {
 			if (r.message) {
+				// validate_bsn returns an OperationResult: `valid` is under data, the text under
+				// meta.message (success) or error.message (failure) (#1485)
+				const result = unwrapOperationResult(r.message);
+				const valid = Boolean(result && result.valid);
+				const fallback = valid ? __('BSN is valid') : __('BSN is invalid');
 				frappe.msgprint({
 					title: __('BSN Validation Result'),
-					message: r.message.message || (r.message.valid ? __('BSN is valid') : __('BSN is invalid')),
-					indicator: r.message.valid ? 'green' : 'red'
+					message: r.message.success
+						? getSuccessMessage(r.message, fallback)
+						: getErrorMessage(r.message, fallback),
+					indicator: valid ? 'green' : 'red'
 				});
 			} else {
 				frappe.msgprint({
@@ -530,9 +537,16 @@ function validate_bsn_field(frm) {
 				bsn
 			},
 			callback(r) {
-				if (r.message && !r.message.valid) {
+				if (!r.message) {
+					return;
+				}
+				// Same envelope as validate_bsn above (#1485)
+				const result = unwrapOperationResult(r.message);
+				if (!(result && result.valid)) {
 					frappe.show_alert({
-						message: r.message.message,
+						message: r.message.success
+							? getSuccessMessage(r.message, __('BSN is invalid'))
+							: getErrorMessage(r.message, __('BSN is invalid')),
 						indicator: 'orange'
 					});
 				}
