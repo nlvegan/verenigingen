@@ -46,6 +46,9 @@ from verenigingen.verenigingen_payments.utils.mandate_candidates import (
     cancel_active_mandates,
     carry_forward_purposes,
 )
+from verenigingen.verenigingen_payments.utils.mollie_customer_id_list import (
+    split_mollie_customer_ids,
+)
 from verenigingen.verenigingen_payments.utils.mollie_idempotency_key import (
     refuse_staff_cancelled_forward_payment,
 )
@@ -66,6 +69,43 @@ class PaymentGateway(ABC):
     @abstractmethod
     def get_payment_status(self, payment_id):
         """Get payment status from gateway"""
+
+
+def _is_mollie_not_found(error):
+    """True when ``error`` (or anything it wraps) is a Mollie 404, decided on the exception object.
+
+    Real Mollie words a 404 'The resource with the token "sub_x" could not be found.' (the SDK
+    builds the message from the response ``detail`` only), so the status code and "not found" never
+    appear in the text and a text match cannot classify it (#3251 round 3). The repo wrappers keep
+    the SDK error as ``original_error`` (and as ``__cause__`` when re-raised), so walk both.
+    """
+    from mollie.api.error import NotFoundError
+
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, NotFoundError) or getattr(error, "status", None) == 404:
+            return True
+        error = getattr(error, "original_error", None) or error.__cause__ or error.__context__
+    return False
+
+
+def _first_real_error(errors, is_not_found=_is_mollie_not_found):
+    """The first error that is NOT a 404 "not this customer's subscription", else the first error.
+
+    Trying each listed customer id (#3251) yields a 404 from every non-owner; a real failure on the
+    owning id (outage, 5xx) must not be masked by a later non-owner's 404. ``errors`` are
+    exceptions, or gateway error dicts with ``is_not_found=lambda failure: failure.get("not_found")``.
+    """
+    for error in errors:
+        if not is_not_found(error):
+            return error
+    return errors[0]
+
+
+def _failure_is_not_found(failure):
+    """A gateway error dict's flag, set from the exception where it was caught."""
+    return bool(failure.get("not_found"))
 
 
 def _refuse_sales_invoice(ref_doc):
@@ -818,10 +858,10 @@ class MollieGateway(PaymentGateway):
             dict: Cancellation result
         """
         try:
-            customer_id = getattr(member, "mollie_customer_id", None)
+            customer_ids = split_mollie_customer_ids(getattr(member, "mollie_customer_id", None))
             subscription_id = getattr(member, "mollie_subscription_id", None)
 
-            if not (customer_id and subscription_id):
+            if not (customer_ids and subscription_id):
                 return create_error_response(_("No active subscription found for this member"))
 
             # Cancel via the consolidated service. It performs the Mollie
@@ -830,9 +870,18 @@ class MollieGateway(PaymentGateway):
             # passed explicitly so the service updates this Member directly
             # rather than reverse-resolving by the non-unique subscription id.
             # Its return value is the standard cancel result shape.
-            return CompletePaymentService().cancel_subscription(
-                customer_id, subscription_id, owner_doctype="Member", owner_name=member.name
-            )
+            #
+            # The field may hold a comma-separated list (#3251, #2675): the subscription lives
+            # under exactly one listed customer, so only the owner can succeed; first success wins.
+            errors = []
+            for customer_id in customer_ids:
+                try:
+                    return CompletePaymentService().cancel_subscription(
+                        customer_id, subscription_id, owner_doctype="Member", owner_name=member.name
+                    )
+                except Exception as cancel_error:
+                    errors.append(cancel_error)
+            raise _first_real_error(errors)
 
         except Exception as e:
             log_mollie_error("Subscription Cancellation", e, {"member": member.name})
@@ -879,7 +928,9 @@ class MollieGateway(PaymentGateway):
                 f"Error updating Mollie subscription {subscription_id}: {str(e)}",
                 "Mollie Subscription Update",
             )
-            return create_error_response(f"Error updating subscription: {str(e)}")
+            return create_error_response(
+                f"Error updating subscription: {str(e)}", {"not_found": _is_mollie_not_found(e)}
+            )
 
 
 class SEPAGateway(PaymentGateway):
@@ -2843,16 +2894,21 @@ def get_member_subscription_status(member_id: str):
     try:
         member = frappe.get_doc("Member", member_id)
 
-        customer_id = getattr(member, "mollie_customer_id", None)
+        customer_ids = split_mollie_customer_ids(getattr(member, "mollie_customer_id", None))
         subscription_id = getattr(member, "mollie_subscription_id", None)
 
-        if not (customer_id and subscription_id):
+        if not (customer_ids and subscription_id):
             return {"status": "no_subscription", "message": "No active subscription found"}
 
         gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
-        result = gateway.get_subscription_status(customer_id, subscription_id)
-
-        return result
+        # A comma-separated list is supported (#3251, #2675): only the owning customer can answer.
+        failures = []
+        for customer_id in customer_ids:
+            result = gateway.get_subscription_status(customer_id, subscription_id)
+            if result.get("status") == "success":
+                return result
+            failures.append(result)
+        return _first_real_error(failures, _failure_is_not_found)
 
     except Exception as e:
         frappe.log_error(
@@ -2967,18 +3023,26 @@ def update_mollie_subscription_amount(subscription_id, new_amount):
             allow_admin=True,
         )
 
-        customer_id = member_data["mollie_customer_id"]
+        customer_ids = split_mollie_customer_ids(member_data["mollie_customer_id"])
 
-        if not customer_id:
+        if not customer_ids:
             return create_error_response("No Mollie customer ID found")
 
         # Get Mollie gateway
         gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
 
-        # Update subscription amount via Mollie API
-        result = gateway.update_subscription(
-            customer_id, subscription_id, {"amount": format_mollie_amount(new_amount)}
-        )
+        # The field may hold a comma-separated list (#3251, #2675): the subscription lives under
+        # exactly one listed customer, so try each id and keep the first success (else the first real error).
+        failures = []
+        for customer_id in customer_ids:
+            result = gateway.update_subscription(
+                customer_id, subscription_id, {"amount": format_mollie_amount(new_amount)}
+            )
+            if result.get("status") == "success":
+                break
+            failures.append(result)
+        else:
+            result = _first_real_error(failures, _failure_is_not_found)
 
         if result.get("status") == "success":
             # Update related donation records.

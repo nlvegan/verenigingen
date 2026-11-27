@@ -1,0 +1,349 @@
+"""
+#3251 (sibling of #2675): the Mollie API callers that took the WHOLE ``mollie_customer_id`` field
+value ("cst_a, cst_b") as a customer id must work per listed id, and must not overwrite a list.
+
+Sites: ``update_mollie_subscription_amount``, ``CompletePaymentService._create_owner_subscription``
+(idempotency lookup, customer resolution, write-back) and ``_resolve_customer_by_email`` (Donor).
+
+Stub boundary: ``MollieSettings.get_mollie_client`` -- BELOW ``MollieClient`` and ``MollieGateway`` --
+returns a fake SDK. Real Mollie was never probed for what it answers to "cst_a, cst_b"; the fake
+models the safe assumption (it knows exact ids only, so a whole-list id is refused). The test proves
+the code asks per id, not what Mollie does.
+
+Probe shortcut, stated: lists are put on rows with ``db.set_value`` (as the #2675 module does); no
+writer is driven here. ``enable_subscriptions`` is set on the Mollie Settings single for the test.
+
+Run with:
+    PYTHONPATH=<worktree> scripts/testing/run_without_credentials.sh test_site_2 \\
+        verenigingen.tests.payment.test_mollie_customer_id_list_writers_3251
+"""
+
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import frappe
+from mollie.api.error import NotFoundError, ResponseError
+
+from verenigingen.tests.payment.test_mollie_multi_id_customer_lists_2675 import MultiIdBase
+from verenigingen.verenigingen_payments.mollie.services.complete_payment_service import (
+    CompletePaymentService,
+)
+from verenigingen.verenigingen_payments.utils import payment_gateways as pg
+
+
+def _real_not_found_3251(subscription_id):
+    """The error mollie-api-python raises for a 404: message is the response ``detail`` ONLY.
+
+    The status code and the words "not found" are NOT in the text (measured by the delta review of
+    2337d20cf against SDK 4.0.0), so only the exception type / ``.status`` can classify it.
+    """
+    return NotFoundError(
+        {
+            "status": 404,
+            "title": "Not Found",
+            "detail": f'The resource with the token "{subscription_id}" could not be found.',
+        }
+    )
+
+
+class _FakeSubscription:
+    def __init__(self, owner, subscription_id):
+        self.owner, self.id = owner, subscription_id
+        self.status, self.next_payment_date, self.mandate_id, self.amount = "active", None, None, None
+        self.interval, self.created_at = "1 month", None
+
+    def update(self, data):
+        self.owner.updates.append((self.owner.id, self.id, data))
+        self.amount = data.get("amount")
+        return self
+
+
+class _FakeSubscriptions:
+    def __init__(self, owner, held):
+        self.owner, self.held = owner, held
+
+    def get(self, subscription_id):
+        if self.owner.fail:
+            raise self.owner.fail
+        if subscription_id not in self.held:
+            raise _real_not_found_3251(subscription_id)
+        return _FakeSubscription(self.owner, subscription_id)
+
+    def delete(self, subscription_id):
+        self.get(subscription_id)
+        self.owner.deleted.append((self.owner.id, subscription_id))
+
+    def create(self, data):
+        subscription_id = f"sub_new{frappe.generate_hash(length=8)}"
+        self.held.add(subscription_id)
+        return _FakeSubscription(self.owner, subscription_id)
+
+
+class _FakeCustomer:
+    def __init__(self, customer_id, held, updates):
+        self.id, self.updates, self.deleted, self.fail = customer_id, updates, [], None
+        self.subscriptions = _FakeSubscriptions(self, held)
+
+
+class FakeMollieSdk:
+    """``customers.get`` knows exact ids only: anything else (a whole "a, b" list) is refused."""
+
+    def __init__(self, customers):
+        self.asked, self.created, self.updates = [], [], []
+        self._customers = {cid: _FakeCustomer(cid, held, self.updates) for cid, held in customers.items()}
+        self.customers = self
+
+    def get(self, customer_id):
+        self.asked.append(customer_id)
+        if customer_id not in self._customers:
+            raise RuntimeError(f"Mollie: no customer {customer_id!r}")
+        return self._customers[customer_id]
+
+    def all_deleted(self):
+        return [d for c in self._customers.values() for d in c.deleted]
+
+    def fail_customer(self, customer_id, detail):
+        """Make every subscription call on this customer raise a real Mollie 503."""
+        self._customers[customer_id].fail = ResponseError.factory({"status": 503, "detail": detail})
+
+    def create(self, data):
+        fresh = _FakeCustomer(f"cst_new{frappe.generate_hash(length=8)}", set(), self.updates)
+        self._customers[fresh.id] = fresh
+        self.created.append(fresh.id)
+        return fresh
+
+
+class Writers3251Base(MultiIdBase):
+    def setUp(self):
+        super().setUp()
+        self.expectErrorLog(
+            "Mollie Client",
+            "Mollie Subscription Update",
+            "Subscription Cancellation Error",
+            "Mollie Subscription Fetch",
+        )
+        self.sub_id = f"sub_{frappe.generate_hash(length=10)}"
+
+    def _sdk_3251(self, customers):
+        sdk = FakeMollieSdk(customers)
+        from verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings import MollieSettings
+
+        # Mock justified: the Mollie SDK is the external boundary, stubbed BELOW MollieClient/MollieGateway.
+        patcher = patch.object(MollieSettings, "get_mollie_client", lambda _self: sdk)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return sdk
+
+    def _member_with_3251(self, *ids):
+        member = self.members[0]
+        self._set("Member", member.name, "mollie_customer_id", ", ".join(ids))
+        self._set("Member", member.name, "mollie_subscription_id", self.sub_id)
+        self._set("Member", member.name, "subscription_status", "active")
+        return member
+
+    def _field_3251(self, doctype, name):
+        return frappe.db.get_value(doctype, name, "mollie_customer_id")
+
+
+class TestUpdateSubscriptionAmountPerId(Writers3251Base):
+    def test_subscription_under_the_second_listed_id_is_updated(self):
+        self._member_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: {self.sub_id}})
+        result = pg.update_mollie_subscription_amount(self.sub_id, 12.5)
+        self.assertEqual(result["status"], "success", result)
+        self.assertEqual([u[:2] for u in sdk.updates], [(self.id_b, self.sub_id)])
+        self.assertNotIn(f"{self.id_a}, {self.id_b}", sdk.asked)
+
+    def test_control_single_id_still_updates(self):
+        self._member_with_3251(self.id_a)
+        sdk = self._sdk_3251({self.id_a: {self.sub_id}})
+        result = pg.update_mollie_subscription_amount(self.sub_id, 12.5)
+        self.assertEqual(result["status"], "success", result)
+        self.assertEqual([u[:2] for u in sdk.updates], [(self.id_a, self.sub_id)])
+
+    def test_control_subscription_under_no_listed_id_is_an_error_and_updates_nothing(self):
+        self._member_with_3251(self.id_a, self.id_b)
+        # The subscription sits under a customer the member does not list: a real candidate for a
+        # pick-first / always-success wrong fix to wrongly touch.
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: set(), self.id_c: {self.sub_id}})
+        result = pg.update_mollie_subscription_amount(self.sub_id, 12.5)
+        self.assertEqual(result["status"], "error", result)
+        self.assertEqual(sdk.updates, [])
+
+    def test_a_real_error_on_the_owning_id_is_not_masked_by_a_non_owners_404(self):
+        # The owner is listed SECOND: the non-owner's 404 comes first, so pick-first would return it.
+        self._member_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: {self.sub_id}})
+        sdk.fail_customer(self.id_b, "Service Unavailable")
+        result = pg.update_mollie_subscription_amount(self.sub_id, 12.5)
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("Service Unavailable", result["message"])
+        self.assertEqual(sdk.updates, [])
+
+
+class TestCancelAndStatusPerId(Writers3251Base):
+    def test_cancel_reaches_a_subscription_under_the_second_listed_id(self):
+        member = self._member_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: {self.sub_id}})
+        result = pg.cancel_member_subscription(member.name)
+        self.assertEqual(result["status"], "success", result)
+        self.assertEqual(sdk.all_deleted(), [(self.id_b, self.sub_id)])
+        self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "canceled")
+        self.assertNotIn(f"{self.id_a}, {self.id_b}", sdk.asked)
+
+    def test_control_cancel_of_a_subscription_under_an_unlisted_customer_cancels_nothing(self):
+        member = self._member_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: set(), self.id_c: {self.sub_id}})
+        result = pg.cancel_member_subscription(member.name)
+        self.assertEqual(result["status"], "error", result)
+        self.assertEqual(sdk.all_deleted(), [])
+        self.assertEqual(frappe.db.get_value("Member", member.name, "subscription_status"), "active")
+
+    def test_control_cancel_with_a_single_id_still_works(self):
+        member = self._member_with_3251(self.id_a)
+        sdk = self._sdk_3251({self.id_a: {self.sub_id}})
+        self.assertEqual(pg.cancel_member_subscription(member.name)["status"], "success")
+        self.assertEqual(sdk.all_deleted(), [(self.id_a, self.sub_id)])
+
+    def test_a_real_cancel_error_on_the_owning_id_is_not_masked_by_a_non_owners_404(self):
+        member = self._member_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: {self.sub_id}})
+        sdk.fail_customer(self.id_b, "Service Unavailable")
+        result = pg.cancel_member_subscription(member.name)
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("Service Unavailable", result["message"])
+
+    def test_status_reads_a_subscription_under_the_second_listed_id(self):
+        member = self._member_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: {self.sub_id}})
+        result = pg.get_member_subscription_status(member.name)
+        self.assertEqual(result["status"], "success", result)
+        self.assertEqual(result["subscription"]["id"], self.sub_id)
+        self.assertNotIn(f"{self.id_a}, {self.id_b}", sdk.asked)
+
+    def test_control_status_of_a_subscription_under_an_unlisted_customer_is_an_error(self):
+        member = self._member_with_3251(self.id_a, self.id_b)
+        self._sdk_3251({self.id_a: set(), self.id_b: set(), self.id_c: {self.sub_id}})
+        self.assertEqual(pg.get_member_subscription_status(member.name)["status"], "error")
+
+
+class TestOwnerSubscriptionPerId(Writers3251Base):
+    def setUp(self):
+        super().setUp()
+        original = frappe.db.get_single_value("Mollie Settings", "enable_subscriptions")
+        frappe.db.set_single_value("Mollie Settings", "enable_subscriptions", 1)
+        self.addCleanup(frappe.db.set_single_value, "Mollie Settings", "enable_subscriptions", original)
+
+    def _create_sub_3251(self, owner_doctype, owner):
+        customer_data = {
+            "email": f"w3251.{frappe.generate_hash(length=6)}@example.com",
+            "name": "W3251",
+            "owner_doctype": owner_doctype,
+            "owner_name": owner.name,
+        }
+        subscription_data = {
+            "amount": {"value": "10.00", "currency": "EUR"},
+            "interval": "1 month",
+            "description": "w3251",
+        }
+        return CompletePaymentService().create_customer_subscription(customer_data, subscription_data)
+
+    def _owner_with_3251(self, *ids, subscription=None):
+        member = self.members[0]
+        self._set("Member", member.name, "mollie_customer_id", ", ".join(ids))
+        self._set("Member", member.name, "mollie_subscription_id", subscription)
+        return member
+
+    def test_live_subscription_under_the_second_listed_id_is_returned_not_duplicated(self):
+        member = self._owner_with_3251(self.id_a, self.id_b, subscription=self.sub_id)
+        sdk = self._sdk_3251({self.id_a: set(), self.id_b: {self.sub_id}})
+        result = self._create_sub_3251("Member", member)
+        self.assertEqual(result["message"], "Subscription already exists", result)
+        self.assertEqual(result["customer_id"], self.id_b)
+        self.assertEqual(sdk.created, [], "a duplicate Mollie customer was created")
+
+    def test_stale_first_id_resolves_to_the_listed_second_id_and_keeps_the_list(self):
+        member = self._owner_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({self.id_b: set()})
+        result = self._create_sub_3251("Member", member)
+        self.assertEqual(result["customer_id"], self.id_b, result)
+        self.assertEqual(sdk.created, [], "a fresh customer was created although id_b resolves")
+        self.assertEqual(self._field_3251("Member", member.name), f"{self.id_a}, {self.id_b}")
+
+    def test_all_listed_ids_stale_creates_a_customer_and_appends_it_to_the_list(self):
+        member = self._owner_with_3251(self.id_a, self.id_b)
+        sdk = self._sdk_3251({})
+        result = self._create_sub_3251("Member", member)
+        self.assertEqual(sdk.created, [result["customer_id"]])
+        self.assertEqual(
+            self._field_3251("Member", member.name), f"{self.id_a}, {self.id_b}, {result['customer_id']}"
+        )
+
+    def test_append_that_would_overflow_the_field_replaces_instead_of_raising(self):
+        h = frappe.generate_hash(length=8)
+        # 8 ids of 14 characters ("cst_" + 10) fill 126 of the Data field's 140; the fresh id
+        # would push the appended list past it.
+        stale = [f"cst_{i}{h}{i}x" for i in range(8)]
+        member = self._owner_with_3251(*stale)
+        limit = frappe.get_meta("Member").get_field("mollie_customer_id").length or frappe.db.VARCHAR_LEN
+        self.assertLess(len(", ".join(stale)), limit)
+        sdk = self._sdk_3251({})
+        result = self._create_sub_3251("Member", member)
+        self.assertEqual(self._field_3251("Member", member.name), result["customer_id"])
+        self.assertEqual(sdk.created, [result["customer_id"]])
+
+    def test_control_single_stale_id_is_still_replaced_by_the_fresh_customer(self):
+        member = self._owner_with_3251(self.id_a)
+        sdk = self._sdk_3251({})
+        result = self._create_sub_3251("Member", member)
+        self.assertEqual(sdk.created, [result["customer_id"]])
+        self.assertEqual(self._field_3251("Member", member.name), result["customer_id"])
+
+    def test_control_single_id_resolves_and_is_unchanged(self):
+        member = self._owner_with_3251(self.id_a)
+        sdk = self._sdk_3251({self.id_a: set()})
+        result = self._create_sub_3251("Member", member)
+        self.assertEqual(result["customer_id"], self.id_a)
+        self.assertEqual(sdk.created, [])
+        self.assertEqual(self._field_3251("Member", member.name), self.id_a)
+
+
+class TestDonorResolutionPerId(Writers3251Base):
+    def _resolve_3251(self, donor):
+        email = frappe.db.get_value("Donor", donor.name, "donor_email")
+        return CompletePaymentService()._resolve_customer_by_email({"email": email, "name": "W3251"})
+
+    def test_stale_first_id_resolves_to_the_listed_second_id(self):
+        donor = self.donors[0]
+        self._set("Donor", donor.name, "mollie_customer_id", f"{self.id_a}, {self.id_b}")
+        sdk = self._sdk_3251({self.id_b: set()})
+        result = self._resolve_3251(donor)
+        self.assertEqual(result, {"status": "found", "customer_id": self.id_b})
+        self.assertEqual(sdk.created, [])
+        self.assertEqual(self._field_3251("Donor", donor.name), f"{self.id_a}, {self.id_b}")
+
+    def test_all_listed_ids_stale_creates_a_customer_and_appends_it(self):
+        donor = self.donors[0]
+        self._set("Donor", donor.name, "mollie_customer_id", f"{self.id_a}, {self.id_b}")
+        sdk = self._sdk_3251({})
+        result = self._resolve_3251(donor)
+        self.assertEqual(result["status"], "created")
+        self.assertEqual(sdk.created, [result["customer_id"]])
+        self.assertEqual(
+            self._field_3251("Donor", donor.name), f"{self.id_a}, {self.id_b}, {result['customer_id']}"
+        )
+
+    def test_control_single_stale_id_is_still_replaced(self):
+        donor = self.donors[0]
+        self._set("Donor", donor.name, "mollie_customer_id", self.id_a)
+        sdk = self._sdk_3251({})
+        result = self._resolve_3251(donor)
+        self.assertEqual(self._field_3251("Donor", donor.name), result["customer_id"])
+        self.assertEqual(sdk.created, [result["customer_id"]])
+
+    def test_control_single_id_found(self):
+        donor = self.donors[0]
+        self._set("Donor", donor.name, "mollie_customer_id", self.id_a)
+        sdk = self._sdk_3251({self.id_a: set()})
+        self.assertEqual(self._resolve_3251(donor), {"status": "found", "customer_id": self.id_a})
+        self.assertEqual(sdk.created, [])

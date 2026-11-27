@@ -12,6 +12,7 @@ stored id silently nor write Error Log rows from a read path; it only needs exac
 from typing import Dict, Iterable, List, Optional
 
 import frappe
+from frappe.utils import cint
 
 
 def split_mollie_customer_ids(value: Optional[str]) -> List[str]:
@@ -24,6 +25,27 @@ def split_mollie_customer_ids(value: Optional[str]) -> List[str]:
         if token and token not in seen:
             seen.append(token)
     return seen
+
+
+def field_value_after_resolving(stored: Optional[str], resolved_id: str, doctype: str) -> str:
+    """What a writer that resolved ``resolved_id`` should leave in the field (#3251).
+
+    A listed id leaves the list untouched; an unlisted id is appended when the field holds a list
+    (so the other listed ids are not lost, as #2675's donor webhook does) unless the result would
+    not fit the field's length (the write would raise inside the caller's FOR UPDATE section, after
+    the Mollie objects exist), in which case it is replaced; a field with at most one id (or none)
+    is replaced, which is the long-standing "stale single id -> fresh customer" behaviour.
+    """
+    listed = split_mollie_customer_ids(stored)
+    if resolved_id in listed:
+        return stored
+    if len(listed) > 1:
+        appended = ", ".join(listed + [resolved_id])
+        df = frappe.get_meta(doctype).get_field("mollie_customer_id")
+        limit = (cint(df.length) if df else 0) or cint(frappe.db.VARCHAR_LEN)
+        if len(appended) <= limit:
+            return appended
+    return resolved_id
 
 
 def index_rows_by_customer_id(rows: Iterable) -> Dict[str, list]:
