@@ -1269,6 +1269,10 @@ class BoardManager(BaseManager):
         self.chapter_doc._pending_financial_departures = set()
         unwithdrawn = []
         for volunteer_name in pending:
+            if self._user_protected_by_termination(volunteer_name):
+                # #3219: the seat is ended but the account's roles are left exactly as they are.
+                self._refresh_volunteer_status(volunteer_name)
+                continue
             self._sync_role_profile_for_volunteer(volunteer_name)
             self._withdraw_board_role_if_unseated(volunteer_name)
             try:
@@ -1282,6 +1286,18 @@ class BoardManager(BaseManager):
             # Still ONE abort: no seat may end while its access survives (#738, #1953).
             raise BoardAccessWithdrawalError("<br>".join(escape_html(part) for part in unwithdrawn))
         self._refresh_expense_approvers(departed)
+
+    @staticmethod
+    def _user_protected_by_termination(volunteer_name: str) -> bool:
+        """#3219: True when a running termination classified this volunteer's User as protected
+        (a staff account, or one it could not classify) before any step ran. Re-deriving the
+        roles of such a user here would strip System Manager."""
+        protected = frappe.flags.get("termination_protected_users")
+        if not protected:
+            return False
+        member = frappe.db.get_value("Volunteer", volunteer_name, "member")
+        user = frappe.db.get_value("Member", member, "user") if member else None
+        return "*" in protected or (user is not None and user in protected)
 
     def _refresh_expense_approvers(self, departed_volunteers):
         """Refresh Employee/Department expense approvers for a seat change, now (#1682).

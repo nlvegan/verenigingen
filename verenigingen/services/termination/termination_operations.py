@@ -633,7 +633,26 @@ class TerminationExecutor:
     def execute(self) -> Dict:
         """Execute all operations in sequence and return results"""
         results = TerminationResults()
+        from verenigingen.services.termination.termination_integration import (
+            PROTECTED_USERS_FLAG,
+            classify_termination_user,
+        )
 
+        # #3219: classify the member's User once, before any step can change its roles.
+        had_flag = PROTECTED_USERS_FLAG in frappe.flags
+        previous = frappe.flags.get(PROTECTED_USERS_FLAG)
+        frappe.flags[PROTECTED_USERS_FLAG] = classify_termination_user(self.operations[0].member_name)
+        try:
+            self._execute_operations(results)
+        finally:
+            if had_flag:
+                frappe.flags[PROTECTED_USERS_FLAG] = previous
+            else:
+                frappe.flags.pop(PROTECTED_USERS_FLAG, None)
+
+        return results.to_dict()
+
+    def _execute_operations(self, results: TerminationResults) -> None:
         for operation in self.operations:
             if not operation.is_enabled():
                 frappe.logger().debug(f"Skipping disabled operation: {operation.operation_name}")
@@ -655,5 +674,3 @@ class TerminationExecutor:
             f"Termination execution completed: {len(results.actions_taken)} actions, "
             f"{len(results.errors)} errors"
         )
-
-        return results.to_dict()

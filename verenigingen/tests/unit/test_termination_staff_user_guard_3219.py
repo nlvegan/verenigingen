@@ -26,13 +26,14 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 
 STAFF_TITLE = "Termination: staff user account NOT deactivated"
 SYNC_TITLE = "Termination: staff user role profile NOT recalculated"
+EMPLOYEE_TITLE = "Termination: staff user's Employee record NOT updated"
 FAILED_CHECK_TITLE = "Termination: user account NOT deactivated, staff check failed"
 
 
 class TestTerminationStaffUserGuard3219(VereningingenTestCase):
     def setUp(self):
         super().setUp()
-        self.expectErrorLog(STAFF_TITLE, FAILED_CHECK_TITLE, SYNC_TITLE)
+        self.expectErrorLog(STAFF_TITLE, FAILED_CHECK_TITLE, SYNC_TITLE, EMPLOYEE_TITLE)
         self.member = self.create_test_member()
 
     def _make_linked_user_3219(self, role_profile=None, roles=()):
@@ -223,3 +224,128 @@ class TestTerminationStaffUserGuard3219(VereningingenTestCase):
         todos = self._refusal_todos_3219(email)
         self.assertTrue(todos)
         self.assertEqual({t.allocated_to for t in todos}, {"Administrator"})
+
+
+    # -- round 3: the steps BEFORE the deactivate step, and the Employee step --------------
+
+    def _seat_volunteer_and_team_3219(self, volunteer):
+        """A real board seat (through Chapter.save, so the deferred profile sync fires) and a team row."""
+        role = "Test Board Role 3219"
+        if not frappe.db.exists("Chapter Role", role):
+            frappe.get_doc(
+                {
+                    "doctype": "Chapter Role",
+                    "role_name": role,
+                    "permissions_level": "Admin",
+                    "is_active": 1,
+                }
+            ).insert()
+        chapter = frappe.get_doc("Chapter", self.create_test_chapter().name)
+        chapter.append(
+            "board_members",
+            {
+                "volunteer": volunteer.name,
+                "chapter_role": role,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+            },
+        )
+        chapter.save()
+        team_doc = frappe.get_doc("Team", self.factory.create_test_team().name)
+        team_doc.append(
+            "team_members",
+            {
+                "volunteer": volunteer.name,
+                "team_role": self.factory.get_or_create_team_role("Team Member").name,
+                "from_date": frappe.utils.today(),
+                "is_active": 1,
+                "status": "Active",
+            },
+        )
+        team_doc.save()
+        return chapter
+
+    def _grant_system_manager_3219(self, email):
+        """After the seat: seating rewrites a user's roles to the profile-derived set (reviewer's trap)."""
+        user = frappe.get_doc("User", email)
+        user.role_profiles = []
+        user.append("roles", {"role": "System Manager"})
+        user.save(ignore_permissions=True)
+
+    def _make_employee_3219(self, email):
+        from verenigingen.tests.support.sepa_test_company import get_eur_test_company
+
+        employee = frappe.get_doc(
+            {
+                "doctype": "Employee",
+                "first_name": f"Emp{frappe.generate_hash(length=5)}",
+                "gender": "Other",
+                "date_of_birth": "1990-01-01",
+                "date_of_joining": "2020-01-01",
+                "status": "Active",
+                "company": get_eur_test_company(),
+                "user_id": email,
+            }
+        ).insert(ignore_permissions=True)
+        return employee.name
+
+    def test_a_board_seat_does_not_strip_a_staff_user_before_the_deactivate_step(self):
+        """F5. Staff user (System Manager held directly, granted AFTER the seat) + seat + team row +
+        Active Volunteer. Ending the seat re-derived roles and dropped System Manager before the
+        deactivate step looked, so it classified the user as ordinary and disabled it."""
+        email = self._make_linked_user_3219(roles=("Verenigingen Member",))
+        volunteer = self._make_active_volunteer_3219()
+        self._seat_volunteer_and_team_3219(volunteer)
+        self._grant_system_manager_3219(email)
+        before = self._account_state_3219(email)
+        self.assertIn("System Manager", before["roles"])
+        self.assertEqual(before["profiles"], [])
+
+        request = self._expel_member_3219()
+
+        self.assertEqual(self._account_state_3219(email), before)
+        self.assertTrue(
+            any(email in e and "NOT deactivated" in e for e in self._audit_errors_3219(request)),
+            self._audit_errors_3219(request),
+        )
+        self.assertFalse(any("Deactivated user account" in a.details for a in request.audit_trail))
+
+    def test_a_staff_user_with_a_linked_employee_keeps_both(self):
+        """F6 / ruling part 3: ERPNext disables the User when its Employee leaves."""
+        email = self._make_linked_user_3219(roles=("System Manager",))
+        employee = self._make_employee_3219(email)
+        before = self._account_state_3219(email)
+
+        request = self._expel_member_3219()
+
+        self.assertEqual(frappe.db.get_value("Employee", employee, "status"), "Active")
+        self.assertEqual(self._account_state_3219(email), before)
+        self.assertEqual(before["enabled"], 1)
+        self.assertGreater(frappe.db.count("Error Log", {"method": EMPLOYEE_TITLE}), 0)
+        self.assertTrue(
+            any("Employee record" in e and "NOT updated" in e for e in self._audit_errors_3219(request)),
+            self._audit_errors_3219(request),
+        )
+
+    def test_control_an_ordinary_seated_volunteer_with_an_employee_is_still_stripped(self):
+        email = self._make_linked_user_3219(roles=("Verenigingen Member",))
+        volunteer = self._make_active_volunteer_3219()
+        self._seat_volunteer_and_team_3219(volunteer)
+        # Seating a volunteer on a board gives its user an Employee (profile with the Employee role).
+        employee = frappe.db.get_value("Employee", {"user_id": email}, "name")
+        self.assertTrue(employee, "fixture must really link an Employee to the user")
+        self.assertEqual(frappe.db.get_value("Employee", employee, "status"), "Active")
+        before = self._account_state_3219(email)
+        self.assertIn("Verenigingen Chapter Board Member", before["roles"])
+
+        request = self._expel_member_3219()
+
+        self.assertEqual(frappe.db.get_value("Employee", employee, "status"), "Left")
+        state = self._account_state_3219(email)
+        self.assertEqual(state["enabled"], 0)
+        # The volunteer sync downgrades to the plain member profile; the board and employee
+        # roles that the seat conferred are gone.
+        self.assertNotIn("Verenigingen Chapter Board Member", state["roles"])
+        self.assertNotIn("Employee", state["roles"])
+        self.assertFalse(self._refusal_todos_3219(email))
+        self.assertFalse(any("NOT" in e for e in self._audit_errors_3219(request)))

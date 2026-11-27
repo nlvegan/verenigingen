@@ -563,6 +563,56 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
         return False
 
 
+PROTECTED_USERS_FLAG = "termination_protected_users"
+
+
+def _live_staff_check(user_email):
+    """(protected, cause) from a fresh staff check; an erroring check protects (fail closed)."""
+    from verenigingen.services.member.account.member_role_service import MemberRoleService
+
+    try:
+        return bool(MemberRoleService._is_staff_account(user_email)), None
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception as e:
+        return True, e
+
+
+def classify_termination_user(member_name):
+    """#3219: classify the member's User ONCE, before any termination step runs.
+
+    A board-seat end re-derives the user's roles from role profiles and so can strip System
+    Manager BEFORE the deactivate step looks, which would then see an ordinary user. Returns
+    {user_email: None | cause}; a user in it is protected (staff, or unclassifiable and so
+    failed closed). "*" stands for every user when even the lookup failed.
+    """
+    try:
+        user_email = frappe.db.get_value("Member", member_name, "user")
+        if not user_email or not frappe.db.exists("User", user_email):
+            return {}
+        protected, cause = _live_staff_check(user_email)
+        return {user_email: cause} if protected else {}
+    except NON_RESUMABLE_DB_ERRORS:
+        raise
+    except Exception as e:
+        return {"*": e}
+
+
+def user_protection(user_email):
+    """(protected, cause) for a termination step about to touch `user_email`.
+
+    Reads the classification taken at the start of the termination (PROTECTED_USERS_FLAG);
+    with none in force (a direct call such as a suspension) it checks live.
+    """
+    classified = frappe.flags.get(PROTECTED_USERS_FLAG)
+    if classified is None:
+        return _live_staff_check(user_email)
+    for key in (user_email, "*"):
+        if key in classified:
+            return True, classified[key]
+    return False, None
+
+
 def _record_termination_failure(failures, title, message, user_message):
     """Leave a durable trace of a termination step that was not done (#832, #2517).
 
@@ -1230,17 +1280,9 @@ def deactivate_user_account_safe(member_name, termination_type, reason, suspend_
             frappe.logger().info(f"User {user_email} does not exist")
             return True
 
-        try:
-            from verenigingen.services.member.account.member_role_service import MemberRoleService
-
-            is_staff = MemberRoleService._is_staff_account(user_email)
-        except NON_RESUMABLE_DB_ERRORS:
-            raise
-        except Exception as e:
-            _refuse_staff_deactivation(member_name, user_email, failures, cause=e)
-            return False
+        is_staff, check_error = user_protection(user_email)
         if is_staff:
-            _refuse_staff_deactivation(member_name, user_email, failures)
+            _refuse_staff_deactivation(member_name, user_email, failures, cause=check_error)
             return False
 
         user_doc = frappe.get_doc("User", user_email)
@@ -1783,17 +1825,7 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                 # #3219: the sync REPLACES role_profiles and User.validate re-derives roles from
                 # them, so it must not run for a staff user (whose deactivation was refused), nor
                 # when the staff check itself errors (fail closed).
-                try:
-                    from verenigingen.services.member.account.member_role_service import (
-                        MemberRoleService,
-                    )
-
-                    skip_sync = MemberRoleService._is_staff_account(user_email)
-                    skip_cause = None
-                except NON_RESUMABLE_DB_ERRORS:
-                    raise
-                except Exception as staff_check_error:
-                    skip_sync, skip_cause = True, staff_check_error
+                skip_sync, skip_cause = user_protection(user_email)
                 if skip_sync:
                     _record_termination_failure(
                         results["errors"],
@@ -1849,6 +1881,20 @@ def terminate_employee_records_safe(member_name, termination_type, termination_d
 
         # Get user email to find employee records
         user_email = frappe.db.get_value("Member", member_name, "user")
+
+        # #3219 (ruling part 3): ERPNext's Employee.update_user_status disables the linked User
+        # when the Employee leaves, so a protected user's Employee is left as it is.
+        if user_email:
+            protected, check_error = user_protection(user_email)
+            if protected:
+                _record_termination_failure(
+                    results["errors"],
+                    "Termination: staff user's Employee record NOT updated",
+                    f"User {user_email} (member {member_name}): Employee step skipped, "
+                    f"{'staff account' if check_error is None else f'staff check failed: {check_error}'}.",
+                    f"Employee record of {user_email} was NOT updated: staff account, left untouched",
+                )
+                return results
 
         # Method 1: Find employee records linked via user_id - enhanced detection
         employee_records = []
