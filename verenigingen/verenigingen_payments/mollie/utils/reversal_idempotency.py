@@ -33,6 +33,21 @@ _REVERSAL_ARTEFACTS = (
 )
 
 
+#: Appended to a chargeback id for the counter-entry that undoes a reversed chargeback (#638).
+COUNTER_SUFFIX = "_reversed"
+
+
+def has_booked_chargeback(payment_id: str) -> bool:
+    """Was any chargeback of this payment booked (as any artefact, not cancelled)?"""
+    if not payment_id:
+        return False
+    prefix = f"{escape_sql_like_wildcards(payment_id)}\\_chargeback\\_%"
+    return any(
+        frappe.db.exists(doctype, {field: ["like", prefix], "docstatus": ["!=", 2]})
+        for doctype, field in _REVERSAL_ARTEFACTS
+    )
+
+
 def build_reversal_key(payment_id: str, reversal_type: str, reversal_id: str) -> str:
     """The one reference string every reversal route must agree on."""
     return f"{payment_id}_{reversal_type}_{reversal_id}"
@@ -78,9 +93,11 @@ def total_reversed(payment_id: str) -> float:
         for row in frappe.get_all(
             doctype,
             filters={key_field: ["like", prefix], "docstatus": ["!=", 2]},
-            fields=[amount_field],
+            fields=[amount_field, key_field],
         ):
-            total += flt(row.get(amount_field))
+            # A counter-entry (a chargeback Mollie reversed, #638) gives the amount back.
+            sign = -1 if (row.get(key_field) or "").endswith(COUNTER_SUFFIX) else 1
+            total += sign * flt(row.get(amount_field))
 
     return flt(total, 2)
 

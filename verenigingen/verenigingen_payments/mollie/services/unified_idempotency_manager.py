@@ -17,6 +17,7 @@ import frappe
 from verenigingen.utils.sql_like import escape_sql_like_wildcards
 
 from ..exceptions import is_payment_not_found
+from ..utils.common_helpers import read_payment_field
 from ..utils.logging import MollieLogger
 from ..utils.reversal_idempotency import build_reversal_key, find_booked_reversal
 
@@ -42,6 +43,9 @@ class PaymentIdempotencyCheckResult:
         # Chargeback-specific state
         self.chargebacks_processed = []
         self.pending_chargebacks = []
+        # Chargebacks Mollie reports as REVERSED (the dispute was won, #638) that were booked
+        # earlier and have no counter-entry yet.
+        self.pending_chargeback_reversals = []
         self.chargeback_check_failed = False  # True if Mollie API call failed
 
         # True when Mollie answered 404 for the payment id (#1805). NOT a failed check: a 404 is
@@ -423,6 +427,13 @@ class UnifiedIdempotencyManager:
                         chargeback_id, amount, reason, created_at = safe_extract_chargeback_data(chargeback)
                         if not chargeback_id:
                             continue
+                        # Both shapes and both spellings, like every other Mollie field read here.
+                        reversed_at = read_payment_field(chargeback, "reversed_at", "reversedAt")
+                        if reversed_at:
+                            self._classify_reversed_chargeback(
+                                result, payment_id, chargeback_id, amount, reversed_at
+                            )
+                            continue
                         # #2355: the booker's own arbiter (Journal Entry or Payment Entry
                         # under build_reversal_key), not a Payment-Entry 'chb_%' query.
                         booked = find_booked_reversal(
@@ -454,6 +465,35 @@ class UnifiedIdempotencyManager:
                 self.logger.error(f"Failed to fetch Mollie chargebacks for {payment_id}: {e}")
                 # CRITICAL FIX: Mark check as failed instead of silent return
                 result.chargeback_check_failed = True
+
+    def _classify_reversed_chargeback(
+        self, result, payment_id: str, chargeback_id: str, amount: float, reversed_at
+    ) -> None:
+        """A chargeback Mollie reports as reversed must not be booked (#638).
+
+        Not booked earlier: nothing to do and nothing is recorded. Booked earlier: the
+        booking has to be undone by a counter-entry, unless that already exists.
+        """
+        key = build_reversal_key(payment_id, "chargeback", chargeback_id)
+        booked = find_booked_reversal(key, amount)
+        if not booked:
+            self.logger.info(f"Chargeback {chargeback_id} of {payment_id} is reversed and was never booked")
+            return
+        if find_booked_reversal(
+            build_reversal_key(payment_id, "chargeback", f"{chargeback_id}_reversed"), amount
+        ):
+            result.chargebacks_processed.append(
+                {
+                    "chargeback_id": chargeback_id,
+                    "payment_entry": booked[1],
+                    "reversal_doctype": booked[0],
+                    "amount": amount,
+                }
+            )
+            return
+        result.pending_chargeback_reversals.append(
+            {"chargeback_id": chargeback_id, "amount": amount, "reversed_at": reversed_at}
+        )
 
     def mark_refund_processed(self, payment_id: str, refund_id: str, payment_entry_name: str):
         """Mark a specific refund as processed in the unified state tracking."""

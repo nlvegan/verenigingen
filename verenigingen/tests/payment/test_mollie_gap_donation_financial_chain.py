@@ -419,7 +419,9 @@ class TestMollieDonationChargebackBooking638(TestMollieDonationFinancialChain):
 
     CHARGEBACK_AMOUNT = 10.00
 
-    def _announce_chargeback(self, chargeback_id=None, amount=None, created_at="2025-04-20T09:00:00+00:00"):
+    def _announce_chargeback(
+        self, chargeback_id=None, amount=None, created_at="2025-04-20T09:00:00+00:00", reversed_at=None
+    ):
         chargeback_id = chargeback_id or f"chb_{frappe.generate_hash(length=10)}"
         amount = self.CHARGEBACK_AMOUNT if amount is None else amount
         self.fake_payment.chargebacks = _FakeChargebacksResource(
@@ -429,6 +431,7 @@ class TestMollieDonationChargebackBooking638(TestMollieDonationFinancialChain):
                     "amount": {"value": f"{amount:.2f}", "currency": "EUR"},
                     "reason": {"code": "AC01", "description": "Account closed"},
                     "createdAt": created_at,
+                    "reversedAt": reversed_at,
                 }
             ]
         )
@@ -497,15 +500,17 @@ class TestMollieDonationChargebackBooking638(TestMollieDonationFinancialChain):
         self.assertEqual(len(rows), 1)
 
     def test_a_chargeback_that_cannot_be_booked_answers_an_error_so_mollie_retries(self):
-        """Fault: Mollie announces a chargeback whose amount is not positive, which
-        ``process_reversal_webhook`` refuses with an error outcome. The forward booking is
-        already done and idempotent, so that refusal is the only thing that can fail.
-        (A fault in the shared Mollie/bank configuration cannot be used: the forward
-        step re-checks it on every delivery and would be the one failing.)"""
+        """Fault: the company's books are frozen AFTER the forward booking, so the reversal
+        Journal Entry is refused by ERPNext. The forward booking is already done and
+        idempotent, so the reversal is the only thing that can fail."""
         self._forward_booked()
-        chargeback_id = self._announce_chargeback(amount=0.0)
-
-        result = self._run_webhook()
+        chargeback_id = self._announce_chargeback()
+        self.expectErrorLog("Mollie Reversal Booking Failed", "Secure Operation Failed", "Mollie Journal Entry", "financial_entry_error")
+        frappe.db.set_value("Company", COMPANY, "accounts_frozen_till_date", frappe.utils.today())
+        try:
+            result = self._run_webhook()
+        finally:
+            frappe.db.set_value("Company", COMPANY, "accounts_frozen_till_date", None)
 
         self.assertEqual(result["status"], "error", f"a failed booking answered success: {result}")
         self.assertEqual(self._reversal_jes(chargeback_id), [])
@@ -566,3 +571,78 @@ class TestMollieDonationChargebackBooking638(TestMollieDonationFinancialChain):
 
         self.assertEqual(result["status"], "success", f"unexpected: {result}")
         self.assertEqual(len(self._reversal_jes(chargeback_id)), 1)
+
+    # ---- a chargeback Mollie reports as REVERSED (#638 ruling) ---------------------------
+
+    REVERSED_AT = "2025-05-02T09:00:00+00:00"
+
+    def _donation_chargeback_rows(self):
+        return [
+            p
+            for p in frappe.get_doc("Donation", self.donation_name).payments
+            if p.payment_status == "Chargeback"
+        ]
+
+    def _income_balance(self):
+        return sum(
+            g.credit - g.debit
+            for g in frappe.get_all(
+                "GL Entry",
+                filters={"account": self.income_account, "is_cancelled": 0},
+                fields=["credit", "debit"],
+            )
+        )
+
+    def test_a_chargeback_reversed_at_first_sight_books_nothing(self):
+        self._forward_booked()
+        income_before = self._income_balance()
+        chargeback_id = self._announce_chargeback(reversed_at=self.REVERSED_AT)
+
+        result = self._run_webhook()
+
+        self.assertEqual(result["status"], "success", f"unexpected: {result}")
+        self.assertEqual(self._reversal_jes(chargeback_id), [])
+        self.assertEqual(self._donation_chargeback_rows(), [], "something was recorded as booked")
+        self.assertEqual(self._income_balance(), income_before)
+
+    def test_a_booked_chargeback_that_is_later_reversed_is_countered_once(self):
+        forward_je = self._forward_booked()
+        chargeback_id = self._announce_chargeback()
+        self.assertEqual(self._run_webhook()["status"], "success")
+        booked = self._reversal_jes(chargeback_id)
+        self.assertEqual(len(booked), 1)
+        income_after_chargeback = self._income_balance()
+
+        self._announce_chargeback(chargeback_id=chargeback_id, reversed_at=self.REVERSED_AT)
+        result = self._run_webhook()
+
+        self.assertEqual(result["status"], "success", f"unexpected: {result}")
+        counters = frappe.get_all(
+            "Journal Entry",
+            filters={"cheque_no": f"{self.payment_id}_chargeback_{chargeback_id}_reversed", "docstatus": 1},
+            pluck="name",
+        )
+        self.assertEqual(len(counters), 1, f"expected one counter-entry, got {counters}")
+        gl = self._gl(counters[0])
+        self.assertEqual(sum(g.credit for g in gl if g.account == self.income_account), self.CHARGEBACK_AMOUNT, gl)
+        self.assertEqual(sum(g.debit for g in gl if g.account == self.clearing_account), self.CHARGEBACK_AMOUNT, gl)
+        self.assertEqual(self._income_balance(), income_after_chargeback + self.CHARGEBACK_AMOUNT)
+        # Both the forward entry and the chargeback entry stay submitted: countered, not cancelled.
+        self.assertEqual(frappe.db.get_value("Journal Entry", forward_je, "docstatus"), 1)
+        self.assertEqual(frappe.db.get_value("Journal Entry", booked[0], "docstatus"), 1)
+        rows = self._donation_chargeback_rows()
+        self.assertEqual(sorted(float(r.amount) for r in rows), [-self.CHARGEBACK_AMOUNT, self.CHARGEBACK_AMOUNT])
+        self.assertEqual({r.journal_entry for r in rows}, {booked[0], counters[0]})
+
+        again = self._run_webhook()
+
+        self.assertEqual(again["status"], "success", f"redelivery: {again}")
+        self.assertEqual(
+            frappe.db.count(
+                "Journal Entry", {"cheque_no": f"{self.payment_id}_chargeback_{chargeback_id}_reversed"}
+            ),
+            1,
+            "the redelivery booked a second counter-entry",
+        )
+        self.assertEqual(len(self._donation_chargeback_rows()), 2)
+        self.assertEqual(self._income_balance(), income_after_chargeback + self.CHARGEBACK_AMOUNT)
