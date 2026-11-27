@@ -134,8 +134,13 @@ class VolunteerExpenseApproverService(StatelessService):
 
         Uses secure document operation to assign role with proper auditing.
 
+        WARNING (#2683): the grant runs with system_operation=True, i.e. it does NOT check
+        the acting user's own User write. The caller MUST derive user_email from an ACTIVE
+        Financial board seat; never pass a user taken from request input or any other source,
+        or this becomes a privilege-escalation primitive.
+
         Args:
-            user_email: User to assign role to
+            user_email: User to assign role to (derived from an active Financial seat)
 
         Raises:
             frappe.ValidationError: If role assignment fails
@@ -153,6 +158,10 @@ class VolunteerExpenseApproverService(StatelessService):
             doc=user,
             justification="Adding Expense Approver role for volunteer expense management",
             required_permissions=["User:write", "Role:assign"],
+            # #2683: the grant follows an active Financial seat (the caller derived this user
+            # from it), not the acting user's own User write; a Chapter Admin who seats the
+            # holder has none. Same stance as the Employee/Department writes of the refresh.
+            system_operation=True,
         )
 
         if not result.success:
