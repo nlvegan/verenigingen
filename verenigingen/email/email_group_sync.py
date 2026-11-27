@@ -380,8 +380,8 @@ def sync_member_on_change(doc, method=None):
         )
 
         for membership in chapter_memberships:
-            chapter = frappe.get_doc("Chapter", membership.parent)
-            group_title = f"{chapter.name} - All Members"
+            # The Chapter's name IS the Chapter Member row's parent; no need to load the doc (#2909)
+            group_title = f"{membership.parent} - All Members"
 
             if frappe.db.exists("Email Group", {"title": group_title}):
                 chapter_group = frappe.db.get_value("Email Group", {"title": group_title}, "name")

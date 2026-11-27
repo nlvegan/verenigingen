@@ -116,16 +116,34 @@ class VolunteerExpenseApproverService(StatelessService):
             order_by="idx asc",
         )
 
-        for member in board_members:
-            volunteer_doc = frappe.get_doc("Volunteer", member.volunteer)
-            user_email = volunteer_doc.email or volunteer_doc.personal_email
+        if not board_members:
+            return None
 
-            if user_email and frappe.db.exists("User", user_email):
-                user = frappe.get_doc("User", user_email)
-                if user.enabled:
-                    # Ensure user has expense approver role
-                    self.ensure_user_has_expense_approver_role(user_email)
-                    return user_email
+        # Two bulk reads instead of a Volunteer get_doc, a User exists and a User get_doc
+        # per seat (#2909). Seat order (idx asc) still decides which approver wins.
+        volunteer_emails = {
+            v.name: v.email or v.personal_email
+            for v in frappe.get_all(
+                "Volunteer",
+                filters={"name": ["in", [m.volunteer for m in board_members]]},
+                fields=["name", "email", "personal_email"],
+            )
+        }
+        user_emails = [email for email in volunteer_emails.values() if email]
+        # MariaDB matches User names case-insensitively, so compare lowercased
+        enabled_users = {
+            name.lower()
+            for name in frappe.get_all(
+                "User", filters={"name": ["in", user_emails], "enabled": 1}, pluck="name"
+            )
+        }
+
+        for member in board_members:
+            user_email = volunteer_emails.get(member.volunteer)
+            if user_email and user_email.lower() in enabled_users:
+                # Ensure user has expense approver role
+                self.ensure_user_has_expense_approver_role(user_email)
+                return user_email
 
         return None
 
