@@ -1082,6 +1082,13 @@ def process_individual_return(return_item):
                     "action": "Matched invoice has no submitted SEPA Direct Debit payment to reverse",
                 }
 
+            # Dunning (#3347): keyed on the cancelled Payment Entry, so a return is counted once.
+            from verenigingen.services.billing.sepa_return_dunning_service import record_failed_collection
+
+            record_failed_collection(
+                invoice_name, reversed_payment_entry, return_item.get("return_reason") or ""
+            )
+
             # Create failed payment record
             create_failed_payment_record(member[0], invoice_name, return_item)
 

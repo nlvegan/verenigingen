@@ -58,6 +58,8 @@ scheduler_events = {
         "verenigingen.services.volunteer.expense_history_batch_processor.process_pending_expense_history_updates",
         # SEPA Direct Debit
         "verenigingen.verenigingen_payments.api.dd_batch_scheduler.daily_batch_optimization",
+        # Reset SEPA return failure counts for collections never returned (#3347)
+        "verenigingen.services.billing.sepa_return_dunning_service.reset_failures_after_clean_window",
         "verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor.create_monthly_dues_collection_batch",
         # Membership applications: expire unconfirmed ones, purge finished ones after 30 days
         "verenigingen.services.member.application.application_record.expire_and_purge_applications",

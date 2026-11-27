@@ -1,3 +1,4 @@
+import hashlib
 import re
 from decimal import Decimal
 from difflib import SequenceMatcher
@@ -2683,7 +2684,10 @@ def process_sepa_return_file(file_content=None, file_type="pain.002", file_url=N
         if return_item["status"] == "Rejected":
             # Handle rejection
             handle_payment_rejection(
-                return_item["end_to_end_id"], return_item["reason_code"], return_item["reason_text"]
+                return_item["end_to_end_id"],
+                return_item["reason_code"],
+                return_item["reason_text"],
+                file_key=hashlib.sha256(str(file_content).encode("utf-8")).hexdigest()[:16],
             )
             processed_count += 1
 
@@ -2858,7 +2862,7 @@ def resolve_invoice_from_reference(reference):
     return None
 
 
-def handle_payment_rejection(end_to_end_id, reason_code, reason_text):
+def handle_payment_rejection(end_to_end_id, reason_code, reason_text, file_key=None):
     """Handle rejected SEPA payment"""
 
     # Extract invoice number from end-to-end ID
@@ -2867,6 +2871,12 @@ def handle_payment_rejection(end_to_end_id, reason_code, reason_text):
         return
 
     invoice_name = invoice_match.group(1)
+
+    # Dunning (#3347); the file hash makes re-processing the same file count once.
+    if file_key:
+        from verenigingen.services.billing.sepa_return_dunning_service import record_failed_collection
+
+        record_failed_collection(invoice_name, f"pain002-{file_key}-{invoice_name}", reason_code)
 
     # Schedule retry
     from verenigingen.verenigingen_payments.utils.payment_retry import PaymentRetryManager
