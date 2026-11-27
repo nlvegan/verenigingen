@@ -95,6 +95,8 @@ after_migrate = [
     # The public document creator is only ever impersonated in-process and must hold no
     # password / API key / session (#1670). Sites that created it earlier still carry them.
     "verenigingen.setup.public_document_creator_setup.harden_public_document_creator",
+    # Likewise the webhook user: gateways only impersonate it in-process (#1680).
+    "verenigingen.setup.webhook_user_setup.harden_webhook_user",
     # Raw-SQL SEPA operations tables -- see #1510 and the after_install entry
     # above. Also here (idempotent, IF NOT EXISTS) so an existing site that
     # was installed before this hook existed converges on the next migrate.
@@ -121,9 +123,14 @@ on_logout = "verenigingen.auth_hooks.on_logout"
 # The public document creator account can never authenticate (#1670): `on_login` covers
 # password / social / OTP logins, `auth_hooks` covers every request (cookie session, API key,
 # bearer token).
-on_login = ["verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication"]
+# The webhook service user likewise (#1680).
+on_login = [
+    "verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication",
+    "verenigingen.setup.webhook_user_setup.refuse_webhook_user_authentication",
+]
 auth_hooks = [
     "verenigingen.setup.public_document_creator_setup.refuse_public_creator_authentication",
+    "verenigingen.setup.webhook_user_setup.refuse_webhook_user_authentication",
     # runs after the user is known; Frappe 16.61 run_doc_method 404s an unknown name (#2562 oracle)
     "verenigingen.permissions.refuse_unknown_run_doc_method_target",
 ]

@@ -452,6 +452,7 @@ COMMIT_EXEMPT tests/test_member_import_cleanup_engine.py::4  # order-dep-exempt
 COMMIT_EXEMPT tests/test_notification_seed_leak_2053.py::2  # order-dep-exempt
 COMMIT_EXEMPT tests/test_notification_sender_keys_registered_1999.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/test_public_document_creator_setup.py::1  # order-dep-exempt
+COMMIT_EXEMPT tests/test_webhook_user_authentication_1680.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/base.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/factories.py::1  # order-dep-exempt
 COMMIT_EXEMPT tests/utils/reminder_mail_state.py::1  # order-dep-exempt

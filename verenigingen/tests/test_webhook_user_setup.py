@@ -16,8 +16,6 @@ per-test rollback, so:
 No business logic is mocked.
 """
 
-import string
-
 import frappe
 
 from verenigingen.setup import webhook_user_setup as w
@@ -27,7 +25,6 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 SETTINGS_DOCTYPE = "Verenigingen Payments Settings"
 SETTINGS_NAME = "Verenigingen Payments Settings"
 WEBHOOK_ROLE = "Verenigingen Webhook User"
-PASSWORD_ALPHABET = string.ascii_letters + string.digits + "!@#$%&*+-=?"
 
 
 class TestWebhookUserSetup(VereningingenTestCase):
@@ -182,7 +179,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
         # ...and a value that IS still valid is genuinely restored, so the guard
         # has not been turned into "always clear".
         live = w.generate_webhook_user_email()
-        self.assertTrue(w.create_webhook_user_account(live, w.generate_secure_password())["success"])
+        self.assertTrue(w.create_webhook_user_account(live)["success"])
         self._track_if_exists(live)
         self._restore_settings_webhook_user(live)
         self.assertEqual(frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user"), live)
@@ -195,7 +192,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
         setting naming a deleted User.
         """
         email = w.generate_webhook_user_email()
-        self.assertTrue(w.create_webhook_user_account(email, w.generate_secure_password())["success"])
+        self.assertTrue(w.create_webhook_user_account(email)["success"])
         w.configure_webhook_user_in_settings(email)
         self.assertEqual(frappe.db.get_single_value(SETTINGS_DOCTYPE, "webhook_user"), email)
 
@@ -242,7 +239,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
         to converge (which is why it could only live in after_install).
         """
         base = w.generate_webhook_user_email()
-        result = w.create_webhook_user_account(base, w.generate_secure_password())
+        result = w.create_webhook_user_account(base)
         self.assertTrue(result["success"], result)
         self._track_if_exists(base)
 
@@ -271,30 +268,11 @@ class TestWebhookUserSetup(VereningingenTestCase):
         self.assertEqual(w.generate_webhook_user_email(), configured)
         self.assertFalse(frappe.db.exists("User", configured), "precondition: user must not exist")
 
-    # ---- generate_secure_password -----------------------------------------
-
-    def test_generate_secure_password_default_length_and_charset(self):
-        pw = w.generate_secure_password()
-        self.assertEqual(len(pw), 16)
-        for ch in pw:
-            self.assertIn(ch, PASSWORD_ALPHABET, f"Unexpected char {ch!r} in password")
-
-    def test_generate_secure_password_custom_length(self):
-        pw = w.generate_secure_password(length=32)
-        self.assertEqual(len(pw), 32)
-        pw0 = w.generate_secure_password(length=0)
-        self.assertEqual(pw0, "")
-
-    def test_generate_secure_password_is_unique(self):
-        passwords = {w.generate_secure_password() for _ in range(50)}
-        # 50 cryptographically random 16-char passwords must not collide.
-        self.assertEqual(len(passwords), 50)
-
     # ---- create_webhook_user_account --------------------------------------
 
     def test_create_webhook_user_account_creates_real_user(self):
         email = w.generate_webhook_user_email()
-        result = w.create_webhook_user_account(email, w.generate_secure_password())
+        result = w.create_webhook_user_account(email)
         self.assertTrue(result["success"], result)
         self._track_if_exists(email)
 
@@ -312,11 +290,11 @@ class TestWebhookUserSetup(VereningingenTestCase):
     def test_create_webhook_user_account_idempotent_same_email(self):
         """Re-creating with an existing email is a no-op, not a duplicate/error."""
         email = w.generate_webhook_user_email()
-        first = w.create_webhook_user_account(email, w.generate_secure_password())
+        first = w.create_webhook_user_account(email)
         self.assertTrue(first["success"], first)
         self._track_if_exists(email)
 
-        second = w.create_webhook_user_account(email, w.generate_secure_password())
+        second = w.create_webhook_user_account(email)
         self.assertTrue(second["success"], second)
         self.assertIn("already exists", second["message"])
         # Still exactly one such user.
@@ -326,7 +304,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
 
     def test_assign_webhook_roles_sets_role_and_profiles(self):
         email = w.generate_webhook_user_email()
-        w.create_webhook_user_account(email, w.generate_secure_password())
+        w.create_webhook_user_account(email)
         self._track_if_exists(email)
 
         result = w.assign_webhook_roles(email)
@@ -339,7 +317,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
 
     def test_assign_webhook_roles_does_not_duplicate_role(self):
         email = w.generate_webhook_user_email()
-        w.create_webhook_user_account(email, w.generate_secure_password())
+        w.create_webhook_user_account(email)
         self._track_if_exists(email)
 
         w.assign_webhook_roles(email)
@@ -353,7 +331,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
 
     def test_configure_webhook_user_in_settings(self):
         email = w.generate_webhook_user_email()
-        w.create_webhook_user_account(email, w.generate_secure_password())
+        w.create_webhook_user_account(email)
         self._track_if_exists(email)
 
         result = w.configure_webhook_user_in_settings(email)
@@ -374,7 +352,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
 
     def test_verify_reports_complete_after_full_setup(self):
         email = w.generate_webhook_user_email()
-        w.create_webhook_user_account(email, w.generate_secure_password())
+        w.create_webhook_user_account(email)
         self._track_if_exists(email)
         w.assign_webhook_roles(email)
         w.configure_webhook_user_in_settings(email)
@@ -398,7 +376,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
 
         self.assertTrue(result["success"], result)
         self.assertTrue(result["webhook_user_email"])
-        self.assertTrue(result["webhook_password"])
+        self.assertNotIn("webhook_password", result)
         self.assertEqual(result["webhook_user_email"], configured)
 
         # Full verification must report complete after the entrypoint runs.
@@ -447,7 +425,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
         # Configure the stale address AND create the account, so the normalisation
         # branch (which only rewrites when the suffixed user is absent) does not fire.
         self._set_settings_webhook_user(stale)
-        self.assertTrue(w.create_webhook_user_account(stale, w.generate_secure_password())["success"])
+        self.assertTrue(w.create_webhook_user_account(stale)["success"])
         self._track_if_exists(stale)
         self.assertNotEqual(stale, canonical)
 
@@ -476,7 +454,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
         """A disabled service user is equivalent to no user: get_service_user reads
         `enabled` and returns None (the webhooks refuse), so setup must converge on it."""
         email = w.generate_webhook_user_email()
-        self.assertTrue(w.create_webhook_user_account(email, w.generate_secure_password())["success"])
+        self.assertTrue(w.create_webhook_user_account(email)["success"])
         self._track_if_exists(email)
 
         user = frappe.get_doc("User", email)
@@ -485,7 +463,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
         frappe.db.commit()
         self.assertFalse(frappe.db.get_value("User", email, "enabled"))
 
-        result = w.create_webhook_user_account(email, None)
+        result = w.create_webhook_user_account(email)
         self.assertTrue(result["success"], result)
         self.assertIn("re-enabled", result["message"])
         self.assertTrue(frappe.db.get_value("User", email, "enabled"))
@@ -516,7 +494,7 @@ class TestWebhookUserSetup(VereningingenTestCase):
 
         # Configured -> returns email but never a password.
         email = w.generate_webhook_user_email()
-        w.create_webhook_user_account(email, w.generate_secure_password())
+        w.create_webhook_user_account(email)
         self._track_if_exists(email)
         w.configure_webhook_user_in_settings(email)
 
