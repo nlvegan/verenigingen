@@ -6,7 +6,7 @@ test_donor_auto_creation.py and test_donor_auto_creation_comprehensive.py. This
 module targets the remaining helper branches directly with real Customer/Donor
 documents:
 
-- create_donor_from_customer: Organization vs Individual type, placeholder email,
+- create_donor_from_customer: Organization vs Individual type, blank email when none,
   mobile_no copy, defensive existing-donor short-circuit, customer back-link
 - is_customer_group_eligible: configured-list vs allow-all
 - has_existing_donor: by customer link and by Customer.donor reference
@@ -112,19 +112,17 @@ class TestDonorAutoCreationHelpers(VereningingenTestCase):
         # Customer back-reference is set.
         self.assertEqual(frappe.db.get_value("Customer", customer.name, "donor"), donor_name)
 
-    def test_create_donor_company_becomes_organization_with_placeholder_email(self):
-        """A Company customer with no email becomes an Organization donor with a placeholder email."""
+    def test_create_donor_company_becomes_organization_with_blank_email(self):
+        """A Company customer with no email becomes an Organization donor with a blank email (#2034)."""
         customer = self._make_customer("Org Donor Cust", customer_type="Company")
-        # No email_id on the customer -> placeholder generated.
+        # No email_id on the customer -> donor_email stays blank (no invented address).
         donor_name = create_donor_from_customer(customer, 500.0, "TEST-REF-JE-1")
         self.assertIsNotNone(donor_name)
         self.track_doc("Donor", donor_name)
 
         donor = frappe.get_doc("Donor", donor_name)
         self.assertEqual(donor.donor_type, "Organization")
-        # Placeholder email derived from the customer name.
-        self.assertTrue(donor.donor_email.endswith("@example.com"))
-        self.assertIn("donor.", donor.donor_email)
+        self.assertFalse(donor.donor_email)
 
     def test_create_donor_short_circuits_when_donor_exists(self):
         """The defensive existing-donor check returns None without creating a duplicate."""
